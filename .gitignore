@@ -1,0 +1,60 @@
+# Vercel
+.vercel
+
+# Environment variables (NEVER commit these!)
+.env
+.env.local
+.env.*.local
+*.env
+
+# API Keys and Secrets
+secrets/
+*.key
+*.pem
+credentials.json
+secrets.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test results
+test-results/
+screenshots/
+visual-results/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Node.js (for frontend/extensions)
+node_modules/
+.next/
+out/
+.turbo/
+
+# Docker
+.docker/
+
+# Claude
+.claude/

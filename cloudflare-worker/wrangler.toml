@@ -1,0 +1,58 @@
+# Argus - AI-Powered Browser Automation API
+# https://heyargus.ai
+# Deploy with: npm run deploy
+
+name = "argus-api"
+main = "src/index.ts"
+compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2025-09-17"
+
+# Enable observability for debugging
+[observability]
+enabled = true
+
+# Browser Rendering binding (Cloudflare's free browser - Chromium only)
+[browser]
+binding = "BROWSER"
+
+# Workers AI binding (free tier AI for natural language processing)
+[ai]
+binding = "AI"
+
+# Vectorize - Vector database for semantic pattern matching
+# Create index with: wrangler vectorize create argus-patterns --dimensions=768 --metric=cosine
+[[vectorize]]
+binding = "VECTOR_INDEX"
+index_name = "argus-patterns"
+
+# Environment variables (non-sensitive)
+[vars]
+ENVIRONMENT = "production"
+DEFAULT_MODEL_PROVIDER = "anthropic"  # "workers-ai", "openai", "anthropic"
+ENABLE_CACHING = "true"
+ENABLE_SELF_HEALING = "true"
+DEFAULT_BACKEND = "auto"  # "auto", "cloudflare", "testingbot"
+
+# Module aliasing for Playwright compatibility
+[alias]
+playwright = "@cloudflare/playwright"
+
+# Secrets (set via `wrangler secret put <NAME>`):
+#
+# Required for TestingBot (cross-browser + real devices):
+# - TESTINGBOT_KEY (your TestingBot API key)
+# - TESTINGBOT_SECRET (your TestingBot API secret)
+#
+# Optional for external AI providers:
+# - OPENAI_API_KEY (if using OpenAI)
+# - ANTHROPIC_API_KEY (if using Anthropic)
+#
+# Optional for API authentication:
+# - API_TOKEN (for authenticating incoming requests)
+#
+# Quality Intelligence Platform:
+# - SUPABASE_URL (your Supabase project URL)
+# - SUPABASE_SERVICE_KEY (your Supabase service role key)
+# - SENTRY_CLIENT_SECRET (for verifying Sentry webhooks - optional)
+# - DATADOG_WEBHOOK_TOKEN (for verifying Datadog webhooks - optional)
+# - GITHUB_TOKEN (for creating PRs with generated tests)

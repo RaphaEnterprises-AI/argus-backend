@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>E2E Testing Agent</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 320px;
+      padding: 16px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #333;
+    }
+
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .status.connected {
+      background: rgba(40, 167, 69, 0.2);
+      border: 1px solid #28a745;
+    }
+
+    .status.disconnected {
+      background: rgba(220, 53, 69, 0.2);
+      border: 1px solid #dc3545;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .status.connected .status-dot {
+      background: #28a745;
+      box-shadow: 0 0 8px #28a745;
+    }
+
+    .status.disconnected .status-dot {
+      background: #dc3545;
+    }
+
+    .section {
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .info-card {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .info-card .label {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .info-card .value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #0f4c75;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button.primary {
+      background: #0f4c75;
+      color: white;
+    }
+
+    button.primary:hover {
+      background: #1b6ca8;
+    }
+
+    button.secondary {
+      background: #333;
+      color: #eee;
+      margin-top: 8px;
+    }
+
+    button.secondary:hover {
+      background: #444;
+    }
+
+    .logs {
+      background: #0d0d1a;
+      border-radius: 8px;
+      padding: 8px;
+      max-height: 120px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+    }
+
+    .log-entry {
+      padding: 4px 0;
+      border-bottom: 1px solid #222;
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-time {
+      color: #666;
+      margin-right: 8px;
+    }
+
+    .log-message {
+      color: #aaa;
+    }
+
+    .footer {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #333;
+      font-size: 11px;
+      color: #666;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>E2E Testing Agent</h1>
+    </div>
+  </div>
+
+  <div id="status" class="status disconnected">
+    <div class="status-dot"></div>
+    <span id="status-text">Disconnected</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Statistics</div>
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="label">Actions</div>
+        <div class="value" id="action-count">0</div>
+      </div>
+      <div class="info-card">
+        <div class="label">Tabs</div>
+        <div class="value" id="tab-count">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Recent Activity</div>
+    <div class="logs" id="logs">
+      <div class="log-entry">
+        <span class="log-time">--:--:--</span>
+        <span class="log-message">No activity yet</span>
+      </div>
+    </div>
+  </div>
+
+  <button class="primary" id="connect-btn">Connect to Agent</button>
+  <button class="secondary" id="test-btn">Test Current Page</button>
+
+  <div class="footer">
+    E2E Testing Agent v0.1.0
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

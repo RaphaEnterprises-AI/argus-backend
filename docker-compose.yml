@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Main E2E Testing Agent API
+  e2e-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-claude-sonnet-4-5}
+      - COST_LIMIT_PER_RUN=${COST_LIMIT_PER_RUN:-10.00}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OUTPUT_DIR=/app/test-results
+    volumes:
+      - ./test-results:/app/test-results
+      - ./baselines:/app/baselines
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - e2e-network
+
+  # Worker for background test execution (optional scaling)
+  e2e-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.worker"]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-claude-sonnet-4-5}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - ./test-results:/app/test-results
+      - ./baselines:/app/baselines
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - e2e-network
+    profiles:
+      - workers
+
+  # Redis for job queue (optional)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - e2e-network
+    profiles:
+      - workers
+
+networks:
+  e2e-network:
+    driver: bridge
+
+volumes:
+  redis-data:
