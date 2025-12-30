@@ -1,4 +1,28 @@
-# 🤖 Autonomous E2E Full-Stack Testing Agent
+<div align="center">
+  <img src="argus-core-logo.png" alt="Argus Core Logo" width="200" />
+
+  # Argus Backend - E2E Testing Agent
+
+  **AI-Powered Autonomous Testing Engine**
+
+  [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+  [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+  [![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-purple.svg)](https://github.com/langchain-ai/langgraph)
+  [![Claude](https://img.shields.io/badge/Claude-Sonnet%204.5-orange.svg)](https://anthropic.com)
+</div>
+
+---
+
+## 📦 Repository Structure
+
+**This is the backend/core testing engine repository.**
+
+| Repository | Purpose | Link |
+|------------|---------|------|
+| **argus-backend** (this repo) | Python testing engine, AI agents, orchestration | [github.com/samuelvinay91/argus-backend](https://github.com/samuelvinay91/argus-backend) |
+| **argus** (frontend) | Next.js dashboard, UI components, visualization | [github.com/samuelvinay91/argus](https://github.com/samuelvinay91/argus) |
+
+---
 
 An AI-powered testing system that **autonomously tests your application** - no test writing required.
 
@@ -49,8 +73,12 @@ e2e-agent --codebase ./my-app --app-url http://localhost:3000
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/e2e-testing-agent.git
-cd e2e-testing-agent
+git clone https://github.com/samuelvinay91/argus-backend.git
+cd argus-backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -e .
