@@ -1091,7 +1091,7 @@ async function callAI(env: Env, options: AICallOptions): Promise<string> {
       // Default: Workers AI (free) - no AbortController support, use withTimeout
       cleanup();
       const response = await withTimeout(
-        env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+        env.AI.run("@cf/meta/llama-3.2-3b-instruct", {
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           max_tokens: maxTokens,
         }),
@@ -1108,7 +1108,7 @@ async function callAI(env: Env, options: AICallOptions): Promise<string> {
     if (provider !== "workers-ai") {
       console.log("Falling back to Workers AI...");
       const response = await withTimeout(
-        env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+        env.AI.run("@cf/meta/llama-3.2-3b-instruct", {
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           max_tokens: maxTokens,
         }),
@@ -4824,7 +4824,7 @@ async function handleGetPredictiveQuality(
         const topRisks = predictions.slice(0, 3).map(p => `${p.entity} (${p.prediction_score}%)`).join(", ");
         const summaryPrompt = `Based on error trend analysis, summarize in 2 sentences: ${highRiskCount} high-risk and ${mediumRiskCount} medium-risk components identified. Top concerns: ${topRisks}. Focus on actionable insights.`;
 
-        const aiResponse = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+        const aiResponse = await env.AI.run("@cf/meta/llama-3.2-3b-instruct", {
           messages: [{ role: "user", content: summaryPrompt }],
           max_tokens: 150,
         });

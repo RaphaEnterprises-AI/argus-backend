@@ -1,6 +1,6 @@
 {
   "name": "argus-worker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Argus - AI-powered browser automation and testing API (heyargus.ai)",
   "main": "src/index.ts",
   "scripts": {
