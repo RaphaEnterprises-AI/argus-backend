@@ -45,6 +45,17 @@ from .extension_bridge import (
     create_extension_bridge,
 )
 
+from .browser_worker_client import (
+    BrowserWorkerClient,
+    ActionResult as WorkerActionResult,
+    TestResult as WorkerTestResult,
+    DiscoveryResult,
+    ExtractionResult,
+    AgentResult,
+    get_browser_client,
+    cleanup_browser_client,
+)
+
 __all__ = [
     # Legacy exports
     "BrowserManager",
@@ -65,4 +76,13 @@ __all__ = [
     "ExtensionMessage",
     "ExtensionResponse",
     "create_extension_bridge",
+    # Browser Worker client (Cloudflare)
+    "BrowserWorkerClient",
+    "WorkerActionResult",
+    "WorkerTestResult",
+    "DiscoveryResult",
+    "ExtractionResult",
+    "AgentResult",
+    "get_browser_client",
+    "cleanup_browser_client",
 ]

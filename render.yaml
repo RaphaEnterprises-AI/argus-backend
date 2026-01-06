@@ -1,0 +1,30 @@
+# Render Blueprint for E2E Testing Agent
+# Deploy with: https://render.com/deploy
+
+services:
+  # Main API Server
+  - type: web
+    name: argus-brain
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: DEFAULT_MODEL
+        value: claude-sonnet-4-5
+      - key: COST_LIMIT_PER_RUN
+        value: "10.00"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: OUTPUT_DIR
+        value: /app/test-results
+      - key: E2E_WORKER_URL
+        value: https://argus-api.samuelvinay-kumar.workers.dev
+    disk:
+      name: test-results
+      mountPath: /app/test-results
+      sizeGB: 1
