@@ -52,7 +52,7 @@ const trustedCompanies = [
   'Vercel', 'Supabase', 'Stripe', 'Linear', 'Notion', 'Figma', 'Slack', 'Discord'
 ];
 
-// Workflow steps (TestSprite-inspired)
+// Workflow steps
 const workflowSteps = [
   {
     num: '01',
@@ -405,7 +405,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* IDE Integrations - TestSprite inspired */}
+      {/* IDE Integrations */}
       <section className="py-16 px-6 lg:px-8 border-y border-border/50">
         <div className="max-w-5xl mx-auto">
           <p className="text-center text-sm text-muted-foreground mb-8">
@@ -647,7 +647,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Workflow Section - TestSprite inspired */}
+      {/* Workflow Section */}
       <section className="section-padding">
         <div className="container-wide px-6 lg:px-8">
           <div className="text-center mb-16">
@@ -677,7 +677,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Stats Comparison - TestSprite inspired */}
+      {/* Stats Comparison */}
       <section className="section-padding bg-muted/30">
         <div className="container-tight px-6 lg:px-8">
           <div className="card-elevated p-12 lg:p-16 relative overflow-hidden">
