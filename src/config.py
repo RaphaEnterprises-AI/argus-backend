@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     server_host: str = Field("0.0.0.0", description="Server host")
     server_port: int = Field(8000, description="Server port")
 
+    # Browser Automation Worker (Cloudflare Worker)
+    browser_worker_url: str = Field(
+        "https://argus-api.samuelvinay-kumar.workers.dev",
+        description="URL of the browser automation Cloudflare Worker"
+    )
+
 
 class AgentConfig(BaseSettings):
     """Configuration for individual agents."""
