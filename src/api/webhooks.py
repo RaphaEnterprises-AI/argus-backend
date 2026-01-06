@@ -539,16 +539,21 @@ async def handle_fullstory_webhook(
                 )
 
         # FullStory webhook structure varies by event type
-        event_type_raw = body.get("type", "error")
+        event_type_raw = body.get("type") or body.get("event_type") or "error"
         event_type: Literal["error", "rage_click", "dead_click", "session"] = "error"
         if "rage" in event_type_raw.lower():
             event_type = "rage_click"
         elif "dead" in event_type_raw.lower():
             event_type = "dead_click"
 
-        session_url = body.get("session", {}).get("url") or body.get("sessionUrl")
-        page_url = body.get("page", {}).get("url") or body.get("pageUrl")
-        element_selector = body.get("element", {}).get("selector") or body.get("selector")
+        # Handle both nested and flat payload structures
+        session_data = body.get("session", {})
+        page_data = body.get("page", {})
+        element_data = body.get("element", {})
+
+        session_url = (session_data.get("url") if isinstance(session_data, dict) else None) or body.get("sessionUrl") or body.get("session_url")
+        page_url = (page_data.get("url") if isinstance(page_data, dict) else None) or body.get("pageUrl") or body.get("page_url")
+        element_selector = (element_data.get("selector") if isinstance(element_data, dict) else element_data) or body.get("selector") or body.get("element")
 
         title = body.get("title") or f"FullStory {event_type.replace('_', ' ').title()}"
         message = body.get("message") or element_selector or ""
