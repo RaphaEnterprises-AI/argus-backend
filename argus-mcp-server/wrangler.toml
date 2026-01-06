@@ -1,0 +1,38 @@
+# Argus MCP Server - Model Context Protocol for AI IDEs
+# https://heyargus.ai
+#
+# This MCP server allows AI coding assistants (Claude Code, Cursor, Windsurf)
+# to interact with Argus E2E testing capabilities directly.
+#
+# Deploy with: npm run deploy
+
+name = "argus-mcp"
+main = "src/index.ts"
+compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2025-09-17"
+
+# Enable observability for debugging
+[observability]
+enabled = true
+
+# Workers AI binding for free-tier AI
+[ai]
+binding = "AI"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+ARGUS_API_URL = "https://argus-api.samuelvinay-kumar.workers.dev"
+
+# Secrets (set via `wrangler secret put <NAME>`):
+# - API_TOKEN (for authenticating with Argus API)
+# - ANTHROPIC_API_KEY (optional, for enhanced AI analysis)
+
+# Durable Objects for OAuth state management
+[[durable_objects.bindings]]
+name = "MCP_OAUTH"
+class_name = "MCPOAuth"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MCPOAuth"]

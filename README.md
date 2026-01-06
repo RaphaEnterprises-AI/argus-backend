@@ -61,6 +61,66 @@ e2e-agent --codebase ./my-app --app-url http://localhost:3000
 - **🐙 GitHub Integration**: Automatic PR comments, check runs, and commit status updates
 - **💬 Slack Notifications**: Real-time test results and failure alerts
 
+## 🔌 MCP Server - AI IDE Integration
+
+**Connect Argus to your AI coding assistant!** The Argus MCP Server allows Claude Code, Cursor, Windsurf, and other MCP-compatible IDEs to run E2E tests directly.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `argus_health` | Check Argus API status |
+| `argus_discover` | Discover interactive elements on a page |
+| `argus_act` | Execute browser actions (click, type, navigate) |
+| `argus_test` | Run multi-step E2E tests with screenshots |
+| `argus_extract` | Extract structured data from pages |
+| `argus_agent` | Autonomous task completion |
+| `argus_generate_test` | Generate test steps from natural language |
+
+### Setup for Claude Code / Claude Desktop
+
+Add to your MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "argus": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://argus-mcp.samuelvinay-kumar.workers.dev/sse"]
+    }
+  }
+}
+```
+
+### Setup for Cursor
+
+Add to Cursor's MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "argus": {
+      "url": "https://argus-mcp.samuelvinay-kumar.workers.dev/sse"
+    }
+  }
+}
+```
+
+### Example Usage
+
+```
+# In your AI IDE, you can now say:
+"Use argus_test to test login on https://example.com with steps:
+1. Type 'user@example.com' in the email field
+2. Type 'password123' in the password field
+3. Click the Login button
+4. Verify the dashboard loads"
+```
+
+> 📖 **See [argus-mcp-server/README.md](./argus-mcp-server/README.md) for full MCP documentation**
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
