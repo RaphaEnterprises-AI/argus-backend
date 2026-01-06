@@ -5,7 +5,7 @@
   <h3>AI-Powered E2E Testing Platform</h3>
   <p>Autonomous end-to-end testing with Claude AI integration</p>
 
-  [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/samuelvinay91/argus/releases)
+  [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/RaphaEnterprises-AI/argus/releases)
   [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
   [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue.svg)](https://www.typescriptlang.org/)

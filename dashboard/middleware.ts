@@ -9,14 +9,29 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
 ]);
 
+// API routes that need auth but shouldn't redirect (return 401 instead)
+const isApiRoute = createRouteMatcher([
+  '/api/(.*)',
+]);
+
 export default clerkMiddleware(async (auth, request) => {
-  // Protect all routes except public ones
-  if (!isPublicRoute(request)) {
-    const { userId, redirectToSignIn } = await auth();
-    if (!userId) {
-      // Use Clerk's built-in redirect method
-      return redirectToSignIn({ returnBackUrl: request.url });
+  // Skip auth check for public routes
+  if (isPublicRoute(request)) {
+    return;
+  }
+
+  const { userId, redirectToSignIn } = await auth();
+
+  if (!userId) {
+    // For API routes, return 401 instead of redirecting
+    if (isApiRoute(request)) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized', message: 'Please sign in to access this resource' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
     }
+    // For page routes, redirect to sign-in
+    return redirectToSignIn({ returnBackUrl: request.url });
   }
 });
 

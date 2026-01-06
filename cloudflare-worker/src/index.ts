@@ -501,6 +501,7 @@ const ActRequestSchema = z.object({
   device: DeviceSchema,
   platform: z.enum(["windows", "macos", "linux"]).optional().default("windows"),
   selfHeal: z.boolean().optional().default(true),
+  screenshot: z.boolean().optional().default(false),
 });
 
 const ExtractRequestSchema = z.object({
@@ -540,6 +541,7 @@ const TestRequestSchema = z.object({
   url: z.string().url(),
   steps: z.array(z.string()),
   screenshot: z.boolean().optional().default(false),
+  captureScreenshots: z.boolean().optional().default(false), // Per-step screenshots
   timeout: z.number().optional().default(30000),
   backend: BackendSchema,
   // Cross-browser testing - run same test on multiple browsers
@@ -1482,7 +1484,7 @@ async function handleAct(request: Request, env: Env, corsHeaders: Record<string,
 
   // Apply environment defaults
   const data = applyEnvDefaults(parsed.data, env);
-  const { url, instruction, action, variables, timeout, backend, browser: browserType, device, platform, selfHeal } = data;
+  const { url, instruction, action, variables, timeout, backend, browser: browserType, device, platform, selfHeal, screenshot } = data;
   if (!instruction && !action) {
     return Response.json({ error: "Either 'instruction' or 'action' required" }, { status: 400, headers: corsHeaders });
   }
@@ -1514,6 +1516,16 @@ async function handleAct(request: Request, env: Env, corsHeaders: Record<string,
     }
 
     const result = await executeAction(session, actionToExecute, selfHeal);
+
+    // Capture screenshot after action if requested
+    let screenshotBase64: string | undefined;
+    if (screenshot) {
+      try {
+        screenshotBase64 = await session.screenshot();
+      } catch {}
+    }
+
+    const backendUsed = session.backendUsed;
     await session.close();
 
     return Response.json({
@@ -1521,8 +1533,9 @@ async function handleAct(request: Request, env: Env, corsHeaders: Record<string,
       message: result.success ? `Executed: ${actionToExecute.description}` : `Failed: ${result.error}`,
       actionDescription: actionToExecute.description,
       actions: [{ selector: actionToExecute.selector, description: actionToExecute.description, method: actionToExecute.action }],
-      backend: session.backendUsed,
+      backend: backendUsed,
       browser: browserType,
+      screenshot: screenshotBase64,
     } as ActResult, { headers: corsHeaders });
   };
 
@@ -1724,7 +1737,7 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
     return Response.json({ error: "Invalid request", details: parsed.error.message }, { status: 400, headers: corsHeaders });
   }
 
-  const { url, steps, screenshot, timeout, backend, browsers, device, devices } = parsed.data;
+  const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices } = parsed.data;
 
   // Determine browser/device combinations to test
   const browserList = browsers || ["chrome"];
@@ -1732,6 +1745,8 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
 
   const executeWithTimeout = async (): Promise<Response> => {
     const results: BrowserResult[] = [];
+    const allScreenshots: string[] = [];
+    const stepResults: Array<{ instruction: string; success: boolean; error?: string; screenshot?: string }> = [];
 
     for (const browserType of browserList) {
       for (const deviceType of deviceList) {
@@ -1747,21 +1762,55 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
 
           await session.navigate(url);
 
+          // Capture initial screenshot if requested
+          if (captureScreenshots) {
+            try {
+              const initialScreenshot = await session.screenshot();
+              allScreenshots.push(initialScreenshot);
+            } catch {}
+          }
+
           let allSuccess = true;
-          for (const step of steps) {
+          for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
             const pageHtml = await session.getContent();
             const elements = await session.getInteractiveElements();
             const elementsStr = elements.map(e => `${e.tag}: "${e.text}" [${e.selector}]`).join("\n");
 
             const interpreted = await interpretAction(env, step, pageHtml, elementsStr);
-            if (!interpreted) { allSuccess = false; break; }
+            if (!interpreted) {
+              stepResults.push({ instruction: step, success: false, error: "Could not interpret instruction" });
+              allSuccess = false;
+              break;
+            }
 
             const result = await executeAction(session, interpreted, true);
-            if (!result.success) { allSuccess = false; break; }
+
+            // Capture screenshot after each step if requested
+            let stepScreenshot: string | undefined;
+            if (captureScreenshots) {
+              try {
+                stepScreenshot = await session.screenshot();
+                allScreenshots.push(stepScreenshot);
+              } catch {}
+            }
+
+            stepResults.push({
+              instruction: step,
+              success: result.success,
+              error: result.success ? undefined : result.error,
+              screenshot: stepScreenshot,
+            });
+
+            if (!result.success) {
+              allSuccess = false;
+              break;
+            }
           }
 
+          // Capture final screenshot if requested (backwards compatibility)
           let screenshotBase64: string | undefined;
-          if (screenshot) {
+          if (screenshot && !captureScreenshots) {
             try {
               screenshotBase64 = await session.screenshot();
             } catch {}
@@ -1792,9 +1841,11 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
 
     return Response.json({
       success: results.every(r => r.success),
-      steps: steps.map(s => ({ instruction: s, success: results.some(r => r.success) })),
+      steps: stepResults.length > 0 ? stepResults : steps.map(s => ({ instruction: s, success: results.some(r => r.success) })),
       browsers: results,
       backend: backend,
+      screenshots: allScreenshots.length > 0 ? allScreenshots : undefined,
+      finalScreenshot: results[0]?.screenshot,
     } as TestResult, { headers: corsHeaders });
   };
 
