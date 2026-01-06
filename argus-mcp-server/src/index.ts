@@ -24,10 +24,72 @@ import { z } from "zod";
 // Environment types
 interface Env {
   AI: Ai;
-  ARGUS_API_URL: string;
+  ARGUS_API_URL: string;  // Worker - browser automation
+  ARGUS_BRAIN_URL: string;  // Brain - intelligence
   API_TOKEN?: string;
   ANTHROPIC_API_KEY?: string;
   MCP_OAUTH: DurableObjectNamespace;
+}
+
+// Brain API Response types
+interface BrainHealthResponse {
+  status: string;
+  version: string;
+  timestamp: string;
+}
+
+interface BrainTestCreateResponse {
+  success: boolean;
+  test: {
+    id: string;
+    name: string;
+    description: string;
+    steps: Array<{
+      action: string;
+      target?: string;
+      value?: string;
+    }>;
+    assertions: Array<{
+      type: string;
+      target?: string;
+      expected?: string;
+    }>;
+  };
+  spec?: string;
+}
+
+interface BrainQualityStatsResponse {
+  stats: {
+    total_events: number;
+    events_by_status: Record<string, number>;
+    events_by_severity: Record<string, number>;
+    total_generated_tests: number;
+    tests_by_status: Record<string, number>;
+    coverage_rate: number;
+  };
+}
+
+interface BrainQualityScoreResponse {
+  quality_score: number;
+  risk_level: string;
+  test_coverage: number;
+  total_events: number;
+  total_tests: number;
+  approved_tests: number;
+}
+
+interface BrainRiskScoresResponse {
+  success: boolean;
+  risk_scores: Array<{
+    entity_type: string;
+    entity_identifier: string;
+    overall_score: number;
+    factors: Record<string, number>;
+    error_count: number;
+    affected_users: number;
+    trend: string;
+  }>;
+  total_entities: number;
 }
 
 // Argus API Response types
@@ -105,8 +167,8 @@ type ImageContent = {
 
 type McpContent = TextContent | ImageContent;
 
-// Helper to call Argus API
-async function callArgusAPI<T>(
+// Helper to call Worker API (browser automation)
+async function callWorkerAPI<T>(
   endpoint: string,
   body: Record<string, unknown>,
   env: Env
@@ -129,11 +191,46 @@ async function callArgusAPI<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Argus API error (${response.status}): ${errorText}`);
+    throw new Error(`Worker API error (${response.status}): ${errorText}`);
   }
 
   return response.json() as Promise<T>;
 }
+
+// Helper to call Brain API (intelligence)
+async function callBrainAPI<T>(
+  endpoint: string,
+  method: "GET" | "POST" = "POST",
+  body?: Record<string, unknown>,
+  env?: Env
+): Promise<T> {
+  const brainUrl = env?.ARGUS_BRAIN_URL || "https://argus-brain-production.up.railway.app";
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  const fetchOptions: RequestInit = {
+    method,
+    headers,
+  };
+
+  if (body && method === "POST") {
+    fetchOptions.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(`${brainUrl}${endpoint}`, fetchOptions);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Brain API error (${response.status}): ${errorText}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+// Alias for backward compatibility
+const callArgusAPI = callWorkerAPI;
 
 // Create MCP Server with Argus tools
 export class ArgusMcpAgent extends McpAgent<Env> {
@@ -460,42 +557,112 @@ export class ArgusMcpAgent extends McpAgent<Env> {
       }
     );
 
-    // Tool: argus_generate_test - Generate test from natural language
+    // Tool: argus_generate_test - Generate test from natural language (Brain)
     this.server.tool(
       "argus_generate_test",
-      "Generate E2E test steps from a natural language description. Uses AI to analyze the target page and create a test plan.",
+      "Generate E2E test steps from a natural language description. Uses AI Brain service to create a comprehensive test plan with steps and assertions.",
       {
         url: z.string().url().describe("The URL of the application to test"),
         description: z.string().describe("Description of what the test should verify (e.g., 'Verify user can log in with valid credentials', 'Test the checkout flow with a product')"),
       },
       async ({ url, description }) => {
         try {
-          // First, discover the page
-          const observeResult = await callArgusAPI<ArgusObserveResponse>("/observe", {
-            url,
-            instruction: "List all interactive elements and their purposes",
-          }, this.env);
+          // Call Brain to generate test from natural language
+          const result = await callBrainAPI<BrainTestCreateResponse>(
+            "/api/v1/tests/create",
+            "POST",
+            {
+              description,
+              app_url: url,
+            },
+            this.env
+          );
 
-          if (!observeResult.success) {
+          if (!result.success) {
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Could not analyze page: ${observeResult.error}`,
+                  text: `Could not generate test. Try using argus_discover first to understand the page.`,
                 },
               ],
               isError: true,
             };
           }
 
-          // Use AI to generate test steps based on the page analysis
-          const pageContext = observeResult.actions?.map(a => `- ${a.description} (${a.type})`).join("\n") || "No elements found";
+          // Format the generated test
+          const stepsText = result.test.steps.map((s, i) =>
+            `${i + 1}. ${s.action}${s.target ? ` on "${s.target}"` : ""}${s.value ? ` with "${s.value}"` : ""}`
+          ).join("\n");
+
+          const assertionsText = result.test.assertions.map((a, i) =>
+            `${i + 1}. ${a.type}${a.target ? ` "${a.target}"` : ""}${a.expected ? ` = "${a.expected}"` : ""}`
+          ).join("\n");
 
           return {
             content: [
               {
                 type: "text" as const,
-                text: `## Generated Test Plan\n\n**Target:** ${url}\n**Objective:** ${description}\n\n### Discovered Page Elements:\n${pageContext}\n\n### Suggested Test Steps:\n1. Navigate to the page\n2. [Add your test steps here based on the discovered elements]\n\n**Tip:** Use the \`argus_test\` tool to run these steps once you've finalized them.`,
+                text: `## Generated Test: ${result.test.name}\n\n**Target:** ${url}\n**Description:** ${result.test.description}\n\n### Test Steps:\n${stepsText}\n\n### Assertions:\n${assertionsText}\n\n**Tip:** Use \`argus_test\` with these steps to run the test.`,
+              },
+            ],
+          };
+        } catch (error) {
+          // Fall back to Worker-based discovery if Brain fails
+          try {
+            const observeResult = await callArgusAPI<ArgusObserveResponse>("/observe", {
+              url,
+              instruction: "List all interactive elements and their purposes",
+            }, this.env);
+
+            const pageContext = observeResult.actions?.map(a => `- ${a.description} (${a.type})`).join("\n") || "No elements found";
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Test Plan (Discovery Mode)\n\n**Target:** ${url}\n**Objective:** ${description}\n\n### Discovered Page Elements:\n${pageContext}\n\n### Suggested Test Steps:\n1. Navigate to the page\n2. [Create steps based on the discovered elements]\n\n**Note:** Brain service unavailable. Use \`argus_test\` to run manually created steps.`,
+                },
+              ],
+            };
+          } catch (fallbackError) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error generating test: ${error instanceof Error ? error.message : "Unknown error"}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
+      }
+    );
+
+    // Tool: argus_quality_score - Get quality score for a project (Brain)
+    this.server.tool(
+      "argus_quality_score",
+      "Get the overall quality score and metrics for a project. Shows test coverage, risk level, and production error statistics.",
+      {
+        project_id: z.string().describe("The project UUID to get quality score for"),
+      },
+      async ({ project_id }) => {
+        try {
+          const result = await callBrainAPI<BrainQualityScoreResponse>(
+            `/api/v1/quality/score?project_id=${project_id}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          const riskEmoji = result.risk_level === "high" ? "🔴" : result.risk_level === "medium" ? "🟡" : "🟢";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Quality Score: ${result.quality_score}/100\n\n**Risk Level:** ${riskEmoji} ${result.risk_level.toUpperCase()}\n**Test Coverage:** ${result.test_coverage}%\n\n### Metrics:\n- Total Production Events: ${result.total_events}\n- Generated Tests: ${result.total_tests}\n- Approved Tests: ${result.approved_tests}`,
               },
             ],
           };
@@ -504,7 +671,128 @@ export class ArgusMcpAgent extends McpAgent<Env> {
             content: [
               {
                 type: "text" as const,
-                text: `Error generating test: ${error instanceof Error ? error.message : "Unknown error"}`,
+                text: `Error getting quality score: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_quality_stats - Get detailed quality statistics (Brain)
+    this.server.tool(
+      "argus_quality_stats",
+      "Get detailed quality intelligence statistics including event counts by status, severity breakdown, and test coverage metrics.",
+      {
+        project_id: z.string().describe("The project UUID to get statistics for"),
+      },
+      async ({ project_id }) => {
+        try {
+          const result = await callBrainAPI<BrainQualityStatsResponse>(
+            `/api/v1/quality/stats?project_id=${project_id}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          const stats = result.stats;
+
+          const statusBreakdown = Object.entries(stats.events_by_status)
+            .map(([status, count]) => `- ${status}: ${count}`)
+            .join("\n");
+
+          const severityBreakdown = Object.entries(stats.events_by_severity)
+            .map(([sev, count]) => `- ${sev}: ${count}`)
+            .join("\n");
+
+          const testsBreakdown = Object.entries(stats.tests_by_status)
+            .map(([status, count]) => `- ${status}: ${count}`)
+            .join("\n") || "No tests generated yet";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Quality Intelligence Statistics\n\n### Production Events: ${stats.total_events}\n\n**By Status:**\n${statusBreakdown}\n\n**By Severity:**\n${severityBreakdown}\n\n### Generated Tests: ${stats.total_generated_tests}\n\n**By Status:**\n${testsBreakdown}\n\n**Coverage Rate:** ${stats.coverage_rate}%`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error getting quality stats: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_risk_scores - Calculate and get risk scores (Brain)
+    this.server.tool(
+      "argus_risk_scores",
+      "Calculate risk scores for components and pages based on production errors. Identifies high-risk areas that need more testing.",
+      {
+        project_id: z.string().describe("The project UUID to calculate risk scores for"),
+        calculate: z.boolean().optional().describe("If true, recalculate scores (default: false, just retrieve)"),
+      },
+      async ({ project_id, calculate = false }) => {
+        try {
+          let result: BrainRiskScoresResponse;
+
+          if (calculate) {
+            // Recalculate risk scores
+            result = await callBrainAPI<BrainRiskScoresResponse>(
+              "/api/v1/quality/calculate-risk",
+              "POST",
+              { project_id },
+              this.env
+            );
+          } else {
+            // Just retrieve existing scores
+            const response = await callBrainAPI<{ risk_scores: BrainRiskScoresResponse["risk_scores"] }>(
+              `/api/v1/quality/risk-scores?project_id=${project_id}`,
+              "GET",
+              undefined,
+              this.env
+            );
+            result = { success: true, risk_scores: response.risk_scores, total_entities: response.risk_scores.length };
+          }
+
+          if (!result.risk_scores || result.risk_scores.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Risk Scores\n\nNo risk data available yet. Production events need to be ingested via webhooks first.`,
+                },
+              ],
+            };
+          }
+
+          const scoresText = result.risk_scores.slice(0, 10).map((score, i) => {
+            const emoji = score.overall_score > 70 ? "🔴" : score.overall_score > 40 ? "🟡" : "🟢";
+            return `${i + 1}. ${emoji} **${score.entity_identifier}** (${score.entity_type})\n   Score: ${score.overall_score}/100 | Errors: ${score.error_count} | Users affected: ${score.affected_users}`;
+          }).join("\n\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Risk Scores (Top ${Math.min(10, result.risk_scores.length)} of ${result.total_entities})\n\n${scoresText}\n\n**Legend:** 🔴 High Risk (>70) | 🟡 Medium Risk (40-70) | 🟢 Low Risk (<40)`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error getting risk scores: ${error instanceof Error ? error.message : "Unknown error"}`,
               },
             ],
             isError: true,

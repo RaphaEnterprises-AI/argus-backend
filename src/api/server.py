@@ -23,6 +23,8 @@ from src.config import get_settings
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
 from src.integrations.reporter import create_reporter, create_report_from_state
+from src.api.webhooks import router as webhooks_router
+from src.api.quality import router as quality_router
 
 logger = structlog.get_logger()
 
@@ -46,6 +48,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(webhooks_router)
+app.include_router(quality_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
