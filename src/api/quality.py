@@ -138,7 +138,7 @@ async def generate_test_from_error(event: dict) -> dict:
     )
 
     response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-3-haiku-20240307",
         max_tokens=2000,
         temperature=0.3,
         messages=[
