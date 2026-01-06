@@ -20,19 +20,54 @@
 
 import { z } from "zod";
 import { chromium as cfChromium } from "@cloudflare/playwright";
+import { createCache, createStorage } from "./utils";
+import { RealtimeSession, broadcastEvent } from "./realtime";
 
 // ============================================================================
 // ENVIRONMENT & TYPES
 // ============================================================================
 
 interface Env {
+  // Browser Rendering
   BROWSER: BrowserBinding;
+
+  // Workers AI
   AI: Ai;
+
+  // KV Namespace for caching
+  CACHE?: KVNamespace;
+
+  // R2 Bucket for artifact storage
+  ARTIFACTS?: R2Bucket;
+
+  // Vectorize for semantic pattern matching
+  VECTOR_INDEX?: VectorizeIndex;
+
+  // Queue for async event processing
+  EVENT_QUEUE?: Queue;
+  DLQ?: Queue;
+
+  // Hyperdrive for database connection pooling
+  DB?: Hyperdrive;
+
+  // Durable Object for realtime WebSocket
+  REALTIME?: DurableObjectNamespace;
+
+  // External service credentials
   TESTINGBOT_KEY?: string;
   TESTINGBOT_SECRET?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   API_TOKEN?: string;
+
+  // Supabase credentials (for Brain communication)
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_KEY?: string;
+
+  // Railway Brain URL
+  BRAIN_URL?: string;
+
+  // Configuration
   DEFAULT_MODEL_PROVIDER: string;
   DEFAULT_BACKEND: string;
   ENABLE_CACHING: string;
@@ -1476,9 +1511,13 @@ export default {
       const hasAnthropic = !!env.ANTHROPIC_API_KEY;
       const defaults = getEnvDefaults(env);
 
+      // Check Cloudflare service availability
+      const cache = createCache(env.CACHE);
+      const storage = createStorage(env.ARTIFACTS);
+
       return Response.json({
         status: "healthy",
-        version: "3.0.0",
+        version: "3.1.0",
         type: "browser-automation",
         backends: {
           cloudflare: true,
@@ -1487,6 +1526,15 @@ export default {
         features: ["act", "extract", "observe", "agent", "test"],
         browsers: hasTestingBot ? ["chrome", "firefox", "safari", "edge", "webkit"] : ["chrome"],
         devices: Object.keys(DEVICE_PRESETS),
+        services: {
+          kv_cache: cache.isAvailable(),
+          r2_storage: storage.isAvailable(),
+          vectorize: !!env.VECTOR_INDEX,
+          queues: !!env.EVENT_QUEUE,
+          hyperdrive: !!env.DB,
+          realtime: !!env.REALTIME,
+          brain: !!env.BRAIN_URL,
+        },
         config: {
           defaultBackend: defaults.backend,
           defaultModelProvider: defaults.modelProvider,
@@ -1546,3 +1594,6 @@ export default {
     }
   },
 };
+
+// Export Durable Object for Realtime WebSocket handling
+export { RealtimeSession };

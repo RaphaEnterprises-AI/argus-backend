@@ -25,6 +25,76 @@ binding = "AI"
 binding = "VECTOR_INDEX"
 index_name = "argus-patterns"
 
+# ============================================================================
+# KV Namespaces - Fast key-value storage for caching
+# Create with: wrangler kv:namespace create "ARGUS_CACHE"
+# ============================================================================
+[[kv_namespaces]]
+binding = "CACHE"
+id = "PLACEHOLDER_CACHE_ID"  # Replace after running: wrangler kv:namespace create "ARGUS_CACHE"
+
+# KV key patterns:
+# - dedup:{fingerprint}          → Event deduplication (TTL: 24h)
+# - session:{id}                 → User sessions (TTL: 24h)
+# - api:quality:{project_id}     → Quality score cache (TTL: 5min)
+# - llm:{hash}                   → LLM response cache (TTL: 7d)
+# - rate:{project}:{minute}      → Rate limiting (TTL: 2min)
+# - webhook:sig:{hash}           → Webhook signature validation (TTL: 1h)
+
+# ============================================================================
+# R2 Storage - Object storage for artifacts
+# Create with: wrangler r2 bucket create argus-artifacts
+# ============================================================================
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "argus-artifacts"
+
+# R2 key patterns:
+# - screenshots/{project_id}/{timestamp}.png
+# - coverage/{project_id}/{commit_sha}/lcov.info
+# - test-results/{project_id}/{run_id}/results.json
+# - generated-tests/{project_id}/{timestamp}/{file}.spec.ts
+
+# ============================================================================
+# Queues - Async event processing
+# Create with: wrangler queues create argus-events
+# ============================================================================
+[[queues.producers]]
+binding = "EVENT_QUEUE"
+queue = "argus-events"
+
+# Consumer configuration (process events asynchronously)
+[[queues.consumers]]
+queue = "argus-events"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "argus-events-dlq"
+
+# Dead letter queue for failed events
+[[queues.producers]]
+binding = "DLQ"
+queue = "argus-events-dlq"
+
+# ============================================================================
+# Hyperdrive - Database connection pooling for Supabase
+# Create with: wrangler hyperdrive create argus-db --connection-string="postgresql://..."
+# ============================================================================
+[[hyperdrive]]
+binding = "DB"
+id = "PLACEHOLDER_HYPERDRIVE_ID"  # Replace after creating hyperdrive config
+
+# ============================================================================
+# Durable Objects - Stateful real-time connections
+# ============================================================================
+[[durable_objects.bindings]]
+name = "REALTIME"
+class_name = "RealtimeSession"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RealtimeSession"]
+
 # Environment variables (non-sensitive)
 [vars]
 ENVIRONMENT = "production"

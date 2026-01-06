@@ -23,8 +23,24 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Literal
 import os
+import time
 import httpx
 from abc import ABC, abstractmethod
+import structlog
+
+from src.services.ai_cost_tracker import (
+    get_cost_tracker,
+    TaskType as CostTaskType,
+    BudgetStatus,
+)
+
+logger = structlog.get_logger()
+
+
+class BudgetExceededError(Exception):
+    """Raised when an organization exceeds their AI budget."""
+
+    pass
 
 
 class ModelProvider(str, Enum):
@@ -102,6 +118,9 @@ class ModelConfig:
     supports_vision: bool = False
     supports_tools: bool = False
     supports_json_mode: bool = False
+    supports_computer_use: bool = False  # Browser/desktop automation
+    supports_thinking: bool = False  # Extended thinking/reasoning
+    context_window: int = 128000  # Input token limit
     latency_ms: int = 1000  # Typical latency
 
     @property
@@ -110,24 +129,170 @@ class ModelConfig:
         return (self.input_cost_per_1m * 0.6 + self.output_cost_per_1m * 0.4) / 1000
 
 
-# Model Registry - All available models with pricing (as of Jan 2025)
+# Model Registry - All available models with pricing (as of Jan 2026)
 MODELS = {
+    # ===========================================
+    # GEMINI 3.0 SERIES (Preview - Latest)
+    # Most advanced Gemini models
+    # ===========================================
+
+    "gemini-3-pro": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-3-pro-preview",
+        input_cost_per_1m=2.00,  # $4.00 for >200k context
+        output_cost_per_1m=12.00,  # $18.00 for >200k context
+        max_tokens=65536,
+        context_window=1048576,  # 1M tokens
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=1500,
+    ),
+
+    "gemini-3-flash": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-3-flash-preview",
+        input_cost_per_1m=0.50,  # Free tier available
+        output_cost_per_1m=3.00,
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=400,
+    ),
+
+    # ===========================================
+    # GEMINI 2.5 SERIES (Stable)
+    # Production-ready with thinking support
+    # ===========================================
+
+    "gemini-2.5-pro": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.5-pro",
+        input_cost_per_1m=1.25,  # $2.50 for >200k context
+        output_cost_per_1m=10.00,  # $15.00 for >200k context
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=800,
+    ),
+
+    "gemini-2.5-flash": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.5-flash",
+        input_cost_per_1m=0.30,  # Free tier available
+        output_cost_per_1m=2.50,
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=300,
+    ),
+
+    "gemini-2.5-flash-lite": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.5-flash-lite",
+        input_cost_per_1m=0.10,  # Cheapest Gemini - Free tier available
+        output_cost_per_1m=0.40,
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=200,
+    ),
+
+    # ===========================================
+    # GEMINI COMPUTER USE (Browser Automation)
+    # Specialized for UI automation tasks
+    # ===========================================
+
+    "gemini-computer-use": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.5-computer-use-preview-10-2025",
+        input_cost_per_1m=1.25,  # Based on 2.5 Pro pricing
+        output_cost_per_1m=5.00,
+        max_tokens=64000,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=True,
+        latency_ms=500,
+    ),
+
+    # ===========================================
+    # GEMINI 2.0 SERIES (Legacy but stable)
+    # ===========================================
+
+    "gemini-2.0-flash": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.0-flash",
+        input_cost_per_1m=0.10,
+        output_cost_per_1m=0.40,
+        max_tokens=8192,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=250,
+    ),
+
+    "gemini-2.0-flash-lite": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.0-flash-lite",
+        input_cost_per_1m=0.075,
+        output_cost_per_1m=0.30,
+        max_tokens=8192,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=150,
+    ),
+
+    # Legacy alias for backward compatibility
+    "gemini-flash": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.5-flash",  # Updated to 2.5
+        input_cost_per_1m=0.30,
+        output_cost_per_1m=2.50,
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=300,
+    ),
+
+    "gemini-pro": ModelConfig(
+        provider=ModelProvider.GOOGLE,
+        model_id="gemini-2.5-pro",  # Updated to 2.5
+        input_cost_per_1m=1.25,
+        output_cost_per_1m=10.00,
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=800,
+    ),
+
     # ===========================================
     # TIER 1: FLASH (< $0.50/1M tokens)
     # For: Classification, extraction, simple parsing
     # ===========================================
-
-    "gemini-flash": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-1.5-flash-latest",
-        input_cost_per_1m=0.075,
-        output_cost_per_1m=0.30,
-        max_tokens=8192,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=300,
-    ),
 
     "gpt-4o-mini": ModelConfig(
         provider=ModelProvider.OPENAI,
@@ -135,6 +300,7 @@ MODELS = {
         input_cost_per_1m=0.15,
         output_cost_per_1m=0.60,
         max_tokens=16384,
+        context_window=128000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=True,
@@ -143,10 +309,11 @@ MODELS = {
 
     "haiku": ModelConfig(
         provider=ModelProvider.ANTHROPIC,
-        model_id="claude-3-5-haiku-latest",
+        model_id="claude-haiku-4-5-20250514",
         input_cost_per_1m=0.80,
         output_cost_per_1m=4.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
@@ -159,6 +326,7 @@ MODELS = {
         input_cost_per_1m=0.05,
         output_cost_per_1m=0.08,
         max_tokens=8192,
+        context_window=131072,
         supports_vision=False,
         supports_tools=True,
         supports_json_mode=True,
@@ -176,50 +344,28 @@ MODELS = {
         input_cost_per_1m=2.50,
         output_cost_per_1m=10.00,
         max_tokens=16384,
+        context_window=128000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=True,
         latency_ms=800,
     ),
 
-    "gemini-pro": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-1.5-pro-latest",
-        input_cost_per_1m=1.25,
-        output_cost_per_1m=5.00,
-        max_tokens=8192,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=600,
-    ),
-
     # ===========================================
-    # COMPUTER USE MODELS
-    # Specialized for UI automation tasks
+    # CLAUDE MODELS (Anthropic)
     # ===========================================
-
-    "gemini-computer-use": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-computer-use-preview-10-2025",
-        input_cost_per_1m=1.25,  # Estimated - Google pricing TBD
-        output_cost_per_1m=5.00,
-        max_tokens=8192,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=500,
-    ),
 
     "claude-computer-use": ModelConfig(
         provider=ModelProvider.ANTHROPIC,
-        model_id="claude-sonnet-4-5-20250514",  # Computer use enabled
+        model_id="claude-sonnet-4-5-20250514",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
+        supports_computer_use=True,
         latency_ms=1000,
     ),
 
@@ -229,9 +375,11 @@ MODELS = {
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
+        supports_computer_use=True,
         latency_ms=1000,
     ),
 
@@ -241,6 +389,7 @@ MODELS = {
         input_cost_per_1m=0.59,
         output_cost_per_1m=0.79,
         max_tokens=8192,
+        context_window=131072,
         supports_vision=False,
         supports_tools=True,
         supports_json_mode=True,
@@ -253,6 +402,7 @@ MODELS = {
         input_cost_per_1m=0.27,
         output_cost_per_1m=1.10,
         max_tokens=8192,
+        context_window=128000,
         supports_vision=False,
         supports_tools=True,
         supports_json_mode=True,
@@ -270,9 +420,12 @@ MODELS = {
         input_cost_per_1m=15.00,
         output_cost_per_1m=75.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
+        supports_computer_use=True,
+        supports_thinking=True,
         latency_ms=2000,
     ),
 
@@ -282,9 +435,11 @@ MODELS = {
         input_cost_per_1m=15.00,
         output_cost_per_1m=60.00,
         max_tokens=100000,
+        context_window=200000,
         supports_vision=True,
         supports_tools=False,  # o1 doesn't support tools yet
         supports_json_mode=False,
+        supports_thinking=True,
         latency_ms=5000,  # Reasoning takes time
     ),
 
@@ -295,13 +450,15 @@ MODELS = {
 
     "vertex-sonnet": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-sonnet-4-5-20250514",  # Will be converted to Vertex format
+        model_id="claude-sonnet-4-5-20250514",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
+        supports_computer_use=True,
         latency_ms=1000,
     ),
 
@@ -311,18 +468,21 @@ MODELS = {
         input_cost_per_1m=15.00,
         output_cost_per_1m=75.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
+        supports_computer_use=True,
         latency_ms=2000,
     ),
 
     "vertex-haiku": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-3-5-haiku-latest",
+        model_id="claude-haiku-4-5-20250514",
         input_cost_per_1m=0.80,
         output_cost_per_1m=4.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
@@ -331,54 +491,82 @@ MODELS = {
 
     "vertex-computer-use": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-sonnet-4-5-20250514",  # Computer Use enabled
+        model_id="claude-sonnet-4-5-20250514",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
+        context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
+        supports_computer_use=True,
         latency_ms=1000,
     ),
 }
 
 
-# Task to Model Mapping
+# Task to Model Mapping - Optimized for Cost and Quality (Jan 2026)
 TASK_MODEL_MAPPING: dict[TaskType, list[str]] = {
-    # Trivial tasks - use cheapest
-    TaskType.ELEMENT_CLASSIFICATION: ["llama-3.1-8b", "gemini-flash", "gpt-4o-mini"],
-    TaskType.ACTION_EXTRACTION: ["llama-3.1-8b", "gemini-flash", "gpt-4o-mini"],
-    TaskType.SELECTOR_VALIDATION: ["gemini-flash", "gpt-4o-mini", "haiku"],
-    TaskType.TEXT_EXTRACTION: ["llama-3.1-8b", "gemini-flash", "gpt-4o-mini"],
-    TaskType.JSON_PARSING: ["llama-3.1-8b", "gemini-flash", "gpt-4o-mini"],
+    # ===========================================
+    # TRIVIAL TASKS - Use cheapest models
+    # Gemini 2.5 Flash-Lite is 75% cheaper than GPT-4o-mini
+    # ===========================================
+    TaskType.ELEMENT_CLASSIFICATION: ["gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "llama-3.1-8b", "gpt-4o-mini"],
+    TaskType.ACTION_EXTRACTION: ["gemini-2.5-flash-lite", "llama-3.1-8b", "gemini-2.0-flash", "gpt-4o-mini"],
+    TaskType.SELECTOR_VALIDATION: ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gpt-4o-mini", "haiku"],
+    TaskType.TEXT_EXTRACTION: ["gemini-2.5-flash-lite", "llama-3.1-8b", "gemini-2.0-flash-lite", "gpt-4o-mini"],
+    TaskType.JSON_PARSING: ["gemini-2.5-flash-lite", "llama-3.1-8b", "gemini-2.0-flash", "gpt-4o-mini"],
 
-    # Moderate tasks - use standard tier
-    TaskType.CODE_ANALYSIS: ["deepseek-v3", "gemini-pro", "gpt-4o", "sonnet"],
-    TaskType.TEST_GENERATION: ["deepseek-v3", "gpt-4o", "sonnet"],
-    TaskType.ASSERTION_GENERATION: ["gemini-pro", "gpt-4o", "sonnet"],
-    TaskType.ERROR_CLASSIFICATION: ["llama-3.1-70b", "gpt-4o", "haiku"],
+    # ===========================================
+    # MODERATE TASKS - Balanced cost/quality
+    # Gemini 2.5 Flash has thinking capability at low cost
+    # ===========================================
+    TaskType.CODE_ANALYSIS: ["gemini-2.5-flash", "deepseek-v3", "gemini-2.5-pro", "gpt-4o", "sonnet"],
+    TaskType.TEST_GENERATION: ["gemini-2.5-flash", "deepseek-v3", "gemini-2.5-pro", "sonnet"],
+    TaskType.ASSERTION_GENERATION: ["gemini-2.5-flash", "gemini-2.5-pro", "gpt-4o", "sonnet"],
+    TaskType.ERROR_CLASSIFICATION: ["gemini-2.5-flash", "llama-3.1-70b", "gpt-4o", "haiku"],
 
-    # Complex tasks - need vision or strong reasoning
-    TaskType.VISUAL_COMPARISON: ["gemini-pro", "gpt-4o", "sonnet"],  # Vision required
-    TaskType.SEMANTIC_UNDERSTANDING: ["gpt-4o", "sonnet", "gemini-pro"],
-    TaskType.FLOW_DISCOVERY: ["gpt-4o", "sonnet"],
-    TaskType.ROOT_CAUSE_ANALYSIS: ["sonnet", "gpt-4o", "opus"],
+    # ===========================================
+    # COMPLEX TASKS - Need vision or strong reasoning
+    # Gemini 2.5 Pro has 1M context and thinking
+    # ===========================================
+    TaskType.VISUAL_COMPARISON: ["gemini-2.5-pro", "gemini-3-flash", "gpt-4o", "sonnet"],
+    TaskType.SEMANTIC_UNDERSTANDING: ["gemini-2.5-pro", "gpt-4o", "sonnet", "gemini-3-pro"],
+    TaskType.FLOW_DISCOVERY: ["gemini-2.5-pro", "gpt-4o", "sonnet"],
+    TaskType.ROOT_CAUSE_ANALYSIS: ["gemini-3-pro", "sonnet", "gemini-2.5-pro", "opus"],
 
-    # Expert tasks - use best available
-    TaskType.SELF_HEALING: ["sonnet", "opus", "o1"],
-    TaskType.FAILURE_PREDICTION: ["sonnet", "opus"],
-    TaskType.COGNITIVE_MODELING: ["opus", "o1", "sonnet"],
-    TaskType.COMPLEX_DEBUGGING: ["opus", "o1"],
+    # ===========================================
+    # EXPERT TASKS - Use best available
+    # Gemini 3 Pro or Claude Opus for complex reasoning
+    # ===========================================
+    TaskType.SELF_HEALING: ["gemini-3-pro", "sonnet", "opus", "o1"],
+    TaskType.FAILURE_PREDICTION: ["gemini-2.5-pro", "sonnet", "opus"],
+    TaskType.COGNITIVE_MODELING: ["gemini-3-pro", "opus", "o1", "sonnet"],
+    TaskType.COMPLEX_DEBUGGING: ["gemini-3-pro", "opus", "o1"],
 
-    # Computer Use tasks - specialized routing
-    # Vertex AI provides same capabilities with unified GCP billing
-    # Gemini 2.5 Computer Use is ~60% cheaper than Claude for simple tasks
-    TaskType.COMPUTER_USE_SIMPLE: ["vertex-computer-use", "gemini-computer-use", "claude-computer-use"],
-    TaskType.COMPUTER_USE_COMPLEX: ["vertex-computer-use", "claude-computer-use", "gemini-computer-use"],
-    TaskType.COMPUTER_USE_MOBILE: ["gemini-computer-use"],  # Gemini excels at mobile
+    # ===========================================
+    # COMPUTER USE TASKS - Specialized models
+    # Gemini Computer Use is ~60% cheaper than Claude
+    # Claude has more mature browser automation
+    # ===========================================
+    TaskType.COMPUTER_USE_SIMPLE: [
+        "gemini-computer-use",  # Cheapest, good for simple forms
+        "vertex-computer-use",  # Claude via GCP
+        "claude-computer-use",  # Direct Claude
+    ],
+    TaskType.COMPUTER_USE_COMPLEX: [
+        "claude-computer-use",  # More mature for complex flows
+        "vertex-computer-use",
+        "gemini-computer-use",
+    ],
+    TaskType.COMPUTER_USE_MOBILE: [
+        "gemini-computer-use",  # Gemini excels at mobile UI
+    ],
 
-    # General fallback
-    TaskType.GENERAL: ["sonnet", "gpt-4o", "gemini-pro"],
+    # ===========================================
+    # GENERAL FALLBACK
+    # ===========================================
+    TaskType.GENERAL: ["gemini-2.5-flash", "sonnet", "gpt-4o", "gemini-2.5-pro"],
 }
 
 
@@ -564,12 +752,68 @@ class OpenAIClient(BaseModelClient):
 
 
 class GoogleClient(BaseModelClient):
-    """Client for Google Gemini models."""
+    """
+    Client for Google Gemini models including Computer Use.
 
-    def __init__(self):
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
-        self.genai = genai
+    Supports:
+    - Gemini 3.0 Pro/Flash (latest)
+    - Gemini 2.5 Pro/Flash/Flash-Lite
+    - Gemini 2.5 Computer Use (browser automation)
+    - Gemini 2.0 Flash/Flash-Lite
+
+    For Computer Use, uses google-genai library with ComputerUse tool.
+    """
+
+    # Gemini Computer Use supported actions
+    COMPUTER_USE_ACTIONS = [
+        "open_web_browser",
+        "navigate",
+        "go_back",
+        "go_forward",
+        "search",
+        "click_at",
+        "hover_at",
+        "type_text_at",
+        "key_combination",
+        "scroll_document",
+        "scroll_at",
+        "drag_and_drop",
+        "wait_5_seconds",
+    ]
+
+    def __init__(self, use_new_sdk: bool = True):
+        """
+        Initialize Google client.
+
+        Args:
+            use_new_sdk: Use google-genai (new) vs google.generativeai (legacy)
+        """
+        self.use_new_sdk = use_new_sdk
+        self._genai = None
+        self._genai_client = None
+
+    @property
+    def genai(self):
+        """Lazy load legacy SDK."""
+        if self._genai is None:
+            import google.generativeai as genai
+            genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+            self._genai = genai
+        return self._genai
+
+    @property
+    def genai_client(self):
+        """Lazy load new google-genai SDK for Computer Use."""
+        if self._genai_client is None:
+            try:
+                from google import genai
+                self._genai_client = genai.Client(
+                    api_key=os.environ.get("GOOGLE_API_KEY")
+                )
+            except ImportError:
+                logger.warning("google-genai SDK not installed, Computer Use unavailable")
+                self._genai_client = None
+        return self._genai_client
 
     async def complete(
         self,
@@ -586,7 +830,12 @@ class GoogleClient(BaseModelClient):
         gemini_messages = []
         for msg in messages:
             role = "user" if msg["role"] == "user" else "model"
-            gemini_messages.append({"role": role, "parts": [msg["content"]]})
+            content = msg["content"]
+            if isinstance(content, str):
+                gemini_messages.append({"role": role, "parts": [content]})
+            else:
+                # Handle multimodal content
+                gemini_messages.append({"role": role, "parts": content})
 
         config = {"max_output_tokens": max_tokens}
         if temperature > 0:
@@ -613,19 +862,29 @@ class GoogleClient(BaseModelClient):
         model_config: ModelConfig,
         max_tokens: int = 4096,
     ) -> dict:
-        from PIL import Image
-        import io
+        import base64
 
         model = self.genai.GenerativeModel(model_config.model_id)
 
-        # Convert bytes to PIL Images
-        pil_images = [Image.open(io.BytesIO(img)) for img in images]
+        # Build content with images
+        parts = []
 
-        # Get the text content
+        # Add text from last message
         text = messages[-1]["content"] if messages else ""
+        if text:
+            parts.append(text)
+
+        # Add images as inline data
+        for img in images:
+            parts.append({
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": base64.b64encode(img).decode(),
+                }
+            })
 
         response = await model.generate_content_async(
-            [text, *pil_images],
+            parts,
             generation_config={"max_output_tokens": max_tokens},
         )
 
@@ -634,6 +893,206 @@ class GoogleClient(BaseModelClient):
             "input_tokens": response.usage_metadata.prompt_token_count,
             "output_tokens": response.usage_metadata.candidates_token_count,
             "model": model_config.model_id,
+        }
+
+    async def computer_use(
+        self,
+        task: str,
+        screenshot: bytes,
+        model_config: ModelConfig,
+        previous_actions: Optional[list[dict]] = None,
+        excluded_actions: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Execute a Gemini Computer Use request.
+
+        This uses the google-genai SDK with the ComputerUse tool for
+        browser automation tasks.
+
+        Args:
+            task: Natural language description of what to do
+            screenshot: Current screen state as PNG bytes
+            model_config: Model configuration (must be gemini-computer-use)
+            previous_actions: History of previous actions taken
+            excluded_actions: Actions to exclude from model's repertoire
+
+        Returns:
+            dict with:
+                - action: The action to perform (e.g., "click_at", "type_text_at")
+                - parameters: Action parameters (coordinates use 1000x1000 grid)
+                - reasoning: Model's reasoning for the action
+                - done: Whether the task is complete
+                - input_tokens: Token count
+                - output_tokens: Token count
+        """
+        if not self.genai_client:
+            raise RuntimeError(
+                "google-genai SDK not available. Install with: pip install google-genai"
+            )
+
+        try:
+            from google.genai import types
+        except ImportError:
+            raise RuntimeError("google-genai SDK required for Computer Use")
+
+        import base64
+
+        # Build the Computer Use tool configuration
+        computer_use_config = types.ComputerUse(
+            environment=types.Environment.ENVIRONMENT_BROWSER
+        )
+
+        if excluded_actions:
+            computer_use_config.excluded_predefined_functions = excluded_actions
+
+        # Build content with screenshot
+        content_parts = [
+            {"text": f"Task: {task}"},
+            {
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": base64.b64encode(screenshot).decode(),
+                }
+            },
+        ]
+
+        # Add action history if provided
+        if previous_actions:
+            history_text = "\n".join([
+                f"- {a['action']}: {a.get('parameters', {})}"
+                for a in previous_actions[-5:]  # Last 5 actions
+            ])
+            content_parts.insert(1, {"text": f"Previous actions:\n{history_text}"})
+
+        # Generate content with Computer Use tool
+        config = types.GenerateContentConfig(
+            tools=[types.Tool(computer_use=computer_use_config)],
+            max_output_tokens=4096,
+        )
+
+        response = self.genai_client.models.generate_content(
+            model=model_config.model_id,
+            contents=content_parts,
+            config=config,
+        )
+
+        # Parse the response
+        result = {
+            "action": None,
+            "parameters": {},
+            "reasoning": "",
+            "done": False,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "model": model_config.model_id,
+        }
+
+        # Extract token counts
+        if hasattr(response, "usage_metadata"):
+            result["input_tokens"] = response.usage_metadata.prompt_token_count or 0
+            result["output_tokens"] = response.usage_metadata.candidates_token_count or 0
+
+        # Parse function calls from response
+        if response.candidates:
+            candidate = response.candidates[0]
+            for part in candidate.content.parts:
+                if hasattr(part, "text") and part.text:
+                    result["reasoning"] = part.text
+                elif hasattr(part, "function_call"):
+                    fc = part.function_call
+                    result["action"] = fc.name
+                    result["parameters"] = dict(fc.args) if fc.args else {}
+
+        # Check if task is complete (model returns no action)
+        if not result["action"]:
+            result["done"] = True
+
+        return result
+
+    async def computer_use_loop(
+        self,
+        task: str,
+        screenshot_fn,
+        action_fn,
+        model_config: ModelConfig,
+        max_iterations: int = 30,
+        excluded_actions: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Run a complete Computer Use agent loop.
+
+        Args:
+            task: Natural language task description
+            screenshot_fn: Async function that returns current screenshot bytes
+            action_fn: Async function that executes an action and returns success
+            model_config: Model configuration
+            max_iterations: Maximum number of actions to take
+            excluded_actions: Actions to exclude
+
+        Returns:
+            dict with:
+                - success: Whether task completed
+                - actions: List of actions taken
+                - total_input_tokens: Total tokens used
+                - total_output_tokens: Total tokens used
+                - iterations: Number of iterations
+        """
+        actions_taken = []
+        total_input = 0
+        total_output = 0
+
+        for i in range(max_iterations):
+            # Get current screenshot
+            screenshot = await screenshot_fn()
+
+            # Get next action from model
+            result = await self.computer_use(
+                task=task,
+                screenshot=screenshot,
+                model_config=model_config,
+                previous_actions=actions_taken,
+                excluded_actions=excluded_actions,
+            )
+
+            total_input += result["input_tokens"]
+            total_output += result["output_tokens"]
+
+            if result["done"]:
+                return {
+                    "success": True,
+                    "actions": actions_taken,
+                    "total_input_tokens": total_input,
+                    "total_output_tokens": total_output,
+                    "iterations": i + 1,
+                }
+
+            # Execute the action
+            action_result = await action_fn(
+                result["action"],
+                result["parameters"]
+            )
+
+            actions_taken.append({
+                "action": result["action"],
+                "parameters": result["parameters"],
+                "reasoning": result["reasoning"],
+                "success": action_result,
+            })
+
+            if not action_result:
+                logger.warning(
+                    "Action failed",
+                    action=result["action"],
+                    parameters=result["parameters"],
+                )
+
+        return {
+            "success": False,
+            "actions": actions_taken,
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "iterations": max_iterations,
+            "error": "Max iterations reached",
         }
 
 
@@ -839,6 +1298,15 @@ class ModelRouter:
     2. Quality - Ensure model capability matches task complexity
     3. Latency - Consider time constraints
     4. Availability - Fallback if primary model unavailable
+    5. Budget - Enforce organization budget limits (NEW)
+
+    Usage with cost tracking:
+        router = ModelRouter(organization_id="org-uuid", project_id="proj-uuid")
+        result = await router.complete(
+            task_type=TaskType.TEST_GENERATION,
+            messages=[{"role": "user", "content": "Generate a test"}],
+        )
+        # Usage is automatically recorded to Supabase
     """
 
     def __init__(
@@ -846,16 +1314,52 @@ class ModelRouter:
         prefer_provider: Optional[ModelProvider] = None,
         cost_limit_per_call: float = 0.10,
         enable_fallback: bool = True,
+        organization_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        enforce_budget: bool = True,
     ):
         self.prefer_provider = prefer_provider
         self.cost_limit = cost_limit_per_call
         self.enable_fallback = enable_fallback
 
+        # Organization context for cost tracking
+        self.organization_id = organization_id
+        self.project_id = project_id
+        self.enforce_budget = enforce_budget
+
+        # Cost tracker integration
+        self._cost_tracker = get_cost_tracker()
+
         # Initialize clients lazily
         self._clients: dict[ModelProvider, BaseModelClient] = {}
 
-        # Track usage for optimization
+        # Track usage for optimization (local session stats)
         self.usage_stats: dict[str, dict] = {}
+
+        # Task type mapping from router TaskType to cost tracker TaskType
+        self._task_type_mapping = {
+            TaskType.ELEMENT_CLASSIFICATION: CostTaskType.OTHER,
+            TaskType.ACTION_EXTRACTION: CostTaskType.OTHER,
+            TaskType.SELECTOR_VALIDATION: CostTaskType.OTHER,
+            TaskType.TEXT_EXTRACTION: CostTaskType.OTHER,
+            TaskType.JSON_PARSING: CostTaskType.OTHER,
+            TaskType.CODE_ANALYSIS: CostTaskType.CODE_REVIEW,
+            TaskType.TEST_GENERATION: CostTaskType.TEST_GENERATION,
+            TaskType.ASSERTION_GENERATION: CostTaskType.TEST_GENERATION,
+            TaskType.ERROR_CLASSIFICATION: CostTaskType.ERROR_ANALYSIS,
+            TaskType.VISUAL_COMPARISON: CostTaskType.OTHER,
+            TaskType.SEMANTIC_UNDERSTANDING: CostTaskType.CORRELATION,
+            TaskType.FLOW_DISCOVERY: CostTaskType.OTHER,
+            TaskType.ROOT_CAUSE_ANALYSIS: CostTaskType.ERROR_ANALYSIS,
+            TaskType.SELF_HEALING: CostTaskType.SELF_HEALING,
+            TaskType.FAILURE_PREDICTION: CostTaskType.RISK_ASSESSMENT,
+            TaskType.COGNITIVE_MODELING: CostTaskType.OTHER,
+            TaskType.COMPLEX_DEBUGGING: CostTaskType.ERROR_ANALYSIS,
+            TaskType.COMPUTER_USE_SIMPLE: CostTaskType.OTHER,
+            TaskType.COMPUTER_USE_COMPLEX: CostTaskType.OTHER,
+            TaskType.COMPUTER_USE_MOBILE: CostTaskType.OTHER,
+            TaskType.GENERAL: CostTaskType.OTHER,
+        }
 
     def _get_client(self, provider: ModelProvider) -> BaseModelClient:
         """Get or create a client for the given provider."""
@@ -916,6 +1420,30 @@ class ModelRouter:
         # Fallback to Sonnet if nothing matches
         return "sonnet", MODELS["sonnet"]
 
+    async def check_budget(self) -> BudgetStatus:
+        """Check if the organization has remaining AI budget.
+
+        Returns:
+            BudgetStatus with budget information
+
+        Raises:
+            ValueError: If organization_id is not set
+        """
+        if not self.organization_id:
+            # Return unlimited budget if no org context
+            return BudgetStatus(
+                has_daily_budget=True,
+                has_monthly_budget=True,
+                daily_remaining=float("inf"),
+                monthly_remaining=float("inf"),
+                daily_limit=float("inf"),
+                monthly_limit=float("inf"),
+                daily_used=0,
+                monthly_used=0,
+            )
+
+        return await self._cost_tracker.check_budget(self.organization_id)
+
     async def complete(
         self,
         task_type: TaskType,
@@ -925,10 +1453,51 @@ class ModelRouter:
         temperature: float = 0.0,
         json_mode: bool = False,
         tools: Optional[list] = None,
+        skip_budget_check: bool = False,
     ) -> dict:
         """
         Route the request to the appropriate model and get a completion.
+
+        Args:
+            task_type: Type of task to determine model selection
+            messages: Chat messages to send
+            images: Optional images for vision tasks
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature
+            json_mode: Enable JSON output mode
+            tools: Optional tools for function calling
+            skip_budget_check: Skip budget enforcement (for critical tasks)
+
+        Returns:
+            dict with content, tokens, cost, and model info
+
+        Raises:
+            BudgetExceededError: If organization is over budget
         """
+        # Check budget before making the call
+        if self.enforce_budget and self.organization_id and not skip_budget_check:
+            budget = await self.check_budget()
+            if not budget.has_daily_budget:
+                logger.warning(
+                    "Daily AI budget exceeded",
+                    organization_id=self.organization_id,
+                    daily_used=float(budget.daily_used),
+                    daily_limit=float(budget.daily_limit),
+                )
+                raise BudgetExceededError(
+                    f"Daily AI budget exceeded. Used: ${budget.daily_used:.4f} / ${budget.daily_limit:.2f}"
+                )
+            if not budget.has_monthly_budget:
+                logger.warning(
+                    "Monthly AI budget exceeded",
+                    organization_id=self.organization_id,
+                    monthly_used=float(budget.monthly_used),
+                    monthly_limit=float(budget.monthly_limit),
+                )
+                raise BudgetExceededError(
+                    f"Monthly AI budget exceeded. Used: ${budget.monthly_used:.4f} / ${budget.monthly_limit:.2f}"
+                )
+
         requires_vision = images is not None and len(images) > 0
         requires_tools = tools is not None and len(tools) > 0
 
@@ -939,6 +1508,9 @@ class ModelRouter:
         )
 
         client = self._get_client(config.provider)
+
+        # Track latency
+        start_time = time.time()
 
         try:
             if requires_vision:
@@ -958,27 +1530,53 @@ class ModelRouter:
                     tools=tools,
                 )
 
+            latency_ms = int((time.time() - start_time) * 1000)
+
             # Calculate cost
             input_cost = (result["input_tokens"] / 1_000_000) * config.input_cost_per_1m
             output_cost = (result["output_tokens"] / 1_000_000) * config.output_cost_per_1m
             result["cost"] = input_cost + output_cost
             result["model_name"] = model_name
+            result["latency_ms"] = latency_ms
 
-            # Track usage
+            # Track usage locally
             self._track_usage(model_name, result)
+
+            # Record usage to cost tracker (persists to Supabase)
+            if self.organization_id:
+                cost_task_type = self._task_type_mapping.get(task_type, CostTaskType.OTHER)
+                await self._cost_tracker.record_usage(
+                    organization_id=self.organization_id,
+                    model=config.model_id,
+                    input_tokens=result["input_tokens"],
+                    output_tokens=result["output_tokens"],
+                    task_type=cost_task_type,
+                    project_id=self.project_id,
+                    latency_ms=latency_ms,
+                    cached=result.get("cached", False),
+                    metadata={
+                        "task_type": task_type.value,
+                        "model_name": model_name,
+                        "requires_vision": requires_vision,
+                        "requires_tools": requires_tools,
+                    },
+                )
 
             return result
 
+        except BudgetExceededError:
+            raise
         except Exception as e:
             if self.enable_fallback:
                 # Try fallback to Sonnet
                 return await self._fallback_complete(
-                    messages, images, max_tokens, temperature, json_mode, tools, str(e)
+                    task_type, messages, images, max_tokens, temperature, json_mode, tools, str(e)
                 )
             raise
 
     async def _fallback_complete(
         self,
+        task_type: TaskType,
         messages: list[dict],
         images: Optional[list[bytes]],
         max_tokens: int,
@@ -990,6 +1588,8 @@ class ModelRouter:
         """Fallback to Sonnet if primary model fails."""
         config = MODELS["sonnet"]
         client = self._get_client(ModelProvider.ANTHROPIC)
+
+        start_time = time.time()
 
         if images:
             result = await client.complete_with_vision(
@@ -1008,8 +1608,39 @@ class ModelRouter:
                 tools=tools,
             )
 
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        # Calculate cost
+        input_cost = (result["input_tokens"] / 1_000_000) * config.input_cost_per_1m
+        output_cost = (result["output_tokens"] / 1_000_000) * config.output_cost_per_1m
+        result["cost"] = input_cost + output_cost
+        result["model_name"] = "sonnet"
+        result["latency_ms"] = latency_ms
         result["fallback"] = True
         result["original_error"] = original_error
+
+        # Track usage locally
+        self._track_usage("sonnet", result)
+
+        # Record fallback usage to cost tracker
+        if self.organization_id:
+            cost_task_type = self._task_type_mapping.get(task_type, CostTaskType.OTHER)
+            await self._cost_tracker.record_usage(
+                organization_id=self.organization_id,
+                model=config.model_id,
+                input_tokens=result["input_tokens"],
+                output_tokens=result["output_tokens"],
+                task_type=cost_task_type,
+                project_id=self.project_id,
+                latency_ms=latency_ms,
+                metadata={
+                    "task_type": task_type.value,
+                    "model_name": "sonnet",
+                    "fallback": True,
+                    "original_error": original_error[:200],  # Truncate error
+                },
+            )
+
         return result
 
     def _track_usage(self, model_name: str, result: dict):
