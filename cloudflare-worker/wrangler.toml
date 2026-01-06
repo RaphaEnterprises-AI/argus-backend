@@ -78,12 +78,10 @@ queue = "argus-events-dlq"
 
 # ============================================================================
 # Hyperdrive - Database connection pooling for Supabase
-# Create with: wrangler hyperdrive create argus-db --connection-string="postgresql://..."
-# Uncomment after creating Hyperdrive config with your Supabase connection string
 # ============================================================================
-# [[hyperdrive]]
-# binding = "DB"
-# id = "PLACEHOLDER_HYPERDRIVE_ID"
+[[hyperdrive]]
+binding = "DB"
+id = "8947cded59a2412ebc224670d502b1f0"
 
 # ============================================================================
 # Durable Objects - Stateful real-time connections
