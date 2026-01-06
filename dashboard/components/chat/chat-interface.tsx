@@ -161,6 +161,100 @@ function ToolCallDisplay({ toolName, args, result, isLoading }: {
   );
 }
 
+// Screenshot gallery component
+function ScreenshotGallery({ screenshots, label }: { screenshots: string[]; label?: string }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
+  if (!screenshots || screenshots.length === 0) return null;
+
+  return (
+    <div className="mt-3">
+      <div className="text-xs font-medium text-muted-foreground mb-2">
+        {label || `Screenshots (${screenshots.length})`}
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {screenshots.map((screenshot, index) => (
+          <button
+            key={index}
+            onClick={() => setSelectedIndex(index)}
+            className="relative flex-shrink-0 w-24 h-16 rounded border hover:border-primary transition-colors overflow-hidden"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`}
+              alt={`Step ${index + 1}`}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] px-1">
+              Step {index + 1}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Lightbox modal */}
+      <AnimatePresence>
+        {selectedIndex !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setSelectedIndex(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="relative max-w-4xl max-h-[80vh] overflow-hidden rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={screenshots[selectedIndex].startsWith('data:')
+                  ? screenshots[selectedIndex]
+                  : `data:image/png;base64,${screenshots[selectedIndex]}`}
+                alt={`Step ${selectedIndex + 1}`}
+                className="max-w-full max-h-[80vh] object-contain"
+              />
+              <div className="absolute top-2 right-2 flex gap-2">
+                {selectedIndex > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSelectedIndex(selectedIndex - 1)}
+                  >
+                    Previous
+                  </Button>
+                )}
+                {selectedIndex < screenshots.length - 1 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSelectedIndex(selectedIndex + 1)}
+                  >
+                    Next
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSelectedIndex(null)}
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="absolute bottom-2 left-2 bg-black/50 text-white text-sm px-2 py-1 rounded">
+                Step {selectedIndex + 1} of {screenshots.length}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // Result display component
 function ResultDisplay({ result }: { result: unknown }) {
   if (!result || typeof result !== 'object') {
@@ -173,8 +267,20 @@ function ResultDisplay({ result }: { result: unknown }) {
 
   const data = result as Record<string, unknown>;
 
+  // Extract screenshots from various possible locations
+  const screenshots: string[] = [];
+  if (Array.isArray(data.screenshots)) {
+    screenshots.push(...(data.screenshots as string[]));
+  }
+  if (typeof data.screenshot === 'string') {
+    screenshots.push(data.screenshot);
+  }
+  if (typeof data.finalScreenshot === 'string') {
+    screenshots.push(data.finalScreenshot);
+  }
+
   // Handle actions array (from discoverElements)
-  if (Array.isArray(data.actions) && data.actions.length > 0) {
+  if (Array.isArray(data.actions) && data.actions.length > 0 && !data.steps) {
     return (
       <div className="space-y-2">
         <div className="text-xs text-muted-foreground">
@@ -201,6 +307,7 @@ function ResultDisplay({ result }: { result: unknown }) {
             </div>
           )}
         </div>
+        {screenshots.length > 0 && <ScreenshotGallery screenshots={screenshots} />}
       </div>
     );
   }
@@ -213,7 +320,7 @@ function ResultDisplay({ result }: { result: unknown }) {
           Test {data.success ? 'passed' : 'failed'}:
         </div>
         <div className="space-y-1">
-          {data.steps.map((step: { instruction?: string; success?: boolean }, index: number) => (
+          {data.steps.map((step: { instruction?: string; success?: boolean; screenshot?: string }, index: number) => (
             <div
               key={index}
               className={cn(
@@ -230,15 +337,37 @@ function ResultDisplay({ result }: { result: unknown }) {
             </div>
           ))}
         </div>
+        {screenshots.length > 0 && (
+          <ScreenshotGallery screenshots={screenshots} label="Test Screenshots" />
+        )}
       </div>
     );
   }
 
-  // Default JSON display
+  // Handle single screenshot with message (from executeAction)
+  if (data.message && screenshots.length > 0) {
+    return (
+      <div className="space-y-2">
+        <div className="text-xs">
+          {data.success ? (
+            <span className="text-green-500">✓ {String(data.message)}</span>
+          ) : (
+            <span className="text-red-500">✗ {String(data.message)}</span>
+          )}
+        </div>
+        <ScreenshotGallery screenshots={screenshots} label="Action Screenshot" />
+      </div>
+    );
+  }
+
+  // Default JSON display with screenshots if available
   return (
-    <pre className="text-xs bg-background rounded p-2 overflow-x-auto max-h-40">
-      {JSON.stringify(result, null, 2)}
-    </pre>
+    <div>
+      <pre className="text-xs bg-background rounded p-2 overflow-x-auto max-h-40">
+        {JSON.stringify(result, null, 2)}
+      </pre>
+      {screenshots.length > 0 && <ScreenshotGallery screenshots={screenshots} />}
+    </div>
   );
 }
 
@@ -285,6 +414,7 @@ function MessageContent({ message }: { message: Message }) {
 export function ChatInterface({ conversationId, initialMessages = [], onMessagesChange }: ChatInterfaceProps) {
   // Track last saved message count to prevent duplicate saves
   const lastSavedCountRef = useRef(0);
+  const [error, setError] = useState<string | null>(null);
 
   // Store conversationId in ref to avoid stale closure issues
   const conversationIdRef = useRef(conversationId);
@@ -309,7 +439,12 @@ export function ChatInterface({ conversationId, initialMessages = [], onMessages
     id: isValidConversationId ? conversationId : undefined,
     initialMessages,
     maxSteps: 5, // Allow multi-step tool calls
+    onError: (err) => {
+      console.error('Chat error:', err);
+      setError(err.message || 'An error occurred while processing your request');
+    },
     onFinish: (message) => {
+      setError(null); // Clear any previous errors on success
       // Use refs to get latest values, avoiding stale closures
       const currentConversationId = conversationIdRef.current;
       const currentOnMessagesChange = onMessagesChangeRef.current;
@@ -464,6 +599,21 @@ export function ChatInterface({ conversationId, initialMessages = [], onMessages
           </motion.div>
         )}
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mx-4 mb-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setError(null)}
+            className="h-6 px-2 text-destructive hover:text-destructive"
+          >
+            <XCircle className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Input Area */}
       <div className="border-t bg-background/80 backdrop-blur-sm p-4">
