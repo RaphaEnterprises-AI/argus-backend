@@ -1486,6 +1486,17 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
 }
 
 // ============================================================================
+// QUEUE MESSAGE TYPES
+// ============================================================================
+
+interface QueueMessage {
+  type: 'webhook_event' | 'test_request' | 'error_event';
+  payload: Record<string, unknown>;
+  timestamp: number;
+  projectId?: string;
+}
+
+// ============================================================================
 // MAIN WORKER
 // ============================================================================
 
@@ -1591,6 +1602,77 @@ export default {
     } catch (error) {
       console.error("Request failed:", error);
       return Response.json({ error: "Internal error", details: error instanceof Error ? error.message : "Unknown" }, { status: 500, headers: corsHeaders });
+    }
+  },
+
+  // Queue consumer handler for async event processing
+  async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
+    const cache = createCache(env.CACHE);
+    const storage = createStorage(env.ARTIFACTS);
+
+    for (const message of batch.messages) {
+      try {
+        const { type, payload, timestamp, projectId } = message.body;
+        console.log(`Processing ${type} event for project ${projectId}`);
+
+        switch (type) {
+          case 'webhook_event':
+            // Process webhook events - deduplicate and forward to Brain
+            if (payload.fingerprint) {
+              const isDupe = await cache.isDuplicate(String(payload.fingerprint));
+              if (isDupe) {
+                console.log(`Duplicate event skipped: ${payload.fingerprint}`);
+                message.ack();
+                continue;
+              }
+              await cache.markAsSeen(String(payload.fingerprint), { projectId, timestamp });
+            }
+
+            // Forward to Brain service for processing
+            if (env.BRAIN_URL) {
+              try {
+                await fetch(`${env.BRAIN_URL}/api/v1/webhooks/process`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ type, payload, projectId, timestamp }),
+                });
+              } catch (e) {
+                console.error('Failed to forward to Brain:', e);
+                // Re-queue for retry
+                message.retry();
+                continue;
+              }
+            }
+            break;
+
+          case 'test_request':
+            // Process test generation requests
+            console.log(`Test request for project ${projectId}:`, payload);
+            // Store request and trigger processing
+            if (projectId && storage.isAvailable()) {
+              await storage.storeTestResults(
+                projectId,
+                `request-${timestamp}`,
+                { type: 'pending', payload, requestedAt: new Date(timestamp).toISOString() }
+              );
+            }
+            break;
+
+          case 'error_event':
+            // Process error events for correlation
+            console.log(`Error event for project ${projectId}:`, payload);
+            break;
+
+          default:
+            console.warn(`Unknown event type: ${type}`);
+        }
+
+        message.ack();
+      } catch (error) {
+        console.error('Queue message processing failed:', error);
+        // Move to DLQ after max retries
+        message.retry();
+      }
     }
   },
 };

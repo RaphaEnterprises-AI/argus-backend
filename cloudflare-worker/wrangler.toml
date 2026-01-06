@@ -31,7 +31,7 @@ index_name = "argus-patterns"
 # ============================================================================
 [[kv_namespaces]]
 binding = "CACHE"
-id = "PLACEHOLDER_CACHE_ID"  # Replace after running: wrangler kv:namespace create "ARGUS_CACHE"
+id = "e1f3cdefb05c43b88528adb515bde16a"
 
 # KV key patterns:
 # - dedup:{fingerprint}          → Event deduplication (TTL: 24h)
@@ -79,10 +79,11 @@ queue = "argus-events-dlq"
 # ============================================================================
 # Hyperdrive - Database connection pooling for Supabase
 # Create with: wrangler hyperdrive create argus-db --connection-string="postgresql://..."
+# Uncomment after creating Hyperdrive config with your Supabase connection string
 # ============================================================================
-[[hyperdrive]]
-binding = "DB"
-id = "PLACEHOLDER_HYPERDRIVE_ID"  # Replace after creating hyperdrive config
+# [[hyperdrive]]
+# binding = "DB"
+# id = "PLACEHOLDER_HYPERDRIVE_ID"
 
 # ============================================================================
 # Durable Objects - Stateful real-time connections
