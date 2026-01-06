@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '10mb',
     },
   },
+  // Externalize heavy packages to reduce serverless function size
+  serverExternalPackages: [
+    '@anthropic-ai/sdk',
+    'anthropic',
+  ],
   // Environment variables for client-side
   env: {
     NEXT_PUBLIC_E2E_WORKER_URL: process.env.NEXT_PUBLIC_E2E_WORKER_URL || 'https://e2e-testing-agent.samuelvinay-kumar.workers.dev',

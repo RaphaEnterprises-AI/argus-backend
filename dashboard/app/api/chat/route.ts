@@ -2,6 +2,9 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
 
+// Use Edge runtime to avoid serverless function size limits
+export const runtime = 'edge';
+
 // Allow streaming responses up to 60 seconds
 export const maxDuration = 60;
 
