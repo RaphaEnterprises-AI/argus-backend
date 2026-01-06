@@ -6,18 +6,18 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '10mb',
     },
-    // Exclude heavy files from serverless function traces
-    outputFileTracingExcludes: {
-      '*': [
-        'node_modules/@swc/core-linux-x64-gnu',
-        'node_modules/@swc/core-linux-x64-musl',
-        'node_modules/@esbuild/linux-x64',
-        'node_modules/@esbuild',
-        'node_modules/esbuild',
-        'node_modules/terser',
-        'node_modules/webpack',
-      ],
-    },
+  },
+  // Exclude heavy files from serverless function traces (must be at root level)
+  outputFileTracingExcludes: {
+    '*': [
+      'node_modules/@swc/core-linux-x64-gnu',
+      'node_modules/@swc/core-linux-x64-musl',
+      'node_modules/@esbuild/linux-x64',
+      'node_modules/@esbuild',
+      'node_modules/esbuild',
+      'node_modules/terser',
+      'node_modules/webpack',
+    ],
   },
   // Externalize heavy packages to reduce serverless function size
   serverExternalPackages: [
