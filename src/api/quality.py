@@ -601,7 +601,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
         risk_scores.append({
             "entity_type": data["entity_type"],
             "entity_identifier": entity_key,
-            "overall_score": min(100, overall),
+            "overall_risk_score": min(100, overall),
             "factors": factors,
             "error_count": data["error_count"],
             "affected_users": data["affected_users"],
@@ -609,7 +609,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
         })
 
     # Sort by overall score (highest risk first)
-    risk_scores.sort(key=lambda x: x["overall_score"], reverse=True)
+    risk_scores.sort(key=lambda x: x["overall_risk_score"], reverse=True)
 
     # Store risk scores in database
     for score in risk_scores[:50]:  # Limit to top 50
@@ -620,7 +620,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
                 "project_id": request.project_id,
                 "entity_type": score["entity_type"],
                 "entity_identifier": score["entity_identifier"],
-                "overall_score": score["overall_score"],
+                "overall_risk_score": score["overall_risk_score"],
                 "factors": score["factors"],
                 "error_count": score["error_count"],
                 "affected_users": score["affected_users"],
@@ -730,7 +730,7 @@ async def get_risk_scores(
     query_path = f"/risk_scores?project_id=eq.{project_id}"
     if entity_type:
         query_path += f"&entity_type=eq.{entity_type}"
-    query_path += f"&order=overall_score.desc&limit={limit}"
+    query_path += f"&order=overall_risk_score.desc&limit={limit}"
 
     result = await supabase.request(query_path)
 
@@ -793,12 +793,12 @@ async def get_quality_score(
 
     # Get risk scores (handle missing table)
     risk_result = await supabase.request(
-        f"/risk_scores?project_id=eq.{project_id}&select=overall_score"
+        f"/risk_scores?project_id=eq.{project_id}&select=overall_risk_score"
     )
     risk_scores = risk_result.get("data", []) if not risk_result.get("error") else []
 
     # Calculate quality score (inverse of risk)
-    avg_risk = sum(r.get("overall_score", 50) for r in risk_scores) / len(risk_scores) if risk_scores else 50
+    avg_risk = sum(r.get("overall_risk_score", 50) for r in risk_scores) / len(risk_scores) if risk_scores else 50
     quality_score = max(0, 100 - avg_risk)
 
     # Calculate test coverage
