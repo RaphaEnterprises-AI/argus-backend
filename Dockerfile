@@ -1,86 +1,49 @@
-# E2E Testing Agent - Production Dockerfile
-# Multi-stage build for optimized image size
+# E2E Testing Agent - Railway Optimized Dockerfile
+FROM python:3.11-slim
 
-# ============================================================================
-# Stage 1: Builder
-# ============================================================================
-FROM python:3.11-slim as builder
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# Install build dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Copy dependency files first (for caching)
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir build && \
-    pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -e .
 
-# ============================================================================
-# Stage 2: Runtime
-# ============================================================================
-FROM python:3.11-slim as runtime
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src \
-    PORT=8000
-
-WORKDIR /app
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # For Playwright
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
-    libatspi2.0-0 \
-    # Utilities
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy wheels from builder
-COPY --from=builder /app/wheels /wheels
-RUN pip install --no-cache-dir /wheels/*
-
-# Install Playwright browsers
-RUN playwright install chromium && \
-    playwright install-deps chromium
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install -e . || pip install \
+    "anthropic>=0.75.0" \
+    "langgraph>=1.0.5" \
+    "langchain-anthropic>=1.3.0" \
+    "langchain-core>=1.2.5" \
+    "httpx>=0.27.0" \
+    "pydantic>=2.9.0" \
+    "pydantic-settings>=2.5.0" \
+    "fastapi>=0.115.0" \
+    "uvicorn>=0.32.0" \
+    "structlog>=24.4.0" \
+    "python-dotenv>=1.0.0" \
+    "rich>=13.9.0" \
+    "pillow>=10.4.0"
 
 # Copy application code
 COPY src/ /app/src/
-COPY tests/ /app/tests/
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app
-USER appuser
-
-# Create directories for output
+# Create output directories
 RUN mkdir -p /app/test-results /app/baselines
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+# Expose port (Railway sets PORT env var)
+EXPOSE 8000
 
-# Expose port
-EXPOSE ${PORT}
-
-# Default command - run the API server
-CMD ["python", "-m", "uvicorn", "src.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use shell form to expand $PORT variable
+CMD uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-8000}
