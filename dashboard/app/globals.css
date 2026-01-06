@@ -1,0 +1,383 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ARGUS DESIGN SYSTEM
+ * ====================
+ * A sophisticated, professional design system built on:
+ * - 8px spacing grid
+ * - Unique color palette (teal/cyan primary, amber accents)
+ * - Clear typography hierarchy
+ * - Consistent component styling
+ */
+
+@layer base {
+  :root {
+    /* Light theme (not primary, but supported) */
+    --background: 210 20% 98%;
+    --foreground: 220 25% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 10%;
+    --primary: 173 80% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 15% 93%;
+    --secondary-foreground: 220 25% 10%;
+    --muted: 220 15% 93%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 173 80% 40%;
+    --radius: 0.625rem;
+
+    /* Argus Brand Colors */
+    --argus-teal: 173 80% 40%;
+    --argus-cyan: 185 85% 50%;
+    --argus-amber: 38 92% 50%;
+    --argus-emerald: 160 84% 39%;
+  }
+
+  .dark {
+    /* Rich dark slate background - not pure black */
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+
+    /* Card with subtle elevation */
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 96%;
+
+    /* Popover slightly lighter than card */
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    /* Primary: Electric Teal - unique, tech-forward */
+    --primary: 173 80% 45%;
+    --primary-foreground: 222 47% 6%;
+
+    /* Secondary: Slate */
+    --secondary: 222 30% 14%;
+    --secondary-foreground: 210 40% 96%;
+
+    /* Muted: Softer slate */
+    --muted: 222 30% 12%;
+    --muted-foreground: 215 20% 55%;
+
+    /* Accent: Warm Amber - premium, alerting */
+    --accent: 38 92% 50%;
+    --accent-foreground: 222 47% 6%;
+
+    /* Destructive: Clear red */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders: Subtle but visible */
+    --border: 222 30% 16%;
+    --input: 222 30% 16%;
+    --ring: 173 80% 45%;
+
+    /* Argus Brand Colors - Dark Mode */
+    --argus-teal: 173 80% 45%;
+    --argus-cyan: 185 85% 55%;
+    --argus-amber: 38 92% 55%;
+    --argus-emerald: 160 84% 44%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* Smooth scrolling */
+    scroll-behavior: smooth;
+    /* Prevent layout shift from scrollbar */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Anchor link offset for fixed header */
+  section[id] {
+    scroll-margin-top: 80px;
+  }
+
+  /* Typography Hierarchy */
+  h1 {
+    @apply text-4xl font-bold tracking-tight;
+    letter-spacing: -0.025em;
+  }
+
+  h2 {
+    @apply text-2xl font-semibold tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  h3 {
+    @apply text-xl font-semibold;
+    letter-spacing: -0.015em;
+  }
+
+  h4 {
+    @apply text-lg font-medium;
+  }
+
+  h5 {
+    @apply text-base font-medium;
+  }
+
+  h6 {
+    @apply text-sm font-medium uppercase tracking-wide;
+  }
+
+  /* Better focus states */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Custom scrollbar - refined */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/20 rounded-full;
+  transition: background-color 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/40;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+}
+
+@layer components {
+  /* Consistent card styling */
+  .card-elevated {
+    @apply bg-card border border-border rounded-xl;
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  }
+
+  .card-elevated-hover {
+    @apply card-elevated transition-all duration-200;
+  }
+
+  .card-elevated-hover:hover {
+    @apply border-primary/30;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-background/80 backdrop-blur-xl border border-border/50;
+  }
+
+  /* Gradient text utility */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary via-[hsl(var(--argus-cyan))] to-primary bg-clip-text text-transparent;
+  }
+
+  /* Gradient backgrounds */
+  .gradient-primary {
+    @apply bg-gradient-to-r from-primary to-[hsl(var(--argus-cyan))];
+  }
+
+  .gradient-accent {
+    @apply bg-gradient-to-r from-[hsl(var(--argus-amber))] to-[hsl(35,90%,55%)];
+  }
+
+  /* Section spacing - 8px grid */
+  .section-padding {
+    @apply px-6 py-16 md:px-8 md:py-24;
+  }
+
+  .container-tight {
+    @apply max-w-5xl mx-auto;
+  }
+
+  .container-wide {
+    @apply max-w-7xl mx-auto;
+  }
+
+  /* Button base styles */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
+           bg-primary text-primary-foreground font-medium rounded-lg
+           transition-all duration-200 hover:opacity-90
+           focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
+           bg-secondary text-secondary-foreground font-medium rounded-lg
+           border border-border transition-all duration-200
+           hover:bg-secondary/80 hover:border-primary/30;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2
+           text-muted-foreground font-medium rounded-lg
+           transition-all duration-200 hover:text-foreground hover:bg-muted;
+  }
+
+  /* Link styles */
+  .link {
+    @apply text-primary hover:text-primary/80 transition-colors underline-offset-4 hover:underline;
+  }
+
+  .link-subtle {
+    @apply text-muted-foreground hover:text-foreground transition-colors;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5
+           text-xs font-medium rounded-full;
+  }
+
+  .badge-primary {
+    @apply badge bg-primary/10 text-primary;
+  }
+
+  .badge-success {
+    @apply badge bg-emerald-500/10 text-emerald-500;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-500/10 text-amber-500;
+  }
+
+  .badge-error {
+    @apply badge bg-red-500/10 text-red-500;
+  }
+
+  /* Status indicators */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot-success {
+    @apply status-dot bg-emerald-500;
+  }
+
+  .status-dot-warning {
+    @apply status-dot bg-amber-500;
+  }
+
+  .status-dot-error {
+    @apply status-dot bg-red-500;
+  }
+
+  .status-dot-info {
+    @apply status-dot bg-primary;
+  }
+
+  /* Test status colors - refined */
+  .status-passed {
+    @apply text-emerald-500 bg-emerald-500/10;
+  }
+
+  .status-failed {
+    @apply text-red-500 bg-red-500/10;
+  }
+
+  .status-running {
+    @apply text-primary bg-primary/10;
+  }
+
+  .status-pending {
+    @apply text-amber-500 bg-amber-500/10;
+  }
+}
+
+/* Code highlighting adjustments */
+.prose pre {
+  @apply bg-muted rounded-lg p-4 overflow-x-auto text-sm;
+}
+
+.prose code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+/* Animation for streaming text */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: '|';
+  animation: blink 1s infinite;
+  @apply text-primary ml-0.5 font-light;
+}
+
+/* Smooth hover transitions for interactive elements */
+@layer utilities {
+  .hover-lift {
+    @apply transition-transform duration-200;
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  .hover-glow:hover {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3);
+  }
+}
+
+/* Page transition animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
+
+/* Stagger children animations */
+.stagger-children > * {
+  animation: slideUp 0.4s ease-out both;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
