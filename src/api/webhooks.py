@@ -907,6 +907,428 @@ async def handle_bugsnag_webhook(
 # Rollbar Webhook
 # =============================================================================
 
+# =============================================================================
+# GitHub Actions CI/CD Webhook
+# =============================================================================
+
+class GitHubWorkflowRun(BaseModel):
+    """GitHub Actions workflow run data."""
+    id: int
+    name: str
+    head_branch: str
+    head_sha: str
+    status: str  # queued, in_progress, completed
+    conclusion: Optional[str] = None  # success, failure, cancelled, skipped
+    html_url: str
+    created_at: str
+    updated_at: str
+    run_number: int
+    workflow_id: int
+
+
+class GitHubRepository(BaseModel):
+    """GitHub repository data."""
+    id: int
+    name: str
+    full_name: str
+    html_url: str
+    default_branch: str = "main"
+
+
+class GitHubActionsPayload(BaseModel):
+    """GitHub Actions webhook payload."""
+    action: str  # requested, completed, in_progress
+    workflow_run: Optional[dict] = None
+    workflow_job: Optional[dict] = None
+    repository: dict
+    sender: Optional[dict] = None
+
+
+class CIEvent(BaseModel):
+    """Normalized CI/CD event for storage."""
+    project_id: str
+    source: Literal["github_actions", "gitlab_ci", "circleci", "jenkins"]
+    external_id: str
+    external_url: Optional[str] = None
+    event_type: Literal["workflow_run", "workflow_job", "test_run", "coverage_report"]
+    status: Literal["pending", "running", "success", "failure", "cancelled", "skipped"]
+    workflow_name: str
+    branch: str
+    commit_sha: str
+    run_number: int
+    duration_seconds: Optional[int] = None
+    test_results: Optional[dict] = None  # {passed: X, failed: Y, skipped: Z}
+    coverage_percent: Optional[float] = None
+    raw_payload: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+
+
+@router.post("/github-actions", response_model=WebhookResponse)
+async def handle_github_actions_webhook(
+    request: Request,
+    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle GitHub Actions webhook events.
+
+    GitHub sends webhooks for workflow runs and jobs.
+    Configure in GitHub: Settings → Webhooks → Add webhook
+    Events: workflow_run, workflow_job
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "github_actions", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found. Please specify project_id query parameter.",
+                )
+
+        payload = GitHubActionsPayload(**body)
+        action = payload.action
+        repo = payload.repository
+
+        # Handle workflow_run events
+        if payload.workflow_run:
+            run = payload.workflow_run
+
+            # Map GitHub status/conclusion to our status
+            status: Literal["pending", "running", "success", "failure", "cancelled", "skipped"] = "pending"
+            if run.get("status") == "completed":
+                conclusion = run.get("conclusion", "").lower()
+                if conclusion == "success":
+                    status = "success"
+                elif conclusion in ("failure", "timed_out"):
+                    status = "failure"
+                elif conclusion == "cancelled":
+                    status = "cancelled"
+                elif conclusion == "skipped":
+                    status = "skipped"
+            elif run.get("status") == "in_progress":
+                status = "running"
+
+            # Calculate duration if completed
+            duration_seconds = None
+            if run.get("updated_at") and run.get("created_at"):
+                try:
+                    from datetime import datetime as dt
+                    created = dt.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+                    updated = dt.fromisoformat(run["updated_at"].replace("Z", "+00:00"))
+                    duration_seconds = int((updated - created).total_seconds())
+                except Exception:
+                    pass
+
+            ci_event = CIEvent(
+                project_id=project_id,
+                source="github_actions",
+                external_id=str(run.get("id")),
+                external_url=run.get("html_url"),
+                event_type="workflow_run",
+                status=status,
+                workflow_name=run.get("name", "Unknown"),
+                branch=run.get("head_branch", "unknown"),
+                commit_sha=run.get("head_sha", ""),
+                run_number=run.get("run_number", 0),
+                duration_seconds=duration_seconds,
+                raw_payload=body,
+                metadata={
+                    "repository": repo.get("full_name"),
+                    "workflow_id": run.get("workflow_id"),
+                    "event": run.get("event"),
+                    "actor": run.get("actor", {}).get("login") if run.get("actor") else None,
+                    "conclusion": run.get("conclusion"),
+                },
+            )
+
+            result = await supabase.insert("ci_events", ci_event.model_dump())
+
+            if result.get("error"):
+                await update_webhook_log(supabase, webhook_id, "failed", str(result["error"]))
+                raise HTTPException(status_code=500, detail="Failed to store CI event")
+
+            event_id = result["data"][0]["id"] if result.get("data") else None
+            await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+            logger.info(
+                "GitHub Actions webhook processed",
+                event_id=event_id,
+                workflow=run.get("name"),
+                status=status,
+            )
+
+            return WebhookResponse(
+                success=True,
+                message=f"Workflow run {action}: {run.get('name')} ({status})",
+                event_id=event_id,
+            )
+
+        # Handle workflow_job events
+        if payload.workflow_job:
+            job = payload.workflow_job
+            await update_webhook_log(supabase, webhook_id, "processed")
+
+            return WebhookResponse(
+                success=True,
+                message=f"Workflow job {action}: {job.get('name')}",
+            )
+
+        await update_webhook_log(supabase, webhook_id, "processed")
+        return WebhookResponse(success=True, message="Webhook received")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("GitHub Actions webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Coverage Report Upload Endpoint
+# =============================================================================
+
+class CoverageReport(BaseModel):
+    """Coverage report upload."""
+    project_id: Optional[str] = None
+    branch: str = "main"
+    commit_sha: str
+    format: Literal["lcov", "istanbul", "cobertura", "clover"] = "lcov"
+    report_data: str  # Raw coverage report content
+    ci_run_id: Optional[str] = None  # Link to CI event
+
+
+class CoverageSummary(BaseModel):
+    """Parsed coverage summary."""
+    lines_total: int = 0
+    lines_covered: int = 0
+    lines_percent: float = 0.0
+    branches_total: int = 0
+    branches_covered: int = 0
+    branches_percent: float = 0.0
+    functions_total: int = 0
+    functions_covered: int = 0
+    functions_percent: float = 0.0
+    files: list[dict] = Field(default_factory=list)
+
+
+def parse_lcov(report_data: str) -> CoverageSummary:
+    """Parse LCOV coverage report format."""
+    lines_total = 0
+    lines_covered = 0
+    branches_total = 0
+    branches_covered = 0
+    functions_total = 0
+    functions_covered = 0
+    files = []
+
+    current_file = None
+    file_lines_total = 0
+    file_lines_covered = 0
+
+    for line in report_data.split("\n"):
+        line = line.strip()
+
+        if line.startswith("SF:"):
+            current_file = line[3:]
+            file_lines_total = 0
+            file_lines_covered = 0
+        elif line.startswith("LF:"):
+            file_lines_total = int(line[3:])
+            lines_total += file_lines_total
+        elif line.startswith("LH:"):
+            file_lines_covered = int(line[3:])
+            lines_covered += file_lines_covered
+        elif line.startswith("BRF:"):
+            branches_total += int(line[4:])
+        elif line.startswith("BRH:"):
+            branches_covered += int(line[4:])
+        elif line.startswith("FNF:"):
+            functions_total += int(line[4:])
+        elif line.startswith("FNH:"):
+            functions_covered += int(line[4:])
+        elif line == "end_of_record":
+            if current_file:
+                file_percent = (file_lines_covered / file_lines_total * 100) if file_lines_total > 0 else 0
+                files.append({
+                    "path": current_file,
+                    "lines_total": file_lines_total,
+                    "lines_covered": file_lines_covered,
+                    "coverage_percent": round(file_percent, 2),
+                })
+            current_file = None
+
+    return CoverageSummary(
+        lines_total=lines_total,
+        lines_covered=lines_covered,
+        lines_percent=round(lines_covered / lines_total * 100, 2) if lines_total > 0 else 0,
+        branches_total=branches_total,
+        branches_covered=branches_covered,
+        branches_percent=round(branches_covered / branches_total * 100, 2) if branches_total > 0 else 0,
+        functions_total=functions_total,
+        functions_covered=functions_covered,
+        functions_percent=round(functions_covered / functions_total * 100, 2) if functions_total > 0 else 0,
+        files=files,
+    )
+
+
+def parse_istanbul_json(report_data: str) -> CoverageSummary:
+    """Parse Istanbul JSON coverage report format."""
+    import json
+
+    try:
+        data = json.loads(report_data)
+    except json.JSONDecodeError:
+        return CoverageSummary()
+
+    lines_total = 0
+    lines_covered = 0
+    branches_total = 0
+    branches_covered = 0
+    functions_total = 0
+    functions_covered = 0
+    files = []
+
+    for file_path, file_data in data.items():
+        # Handle both istanbul formats
+        if isinstance(file_data, dict):
+            # Standard istanbul format
+            s = file_data.get("s", {})  # statements
+            b = file_data.get("b", {})  # branches
+            f = file_data.get("f", {})  # functions
+
+            file_lines_total = len(s)
+            file_lines_covered = sum(1 for v in s.values() if v > 0)
+            file_branches_total = sum(len(br) for br in b.values())
+            file_branches_covered = sum(sum(1 for v in br if v > 0) for br in b.values())
+            file_functions_total = len(f)
+            file_functions_covered = sum(1 for v in f.values() if v > 0)
+
+            lines_total += file_lines_total
+            lines_covered += file_lines_covered
+            branches_total += file_branches_total
+            branches_covered += file_branches_covered
+            functions_total += file_functions_total
+            functions_covered += file_functions_covered
+
+            file_percent = (file_lines_covered / file_lines_total * 100) if file_lines_total > 0 else 0
+            files.append({
+                "path": file_path,
+                "lines_total": file_lines_total,
+                "lines_covered": file_lines_covered,
+                "coverage_percent": round(file_percent, 2),
+            })
+
+    return CoverageSummary(
+        lines_total=lines_total,
+        lines_covered=lines_covered,
+        lines_percent=round(lines_covered / lines_total * 100, 2) if lines_total > 0 else 0,
+        branches_total=branches_total,
+        branches_covered=branches_covered,
+        branches_percent=round(branches_covered / branches_total * 100, 2) if branches_total > 0 else 0,
+        functions_total=functions_total,
+        functions_covered=functions_covered,
+        functions_percent=round(functions_covered / functions_total * 100, 2) if functions_total > 0 else 0,
+        files=files,
+    )
+
+
+@router.post("/coverage", response_model=WebhookResponse)
+async def upload_coverage_report(
+    report: CoverageReport,
+):
+    """
+    Upload a coverage report.
+
+    Supports LCOV, Istanbul JSON, Cobertura, and Clover formats.
+
+    Example curl:
+        curl -X POST /api/v1/webhooks/coverage \\
+            -H "Content-Type: application/json" \\
+            -d '{"commit_sha": "abc123", "format": "lcov", "report_data": "..."}'
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    try:
+        project_id = report.project_id
+        if not project_id:
+            project_id = await get_default_project_id(supabase)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found. Please specify project_id.",
+                )
+
+        # Parse coverage based on format
+        if report.format == "lcov":
+            summary = parse_lcov(report.report_data)
+        elif report.format == "istanbul":
+            summary = parse_istanbul_json(report.report_data)
+        else:
+            # For cobertura/clover, use basic parsing or return error
+            raise HTTPException(
+                status_code=400,
+                detail=f"Format '{report.format}' not yet supported. Use 'lcov' or 'istanbul'.",
+            )
+
+        # Store coverage report
+        coverage_data = {
+            "id": str(uuid.uuid4()),
+            "project_id": project_id,
+            "branch": report.branch,
+            "commit_sha": report.commit_sha,
+            "ci_run_id": report.ci_run_id,
+            "format": report.format,
+            "lines_total": summary.lines_total,
+            "lines_covered": summary.lines_covered,
+            "lines_percent": summary.lines_percent,
+            "branches_total": summary.branches_total,
+            "branches_covered": summary.branches_covered,
+            "branches_percent": summary.branches_percent,
+            "functions_total": summary.functions_total,
+            "functions_covered": summary.functions_covered,
+            "functions_percent": summary.functions_percent,
+            "files": summary.files,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+
+        result = await supabase.insert("coverage_reports", coverage_data)
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail="Failed to store coverage report")
+
+        event_id = result["data"][0]["id"] if result.get("data") else coverage_data["id"]
+
+        logger.info(
+            "Coverage report uploaded",
+            event_id=event_id,
+            lines_percent=summary.lines_percent,
+            files_count=len(summary.files),
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Coverage report processed: {summary.lines_percent}% line coverage",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Coverage upload error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Rollbar Webhook (existing)
+# =============================================================================
+
 @router.post("/rollbar", response_model=WebhookResponse)
 async def handle_rollbar_webhook(
     request: Request,
