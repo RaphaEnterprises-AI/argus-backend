@@ -1396,8 +1396,8 @@ async def handle_rollbar_webhook(
             os=occurrence.get("client", {}).get("os"),
             occurrence_count=item.get("total_occurrences", 1),
             affected_users=item.get("unique_occurrences", 1),
-            first_seen_at=item.get("first_occurrence_timestamp"),
-            last_seen_at=item.get("last_occurrence_timestamp"),
+            first_seen_at=datetime.fromtimestamp(item["first_occurrence_timestamp"]).isoformat() if item.get("first_occurrence_timestamp") else None,
+            last_seen_at=datetime.fromtimestamp(item["last_occurrence_timestamp"]).isoformat() if item.get("last_occurrence_timestamp") else None,
             status="new",
             raw_payload=body,
             metadata={
