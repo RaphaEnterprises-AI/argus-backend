@@ -22,7 +22,10 @@ binding = "AI"
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+# Worker URL - Browser automation only (act, extract, observe)
 ARGUS_API_URL = "https://argus-api.samuelvinay-kumar.workers.dev"
+# Brain URL - Intelligence (test planning, quality, webhooks)
+ARGUS_BRAIN_URL = "https://argus-brain-production.up.railway.app"
 
 # Secrets (set via `wrangler secret put <NAME>`):
 # - API_TOKEN (for authenticating with Argus API)

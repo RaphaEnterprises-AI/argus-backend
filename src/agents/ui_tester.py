@@ -1,19 +1,23 @@
-"""UI Tester Agent - Executes browser-based tests using Playwright.
+"""UI Tester Agent - Executes browser-based tests using Playwright or Browser Worker.
 
 This agent:
 - Executes UI test specifications step by step
 - Takes screenshots for verification
 - Uses Claude for visual verification when needed
 - Reports detailed results with evidence
+- Supports both local Playwright and remote Cloudflare Worker
 """
 
 import base64
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union, TYPE_CHECKING
 
 from .base import BaseAgent, AgentResult
 from .test_planner import TestSpec, TestStep
+
+if TYPE_CHECKING:
+    from src.tools.browser_worker_client import BrowserWorkerClient
 
 
 @dataclass
@@ -89,22 +93,33 @@ class UITestResult:
 
 
 class UITesterAgent(BaseAgent):
-    """Agent that executes UI tests using Playwright.
+    """Agent that executes UI tests using Playwright or Browser Worker.
 
     Integrates with:
-    - PlaywrightTools for browser automation
+    - PlaywrightTools for local browser automation
+    - BrowserWorkerClient for remote Cloudflare Worker browser automation
     - Claude for visual verification
     - Screenshot capture for evidence
     """
 
-    def __init__(self, playwright_tools=None, **kwargs):
-        """Initialize with optional Playwright tools.
+    def __init__(
+        self,
+        playwright_tools=None,
+        browser_worker: Optional["BrowserWorkerClient"] = None,
+        use_worker: bool = True,
+        **kwargs,
+    ):
+        """Initialize with optional Playwright tools or Browser Worker.
 
         Args:
-            playwright_tools: Instance of PlaywrightTools for browser automation
+            playwright_tools: Instance of PlaywrightTools for local browser automation
+            browser_worker: Instance of BrowserWorkerClient for remote automation
+            use_worker: If True, prefer using Worker for browser operations
         """
         super().__init__(**kwargs)
         self._playwright = playwright_tools
+        self._browser_worker = browser_worker
+        self._use_worker = use_worker
 
     def _get_system_prompt(self) -> str:
         return """You are an expert UI test executor. Your task is to verify visual elements and states in screenshots.
@@ -121,11 +136,136 @@ Respond with JSON containing:
 - issues: list of any problems found
 - confidence: 0.0-1.0 confidence in your assessment"""
 
+    async def execute_via_worker(
+        self,
+        test_spec: TestSpec | dict,
+        app_url: str,
+    ) -> AgentResult[UITestResult]:
+        """Execute a UI test using the remote Browser Worker.
+
+        This method sends the test to the Cloudflare Browser Worker for execution,
+        which provides better scalability and browser compatibility.
+
+        Args:
+            test_spec: Test specification to execute
+            app_url: Base application URL
+
+        Returns:
+            AgentResult containing UITestResult
+        """
+        from src.tools.browser_worker_client import get_browser_client
+
+        worker = self._browser_worker or get_browser_client()
+
+        # Check Worker health
+        is_healthy = await worker.health_check()
+        if not is_healthy:
+            return AgentResult(
+                success=False,
+                error="Browser Worker is not available",
+            )
+
+        # Convert test spec to dict if needed
+        if isinstance(test_spec, TestSpec):
+            test_id = test_spec.id
+            test_name = test_spec.name
+            steps = [step.to_natural_language() if hasattr(step, 'to_natural_language')
+                     else f"{step.action} {step.target or ''} {step.value or ''}".strip()
+                     for step in test_spec.steps]
+        else:
+            test_id = test_spec.get("id", "unknown")
+            test_name = test_spec.get("name", "Unknown Test")
+            steps = []
+            for step in test_spec.get("steps", []):
+                if isinstance(step, str):
+                    steps.append(step)
+                else:
+                    action = step.get("action", "")
+                    target = step.get("target", "")
+                    value = step.get("value", "")
+                    steps.append(f"{action} {target} {value}".strip())
+
+        self.log.info(
+            "Executing UI test via Worker",
+            test_id=test_id,
+            test_name=test_name,
+            steps_count=len(steps),
+        )
+
+        start_time = time.time()
+
+        try:
+            # Build full URL for first step if needed
+            full_url = app_url
+
+            # Execute test via Worker
+            result = await worker.run_test(
+                url=full_url,
+                steps=steps,
+                browser="chrome",
+                capture_screenshots=True,
+            )
+
+            total_duration = int((time.time() - start_time) * 1000)
+
+            # Convert Worker result to UITestResult
+            step_results = []
+            if result.steps:
+                for idx, step_data in enumerate(result.steps):
+                    step_results.append(
+                        StepResult(
+                            step_index=idx,
+                            action=steps[idx] if idx < len(steps) else "unknown",
+                            success=step_data.get("success", False),
+                            duration_ms=step_data.get("duration_ms", 0),
+                            error=step_data.get("error"),
+                        )
+                    )
+
+            # Decode final screenshot if present
+            final_screenshot = None
+            if result.final_screenshot:
+                try:
+                    final_screenshot = base64.b64decode(result.final_screenshot)
+                except Exception:
+                    pass
+
+            ui_result = UITestResult(
+                test_id=test_id,
+                test_name=test_name,
+                status="passed" if result.success else "failed",
+                step_results=step_results,
+                assertion_results=[],  # Worker doesn't return assertion details
+                total_duration_ms=total_duration,
+                error_message=result.error,
+                final_screenshot=final_screenshot,
+            )
+
+            self.log.info(
+                "Worker test complete",
+                test_id=test_id,
+                status="passed" if result.success else "failed",
+                duration_ms=total_duration,
+            )
+
+            return AgentResult(
+                success=result.success,
+                data=ui_result,
+            )
+
+        except Exception as e:
+            self.log.exception("Worker test execution failed", error=str(e))
+            return AgentResult(
+                success=False,
+                error=str(e),
+            )
+
     async def execute(
         self,
         test_spec: TestSpec | dict,
         app_url: str,
         playwright_tools=None,
+        use_worker: Optional[bool] = None,
     ) -> AgentResult[UITestResult]:
         """Execute a UI test specification.
 
@@ -133,10 +273,20 @@ Respond with JSON containing:
             test_spec: Test specification to execute
             app_url: Base application URL
             playwright_tools: Optional PlaywrightTools instance
+            use_worker: Override to force Worker or local Playwright
 
         Returns:
             AgentResult containing UITestResult
         """
+        # Determine if we should use Worker
+        should_use_worker = use_worker if use_worker is not None else self._use_worker
+
+        if should_use_worker:
+            # Try Worker first, fall back to Playwright if Worker unavailable
+            result = await self.execute_via_worker(test_spec, app_url)
+            if result.success or result.error != "Browser Worker is not available":
+                return result
+            self.log.info("Worker unavailable, falling back to local Playwright")
         # Convert dict to TestSpec if needed
         if isinstance(test_spec, dict):
             from .test_planner import TestStep, TestAssertion

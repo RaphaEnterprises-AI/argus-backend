@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     # Database (optional)
     database_url: Optional[str] = Field(None, description="PostgreSQL connection string")
 
+    # Supabase Configuration (for Quality Intelligence)
+    supabase_url: Optional[str] = Field(None, description="Supabase project URL")
+    supabase_service_key: Optional[SecretStr] = Field(None, description="Supabase service role key")
+
     # Notifications (optional)
     slack_webhook_url: Optional[str] = Field(None, description="Slack webhook for notifications")
 
