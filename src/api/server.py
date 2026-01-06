@@ -133,7 +133,7 @@ async def readiness_check():
     settings = get_settings()
 
     checks = {
-        "anthropic_api": bool(settings.anthropic_api_key),
+        "anthropic_api": settings.anthropic_api_key is not None and bool(settings.anthropic_api_key.get_secret_value()),
         "output_dir": os.path.exists(settings.output_dir),
     }
 

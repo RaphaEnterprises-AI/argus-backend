@@ -49,7 +49,8 @@ class Settings(BaseSettings):
     )
 
     # API Keys - Multi-Provider Support
-    anthropic_api_key: SecretStr = Field(..., description="Anthropic API key")
+    # Made optional for health checks; validated at runtime when needed
+    anthropic_api_key: Optional[SecretStr] = Field(None, description="Anthropic API key")
     openai_api_key: Optional[SecretStr] = Field(None, description="OpenAI API key (for GPT-4)")
     google_api_key: Optional[SecretStr] = Field(None, description="Google API key (for Gemini)")
     groq_api_key: Optional[SecretStr] = Field(None, description="Groq API key (for fast Llama)")
