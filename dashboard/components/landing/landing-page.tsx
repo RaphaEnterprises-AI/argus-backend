@@ -22,9 +22,127 @@ import {
   RefreshCw,
   FileSearch,
   TestTube,
+  Code2,
+  Terminal,
+  MessageSquare,
+  ChevronDown,
+  Quote,
+  Star,
+  TrendingUp,
+  Search,
+  Lightbulb,
+  Target,
 } from 'lucide-react';
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { AuthButtons } from './auth-buttons';
+
+// IDE Integrations
+const ideIntegrations = [
+  { name: 'Claude Code', desc: 'MCP Tools', highlight: true },
+  { name: 'Cursor', desc: 'AI Editor' },
+  { name: 'VS Code', desc: 'Extensions' },
+  { name: 'Windsurf', desc: 'AI IDE' },
+  { name: 'JetBrains', desc: 'Plugin' },
+  { name: 'Zed', desc: 'Coming Soon' },
+];
+
+// Trusted companies
+const trustedCompanies = [
+  'Vercel', 'Supabase', 'Stripe', 'Linear', 'Notion', 'Figma', 'Slack', 'Discord'
+];
+
+// Workflow steps (TestSprite-inspired)
+const workflowSteps = [
+  {
+    num: '01',
+    title: 'Understand',
+    subtitle: 'What You Want',
+    desc: 'Instantly parses your codebase, PRDs, and production errors to understand what you\'re actually building.',
+    icon: Search,
+    color: 'from-violet-500 to-purple-500',
+  },
+  {
+    num: '02',
+    title: 'Validate',
+    subtitle: 'What You Have',
+    desc: 'Generates and runs tests across UI, API, and edge cases to prove everything works as intended.',
+    icon: CheckCircle2,
+    color: 'from-teal-500 to-cyan-500',
+  },
+  {
+    num: '03',
+    title: 'Suggest',
+    subtitle: 'What You Need',
+    desc: 'Delivers pinpoint feedback and fix recommendations via MCP, so code self-repairs automatically.',
+    icon: Lightbulb,
+    color: 'from-amber-500 to-orange-500',
+  },
+  {
+    num: '04',
+    title: 'Deliver',
+    subtitle: 'What You Planned',
+    desc: 'Takes AI-generated code from "almost there" to production-ready with full automation.',
+    icon: Target,
+    color: 'from-emerald-500 to-teal-500',
+  },
+];
+
+// Testimonials
+const testimonials = [
+  {
+    quote: "Argus transformed how we approach quality. The AI Quality Score gives us confidence before every release.",
+    author: "Sarah Chen",
+    role: "Engineering Lead",
+    company: "TechCorp",
+  },
+  {
+    quote: "The MCP integration with Claude Code is game-changing. I can ask about quality risks right in my editor.",
+    author: "Marcus Johnson",
+    role: "Senior Developer",
+    company: "StartupXYZ",
+  },
+  {
+    quote: "We reduced our QA cycle from days to hours. The self-healing tests alone saved us 20 hours a week.",
+    author: "Emily Rodriguez",
+    role: "QA Manager",
+    company: "Enterprise Co",
+  },
+  {
+    quote: "Finally, a tool that doesn't try to replace our existing stack. It just makes everything smarter.",
+    author: "David Kim",
+    role: "CTO",
+    company: "InnovateLabs",
+  },
+];
+
+// FAQ items
+const faqItems = [
+  {
+    question: "How does Argus integrate with my existing tools?",
+    answer: "Argus deploys 'probes' that connect to your existing tools (Sentry, GitHub, Jest, Playwright, etc.) via webhooks and APIs. We don't replace anything—we correlate data from all your tools into one unified quality intelligence brain."
+  },
+  {
+    question: "What is the AI Quality Score?",
+    answer: "The AI Quality Score is a 0-100 metric that combines test coverage, production error rates, CI/CD success rates, and flaky test detection into a single, actionable number. It updates in real-time as your codebase changes."
+  },
+  {
+    question: "How do MCP tools work with Claude Code?",
+    answer: "Our MCP server exposes tools like get_quality_score, get_recommendations, and get_risk_files that Claude Code can call directly. This means you can ask Claude about quality risks, get test suggestions, and understand coverage gaps without leaving your editor."
+  },
+  {
+    question: "Is there a free tier?",
+    answer: "Yes! Argus Core is free forever. You get the AI Quality Score dashboard, 3 integrations, production error monitoring, and basic risk analysis. Upgrade to Pro for AI test generation and unlimited integrations."
+  },
+  {
+    question: "How does self-healing work?",
+    answer: "When a test fails due to selector changes (not actual bugs), Argus analyzes the DOM diff and automatically suggests or applies fixes. This eliminates the #1 cause of flaky tests—stale selectors."
+  },
+  {
+    question: "Can I use Argus with my CI/CD pipeline?",
+    answer: "Absolutely. Argus has native integrations with GitHub Actions, GitLab CI, CircleCI, and Jenkins. We receive webhooks on every CI run and correlate test results with code changes automatically."
+  },
+];
 
 const features = [
   {
@@ -78,67 +196,72 @@ const integrations = [
 
 const pricingPlans = [
   {
-    name: 'Free',
+    name: 'Core',
     price: '$0',
     period: 'forever',
-    description: 'Get started with AI testing',
+    description: 'Quality intelligence basics',
     features: [
-      '100 test runs/month',
+      'AI Quality Score dashboard',
+      '3 integrations (Sentry, GitHub, etc.)',
       '1 project',
-      '3 integrations',
+      'Production error monitoring',
+      'Basic risk analysis',
       'Community support',
-      'Basic analytics',
     ],
     cta: 'Start Free',
     popular: false,
+    badge: null,
   },
   {
     name: 'Pro',
     price: '$49',
     period: '/month',
-    description: 'For professional developers',
+    description: 'Core + AI Test Generation',
     features: [
-      '1,000 test runs/month',
+      'Everything in Core',
+      'AI Test Generation from errors',
+      'Unlimited integrations',
       '5 projects',
-      'All integrations',
+      'MCP tools for Claude Code',
       'Email support',
-      'AI Quality Score',
-      'Predictive alerts',
     ],
     cta: 'Start Trial',
     popular: true,
+    badge: 'Core + Generate',
   },
   {
     name: 'Team',
-    price: '$199',
+    price: '$149',
     period: '/month',
-    description: 'For growing teams',
+    description: 'Pro + Self-Healing Tests',
     features: [
-      '10,000 test runs/month',
+      'Everything in Pro',
+      'Self-healing test maintenance',
+      'Flaky test detection',
       'Unlimited projects',
+      'CI/CD deep integration',
       'Priority support',
-      'API access',
-      'Custom webhooks',
-      'Team analytics',
     ],
     cta: 'Start Trial',
     popular: false,
+    badge: 'Core + Generate + Heal',
   },
   {
     name: 'Enterprise',
     price: 'Custom',
     period: '',
-    description: 'For large organizations',
+    description: 'Full platform access',
     features: [
-      'Unlimited everything',
-      'Dedicated support',
-      'SLA guarantees',
-      'On-premise option',
-      'SSO/SAML',
+      'Everything in Team',
+      'Visual regression testing',
+      'Edge case generation',
       'Custom AI models',
+      'SSO/SAML & SLA',
+      'Dedicated support',
     ],
     cta: 'Contact Sales',
     popular: false,
+    badge: 'All Products',
   },
 ];
 
@@ -206,8 +329,8 @@ export function LandingPage() {
 
             {/* Nav Links */}
             <div className="hidden md:flex items-center gap-8">
+              <a href="#products" className="text-sm link-subtle">Products</a>
               <a href="#features" className="text-sm link-subtle">Features</a>
-              <a href="#how-it-works" className="text-sm link-subtle">How it Works</a>
               <a href="#integrations" className="text-sm link-subtle">Integrations</a>
               <a href="#pricing" className="text-sm link-subtle">Pricing</a>
               <Link href="/legal" className="text-sm link-subtle">Legal</Link>
@@ -246,15 +369,15 @@ export function LandingPage() {
 
           {/* Headline */}
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
-            <span className="text-foreground">E2E Testing That</span>
+            <span className="text-foreground">See Everything.</span>
             <br />
-            <span className="gradient-text">Writes Itself</span>
+            <span className="gradient-text">Ship with Confidence.</span>
           </h1>
 
           {/* Subheadline */}
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-            Generate tests from production errors. Predict bugs before they ship.
-            Self-healing tests that adapt to your UI changes automatically.
+            The all-seeing quality intelligence platform. We deploy probes at every layer of your SDLC,
+            correlating data and predicting issues before they reach production.
           </p>
 
           {/* CTA Buttons */}
@@ -277,6 +400,52 @@ export function LandingPage() {
                 <div className="text-sm font-medium text-foreground mb-1">{stat.label}</div>
                 <div className="text-xs text-muted-foreground">{stat.desc}</div>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* IDE Integrations - TestSprite inspired */}
+      <section className="py-16 px-6 lg:px-8 border-y border-border/50">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-sm text-muted-foreground mb-8">
+            Seamlessly integrates with your favorite AI-powered editors
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-6 md:gap-10">
+            {ideIntegrations.map((ide, i) => (
+              <div
+                key={i}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  ide.highlight
+                    ? 'bg-primary/10 border border-primary/30'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <Code2 className={`w-5 h-5 ${ide.highlight ? 'text-primary' : 'text-muted-foreground'}`} />
+                <div>
+                  <span className={`font-medium ${ide.highlight ? 'text-primary' : ''}`}>{ide.name}</span>
+                  <span className="text-xs text-muted-foreground ml-2">{ide.desc}</span>
+                </div>
+                {ide.highlight && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary text-primary-foreground ml-1">NEW</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Social Proof - Trusted By */}
+      <section className="py-12 px-6 lg:px-8 bg-muted/20">
+        <div className="max-w-5xl mx-auto text-center">
+          <p className="text-sm text-muted-foreground mb-6">
+            Trusted by developers at companies worldwide
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12 opacity-60">
+            {trustedCompanies.map((company, i) => (
+              <span key={i} className="text-lg font-semibold text-muted-foreground">
+                {company}
+              </span>
             ))}
           </div>
         </div>
@@ -313,12 +482,48 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Features */}
-      <section id="features" className="section-padding">
+      {/* Products */}
+      <section id="products" className="section-padding">
         <div className="container-wide px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h6 className="text-primary mb-3">FEATURES</h6>
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">Built for Modern Development</h2>
+            <h6 className="text-primary mb-3">THE ARGUS SUITE</h6>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">Probes for Every Layer</h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Modular products that integrate with your existing tools, not replace them
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4 max-w-6xl mx-auto">
+            {[
+              { name: 'Core', icon: Eye, desc: 'Quality Intelligence Brain - AI Quality Score, risk analysis, unified dashboard', color: 'from-teal-500 to-cyan-500', free: true },
+              { name: 'Generate', icon: Sparkles, desc: 'AI Test Generation - Convert production errors into tests automatically', color: 'from-violet-500 to-purple-500', free: false },
+              { name: 'Heal', icon: RefreshCw, desc: 'Self-Healing Tests - Automatic selector and assertion repair', color: 'from-amber-500 to-orange-500', free: false },
+              { name: 'Visual', icon: Eye, desc: 'Visual Regression - AI-powered screenshot comparison', color: 'from-pink-500 to-rose-500', free: false },
+              { name: 'Edge', icon: Zap, desc: 'Edge Testing - Performance, chaos, and boundary testing', color: 'from-emerald-500 to-teal-500', free: false },
+            ].map((product, i) => (
+              <div key={i} className="card-elevated-hover p-6 text-center relative">
+                {product.free && (
+                  <div className="absolute -top-2 -right-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 border border-emerald-500/30">FREE</span>
+                  </div>
+                )}
+                <div className={`w-12 h-12 mx-auto rounded-xl bg-gradient-to-br ${product.color} flex items-center justify-center mb-4`}>
+                  <product.icon className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="font-semibold mb-2">Argus {product.name}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">{product.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="section-padding bg-muted/30">
+        <div className="container-wide px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h6 className="text-primary mb-3">CAPABILITIES</h6>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">Intelligence at Every Layer</h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Everything you need to ship quality software faster
             </p>
@@ -442,6 +647,128 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Workflow Section - TestSprite inspired */}
+      <section className="section-padding">
+        <div className="container-wide px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h6 className="text-primary mb-3">THE ARGUS WAY</h6>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+              From Broken Code to<br />
+              <span className="gradient-text">Working Software</span>
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Argus&apos;s automated testing and feedback loop turns even the most broken code into fully working, release-ready software.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+            {workflowSteps.map((step, i) => (
+              <div key={i} className="card-elevated-hover p-8 text-center relative group">
+                <div className={`w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br ${step.color} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
+                  <step.icon className="w-7 h-7 text-white" />
+                </div>
+                <div className="text-xs font-bold text-primary/60 mb-2">{step.num}</div>
+                <h3 className="text-xl font-bold mb-1">{step.title}</h3>
+                <p className="text-sm text-primary font-medium mb-3">{step.subtitle}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{step.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Stats Comparison - TestSprite inspired */}
+      <section className="section-padding bg-muted/30">
+        <div className="container-tight px-6 lg:px-8">
+          <div className="card-elevated p-12 lg:p-16 relative overflow-hidden">
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-500/10 rounded-full blur-[80px]" />
+              <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-primary/10 rounded-full blur-[80px]" />
+            </div>
+
+            <div className="relative grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <h6 className="text-primary mb-3">BOOST ACCURACY</h6>
+                <h2 className="text-3xl sm:text-4xl font-bold mb-6">
+                  Deliver What<br />
+                  <span className="gradient-text">You Planned</span>
+                </h2>
+                <p className="text-muted-foreground mb-8 leading-relaxed">
+                  Take AI-generated code from &quot;almost there&quot; to producing reliable, feature-complete results with full automation.
+                </p>
+                <AuthButtons variant="hero" />
+              </div>
+
+              <div className="space-y-6">
+                <div className="flex items-center gap-6">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-muted-foreground">With Coding Agent Only</span>
+                      <span className="text-2xl font-bold text-muted-foreground">42%</span>
+                    </div>
+                    <div className="h-4 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-muted-foreground/30 rounded-full" style={{ width: '42%' }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-emerald-500">With Argus</span>
+                      <span className="text-2xl font-bold text-emerald-500">93%</span>
+                    </div>
+                    <div className="h-4 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-1000" style={{ width: '93%' }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-center pt-4">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                    <TrendingUp className="w-4 h-4 text-emerald-500" />
+                    <span className="text-sm font-medium text-emerald-500">+121% Features Delivered</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials */}
+      <section className="section-padding">
+        <div className="container-wide px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h6 className="text-primary mb-3">TESTIMONIALS</h6>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">The New Way to Validate Software</h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Organizations and developers worldwide use Argus to ship faster and focus on what matters most.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+            {testimonials.map((testimonial, i) => (
+              <div key={i} className="card-elevated-hover p-6">
+                <Quote className="w-8 h-8 text-primary/20 mb-4" />
+                <p className="text-sm text-muted-foreground mb-6 leading-relaxed italic">
+                  &quot;{testimonial.quote}&quot;
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-sm font-bold text-primary">{testimonial.author[0]}</span>
+                  </div>
+                  <div>
+                    <div className="font-medium text-sm">{testimonial.author}</div>
+                    <div className="text-xs text-muted-foreground">{testimonial.role} · {testimonial.company}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Pricing */}
       <section id="pricing" className="section-padding bg-muted/30">
         <div className="container-wide px-6 lg:px-8">
@@ -468,12 +795,17 @@ export function LandingPage() {
                 )}
 
                 <div className="mb-8">
-                  <h3 className="text-lg font-semibold mb-2">{plan.name}</h3>
+                  <h3 className="text-lg font-semibold mb-2">Argus {plan.name}</h3>
                   <div className="flex items-baseline gap-1 mb-2">
                     <span className="text-4xl font-bold">{plan.price}</span>
                     {plan.period && <span className="text-muted-foreground">{plan.period}</span>}
                   </div>
-                  <p className="text-sm text-muted-foreground">{plan.description}</p>
+                  <p className="text-sm text-muted-foreground mb-2">{plan.description}</p>
+                  {plan.badge && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                      {plan.badge}
+                    </span>
+                  )}
                 </div>
 
                 <ul className="space-y-3 mb-8">
@@ -504,16 +836,52 @@ export function LandingPage() {
 
             <div className="relative">
               <h2 className="text-3xl sm:text-4xl font-bold mb-6">
-                Ready to Ship Better Software?
+                Ship With Confidence.<br />
+                <span className="gradient-text">Automate Your Testing With AI.</span>
               </h2>
               <p className="text-xl text-muted-foreground mb-10 max-w-xl mx-auto">
-                Join developers who trust Argus to catch bugs before users do.
+                Join developers who trust Argus to see everything and catch bugs before users do.
               </p>
-              <AuthButtons variant="cta" />
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <AuthButtons variant="cta" />
+                <a
+                  href="https://discord.gg/argus"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary px-6 py-3 text-base rounded-xl hover-lift"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  Join Discord
+                </a>
+              </div>
               <p className="text-sm text-muted-foreground mt-4">
-                No credit card required
+                No credit card required · Free forever tier
               </p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ Section */}
+      <section id="faq" className="section-padding bg-muted/30">
+        <div className="container-tight px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h6 className="text-primary mb-3">FAQ</h6>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">Frequently Asked Questions</h2>
+          </div>
+
+          <div className="space-y-4 max-w-3xl mx-auto">
+            {faqItems.map((item, i) => (
+              <details key={i} className="group card-elevated">
+                <summary className="flex items-center justify-between p-6 cursor-pointer list-none">
+                  <span className="font-medium pr-4">{item.question}</span>
+                  <ChevronDown className="w-5 h-5 text-muted-foreground group-open:rotate-180 transition-transform flex-shrink-0" />
+                </summary>
+                <div className="px-6 pb-6 pt-0">
+                  <p className="text-muted-foreground leading-relaxed">{item.answer}</p>
+                </div>
+              </details>
+            ))}
           </div>
         </div>
       </section>
@@ -531,7 +899,7 @@ export function LandingPage() {
                 <span className="text-xl font-bold">Argus</span>
               </Link>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                AI-powered E2E testing that writes itself. Ship quality software faster with predictive quality intelligence.
+                The all-seeing quality intelligence platform. Probes at every layer of your SDLC, unified in one AI-powered brain.
               </p>
               <div className="flex items-center gap-4">
                 <a href="https://github.com/heyargus" target="_blank" rel="noopener noreferrer" className="link-subtle p-2 hover:bg-muted rounded-lg transition-colors">
