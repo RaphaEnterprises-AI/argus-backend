@@ -92,11 +92,12 @@ class CloudflareVectorizeClient:
         try:
             client = await self._get_client()
 
+            # Vectorize v2 API uses string values for returnMetadata/returnValues
             payload = {
                 "vector": vector,
                 "topK": top_k,
-                "returnValues": return_values,
-                "returnMetadata": return_metadata
+                "returnValues": "all" if return_values else "none",
+                "returnMetadata": "all" if return_metadata else "none"
             }
             if filter:
                 payload["filter"] = filter
