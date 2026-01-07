@@ -25,7 +25,8 @@ class CloudflareVectorizeClient:
         self.api_token = api_token
         # Use v2 API for Vectorize (v2 indexes require v2 API)
         self.base_url = f"{CF_API_BASE}/{account_id}/vectorize/v2/indexes/{index_name}"
-        self.ai_url = f"{CF_API_BASE}/{account_id}/ai/run/@cf/baai/bge-base-en-v1.5"
+        # Use bge-large-en-v1.5 for better quality embeddings (1024 dimensions)
+        self.ai_url = f"{CF_API_BASE}/{account_id}/ai/run/@cf/baai/bge-large-en-v1.5"
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_headers(self) -> dict:
@@ -43,8 +44,8 @@ class CloudflareVectorizeClient:
         """
         Generate text embedding using Cloudflare Workers AI.
 
-        Uses @cf/baai/bge-base-en-v1.5 model (768 dimensions).
-        API Ref: https://developers.cloudflare.com/workers-ai/models/bge-base-en-v1.5/
+        Uses @cf/baai/bge-large-en-v1.5 model (1024 dimensions) for better quality.
+        API Ref: https://developers.cloudflare.com/workers-ai/models/bge-large-en-v1.5/
         """
         try:
             client = await self._get_client()
@@ -83,7 +84,7 @@ class CloudflareVectorizeClient:
         Query the Vectorize index for similar vectors.
 
         Args:
-            vector: Query vector (768 dimensions for bge-base-en-v1.5)
+            vector: Query vector (1024 dimensions for bge-large-en-v1.5)
             top_k: Number of results to return
             filter: Optional metadata filter
             return_values: Whether to return vector values (unused in v2)
