@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 from ..core.model_router import TaskType
 
 
@@ -69,6 +70,13 @@ class CodeAnalyzerAgent(BaseAgent):
     DEFAULT_TASK_TYPE = TaskType.CODE_ANALYSIS
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for code analysis."""
+        # Use enhanced prompt from prompts.py for production-grade analysis
+        enhanced = get_enhanced_prompt("code_analyzer")
+        if enhanced:
+            return enhanced
+
+        # Fallback to basic prompt if enhanced not available
         return """You are an expert code analyzer specializing in identifying testable surfaces in web applications.
 
 Your task is to analyze codebases and identify:

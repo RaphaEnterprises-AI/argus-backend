@@ -147,9 +147,10 @@ class TestCodeAnalyzerAgent:
             agent = CodeAnalyzerAgent()
             prompt = agent._get_system_prompt()
 
-            assert "code analyzer" in prompt.lower()
-            assert "testable surfaces" in prompt.lower()
-            assert "JSON" in prompt
+            # Enhanced prompt uses different terminology
+            assert "testing architect" in prompt.lower() or "code analyzer" in prompt.lower()
+            assert "test surface" in prompt.lower() or "testable surfaces" in prompt.lower()
+            assert "JSON" in prompt or "json" in prompt
 
     def test_build_analysis_prompt_basic(self, mock_env_vars):
         """Test analysis prompt building."""

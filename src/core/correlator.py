@@ -171,9 +171,15 @@ class ErrorCorrelator:
     - Fix suggestions
     """
 
-    # Model for semantic analysis
-    SEMANTIC_MODEL = "claude-sonnet-4-5-20250514"
-    FAST_MODEL = "claude-haiku-4-5-20250514"
+    @property
+    def SEMANTIC_MODEL(self) -> str:
+        from src.core.model_registry import get_model_id
+        return get_model_id("claude-sonnet-4-5")
+
+    @property
+    def FAST_MODEL(self) -> str:
+        from src.core.model_registry import get_model_id
+        return get_model_id("claude-haiku-4-5")
 
     def __init__(
         self,
@@ -185,9 +191,10 @@ class ErrorCorrelator:
         self.use_llm = use_llm
 
         if use_llm:
-            self.client = AsyncAnthropic(
-                api_key=self.settings.anthropic_api_key.get_secret_value()
-            )
+            api_key = self.settings.anthropic_api_key
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+            self.client = AsyncAnthropic(api_key=api_key)
         else:
             self.client = None
 

@@ -804,7 +804,9 @@ class TestModelRouterAdvanced:
         })
 
         with patch.object(router, '_get_client', return_value=mock_client):
+            from src.core.model_router import TaskType
             result = await router._fallback_complete(
+                task_type=TaskType.VISUAL_COMPARISON,
                 messages=[{"role": "user", "content": "Describe"}],
                 images=[b'\x89PNG'],
                 max_tokens=4096,
@@ -834,7 +836,9 @@ class TestModelRouterAdvanced:
         })
 
         with patch.object(router, '_get_client', return_value=mock_client):
+            from src.core.model_router import TaskType
             result = await router._fallback_complete(
+                task_type=TaskType.TEXT_EXTRACTION,
                 messages=[{"role": "user", "content": "Hello"}],
                 images=None,
                 max_tokens=4096,

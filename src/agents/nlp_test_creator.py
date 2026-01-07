@@ -12,6 +12,7 @@ import anthropic
 import structlog
 
 from ..config import get_settings
+from ..core.model_registry import get_model_id
 
 logger = structlog.get_logger()
 
@@ -138,10 +139,14 @@ class NLPTestCreator:
     def __init__(
         self,
         app_url: str,
-        model: str = "claude-sonnet-4-20250514",
+        model: Optional[str] = None,
     ):
         settings = get_settings()
-        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+        api_key = settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = anthropic.Anthropic(api_key=api_key)
+        model = model or get_model_id("claude-sonnet-4-5")
         self.app_url = app_url
         self.model = model
         self.log = logger.bind(component="nlp_test_creator")
@@ -526,7 +531,7 @@ For other questions, just respond conversationally.
 """
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_model_id("claude-sonnet-4-5"),
             max_tokens=1000,
             system=system,
             messages=self.conversation_history,

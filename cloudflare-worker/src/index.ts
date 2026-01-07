@@ -823,8 +823,18 @@ RULES FOR SELECTORS (IMPORTANT - follow exactly):
 5. NEVER invent selectors - only use selectors that appear in AVAILABLE ELEMENTS
 6. Prefer: id (#login-btn) > name ([name="email"]) > class (.submit-btn) > tag+attr (button[type="submit"])
 
+ACTION TYPES:
+- click: Click an element
+- fill: Fill a text input
+- type: Type text character by character
+- hover: Hover over an element
+- scroll: Scroll the page
+- verify: Verify something on the page (for assertions like "Verify the title", "Check if button exists")
+  - For verify: selector is optional (use "page" if checking page-level content)
+  - value should contain what to verify (e.g., "title contains Example", "button is visible")
+
 RESPOND WITH ONLY VALID JSON (no explanation):
-{"action": "click|fill|type|hover|scroll", "selector": "valid CSS selector from elements", "value": "text to type if fill/type", "description": "brief action description"}`;
+{"action": "click|fill|type|hover|scroll|verify", "selector": "valid CSS selector or 'page'", "value": "text to type OR verification condition", "description": "brief action description"}`;
 
     const text = await callAI(env, {
       messages: [{ role: "user", content: prompt }],
@@ -1012,8 +1022,98 @@ async function executeActionWithSelector(
     case "hover":
       await session.hover(selector);
       break;
+    case "verify":
+      await executeVerification(session, selector, value || "");
+      break;
     default:
       await session.click(selector);
+  }
+}
+
+async function executeVerification(
+  session: BrowserSession,
+  selector: string,
+  condition: string
+): Promise<void> {
+  const conditionLower = condition.toLowerCase();
+
+  // Handle page-level verifications
+  if (selector === "page" || selector === "") {
+    const title = await session.page.title();
+    const content = await session.getContent();
+
+    // Check title conditions
+    if (conditionLower.includes("title")) {
+      const titleMatch = condition.match(/contains?\s+['""]?([^'""]+)['""]?/i) ||
+                         condition.match(/title\s+(?:is\s+)?['""]?([^'""]+)['""]?/i);
+      if (titleMatch) {
+        const expected = titleMatch[1].trim();
+        if (!title.toLowerCase().includes(expected.toLowerCase())) {
+          throw new Error(`Title verification failed: expected to contain "${expected}", got "${title}"`);
+        }
+        return;
+      }
+      // Just check title exists
+      if (title.length === 0) {
+        throw new Error("Title verification failed: page has no title");
+      }
+      return;
+    }
+
+    // Check text content
+    if (conditionLower.includes("contains") || conditionLower.includes("has text")) {
+      const textMatch = condition.match(/contains?\s+['""]?([^'""]+)['""]?/i);
+      if (textMatch) {
+        const expected = textMatch[1].trim();
+        if (!content.toLowerCase().includes(expected.toLowerCase())) {
+          throw new Error(`Page content verification failed: expected to contain "${expected}"`);
+        }
+        return;
+      }
+    }
+
+    // Page exists check
+    if (content.length > 0) {
+      return; // Page has content, verification passes
+    }
+    throw new Error("Page verification failed: page has no content");
+  }
+
+  // Element-level verifications
+  const locator = session.page.locator(selector);
+
+  if (conditionLower.includes("visible") || conditionLower.includes("exists") || conditionLower.includes("present")) {
+    const isVisible = await locator.isVisible().catch(() => false);
+    if (!isVisible) {
+      throw new Error(`Element "${selector}" is not visible`);
+    }
+    return;
+  }
+
+  if (conditionLower.includes("hidden") || conditionLower.includes("not visible")) {
+    const isVisible = await locator.isVisible().catch(() => false);
+    if (isVisible) {
+      throw new Error(`Element "${selector}" is visible but expected to be hidden`);
+    }
+    return;
+  }
+
+  if (conditionLower.includes("contains") || conditionLower.includes("has text")) {
+    const textMatch = condition.match(/contains?\s+['""]?([^'""]+)['""]?/i);
+    if (textMatch) {
+      const expected = textMatch[1].trim();
+      const actualText = await locator.textContent().catch(() => "");
+      if (!actualText?.toLowerCase().includes(expected.toLowerCase())) {
+        throw new Error(`Element text verification failed: expected to contain "${expected}", got "${actualText}"`);
+      }
+      return;
+    }
+  }
+
+  // Default: just check element exists
+  const count = await locator.count();
+  if (count === 0) {
+    throw new Error(`Element "${selector}" not found on page`);
   }
 }
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
 
 
@@ -106,6 +107,11 @@ class DBTesterAgent(BaseAgent):
         self._session = None
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for database testing."""
+        enhanced = get_enhanced_prompt("db_tester")
+        if enhanced:
+            return enhanced
+
         return """You are an expert database tester. Analyze database queries and data to validate integrity.
 
 When asked to analyze database state:

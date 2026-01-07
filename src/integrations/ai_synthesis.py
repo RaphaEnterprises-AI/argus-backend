@@ -145,7 +145,10 @@ class AISynthesizer:
     def __init__(self, observability_hub: ObservabilityHub):
         self.hub = observability_hub
         self.settings = get_settings()
-        self.client = anthropic.Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = anthropic.Anthropic(api_key=api_key)
 
     async def synthesize(
         self,
@@ -318,8 +321,9 @@ Generate a test specification in JSON format:
 Focus on the most critical user flow in this session."""
 
         try:
+            from src.core.model_registry import get_model_id
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=get_model_id("claude-sonnet-4-5"),
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -382,8 +386,9 @@ Generate a regression test specification in JSON format:
 This test should PREVENT this error from happening again."""
 
         try:
+            from src.core.model_registry import get_model_id
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=get_model_id("claude-sonnet-4-5"),
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -447,8 +452,9 @@ Generate an E2E test specification in JSON format:
 Focus on validating the complete user journey."""
 
         try:
+            from src.core.model_registry import get_model_id
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=get_model_id("claude-sonnet-4-5"),
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )

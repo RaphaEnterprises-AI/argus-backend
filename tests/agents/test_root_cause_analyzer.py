@@ -129,8 +129,9 @@ class TestRootCauseAnalyzer:
             analyzer = RootCauseAnalyzer()
             prompt = analyzer._get_system_prompt()
 
-            assert "root cause" in prompt.lower()
-            assert "JSON" in prompt
+            # Enhanced prompt covers failure analysis
+            assert "failure" in prompt.lower() or "root cause" in prompt.lower()
+            assert "JSON" in prompt or "json" in prompt
 
     def test_build_analysis_prompt(self, mock_env_vars):
         """Test building analysis prompt."""

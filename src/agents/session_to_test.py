@@ -89,7 +89,10 @@ class SessionAnalyzer:
 
     def __init__(self):
         self.settings = get_settings()
-        self.client = Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = Anthropic(api_key=api_key)
 
     async def analyze_session(
         self,
@@ -132,8 +135,9 @@ Analyze and provide:
     "ux_insights": ["UX improvement opportunities"]
 }}"""
 
+        from src.core.model_registry import get_model_id
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_model_id("claude-sonnet-4-5"),
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -199,7 +203,10 @@ class SessionToTestConverter:
 
     def __init__(self):
         self.settings = get_settings()
-        self.client = Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = Anthropic(api_key=api_key)
         self.analyzer = SessionAnalyzer()
 
     async def convert_session(
@@ -380,8 +387,9 @@ Format as JSON array:
     }}
 ]"""
 
+        from src.core.model_registry import get_model_id
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_model_id("claude-sonnet-4-5"),
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -478,7 +486,10 @@ class ErrorToTestConverter:
 
     def __init__(self):
         self.settings = get_settings()
-        self.client = Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = Anthropic(api_key=api_key)
         self.session_converter = SessionToTestConverter()
 
     async def convert_error(
@@ -534,8 +545,9 @@ Create a minimal test that would trigger this error:
 
 Be specific about what user actions would trigger this error."""
 
+        from src.core.model_registry import get_model_id
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_model_id("claude-sonnet-4-5"),
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
         )

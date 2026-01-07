@@ -18,6 +18,7 @@ import structlog
 
 from ..config import get_settings, MultiModelStrategy
 from ..core.model_router import ModelRouter, TaskType, TaskComplexity
+from ..core.model_registry import get_model_id
 
 logger = structlog.get_logger()
 
@@ -123,13 +124,17 @@ class VisualAI:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-5-20250514",
+        model: Optional[str] = None,
         ignore_dynamic: bool = True,
         sensitivity: str = "medium",  # low, medium, high
         use_multi_model: bool = True,
     ):
         self.settings = get_settings()
-        self.client = anthropic.Anthropic(api_key=self.settings.anthropic_api_key.get_secret_value())
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = anthropic.Anthropic(api_key=api_key)
+        model = model or get_model_id("claude-sonnet-4-5")
         self.model = model
         self.ignore_dynamic = ignore_dynamic
         self.sensitivity = sensitivity

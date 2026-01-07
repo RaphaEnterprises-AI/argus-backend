@@ -81,7 +81,10 @@ class TestImpactAnalyzer:
 
     def __init__(self):
         self.settings = get_settings()
-        self.client = Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = Anthropic(api_key=api_key)
         self.mappings: dict[str, TestMapping] = {}
         self.failure_history: dict[str, list[dict]] = {}  # code_path -> [{change_id, test_id, failed}]
 
@@ -253,8 +256,9 @@ Consider:
 
 Return JSON array of test IDs: ["test-1", "test-2", ...]"""
 
+            from src.core.model_registry import get_model_id
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=get_model_id("claude-sonnet-4-5"),
                 max_tokens=512,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -366,8 +370,9 @@ Suggest specific tests that would improve coverage:
     }}
 ]"""
 
+        from src.core.model_registry import get_model_id
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_model_id("claude-sonnet-4-5"),
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
         )

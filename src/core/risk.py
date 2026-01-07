@@ -29,6 +29,7 @@ from anthropic import AsyncAnthropic
 from src.config import get_settings
 from src.core.normalizer import NormalizedEvent, Severity
 from src.core.coverage import CoverageSummary, FileCoverage, CoverageLevel
+from src.core.model_registry import get_model_id
 
 logger = structlog.get_logger()
 
@@ -187,9 +188,13 @@ class RiskScorer:
     - Pattern recognition across codebase
     """
 
-    # Model for risk analysis
-    SEMANTIC_MODEL = "claude-sonnet-4-5-20250514"
-    FAST_MODEL = "claude-haiku-4-5-20250514"
+    @property
+    def SEMANTIC_MODEL(self) -> str:
+        return get_model_id("claude-sonnet-4-5")
+
+    @property
+    def FAST_MODEL(self) -> str:
+        return get_model_id("claude-haiku-4-5")
 
     # Default weights for risk factors
     DEFAULT_WEIGHTS = {
@@ -213,9 +218,10 @@ class RiskScorer:
         self.weights = weights or self.DEFAULT_WEIGHTS
 
         if use_llm:
-            self.client = AsyncAnthropic(
-                api_key=self.settings.anthropic_api_key.get_secret_value()
-            )
+            api_key = self.settings.anthropic_api_key
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+            self.client = AsyncAnthropic(api_key=api_key)
         else:
             self.client = None
 

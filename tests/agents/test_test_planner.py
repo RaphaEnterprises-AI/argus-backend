@@ -242,9 +242,10 @@ class TestTestPlannerAgent:
             agent = TestPlannerAgent()
             prompt = agent._get_system_prompt()
 
+            # Enhanced prompt uses different terminology
             assert "test" in prompt.lower()
-            assert "step-by-step" in prompt.lower()
-            assert "JSON" in prompt
+            assert "planning" in prompt.lower() or "strategy" in prompt.lower()
+            assert "JSON" in prompt or "json" in prompt
 
     def test_build_planning_prompt(self, mock_env_vars):
         """Test planning prompt building."""

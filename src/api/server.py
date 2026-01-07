@@ -139,7 +139,9 @@ async def readiness_check():
     settings = get_settings()
 
     checks = {
-        "anthropic_api": settings.anthropic_api_key is not None and bool(settings.anthropic_api_key.get_secret_value()),
+        "anthropic_api": settings.anthropic_api_key is not None and bool(
+            settings.anthropic_api_key.get_secret_value() if hasattr(settings.anthropic_api_key, 'get_secret_value') else settings.anthropic_api_key
+        ),
         "output_dir": os.path.exists(settings.output_dir),
     }
 

@@ -309,7 +309,7 @@ MODELS = {
 
     "haiku": ModelConfig(
         provider=ModelProvider.ANTHROPIC,
-        model_id="claude-haiku-4-5-20250514",
+        model_id="claude-haiku-4-5",
         input_cost_per_1m=0.80,
         output_cost_per_1m=4.00,
         max_tokens=8192,
@@ -357,7 +357,7 @@ MODELS = {
 
     "claude-computer-use": ModelConfig(
         provider=ModelProvider.ANTHROPIC,
-        model_id="claude-sonnet-4-5-20250514",
+        model_id="claude-sonnet-4-5",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
@@ -371,7 +371,7 @@ MODELS = {
 
     "sonnet": ModelConfig(
         provider=ModelProvider.ANTHROPIC,
-        model_id="claude-sonnet-4-5-20250514",
+        model_id="claude-sonnet-4-5",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
@@ -416,7 +416,7 @@ MODELS = {
 
     "opus": ModelConfig(
         provider=ModelProvider.ANTHROPIC,
-        model_id="claude-opus-4-5-20250514",
+        model_id="claude-opus-4-5",
         input_cost_per_1m=15.00,
         output_cost_per_1m=75.00,
         max_tokens=8192,
@@ -450,7 +450,7 @@ MODELS = {
 
     "vertex-sonnet": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-sonnet-4-5-20250514",
+        model_id="claude-sonnet-4-5",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
@@ -464,7 +464,7 @@ MODELS = {
 
     "vertex-opus": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-opus-4-5-20250514",
+        model_id="claude-opus-4-5",
         input_cost_per_1m=15.00,
         output_cost_per_1m=75.00,
         max_tokens=8192,
@@ -478,7 +478,7 @@ MODELS = {
 
     "vertex-haiku": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-haiku-4-5-20250514",
+        model_id="claude-haiku-4-5",
         input_cost_per_1m=0.80,
         output_cost_per_1m=4.00,
         max_tokens=8192,
@@ -491,7 +491,7 @@ MODELS = {
 
     "vertex-computer-use": ModelConfig(
         provider=ModelProvider.VERTEX_AI,
-        model_id="claude-sonnet-4-5-20250514",
+        model_id="claude-sonnet-4-5",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
@@ -614,11 +614,22 @@ class AnthropicClient(BaseModelClient):
         json_mode: bool = False,
         tools: Optional[list] = None,
     ) -> dict:
+        # Extract system message from messages (Anthropic requires separate system param)
+        system_content = None
+        filtered_messages = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_content = msg.get("content", "")
+            else:
+                filtered_messages.append(msg)
+
         kwargs = {
             "model": model_config.model_id,
             "max_tokens": max_tokens,
-            "messages": messages,
+            "messages": filtered_messages,
         }
+        if system_content:
+            kwargs["system"] = system_content
         if temperature > 0:
             kwargs["temperature"] = temperature
         if tools:
@@ -1161,16 +1172,15 @@ class VertexAIClient(BaseModelClient):
     - Regional endpoints: 10% premium
     """
 
-    # Vertex AI model ID mapping
+    # Vertex AI model ID mapping (correct API IDs to Vertex AI format)
     VERTEX_MODEL_IDS = {
         # Sonnet models
-        "claude-sonnet-4-5-20250514": "claude-sonnet-4-5@20250929",
-        "claude-sonnet-4-20250514": "claude-sonnet-4@20250514",
+        "claude-sonnet-4-5": "claude-sonnet-4-5@20250929",
         # Opus models
-        "claude-opus-4-5-20250514": "claude-opus-4-5@20251101",
-        "claude-opus-4-1-20250805": "claude-opus-4-1@20250805",
-        "claude-opus-4-20250514": "claude-opus-4@20250514",
+        "claude-opus-4-5": "claude-opus-4-5@20251101",
         # Haiku models
+        "claude-haiku-4-5": "claude-haiku-4-5@20251001",
+        # Legacy mappings for compatibility
         "claude-3-5-haiku-latest": "claude-haiku-4-5@20251001",
         "claude-3-haiku-20240307": "claude-3-haiku@20240307",
     }
@@ -1210,11 +1220,22 @@ class VertexAIClient(BaseModelClient):
     ) -> dict:
         vertex_model_id = self._get_vertex_model_id(model_config.model_id)
 
+        # Extract system message from messages (Anthropic requires separate system param)
+        system_content = None
+        filtered_messages = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_content = msg.get("content", "")
+            else:
+                filtered_messages.append(msg)
+
         kwargs = {
             "model": vertex_model_id,
             "max_tokens": max_tokens,
-            "messages": messages,
+            "messages": filtered_messages,
         }
+        if system_content:
+            kwargs["system"] = system_content
         if temperature > 0:
             kwargs["temperature"] = temperature
         if tools:
