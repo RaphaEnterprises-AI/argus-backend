@@ -9,7 +9,7 @@ Provides endpoints for:
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -219,7 +219,7 @@ async def generate_test(request: TestGenerationRequest):
 
     # Create job record
     job_id = str(uuid.uuid4())
-    job_start = datetime.utcnow()
+    job_start = datetime.now(timezone.utc)
 
     await supabase.insert("test_generation_jobs", {
         "id": job_id,
@@ -283,20 +283,20 @@ async def generate_test(request: TestGenerationRequest):
                 "ai_analysis": {
                     "generated_test_id": generated_test_id,
                     "confidence_score": confidence,
-                    "generated_at": datetime.utcnow().isoformat(),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
                 },
             },
         )
 
         # Update job as completed
-        duration_ms = int((datetime.utcnow() - job_start).total_seconds() * 1000)
+        duration_ms = int((datetime.now(timezone.utc) - job_start).total_seconds() * 1000)
         await supabase.update(
             "test_generation_jobs",
             {"id": f"eq.{job_id}"},
             {
                 "status": "completed",
                 "tests_generated": 1,
-                "completed_at": datetime.utcnow().isoformat(),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
                 "duration_ms": duration_ms,
             },
         )
@@ -328,7 +328,7 @@ async def generate_test(request: TestGenerationRequest):
             {
                 "status": "failed",
                 "error_message": str(e),
-                "completed_at": datetime.utcnow().isoformat(),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
             },
         )
         logger.exception("Test generation failed", error=str(e))
@@ -360,7 +360,7 @@ async def batch_generate_tests(request: BatchGenerationRequest):
 
     # Create batch job
     job_id = str(uuid.uuid4())
-    job_start = datetime.utcnow()
+    job_start = datetime.now(timezone.utc)
 
     await supabase.insert("test_generation_jobs", {
         "id": job_id,
@@ -420,7 +420,7 @@ async def batch_generate_tests(request: BatchGenerationRequest):
         {
             "status": "completed",
             "tests_generated": success_count,
-            "completed_at": datetime.utcnow().isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
             "metadata": {"results": results},
         },
     )
@@ -448,7 +448,7 @@ async def update_generated_test(request: TestUpdateRequest):
 
     update_data = {
         "status": status_map[request.action],
-        "reviewed_at": datetime.utcnow().isoformat(),
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
         "review_notes": request.review_notes,
     }
 
@@ -557,7 +557,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
     max_affected_users = max((d["affected_users"] for d in entity_data.values()), default=1)
 
     risk_scores = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     for entity_key, data in entity_data.items():
         # Calculate individual factors
@@ -627,7 +627,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
                 "error_count": score["error_count"],
                 "affected_users": score["affected_users"],
                 "trend": score["trend"],
-                "calculated_at": datetime.utcnow().isoformat(),
+                "calculated_at": datetime.now(timezone.utc).isoformat(),
             },
             headers={"Prefer": "resolution=merge-duplicates"},
         )

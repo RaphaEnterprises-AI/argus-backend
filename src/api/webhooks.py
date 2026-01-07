@@ -15,7 +15,7 @@ These webhooks create production_events in Supabase for Quality Intelligence ana
 import hashlib
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Query
@@ -230,7 +230,7 @@ async def update_webhook_log(
     supabase, webhook_id: str, status: str, error_message: Optional[str] = None, event_id: Optional[str] = None
 ) -> None:
     """Update webhook log status."""
-    update_data = {"status": status, "processed_at": datetime.utcnow().isoformat()}
+    update_data = {"status": status, "processed_at": datetime.now(timezone.utc).isoformat()}
     if error_message:
         update_data["error_message"] = error_message
     if event_id:
@@ -396,7 +396,7 @@ async def handle_sentry_webhook(
                     {"external_id": f"eq.{issue['id']}", "source": "eq.sentry"},
                     {
                         "status": "resolved" if action == "resolved" else "ignored",
-                        "resolved_at": datetime.utcnow().isoformat(),
+                        "resolved_at": datetime.now(timezone.utc).isoformat(),
                     },
                 )
             await update_webhook_log(supabase, webhook_id, "processed")
@@ -1336,7 +1336,7 @@ async def upload_coverage_report(
             "functions_covered": summary.functions_covered,
             "functions_percent": summary.functions_percent,
             "files": summary.files,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
         result = await supabase.insert("coverage_reports", coverage_data)

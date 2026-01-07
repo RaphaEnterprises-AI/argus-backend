@@ -1,0 +1,387 @@
+"""API Key Management endpoints.
+
+Provides endpoints for:
+- Creating API keys
+- Rotating keys
+- Revoking keys
+- Listing keys
+"""
+
+import hashlib
+import secrets
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+import structlog
+
+from src.services.supabase_client import get_supabase_client
+from src.api.teams import get_current_user, verify_org_access, log_audit
+
+logger = structlog.get_logger()
+router = APIRouter(prefix="/api/v1/api-keys", tags=["API Keys"])
+
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+KEY_PREFIX = "argus_sk_"
+KEY_LENGTH = 32  # 32 bytes = 64 hex chars
+
+
+# ============================================================================
+# Request/Response Models
+# ============================================================================
+
+class CreateAPIKeyRequest(BaseModel):
+    """Request to create a new API key."""
+    name: str = Field(..., min_length=1, max_length=100)
+    scopes: list[str] = Field(default=["read", "write"])
+    expires_in_days: Optional[int] = Field(None, ge=1, le=365)
+
+
+class APIKeyResponse(BaseModel):
+    """API key response (without the secret)."""
+    id: str
+    name: str
+    key_prefix: str
+    scopes: list[str]
+    last_used_at: Optional[str]
+    request_count: int
+    expires_at: Optional[str]
+    revoked_at: Optional[str]
+    created_at: str
+    is_active: bool
+
+
+class APIKeyCreatedResponse(APIKeyResponse):
+    """Response when creating a new API key (includes the secret)."""
+    key: str  # Only shown once at creation
+
+
+class RotateKeyResponse(BaseModel):
+    """Response when rotating an API key."""
+    old_key_id: str
+    new_key: APIKeyCreatedResponse
+    message: str
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def generate_api_key() -> tuple[str, str]:
+    """Generate a new API key and its hash.
+
+    Returns:
+        Tuple of (plaintext_key, key_hash)
+    """
+    # Generate random bytes
+    random_bytes = secrets.token_hex(KEY_LENGTH)
+
+    # Create the full key with prefix
+    full_key = f"{KEY_PREFIX}{random_bytes}"
+
+    # Create SHA-256 hash for storage
+    key_hash = hashlib.sha256(full_key.encode()).hexdigest()
+
+    return full_key, key_hash
+
+
+def hash_api_key(key: str) -> str:
+    """Hash an API key for comparison."""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+# ============================================================================
+# Endpoints
+# ============================================================================
+
+@router.get("/organizations/{org_id}/keys", response_model=list[APIKeyResponse])
+async def list_api_keys(org_id: str, request: Request, include_revoked: bool = False):
+    """List all API keys for an organization."""
+    user = await get_current_user(request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    supabase = get_supabase_client()
+
+    query = f"/api_keys?organization_id=eq.{org_id}&select=*&order=created_at.desc"
+
+    if not include_revoked:
+        query += "&revoked_at=is.null"
+
+    result = await supabase.request(query)
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to fetch API keys")
+
+    now = datetime.now(timezone.utc)
+
+    return [
+        APIKeyResponse(
+            id=key["id"],
+            name=key["name"],
+            key_prefix=key["key_prefix"],
+            scopes=key.get("scopes", ["read", "write"]),
+            last_used_at=key.get("last_used_at"),
+            request_count=key.get("request_count", 0),
+            expires_at=key.get("expires_at"),
+            revoked_at=key.get("revoked_at"),
+            created_at=key["created_at"],
+            is_active=(
+                key.get("revoked_at") is None and
+                (key.get("expires_at") is None or
+                 datetime.fromisoformat(key["expires_at"].replace("Z", "+00:00")) > now)
+            ),
+        )
+        for key in result.get("data", [])
+    ]
+
+
+@router.post("/organizations/{org_id}/keys", response_model=APIKeyCreatedResponse)
+async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Request):
+    """Create a new API key for the organization."""
+    user = await get_current_user(request)
+    member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    supabase = get_supabase_client()
+
+    # Validate scopes
+    valid_scopes = {"read", "write", "admin", "webhooks", "tests"}
+    for scope in body.scopes:
+        if scope not in valid_scopes:
+            raise HTTPException(status_code=400, detail=f"Invalid scope: {scope}")
+
+    # Generate the key
+    plaintext_key, key_hash = generate_api_key()
+    key_prefix = plaintext_key[:16]  # argus_sk_ + first 8 chars of random
+
+    # Calculate expiration
+    expires_at = None
+    if body.expires_in_days:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)).isoformat()
+
+    # Store the key
+    key_result = await supabase.insert("api_keys", {
+        "organization_id": org_id,
+        "name": body.name,
+        "key_hash": key_hash,
+        "key_prefix": key_prefix,
+        "scopes": body.scopes,
+        "expires_at": expires_at,
+        "created_by": member["id"],
+    })
+
+    if key_result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to create API key")
+
+    key_data = key_result["data"][0]
+
+    # Audit log
+    await log_audit(
+        organization_id=org_id,
+        user_id=user["user_id"],
+        user_email=user["email"],
+        action="api_key.create",
+        resource_type="api_key",
+        resource_id=key_data["id"],
+        description=f"Created API key '{body.name}'",
+        metadata={"key_name": body.name, "scopes": body.scopes, "expires_in_days": body.expires_in_days},
+        request=request,
+    )
+
+    logger.info("API key created", org_id=org_id, key_name=body.name)
+
+    return APIKeyCreatedResponse(
+        id=key_data["id"],
+        name=key_data["name"],
+        key_prefix=key_data["key_prefix"],
+        key=plaintext_key,  # Only shown once!
+        scopes=key_data.get("scopes", ["read", "write"]),
+        last_used_at=None,
+        request_count=0,
+        expires_at=key_data.get("expires_at"),
+        revoked_at=None,
+        created_at=key_data["created_at"],
+        is_active=True,
+    )
+
+
+@router.post("/organizations/{org_id}/keys/{key_id}/rotate", response_model=RotateKeyResponse)
+async def rotate_api_key(org_id: str, key_id: str, request: Request):
+    """Rotate an API key (revoke old, create new with same settings)."""
+    user = await get_current_user(request)
+    member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    supabase = get_supabase_client()
+
+    # Get the existing key
+    existing = await supabase.request(
+        f"/api_keys?id=eq.{key_id}&organization_id=eq.{org_id}&select=*"
+    )
+
+    if not existing.get("data"):
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    old_key = existing["data"][0]
+
+    if old_key.get("revoked_at"):
+        raise HTTPException(status_code=400, detail="Cannot rotate a revoked key")
+
+    # Generate new key with same settings
+    plaintext_key, key_hash = generate_api_key()
+    key_prefix = plaintext_key[:16]
+
+    # Create new key
+    new_key_result = await supabase.insert("api_keys", {
+        "organization_id": org_id,
+        "name": f"{old_key['name']} (rotated)",
+        "key_hash": key_hash,
+        "key_prefix": key_prefix,
+        "scopes": old_key.get("scopes", ["read", "write"]),
+        "expires_at": old_key.get("expires_at"),
+        "created_by": member["id"],
+    })
+
+    if new_key_result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to create new key")
+
+    new_key_data = new_key_result["data"][0]
+
+    # Revoke old key
+    await supabase.update(
+        "api_keys",
+        {"id": f"eq.{key_id}"},
+        {"revoked_at": datetime.now(timezone.utc).isoformat()}
+    )
+
+    # Audit log
+    await log_audit(
+        organization_id=org_id,
+        user_id=user["user_id"],
+        user_email=user["email"],
+        action="api_key.rotate",
+        resource_type="api_key",
+        resource_id=key_id,
+        description=f"Rotated API key '{old_key['name']}'",
+        metadata={"old_key_id": key_id, "new_key_id": new_key_data["id"]},
+        request=request,
+    )
+
+    logger.info("API key rotated", org_id=org_id, old_key_id=key_id, new_key_id=new_key_data["id"])
+
+    return RotateKeyResponse(
+        old_key_id=key_id,
+        new_key=APIKeyCreatedResponse(
+            id=new_key_data["id"],
+            name=new_key_data["name"],
+            key_prefix=new_key_data["key_prefix"],
+            key=plaintext_key,
+            scopes=new_key_data.get("scopes", ["read", "write"]),
+            last_used_at=None,
+            request_count=0,
+            expires_at=new_key_data.get("expires_at"),
+            revoked_at=None,
+            created_at=new_key_data["created_at"],
+            is_active=True,
+        ),
+        message="Key rotated successfully. The old key has been revoked.",
+    )
+
+
+@router.delete("/organizations/{org_id}/keys/{key_id}")
+async def revoke_api_key(org_id: str, key_id: str, request: Request):
+    """Revoke an API key."""
+    user = await get_current_user(request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    supabase = get_supabase_client()
+
+    # Get the key
+    existing = await supabase.request(
+        f"/api_keys?id=eq.{key_id}&organization_id=eq.{org_id}&select=*"
+    )
+
+    if not existing.get("data"):
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    key_data = existing["data"][0]
+
+    if key_data.get("revoked_at"):
+        raise HTTPException(status_code=400, detail="Key is already revoked")
+
+    # Revoke the key
+    await supabase.update(
+        "api_keys",
+        {"id": f"eq.{key_id}"},
+        {"revoked_at": datetime.now(timezone.utc).isoformat()}
+    )
+
+    # Audit log
+    await log_audit(
+        organization_id=org_id,
+        user_id=user["user_id"],
+        user_email=user["email"],
+        action="api_key.revoke",
+        resource_type="api_key",
+        resource_id=key_id,
+        description=f"Revoked API key '{key_data['name']}'",
+        metadata={"key_name": key_data["name"]},
+        request=request,
+    )
+
+    logger.info("API key revoked", org_id=org_id, key_id=key_id)
+
+    return {"success": True, "message": "API key revoked"}
+
+
+# ============================================================================
+# Key Verification (for auth middleware)
+# ============================================================================
+
+async def verify_api_key(api_key: str) -> Optional[dict]:
+    """Verify an API key and return organization/scopes if valid.
+
+    Returns:
+        Dict with organization_id and scopes, or None if invalid
+    """
+    if not api_key or not api_key.startswith(KEY_PREFIX):
+        return None
+
+    key_hash = hash_api_key(api_key)
+
+    supabase = get_supabase_client()
+
+    result = await supabase.request(
+        f"/api_keys?key_hash=eq.{key_hash}&revoked_at=is.null&select=*"
+    )
+
+    if not result.get("data"):
+        return None
+
+    key_data = result["data"][0]
+
+    # Check expiration
+    if key_data.get("expires_at"):
+        expires_at = datetime.fromisoformat(key_data["expires_at"].replace("Z", "+00:00"))
+        if expires_at < datetime.now(timezone.utc):
+            return None
+
+    # Update last used
+    await supabase.update(
+        "api_keys",
+        {"id": f"eq.{key_data['id']}"},
+        {
+            "last_used_at": datetime.now(timezone.utc).isoformat(),
+            "request_count": (key_data.get("request_count", 0) or 0) + 1,
+        }
+    )
+
+    return {
+        "key_id": key_data["id"],
+        "organization_id": key_data["organization_id"],
+        "scopes": key_data.get("scopes", ["read", "write"]),
+        "name": key_data["name"],
+    }

@@ -10,7 +10,7 @@ Provides REST API endpoints for:
 import asyncio
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
@@ -25,6 +25,10 @@ from src.orchestrator.state import create_initial_state
 from src.integrations.reporter import create_reporter, create_report_from_state
 from src.api.webhooks import router as webhooks_router
 from src.api.quality import router as quality_router
+from src.api.teams import router as teams_router
+from src.api.api_keys import router as api_keys_router
+from src.api.audit import router as audit_router
+from src.api.healing import router as healing_router
 
 logger = structlog.get_logger()
 
@@ -75,6 +79,10 @@ app.add_middleware(
 # Include routers
 app.include_router(webhooks_router)
 app.include_router(quality_router)
+app.include_router(teams_router)
+app.include_router(api_keys_router)
+app.include_router(audit_router)
+app.include_router(healing_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -152,7 +160,7 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         version="0.1.0",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -175,7 +183,7 @@ async def readiness_check():
         content={
             "ready": all_ready,
             "checks": checks,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )
 
@@ -195,7 +203,7 @@ async def start_test_run(request: TestRunRequest, background_tasks: BackgroundTa
 
     jobs[job_id] = {
         "status": "pending",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "request": request.model_dump(),
         "progress": {"phase": "initializing", "tests_completed": 0},
     }
@@ -261,7 +269,7 @@ async def run_tests_background(
         summary = orchestrator.get_run_summary(final_state)
 
         jobs[job_id]["status"] = "completed"
-        jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
         jobs[job_id]["result"] = {
             "summary": summary,
             "report_paths": {k: str(v) for k, v in report_paths.items()},
@@ -273,7 +281,7 @@ async def run_tests_background(
         logger.exception("Test run failed", job_id=job_id, error=str(e))
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
-        jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse, tags=["Testing"])
@@ -433,7 +441,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 
         jobs[job_id] = {
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "trigger": "github_webhook",
             "pr_number": pr.get("number"),
         }
@@ -538,7 +546,7 @@ async def frontend_quality_score(project_id: str):
                 f"Risk level: {result.get('risk_level', 'medium')}",
                 f"Test coverage: {result.get('test_coverage', 0):.1f}%",
             ],
-            "calculated_at": datetime.utcnow().isoformat(),
+            "calculated_at": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         logger.exception("Quality score calculation failed", error=str(e))
@@ -679,7 +687,7 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
         "project_id": request.project_id,
         "status": "running",
         "job_type": "autonomous_loop",
-        "started_at": datetime.utcnow().isoformat(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
         "metadata": {
             "stages": request.stages,
             "url": request.url,
@@ -721,7 +729,7 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
                 {"id": f"eq.{job_id}"},
                 {
                     "status": "completed",
-                    "completed_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "metadata": results,
                 },
             )
@@ -733,7 +741,7 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
                 {
                     "status": "failed",
                     "error_message": str(e),
-                    "completed_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -827,7 +835,7 @@ async def predictive_quality(
             "risk_scores_available": len(risk_scores),
             "patterns_learned": 0,
         },
-        "calculated_at": datetime.utcnow().isoformat(),
+        "calculated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
