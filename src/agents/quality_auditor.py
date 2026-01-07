@@ -167,7 +167,10 @@ class AccessibilityAuditor:
 
     def __init__(self):
         self.settings = get_settings()
-        self.client = Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = Anthropic(api_key=api_key)
 
     async def audit(
         self,
@@ -177,7 +180,7 @@ class AccessibilityAuditor:
         level: AccessibilityLevel = AccessibilityLevel.AA
     ) -> AccessibilityReport:
         """Perform accessibility audit on a page."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         violations = []
         passes = 0
@@ -218,7 +221,7 @@ class AccessibilityAuditor:
 
         return AccessibilityReport(
             url=page_url,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             level_tested=level,
             total_violations=len(violations),
             violations_by_severity=severity_counts,
@@ -361,8 +364,9 @@ Return empty array [] if no issues found."""
         }]
 
         try:
+            from src.core.model_registry import get_model_id
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=get_model_id("claude-sonnet-4-5"),
                 max_tokens=1024,
                 messages=messages
             )
@@ -430,7 +434,7 @@ class PerformanceAuditor:
         metrics: dict[str, float]
     ) -> PerformanceReport:
         """Generate performance report from collected metrics."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         metric_results = []
         total_score = 0
@@ -464,7 +468,7 @@ class PerformanceAuditor:
 
         return PerformanceReport(
             url=page_url,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             overall_score=round(overall_score, 1),
             metrics=metric_results,
             opportunities=opportunities,

@@ -5,16 +5,20 @@ This agent:
 - Uses Claude vision to understand visual changes
 - Generates fix suggestions with confidence scores
 - Can auto-apply fixes above confidence threshold
+- Learns from successful healings via Upstash Redis cache
 """
 
 import base64
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 from ..config import ModelName
 from ..core.model_router import TaskType, TaskComplexity
+from ..services.cache import cache_healing_pattern, get_cached, set_cached
 
 
 class FailureType(Enum):
@@ -103,6 +107,7 @@ class SelfHealerAgent(BaseAgent):
     - Pattern matching for common failure types
     - Multi-model AI for visual analysis (GPT-4V, Gemini, Claude)
     - Historical failure data for learning
+    - Cached healing patterns from previous successful fixes
 
     Healing strategies:
     - Selector updates when elements move
@@ -130,7 +135,91 @@ class SelfHealerAgent(BaseAgent):
         # Override to use vision-capable model (only used in single-model mode)
         self.model = ModelName.SONNET
 
+    def _generate_healing_fingerprint(
+        self,
+        original_selector: str,
+        error_type: str,
+    ) -> str:
+        """Generate a unique fingerprint for a healing pattern."""
+        key = f"{original_selector}:{error_type}"
+        return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    async def _lookup_cached_healing(
+        self,
+        original_selector: str,
+        error_type: str,
+    ) -> Optional[FixSuggestion]:
+        """Look up a cached healing pattern from previous successful fixes."""
+        fingerprint = self._generate_healing_fingerprint(original_selector, error_type)
+        cache_key = f"heal:{fingerprint}"
+
+        cached = await get_cached(cache_key)
+        if cached:
+            self.log.info(
+                "Found cached healing pattern",
+                original_selector=original_selector,
+                healed_selector=cached.get("healed_selector"),
+                confidence=cached.get("confidence", 0),
+            )
+            return FixSuggestion(
+                fix_type=FixType.UPDATE_SELECTOR,
+                old_value=original_selector,
+                new_value=cached.get("healed_selector"),
+                confidence=cached.get("confidence", 0.9),
+                explanation=f"Using cached healing pattern (success rate: {cached.get('success_count', 0)} successes)",
+                requires_review=False,
+            )
+        return None
+
+    async def _store_healing_pattern(
+        self,
+        original_selector: str,
+        healed_selector: str,
+        error_type: str,
+        success: bool = True,
+    ) -> None:
+        """Store a healing pattern in cache for future use."""
+        fingerprint = self._generate_healing_fingerprint(original_selector, error_type)
+        cache_key = f"heal:{fingerprint}"
+
+        # Get existing pattern or create new one
+        existing = await get_cached(cache_key)
+        if existing:
+            if success:
+                existing["success_count"] = existing.get("success_count", 0) + 1
+            else:
+                existing["failure_count"] = existing.get("failure_count", 0) + 1
+
+            # Recalculate confidence
+            total = existing["success_count"] + existing["failure_count"]
+            existing["confidence"] = existing["success_count"] / total if total > 0 else 0
+
+            await set_cached(cache_key, existing, ttl_seconds=604800)  # 7 days
+        elif success:
+            # Create new pattern
+            pattern = {
+                "fingerprint": fingerprint,
+                "original_selector": original_selector,
+                "healed_selector": healed_selector,
+                "error_type": error_type,
+                "success_count": 1,
+                "failure_count": 0,
+                "confidence": 1.0,
+            }
+            await set_cached(cache_key, pattern, ttl_seconds=604800)  # 7 days
+            self.log.info(
+                "Stored new healing pattern",
+                fingerprint=fingerprint,
+                original_selector=original_selector,
+                healed_selector=healed_selector,
+            )
+
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for self-healing."""
+        enhanced = get_enhanced_prompt("self_healer")
+        if enhanced:
+            return enhanced
+
         return """You are an expert test failure analyzer and healer.
 
 Your task is to diagnose test failures and suggest fixes:
@@ -187,6 +276,43 @@ Output must be valid JSON."""
             test_id=test_id,
             failure_type=failure_details.get("type"),
         )
+
+        # Check for cached healing pattern first (before LLM call)
+        original_selector = failure_details.get("selector") or failure_details.get("target")
+        error_type = failure_details.get("type", "unknown")
+
+        if original_selector and error_type == "selector_changed":
+            cached_fix = await self._lookup_cached_healing(original_selector, error_type)
+            if cached_fix and cached_fix.confidence >= self.auto_heal_threshold:
+                # Use cached healing pattern - skip LLM call entirely
+                diagnosis = FailureDiagnosis(
+                    failure_type=FailureType.SELECTOR_CHANGED,
+                    confidence=cached_fix.confidence,
+                    explanation="Using cached healing pattern from previous successful fix",
+                    evidence=["Cached pattern matched"],
+                )
+
+                healed_spec = self._apply_fix(test_spec, cached_fix)
+
+                self.log.info(
+                    "Applied cached healing pattern",
+                    test_id=test_id,
+                    original_selector=original_selector,
+                    healed_selector=cached_fix.new_value,
+                )
+
+                return AgentResult(
+                    success=True,
+                    data=HealingResult(
+                        test_id=test_id,
+                        diagnosis=diagnosis,
+                        suggested_fixes=[cached_fix],
+                        auto_healed=True,
+                        healed_test_spec=healed_spec,
+                    ),
+                    input_tokens=0,  # No LLM call made
+                    output_tokens=0,
+                )
 
         if not self._check_cost_limit():
             return AgentResult(
@@ -256,6 +382,15 @@ Output must be valid JSON."""
                     fix_type=fixes[0].fix_type.value,
                     confidence=fixes[0].confidence,
                 )
+
+                # Store successful healing pattern for future use
+                if fixes[0].fix_type == FixType.UPDATE_SELECTOR and fixes[0].old_value and fixes[0].new_value:
+                    await self._store_healing_pattern(
+                        original_selector=fixes[0].old_value,
+                        healed_selector=fixes[0].new_value,
+                        error_type=diagnosis.failure_type.value,
+                        success=True,
+                    )
 
             result = HealingResult(
                 test_id=test_id,

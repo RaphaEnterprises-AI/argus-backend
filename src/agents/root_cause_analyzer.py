@@ -18,11 +18,12 @@ import json
 import hashlib
 from enum import Enum
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from anthropic import Anthropic
 
 from src.config import get_settings
+from src.agents.prompts import get_enhanced_prompt
 
 
 class FailureCategory(str, Enum):
@@ -81,7 +82,10 @@ class RootCauseAnalyzer:
 
     def __init__(self):
         self.settings = get_settings()
-        self.client = Anthropic(api_key=self.settings.anthropic_api_key)
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = Anthropic(api_key=api_key)
         self.failure_history: dict[str, list[dict]] = {}  # For pattern detection
 
     async def analyze(self, context: FailureContext) -> RootCauseResult:
@@ -96,7 +100,7 @@ class RootCauseAnalyzer:
 
         # Use Claude for deep analysis
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=4096,
             system=self._get_system_prompt(),
             messages=messages
@@ -117,6 +121,11 @@ class RootCauseAnalyzer:
         return result
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for root cause analysis."""
+        enhanced = get_enhanced_prompt("root_cause_analyzer")
+        if enhanced:
+            return enhanced
+
         return """You are an expert test failure analyst with deep knowledge of:
 - Web application architecture and common failure patterns
 - Browser behavior and timing issues
@@ -367,7 +376,7 @@ Key analysis patterns to consider:
 
         self.failure_history[fingerprint].append({
             "test_id": context.test_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "category": result.category.value,
             "recovered": False  # Updated if test passes on retry
         })

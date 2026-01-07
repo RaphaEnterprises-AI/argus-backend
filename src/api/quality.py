@@ -18,6 +18,7 @@ import structlog
 
 from src.config import get_settings
 from src.services.supabase_client import get_supabase_client
+from src.services.cache import cache_quality_score
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/quality", tags=["Quality Intelligence"])
@@ -772,11 +773,9 @@ async def get_generated_tests(
     return {"tests": result.get("data", [])}
 
 
-@router.get("/score")
-async def get_quality_score(
-    project_id: str = Query(..., description="Project ID"),
-):
-    """Get overall quality score for a project."""
+@cache_quality_score(key_prefix="project_score")
+async def _calculate_quality_score(project_id: str) -> dict:
+    """Calculate quality score for a project (cached)."""
     supabase = get_supabase_client()
 
     # Get events
@@ -813,3 +812,11 @@ async def get_quality_score(
         "total_tests": len(tests),
         "approved_tests": approved_tests,
     }
+
+
+@router.get("/score")
+async def get_quality_score(
+    project_id: str = Query(..., description="Project ID"),
+):
+    """Get overall quality score for a project (cached for 5 minutes)."""
+    return await _calculate_quality_score(project_id)
