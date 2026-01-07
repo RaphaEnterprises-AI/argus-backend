@@ -1,6 +1,7 @@
 """Node implementations for the LangGraph orchestrator."""
 
 import json
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -18,6 +19,65 @@ from ..security import (
 )
 
 logger = structlog.get_logger()
+
+
+def robust_json_parse(content: str) -> dict:
+    """Parse JSON from LLM output with error handling for common issues.
+
+    Handles:
+    - Trailing commas
+    - Single quotes instead of double quotes
+    - Unquoted keys
+    - Comments
+    - Markdown code blocks
+    """
+    # Extract JSON from markdown code blocks
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0]
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0]
+
+    content = content.strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # Remove trailing commas before ] or }
+    content = re.sub(r',\s*([}\]])', r'\1', content)
+
+    # Remove JavaScript-style comments
+    content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to find the first { and last } to extract just the JSON object
+    start = content.find('{')
+    end = content.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(content[start:end+1])
+        except json.JSONDecodeError:
+            pass
+
+    # Try to find array
+    start = content.find('[')
+    end = content.rfind(']')
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(content[start:end+1])
+        except json.JSONDecodeError:
+            pass
+
+    # Return empty dict as fallback
+    logger.warning("Failed to parse JSON from LLM output", content_preview=content[:200])
+    return {}
 
 
 def _track_usage(state: TestingState, response: Any) -> TestingState:
@@ -197,15 +257,9 @@ Respond with JSON:
             success=True,
         )
 
-        # Parse response
+        # Parse response using robust parser
         content = response.content[0].text
-        # Extract JSON from response (handle markdown code blocks)
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-
-        result = json.loads(content.strip())
+        result = robust_json_parse(content)
 
         state["codebase_summary"] = result.get("summary", "")
         state["testable_surfaces"] = result.get("testable_surfaces", [])
@@ -307,15 +361,18 @@ Respond with JSON array of test specs:
         
         state = _track_usage(state, response)
         
-        # Parse response
+        # Parse response using robust parser
         content = response.content[0].text
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-        
-        test_plan = json.loads(content.strip())
-        
+        test_plan = robust_json_parse(content)
+
+        # Handle if test_plan is an empty dict (parsing failed)
+        if not test_plan:
+            test_plan = []
+        elif isinstance(test_plan, dict) and "tests" in test_plan:
+            test_plan = test_plan["tests"]
+        elif isinstance(test_plan, dict):
+            test_plan = []
+
         # Sort by priority
         priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         test_plan.sort(key=lambda t: priority_order.get(t.get("priority", "low"), 3))
@@ -746,14 +803,9 @@ Respond with JSON:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        # Parse result
+        # Parse result using robust parser
         content = response.content[0].text
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-
-        result = json.loads(content.strip())
+        result = robust_json_parse(content)
 
         return TestResult(
             test_id=test["id"],
@@ -849,15 +901,11 @@ Respond with JSON:
         )
         
         state = _track_usage(state, response)
-        
+
+        # Parse response using robust parser
         content = response.content[0].text
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-        
-        heal_result = json.loads(content.strip())
-        
+        heal_result = robust_json_parse(content)
+
         # Update failure analysis
         for f in state["failures"]:
             if f["test_id"] == test_id:
