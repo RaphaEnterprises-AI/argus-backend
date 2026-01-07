@@ -378,15 +378,17 @@ async def index_production_event(event: dict) -> bool:
         return False
 
     # Build metadata for filtering and display
+    # Use `or` pattern to handle None values (event.get returns None if key exists with None value)
+    url = event.get("url") or ""
     metadata = {
         "title": title[:200] if title else "",
         "message": message[:500] if message else "",
-        "severity": event.get("severity", "error"),
-        "source": event.get("source", "unknown"),
+        "severity": event.get("severity") or "error",
+        "source": event.get("source") or "unknown",
         "component": component[:100] if component else "",
-        "url": event.get("url", "")[:200],
-        "fingerprint": event.get("fingerprint", ""),
-        "project_id": event.get("project_id", ""),
+        "url": url[:200],
+        "fingerprint": event.get("fingerprint") or "",
+        "project_id": event.get("project_id") or "",
     }
 
     success = await index_error_pattern(event_id, search_text, metadata)
