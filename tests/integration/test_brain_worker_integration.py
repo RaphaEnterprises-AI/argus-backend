@@ -21,12 +21,19 @@ import os
 from unittest.mock import patch, AsyncMock, MagicMock
 from datetime import datetime
 
-# Skip if no API key
+# Skip if no real API key (test keys start with "sk-ant-test")
+def _has_real_api_key() -> bool:
+    """Check if a real (non-test) Anthropic API key is available."""
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    return bool(key) and not key.startswith("sk-ant-test")
+
+
 pytestmark = [
     pytest.mark.skipif(
-        not os.getenv("ANTHROPIC_API_KEY"),
-        reason="ANTHROPIC_API_KEY required for integration tests"
+        not _has_real_api_key(),
+        reason="Real ANTHROPIC_API_KEY required for integration tests (not test keys)"
     ),
+    pytest.mark.integration,  # Mark as integration test
     pytest.mark.asyncio(loop_scope="class"),  # Share event loop within each test class
 ]
 

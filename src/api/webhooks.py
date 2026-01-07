@@ -1463,3 +1463,546 @@ async def handle_rollbar_webhook(
         logger.exception("Rollbar webhook error", error=str(e))
         await update_webhook_log(supabase, webhook_id, "failed", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# GitLab CI/CD Webhook
+# =============================================================================
+
+class GitLabPipeline(BaseModel):
+    """GitLab CI pipeline data."""
+    id: int
+    status: str  # pending, running, success, failed, canceled, skipped
+    ref: str  # branch name
+    sha: str
+    source: Optional[str] = None  # push, web, trigger, schedule, api
+    duration: Optional[int] = None
+
+
+class GitLabProject(BaseModel):
+    """GitLab project data."""
+    id: int
+    name: str
+    path_with_namespace: str
+    web_url: str
+
+
+class GitLabPipelinePayload(BaseModel):
+    """GitLab CI webhook payload for pipeline events."""
+    object_kind: str  # pipeline
+    object_attributes: dict
+    project: dict
+    user: Optional[dict] = None
+    commit: Optional[dict] = None
+    builds: list[dict] = Field(default_factory=list)
+
+
+@router.post("/gitlab-ci", response_model=WebhookResponse)
+async def handle_gitlab_ci_webhook(
+    request: Request,
+    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle GitLab CI/CD webhook events.
+
+    GitLab sends webhooks for pipeline and job events.
+    Configure in GitLab: Settings → Webhooks → Add webhook
+    Events: Pipeline events
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "gitlab_ci", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found. Please specify project_id query parameter.",
+                )
+
+        object_kind = body.get("object_kind")
+
+        if object_kind != "pipeline":
+            await update_webhook_log(supabase, webhook_id, "processed")
+            return WebhookResponse(success=True, message=f"Ignored event type: {object_kind}")
+
+        payload = GitLabPipelinePayload(**body)
+        pipeline = payload.object_attributes
+        gitlab_project = payload.project
+
+        # Map GitLab status to our status
+        gitlab_status = pipeline.get("status", "").lower()
+        status: Literal["pending", "running", "success", "failure", "cancelled", "skipped"] = "pending"
+        if gitlab_status == "success":
+            status = "success"
+        elif gitlab_status in ("failed", "timeout"):
+            status = "failure"
+        elif gitlab_status in ("canceled", "cancelled"):
+            status = "cancelled"
+        elif gitlab_status == "skipped":
+            status = "skipped"
+        elif gitlab_status == "running":
+            status = "running"
+
+        # Get workflow name from builds or use pipeline ID
+        workflow_name = "Pipeline"
+        if payload.builds:
+            stages = list(set(b.get("stage", "") for b in payload.builds))
+            workflow_name = f"Pipeline ({', '.join(stages[:3])})"
+
+        ci_event = CIEvent(
+            project_id=project_id,
+            source="gitlab_ci",
+            external_id=str(pipeline.get("id")),
+            external_url=f"{gitlab_project.get('web_url')}/-/pipelines/{pipeline.get('id')}",
+            event_type="workflow_run",
+            status=status,
+            workflow_name=workflow_name,
+            branch=pipeline.get("ref", "unknown"),
+            commit_sha=pipeline.get("sha", ""),
+            run_number=pipeline.get("id", 0),
+            duration_seconds=pipeline.get("duration"),
+            raw_payload=body,
+            metadata={
+                "repository": gitlab_project.get("path_with_namespace"),
+                "source": pipeline.get("source"),
+                "user": payload.user.get("username") if payload.user else None,
+                "stages": [b.get("stage") for b in payload.builds],
+                "failed_jobs": [b.get("name") for b in payload.builds if b.get("status") == "failed"],
+            },
+        )
+
+        result = await supabase.insert("ci_events", ci_event.model_dump())
+
+        if result.get("error"):
+            await update_webhook_log(supabase, webhook_id, "failed", str(result["error"]))
+            raise HTTPException(status_code=500, detail="Failed to store CI event")
+
+        event_id = result["data"][0]["id"] if result.get("data") else None
+        await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        logger.info(
+            "GitLab CI webhook processed",
+            event_id=event_id,
+            pipeline_id=pipeline.get("id"),
+            status=status,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Pipeline {pipeline.get('id')}: {status}",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("GitLab CI webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# CircleCI Webhook
+# =============================================================================
+
+class CircleCIPipeline(BaseModel):
+    """CircleCI pipeline data."""
+    id: str
+    number: int
+    state: str  # created, pending, running, errored, failed, canceled, success
+    created_at: str
+
+
+class CircleCIWorkflow(BaseModel):
+    """CircleCI workflow data."""
+    id: str
+    name: str
+    status: str
+    created_at: str
+    stopped_at: Optional[str] = None
+
+
+class CircleCIPayload(BaseModel):
+    """CircleCI webhook payload."""
+    type: str  # workflow-completed, job-completed
+    id: str
+    happened_at: str
+    webhook: Optional[dict] = None
+    project: Optional[dict] = None
+    organization: Optional[dict] = None
+    pipeline: Optional[dict] = None
+    workflow: Optional[dict] = None
+    job: Optional[dict] = None
+
+
+@router.post("/circleci", response_model=WebhookResponse)
+async def handle_circleci_webhook(
+    request: Request,
+    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle CircleCI webhook events.
+
+    CircleCI sends webhooks for workflow and job completions.
+    Configure in CircleCI: Project Settings → Webhooks → Add webhook
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "circleci", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found. Please specify project_id query parameter.",
+                )
+
+        payload = CircleCIPayload(**body)
+        event_type = payload.type
+
+        # Only process workflow-completed events
+        if event_type != "workflow-completed":
+            await update_webhook_log(supabase, webhook_id, "processed")
+            return WebhookResponse(success=True, message=f"Ignored event type: {event_type}")
+
+        workflow = payload.workflow or {}
+        pipeline = payload.pipeline or {}
+        project_data = payload.project or {}
+
+        # Map CircleCI status to our status
+        circleci_status = workflow.get("status", "").lower()
+        status: Literal["pending", "running", "success", "failure", "cancelled", "skipped"] = "pending"
+        if circleci_status == "success":
+            status = "success"
+        elif circleci_status in ("failed", "error", "infrastructure_fail", "timedout"):
+            status = "failure"
+        elif circleci_status in ("canceled", "cancelled"):
+            status = "cancelled"
+        elif circleci_status == "not_run":
+            status = "skipped"
+        elif circleci_status == "running":
+            status = "running"
+
+        # Calculate duration
+        duration_seconds = None
+        if workflow.get("stopped_at") and workflow.get("created_at"):
+            try:
+                from datetime import datetime as dt
+                created = dt.fromisoformat(workflow["created_at"].replace("Z", "+00:00"))
+                stopped = dt.fromisoformat(workflow["stopped_at"].replace("Z", "+00:00"))
+                duration_seconds = int((stopped - created).total_seconds())
+            except Exception:
+                pass
+
+        # Get VCS info from pipeline
+        vcs = pipeline.get("vcs", {})
+        branch = vcs.get("branch", "unknown")
+        commit_sha = vcs.get("revision", "")
+
+        ci_event = CIEvent(
+            project_id=project_id,
+            source="circleci",
+            external_id=workflow.get("id", payload.id),
+            external_url=workflow.get("url"),
+            event_type="workflow_run",
+            status=status,
+            workflow_name=workflow.get("name", "Workflow"),
+            branch=branch,
+            commit_sha=commit_sha,
+            run_number=pipeline.get("number", 0),
+            duration_seconds=duration_seconds,
+            raw_payload=body,
+            metadata={
+                "repository": project_data.get("slug"),
+                "pipeline_id": pipeline.get("id"),
+                "trigger_type": pipeline.get("trigger", {}).get("type"),
+                "vcs_provider": vcs.get("provider_name"),
+            },
+        )
+
+        result = await supabase.insert("ci_events", ci_event.model_dump())
+
+        if result.get("error"):
+            await update_webhook_log(supabase, webhook_id, "failed", str(result["error"]))
+            raise HTTPException(status_code=500, detail="Failed to store CI event")
+
+        event_id = result["data"][0]["id"] if result.get("data") else None
+        await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        logger.info(
+            "CircleCI webhook processed",
+            event_id=event_id,
+            workflow=workflow.get("name"),
+            status=status,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Workflow {workflow.get('name')}: {status}",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("CircleCI webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Test Results Upload (JUnit XML)
+# =============================================================================
+
+class TestResultsUpload(BaseModel):
+    """Test results upload request."""
+    project_id: Optional[str] = None
+    branch: str = "main"
+    commit_sha: str
+    format: Literal["junit", "pytest", "jest"] = "junit"
+    report_data: str  # XML/JSON content
+    ci_run_id: Optional[str] = None
+
+
+class TestResultSummary(BaseModel):
+    """Parsed test results summary."""
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    errored: int = 0
+    duration_seconds: float = 0.0
+    test_suites: list[dict] = Field(default_factory=list)
+    failures: list[dict] = Field(default_factory=list)
+
+
+def parse_junit_xml(report_data: str) -> TestResultSummary:
+    """Parse JUnit XML test results."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(report_data)
+    except ET.ParseError:
+        return TestResultSummary()
+
+    total = 0
+    passed = 0
+    failed = 0
+    skipped = 0
+    errored = 0
+    duration = 0.0
+    test_suites = []
+    failures = []
+
+    # Handle both <testsuites> and single <testsuite>
+    if root.tag == "testsuites":
+        suites = root.findall("testsuite")
+    elif root.tag == "testsuite":
+        suites = [root]
+    else:
+        suites = []
+
+    for suite in suites:
+        suite_name = suite.get("name", "Unknown")
+        suite_tests = int(suite.get("tests", 0))
+        suite_failures = int(suite.get("failures", 0))
+        suite_errors = int(suite.get("errors", 0))
+        suite_skipped = int(suite.get("skipped", 0))
+        suite_time = float(suite.get("time", 0))
+
+        total += suite_tests
+        failed += suite_failures
+        errored += suite_errors
+        skipped += suite_skipped
+        duration += suite_time
+
+        test_suites.append({
+            "name": suite_name,
+            "tests": suite_tests,
+            "failures": suite_failures,
+            "errors": suite_errors,
+            "skipped": suite_skipped,
+            "time": suite_time,
+        })
+
+        # Extract failure details
+        for testcase in suite.findall("testcase"):
+            failure = testcase.find("failure")
+            error = testcase.find("error")
+
+            if failure is not None or error is not None:
+                fail_elem = failure if failure is not None else error
+                failures.append({
+                    "test_name": testcase.get("name", "Unknown"),
+                    "class_name": testcase.get("classname", ""),
+                    "type": fail_elem.get("type", "AssertionError"),
+                    "message": fail_elem.get("message", ""),
+                    "details": (fail_elem.text or "")[:1000],  # Truncate
+                })
+
+    passed = total - failed - errored - skipped
+
+    return TestResultSummary(
+        total=total,
+        passed=passed,
+        failed=failed,
+        skipped=skipped,
+        errored=errored,
+        duration_seconds=duration,
+        test_suites=test_suites,
+        failures=failures,
+    )
+
+
+def parse_pytest_json(report_data: str) -> TestResultSummary:
+    """Parse pytest JSON test results."""
+    import json
+
+    try:
+        data = json.loads(report_data)
+    except json.JSONDecodeError:
+        return TestResultSummary()
+
+    summary = data.get("summary", {})
+    tests = data.get("tests", [])
+
+    failures = []
+    for test in tests:
+        if test.get("outcome") == "failed":
+            call = test.get("call", {})
+            failures.append({
+                "test_name": test.get("nodeid", "Unknown"),
+                "class_name": "",
+                "type": "AssertionError",
+                "message": call.get("longrepr", "")[:500],
+                "details": call.get("longrepr", "")[:1000],
+            })
+
+    return TestResultSummary(
+        total=summary.get("total", 0),
+        passed=summary.get("passed", 0),
+        failed=summary.get("failed", 0),
+        skipped=summary.get("skipped", 0),
+        errored=summary.get("error", 0),
+        duration_seconds=data.get("duration", 0),
+        failures=failures,
+    )
+
+
+@router.post("/test-results", response_model=WebhookResponse)
+async def upload_test_results(
+    results: TestResultsUpload,
+):
+    """
+    Upload test results from CI/CD pipeline.
+
+    Supports JUnit XML, pytest JSON formats.
+
+    Example curl:
+        curl -X POST /api/v1/webhooks/test-results \\
+            -H "Content-Type: application/json" \\
+            -d '{"commit_sha": "abc123", "format": "junit", "report_data": "<testsuites>..."}'
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    try:
+        project_id = results.project_id
+        if not project_id:
+            project_id = await get_default_project_id(supabase)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found. Please specify project_id.",
+                )
+
+        # Parse test results based on format
+        if results.format == "junit":
+            summary = parse_junit_xml(results.report_data)
+        elif results.format == "pytest":
+            summary = parse_pytest_json(results.report_data)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Format '{results.format}' not yet supported. Use 'junit' or 'pytest'.",
+            )
+
+        # Determine status based on results
+        status: Literal["pending", "running", "success", "failure", "cancelled", "skipped"] = "success"
+        if summary.failed > 0 or summary.errored > 0:
+            status = "failure"
+        elif summary.total == 0:
+            status = "skipped"
+
+        # Create CI event for test run
+        ci_event = CIEvent(
+            project_id=project_id,
+            source="github_actions",  # Default, can be overridden
+            external_id=f"test-{results.commit_sha[:8]}-{uuid.uuid4().hex[:8]}",
+            event_type="test_run",
+            status=status,
+            workflow_name="Test Results",
+            branch=results.branch,
+            commit_sha=results.commit_sha,
+            run_number=0,
+            duration_seconds=int(summary.duration_seconds),
+            test_results={
+                "total": summary.total,
+                "passed": summary.passed,
+                "failed": summary.failed,
+                "skipped": summary.skipped,
+                "errored": summary.errored,
+            },
+            raw_payload={"format": results.format, "ci_run_id": results.ci_run_id},
+            metadata={
+                "test_suites": summary.test_suites,
+                "failures": summary.failures[:10],  # Limit stored failures
+            },
+        )
+
+        result = await supabase.insert("ci_events", ci_event.model_dump())
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail="Failed to store test results")
+
+        event_id = result["data"][0]["id"] if result.get("data") else None
+
+        # Link to existing CI run if provided
+        if results.ci_run_id:
+            await supabase.update(
+                "ci_events",
+                {"id": f"eq.{results.ci_run_id}"},
+                {
+                    "test_results": ci_event.test_results,
+                    "metadata": {"linked_test_run": event_id},
+                },
+            )
+
+        logger.info(
+            "Test results uploaded",
+            event_id=event_id,
+            total=summary.total,
+            passed=summary.passed,
+            failed=summary.failed,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Test results: {summary.passed}/{summary.total} passed ({summary.failed} failed)",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Test results upload error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
