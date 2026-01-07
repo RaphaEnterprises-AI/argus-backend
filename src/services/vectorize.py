@@ -83,21 +83,22 @@ class CloudflareVectorizeClient:
             vector: Query vector (768 dimensions for bge-base-en-v1.5)
             top_k: Number of results to return
             filter: Optional metadata filter
-            return_values: Whether to return vector values
-            return_metadata: Whether to return metadata
+            return_values: Whether to return vector values (unused in v2)
+            return_metadata: Whether to return metadata (unused in v2)
 
         Returns:
             List of matches with id, score, and optional metadata/values
+
+        API Reference: https://developers.cloudflare.com/api/resources/vectorize/
         """
         try:
             client = await self._get_client()
 
-            # Vectorize v2 API uses string values for returnMetadata/returnValues
+            # Vectorize v2 API - simplified payload
+            # See: https://developers.cloudflare.com/api/resources/vectorize/subresources/indexes/methods/query/
             payload = {
                 "vector": vector,
-                "topK": top_k,
-                "returnValues": "all" if return_values else "none",
-                "returnMetadata": "all" if return_metadata else "none"
+                "topK": top_k
             }
             if filter:
                 payload["filter"] = filter
