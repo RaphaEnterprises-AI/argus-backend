@@ -758,7 +758,6 @@ async def predictive_quality(
     Uses error trends, risk scores, and patterns to predict failures.
     """
     from src.services.supabase_client import get_supabase_client
-    from src.core.cognitive_engine import CognitiveEngine
 
     supabase = get_supabase_client()
 
@@ -806,14 +805,9 @@ async def predictive_quality(
     high_risk = sum(1 for p in predictions if p["prediction_score"] >= 80)
     medium_risk = sum(1 for p in predictions if 60 <= p["prediction_score"] < 80)
 
-    # Generate AI summary if cognitive engine available
-    ai_summary = None
-    try:
-        engine = CognitiveEngine()
-        ai_summary = f"Based on {len(events)} recent events and {len(risk_scores)} risk assessments, " \
-                    f"we predict {high_risk} high-risk and {medium_risk} medium-risk components may experience issues."
-    except Exception:
-        pass
+    # Generate AI summary based on analysis
+    ai_summary = f"Based on {len(events)} recent events and {len(risk_scores)} risk assessments, " \
+                f"we predict {high_risk} high-risk and {medium_risk} medium-risk components may experience issues."
 
     return {
         "success": True,
