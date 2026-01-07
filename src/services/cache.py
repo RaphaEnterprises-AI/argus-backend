@@ -1,10 +1,12 @@
 """
-Caching service using Upstash Redis.
+Caching service using Cloudflare KV REST API.
 
 Provides caching decorators for:
 - Quality scores (TTL: 5 min)
 - LLM responses (TTL: 24 hours)
 - Healing patterns (TTL: 7 days)
+
+Uses Cloudflare KV via REST API for Python backend on Railway.
 """
 
 import hashlib
@@ -12,6 +14,8 @@ import json
 import logging
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, ParamSpec
+
+import httpx
 
 from src.config import get_settings
 
@@ -21,47 +25,125 @@ logger = logging.getLogger(__name__)
 P = ParamSpec("P")
 T = TypeVar("T")
 
-# Global Redis client (lazy initialized)
-_redis_client: Optional[Any] = None
+# Cloudflare KV API base URL
+CF_API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 
 
-def get_redis_client():
-    """Get or create Redis client (lazy initialization)."""
-    global _redis_client
+class CloudflareKVClient:
+    """Cloudflare KV REST API client."""
 
-    if _redis_client is not None:
-        return _redis_client
+    def __init__(self, account_id: str, namespace_id: str, api_token: str):
+        self.account_id = account_id
+        self.namespace_id = namespace_id
+        self.api_token = api_token
+        self.base_url = f"{CF_API_BASE}/{account_id}/storage/kv/namespaces/{namespace_id}"
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json"
+        }
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=10.0)
+        return self._client
+
+    async def get(self, key: str) -> Optional[str]:
+        """Get a value from KV."""
+        try:
+            client = await self._get_client()
+            response = await client.get(
+                f"{self.base_url}/values/{key}",
+                headers=self._get_headers()
+            )
+            if response.status_code == 200:
+                return response.text
+            elif response.status_code == 404:
+                return None
+            else:
+                logger.warning(f"KV get error: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            logger.warning(f"KV get exception: {e}")
+            return None
+
+    async def set(self, key: str, value: str, ex: int = 300) -> bool:
+        """Set a value in KV with TTL."""
+        try:
+            client = await self._get_client()
+            response = await client.put(
+                f"{self.base_url}/values/{key}",
+                params={"expiration_ttl": ex},
+                content=value,
+                headers=self._get_headers()
+            )
+            return response.status_code == 200
+        except Exception as e:
+            logger.warning(f"KV set exception: {e}")
+            return False
+
+    async def delete(self, key: str) -> bool:
+        """Delete a value from KV."""
+        try:
+            client = await self._get_client()
+            response = await client.delete(
+                f"{self.base_url}/values/{key}",
+                headers=self._get_headers()
+            )
+            return response.status_code == 200
+        except Exception as e:
+            logger.warning(f"KV delete exception: {e}")
+            return False
+
+    async def close(self):
+        """Close the HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+
+# Global KV client (lazy initialized)
+_kv_client: Optional[CloudflareKVClient] = None
+
+
+def get_kv_client() -> Optional[CloudflareKVClient]:
+    """Get or create Cloudflare KV client (lazy initialization)."""
+    global _kv_client
+
+    if _kv_client is not None:
+        return _kv_client
 
     settings = get_settings()
 
-    if not settings.upstash_redis_rest_url or not settings.upstash_redis_rest_token:
-        logger.warning("Upstash Redis not configured - caching disabled")
+    if not settings.cloudflare_api_token or not settings.cloudflare_account_id:
+        logger.warning("Cloudflare KV not configured - caching disabled")
+        return None
+
+    if not settings.cloudflare_kv_namespace_id:
+        logger.warning("Cloudflare KV namespace ID not configured - caching disabled")
         return None
 
     try:
-        from upstash_redis import Redis
+        api_token = settings.cloudflare_api_token
+        if hasattr(api_token, 'get_secret_value'):
+            api_token = api_token.get_secret_value()
 
-        token = settings.upstash_redis_rest_token
-        if hasattr(token, 'get_secret_value'):
-            token = token.get_secret_value()
-
-        _redis_client = Redis(
-            url=settings.upstash_redis_rest_url,
-            token=token
+        _kv_client = CloudflareKVClient(
+            account_id=settings.cloudflare_account_id,
+            namespace_id=settings.cloudflare_kv_namespace_id,
+            api_token=api_token
         )
-        logger.info("Upstash Redis client initialized")
-        return _redis_client
-    except ImportError:
-        logger.warning("upstash-redis not installed - run: pip install upstash-redis")
-        return None
+        logger.info("Cloudflare KV client initialized")
+        return _kv_client
     except Exception as e:
-        logger.error(f"Failed to initialize Redis client: {e}")
+        logger.error(f"Failed to initialize Cloudflare KV client: {e}")
         return None
 
 
 def _make_cache_key(prefix: str, *args, **kwargs) -> str:
     """Generate a cache key from prefix and arguments."""
-    # Create a deterministic hash of the arguments
     key_data = json.dumps({
         "args": [str(a) for a in args],
         "kwargs": {k: str(v) for k, v in sorted(kwargs.items())}
@@ -72,12 +154,12 @@ def _make_cache_key(prefix: str, *args, **kwargs) -> str:
 
 
 def _serialize(value: Any) -> str:
-    """Serialize value for Redis storage."""
+    """Serialize value for KV storage."""
     return json.dumps(value, default=str)
 
 
 def _deserialize(value: str) -> Any:
-    """Deserialize value from Redis storage."""
+    """Deserialize value from KV storage."""
     return json.loads(value)
 
 
@@ -105,16 +187,15 @@ def cache_quality_score(
             if not settings.cache_enabled:
                 return await func(*args, **kwargs)
 
-            redis = get_redis_client()
-            if redis is None:
+            kv = get_kv_client()
+            if kv is None:
                 return await func(*args, **kwargs)
 
             ttl = ttl_seconds or settings.cache_ttl_quality_scores
             cache_key = _make_cache_key(key_prefix, *args, **kwargs)
 
             try:
-                # Try to get from cache
-                cached = redis.get(cache_key)
+                cached = await kv.get(cache_key)
                 if cached:
                     logger.debug(f"Cache HIT: {cache_key}")
                     return _deserialize(cached)
@@ -123,12 +204,10 @@ def cache_quality_score(
             except Exception as e:
                 logger.warning(f"Cache read error: {e}")
 
-            # Execute function
             result = await func(*args, **kwargs)
 
-            # Store in cache
             try:
-                redis.set(cache_key, _serialize(result), ex=ttl)
+                await kv.set(cache_key, _serialize(result), ex=ttl)
             except Exception as e:
                 logger.warning(f"Cache write error: {e}")
 
@@ -164,15 +243,15 @@ def cache_llm_response(
             if not settings.cache_enabled:
                 return await func(*args, **kwargs)
 
-            redis = get_redis_client()
-            if redis is None:
+            kv = get_kv_client()
+            if kv is None:
                 return await func(*args, **kwargs)
 
             ttl = ttl_seconds or settings.cache_ttl_llm_responses
             cache_key = _make_cache_key(key_prefix, *args, **kwargs)
 
             try:
-                cached = redis.get(cache_key)
+                cached = await kv.get(cache_key)
                 if cached:
                     logger.debug(f"LLM Cache HIT: {cache_key}")
                     return _deserialize(cached)
@@ -184,7 +263,7 @@ def cache_llm_response(
             result = await func(*args, **kwargs)
 
             try:
-                redis.set(cache_key, _serialize(result), ex=ttl)
+                await kv.set(cache_key, _serialize(result), ex=ttl)
             except Exception as e:
                 logger.warning(f"LLM cache write error: {e}")
 
@@ -220,15 +299,15 @@ def cache_healing_pattern(
             if not settings.cache_enabled:
                 return await func(*args, **kwargs)
 
-            redis = get_redis_client()
-            if redis is None:
+            kv = get_kv_client()
+            if kv is None:
                 return await func(*args, **kwargs)
 
             ttl = ttl_seconds or settings.cache_ttl_healing_patterns
             cache_key = _make_cache_key(key_prefix, *args, **kwargs)
 
             try:
-                cached = redis.get(cache_key)
+                cached = await kv.get(cache_key)
                 if cached:
                     logger.debug(f"Healing Cache HIT: {cache_key}")
                     return _deserialize(cached)
@@ -239,10 +318,9 @@ def cache_healing_pattern(
 
             result = await func(*args, **kwargs)
 
-            # Only cache if we found a healing pattern
             if result is not None:
                 try:
-                    redis.set(cache_key, _serialize(result), ex=ttl)
+                    await kv.set(cache_key, _serialize(result), ex=ttl)
                 except Exception as e:
                     logger.warning(f"Healing cache write error: {e}")
 
@@ -256,12 +334,12 @@ def cache_healing_pattern(
 
 async def get_cached(key: str) -> Optional[Any]:
     """Get a value from cache directly."""
-    redis = get_redis_client()
-    if redis is None:
+    kv = get_kv_client()
+    if kv is None:
         return None
 
     try:
-        value = redis.get(f"argus:{key}")
+        value = await kv.get(f"argus:{key}")
         return _deserialize(value) if value else None
     except Exception as e:
         logger.warning(f"Cache get error: {e}")
@@ -270,12 +348,12 @@ async def get_cached(key: str) -> Optional[Any]:
 
 async def set_cached(key: str, value: Any, ttl_seconds: int = 300) -> bool:
     """Set a value in cache directly."""
-    redis = get_redis_client()
-    if redis is None:
+    kv = get_kv_client()
+    if kv is None:
         return False
 
     try:
-        redis.set(f"argus:{key}", _serialize(value), ex=ttl_seconds)
+        await kv.set(f"argus:{key}", _serialize(value), ex=ttl_seconds)
         return True
     except Exception as e:
         logger.warning(f"Cache set error: {e}")
@@ -284,66 +362,41 @@ async def set_cached(key: str, value: Any, ttl_seconds: int = 300) -> bool:
 
 async def delete_cached(key: str) -> bool:
     """Delete a value from cache."""
-    redis = get_redis_client()
-    if redis is None:
+    kv = get_kv_client()
+    if kv is None:
         return False
 
     try:
-        redis.delete(f"argus:{key}")
+        await kv.delete(f"argus:{key}")
         return True
     except Exception as e:
         logger.warning(f"Cache delete error: {e}")
         return False
 
 
-async def invalidate_pattern(pattern: str) -> int:
-    """
-    Invalidate all keys matching a pattern.
-
-    Args:
-        pattern: Key pattern (e.g., "score:*" to invalidate all scores)
-
-    Returns:
-        Number of keys deleted
-    """
-    redis = get_redis_client()
-    if redis is None:
-        return 0
-
-    try:
-        # Note: SCAN is safer for production, but Upstash supports KEYS for small datasets
-        keys = redis.keys(f"argus:{pattern}")
-        if keys:
-            redis.delete(*keys)
-            return len(keys)
-        return 0
-    except Exception as e:
-        logger.warning(f"Cache invalidate error: {e}")
-        return 0
-
-
 # Health check
 
 async def check_cache_health() -> dict:
     """Check if cache is healthy and return stats."""
-    redis = get_redis_client()
+    kv = get_kv_client()
 
-    if redis is None:
+    if kv is None:
         return {
             "healthy": False,
-            "reason": "Redis not configured",
+            "reason": "Cloudflare KV not configured",
             "enabled": get_settings().cache_enabled
         }
 
     try:
-        # Test with a simple ping
-        redis.set("argus:health:ping", "pong", ex=60)
-        result = redis.get("argus:health:ping")
+        # Test with a simple write/read
+        test_key = "argus:health:ping"
+        await kv.set(test_key, "pong", ex=60)
+        result = await kv.get(test_key)
 
         if result == "pong":
             return {
                 "healthy": True,
-                "provider": "upstash",
+                "provider": "cloudflare_kv",
                 "enabled": True
             }
         else:

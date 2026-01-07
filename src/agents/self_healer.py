@@ -5,7 +5,7 @@ This agent:
 - Uses Claude vision to understand visual changes
 - Generates fix suggestions with confidence scores
 - Can auto-apply fixes above confidence threshold
-- Learns from successful healings via Upstash Redis cache
+- Learns from successful healings via Cloudflare KV cache
 """
 
 import base64
