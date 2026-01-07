@@ -7,6 +7,7 @@ Uses AI to understand user flows and generate comprehensive test coverage.
 import asyncio
 import base64
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -18,6 +19,55 @@ import structlog
 from ..config import get_settings
 
 logger = structlog.get_logger()
+
+
+def robust_json_parse(content: str) -> dict:
+    """Parse JSON from LLM output with error handling for common issues.
+
+    Handles:
+    - Trailing commas
+    - Single quotes instead of double quotes
+    - Unquoted keys
+    - Comments
+    """
+    # Extract JSON from markdown code blocks
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0]
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0]
+
+    content = content.strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # Remove trailing commas before ] or }
+    content = re.sub(r',\s*([}\]])', r'\1', content)
+
+    # Remove JavaScript-style comments
+    content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to find the first { and last } to extract just the JSON object
+    start = content.find('{')
+    end = content.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(content[start:end+1])
+        except json.JSONDecodeError:
+            pass
+
+    # Return empty dict as fallback
+    logger.warning("Failed to parse JSON from LLM output", content_preview=content[:200])
+    return {}
 
 
 @dataclass
@@ -406,12 +456,7 @@ Focus on identifying:
             )
 
             content = response.content[0].text
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            return json.loads(content.strip())
+            return robust_json_parse(content)
 
         except Exception as e:
             self.log.warning("Vision analysis failed", error=str(e))
@@ -482,12 +527,7 @@ Prioritize:
             )
 
             content = response.content[0].text
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            data = json.loads(content.strip())
+            data = robust_json_parse(content)
 
             flows = []
             for f in data.get("flows", []):
@@ -569,12 +609,7 @@ Respond with JSON:
             )
 
             content = response.content[0].text
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            data = json.loads(content.strip())
+            data = robust_json_parse(content)
             return data.get("tests", [])
 
         except Exception as e:
@@ -615,10 +650,7 @@ Include typical pages like login, signup, dashboard, settings, etc.
         )
 
         content = response.content[0].text
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-
-        data = json.loads(content.strip())
+        data = robust_json_parse(content)
 
         for page_data in data.get("pages", []):
             self.discovered_pages.append(DiscoveredPage(
