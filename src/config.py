@@ -81,9 +81,16 @@ class Settings(BaseSettings):
     supabase_url: Optional[str] = Field(None, description="Supabase project URL")
     supabase_service_key: Optional[SecretStr] = Field(None, description="Supabase service role key")
 
-    # Upstash Redis Configuration (for caching)
-    upstash_redis_rest_url: Optional[str] = Field(None, description="Upstash Redis REST URL")
-    upstash_redis_rest_token: Optional[SecretStr] = Field(None, description="Upstash Redis REST token")
+    # Cloudflare KV Configuration (for caching via REST API)
+    cloudflare_api_token: Optional[SecretStr] = Field(None, description="Cloudflare API token for KV/Vectorize access")
+    cloudflare_kv_namespace_id: Optional[str] = Field(
+        "e1f3cdefb05c43b88528adb515bde16a",
+        description="Cloudflare KV namespace ID (from wrangler.toml)"
+    )
+    cloudflare_vectorize_index: Optional[str] = Field(
+        "argus-patterns",
+        description="Cloudflare Vectorize index name"
+    )
     cache_enabled: bool = Field(True, description="Enable caching layer")
     cache_ttl_quality_scores: int = Field(300, description="TTL for quality scores in seconds (default: 5 min)")
     cache_ttl_llm_responses: int = Field(86400, description="TTL for LLM responses in seconds (default: 24 hours)")

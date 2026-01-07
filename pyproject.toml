@@ -31,9 +31,6 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "asyncpg>=0.29.0",
 
-    # Caching
-    "upstash-redis>=1.0.0",
-
     # MCP
     "mcp>=1.0.0",
     "langchain-mcp-adapters>=0.1.0",

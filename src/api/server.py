@@ -583,50 +583,67 @@ async def semantic_search(request: SemanticSearchRequest):
     """
     Search for similar error patterns using semantic similarity.
 
-    Uses error fingerprinting and pattern matching to find related issues.
+    Uses Cloudflare Vectorize for semantic search with fallback to Jaccard similarity.
     """
     from src.services.supabase_client import get_supabase_client
+    from src.services.vectorize import semantic_search_errors
     import hashlib
 
-    supabase = get_supabase_client()
-
-    # Create fingerprint from error text
-    error_fingerprint = hashlib.md5(request.error_text[:200].lower().encode()).hexdigest()[:16]
-
-    # Search for similar patterns in production_events
-    result = await supabase.request(
-        f"/production_events?select=id,title,message,component,url,severity,occurrence_count"
-        f"&order=occurrence_count.desc&limit={request.limit * 2}"
-    )
-
-    events = result.get("data", []) if not result.get("error") else []
-
-    # Simple text similarity matching (would use vector DB in production)
     similar_patterns = []
-    search_terms = set(request.error_text.lower().split())
 
-    for event in events:
-        event_text = f"{event.get('title', '')} {event.get('message', '')}".lower()
-        event_terms = set(event_text.split())
+    # Try Cloudflare Vectorize first (semantic search)
+    try:
+        vectorize_results = await semantic_search_errors(
+            error_text=request.error_text,
+            limit=request.limit,
+            min_score=request.min_score
+        )
 
-        # Jaccard similarity
-        intersection = len(search_terms & event_terms)
-        union = len(search_terms | event_terms)
-        score = intersection / union if union > 0 else 0
-
-        if score >= request.min_score:
+        for result in vectorize_results:
             similar_patterns.append({
-                "id": event.get("id"),
-                "score": round(score, 3),
-                "pattern_hash": hashlib.md5(event_text[:100].encode()).hexdigest()[:12],
-                "category": event.get("severity", "error"),
-                "example_message": event.get("message", "")[:200],
-                "known_solutions": [],
+                "id": result.get("id"),
+                "score": round(result.get("score", 0), 3),
+                "pattern_hash": result.get("metadata", {}).get("fingerprint", ""),
+                "category": result.get("metadata", {}).get("severity", "error"),
+                "example_message": result.get("metadata", {}).get("message", "")[:200],
+                "known_solutions": result.get("metadata", {}).get("solutions", []),
             })
+    except Exception as e:
+        logger.warning(f"Vectorize search failed, using fallback: {e}")
 
-    # Sort by score and limit
-    similar_patterns.sort(key=lambda x: x["score"], reverse=True)
-    similar_patterns = similar_patterns[:request.limit]
+    # Fallback to Jaccard similarity if Vectorize returned no results
+    if not similar_patterns:
+        supabase = get_supabase_client()
+
+        result = await supabase.request(
+            f"/production_events?select=id,title,message,component,url,severity,occurrence_count"
+            f"&order=occurrence_count.desc&limit={request.limit * 2}"
+        )
+
+        events = result.get("data", []) if not result.get("error") else []
+        search_terms = set(request.error_text.lower().split())
+
+        for event in events:
+            event_text = f"{event.get('title', '')} {event.get('message', '')}".lower()
+            event_terms = set(event_text.split())
+
+            # Jaccard similarity
+            intersection = len(search_terms & event_terms)
+            union = len(search_terms | event_terms)
+            score = intersection / union if union > 0 else 0
+
+            if score >= request.min_score:
+                similar_patterns.append({
+                    "id": event.get("id"),
+                    "score": round(score, 3),
+                    "pattern_hash": hashlib.md5(event_text[:100].encode()).hexdigest()[:12],
+                    "category": event.get("severity", "error"),
+                    "example_message": event.get("message", "")[:200],
+                    "known_solutions": [],
+                })
+
+        similar_patterns.sort(key=lambda x: x["score"], reverse=True)
+        similar_patterns = similar_patterns[:request.limit]
 
     return {
         "success": True,
@@ -634,6 +651,7 @@ async def semantic_search(request: SemanticSearchRequest):
         "patterns": similar_patterns,
         "count": len(similar_patterns),
         "has_solutions": any(p.get("known_solutions") for p in similar_patterns),
+        "search_method": "vectorize" if similar_patterns and len(similar_patterns) > 0 else "jaccard"
     }
 
 
