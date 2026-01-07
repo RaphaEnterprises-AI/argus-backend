@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     supabase_url: Optional[str] = Field(None, description="Supabase project URL")
     supabase_service_key: Optional[SecretStr] = Field(None, description="Supabase service role key")
 
+    # Upstash Redis Configuration (for caching)
+    upstash_redis_rest_url: Optional[str] = Field(None, description="Upstash Redis REST URL")
+    upstash_redis_rest_token: Optional[SecretStr] = Field(None, description="Upstash Redis REST token")
+    cache_enabled: bool = Field(True, description="Enable caching layer")
+    cache_ttl_quality_scores: int = Field(300, description="TTL for quality scores in seconds (default: 5 min)")
+    cache_ttl_llm_responses: int = Field(86400, description="TTL for LLM responses in seconds (default: 24 hours)")
+    cache_ttl_healing_patterns: int = Field(604800, description="TTL for healing patterns in seconds (default: 7 days)")
+
     # Notifications (optional)
     slack_webhook_url: Optional[str] = Field(None, description="Slack webhook for notifications")
 

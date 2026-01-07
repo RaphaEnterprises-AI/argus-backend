@@ -18,10 +18,12 @@ import structlog
 from enum import Enum
 from typing import Optional, AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from anthropic import AsyncAnthropic
 
 from src.config import get_settings
+from src.core.model_registry import get_model_id
+from src.services.cache import cache_llm_response
 
 logger = structlog.get_logger()
 
@@ -80,7 +82,7 @@ class CognitiveInsight:
     evidence: list[str] = field(default_factory=list)
     recommended_action: Optional[str] = None
     confidence: float = 0.0
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class CognitiveTestingEngine:
@@ -95,15 +97,13 @@ class CognitiveTestingEngine:
     5. Evolves continuously without human intervention
     """
 
-    # Default model for cognitive tasks
-    DEFAULT_MODEL = "claude-sonnet-4-5-20250514"
-
     def __init__(self, model: Optional[str] = None):
         self.settings = get_settings()
-        self.client = AsyncAnthropic(
-            api_key=self.settings.anthropic_api_key.get_secret_value()
-        )
-        self.model = model or self.DEFAULT_MODEL
+        api_key = self.settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = AsyncAnthropic(api_key=api_key)
+        self.model = model or get_model_id("claude-sonnet-4-5")
         self.app_models: dict[str, ApplicationModel] = {}
         self.log = logger.bind(component="cognitive_engine", model=self.model)
 
@@ -173,35 +173,15 @@ class CognitiveTestingEngine:
         model.invariants = semantic_understanding.get("invariants", [])
         model.state_machine = behavioral_data.get("state_machine", {})
         model.risk_areas = predictions.get("risk_areas", [])
-        model.last_learned = datetime.utcnow()
+        model.last_learned = datetime.now(timezone.utc)
         model.confidence_score = semantic_understanding.get("confidence", 0.5)
 
         self.app_models[app_id] = model
         return model
 
-    async def _build_semantic_model(
-        self,
-        app_url: str,
-        structural_data: dict,
-        behavioral_data: dict,
-        source_code: Optional[str],
-        api_specs: Optional[dict],
-        design_docs: Optional[str]
-    ) -> dict:
-        """Use Claude to build deep semantic understanding."""
-
-        context_parts = [
-            f"Application URL: {app_url}",
-            f"\nStructural Analysis:\n{json.dumps(structural_data, indent=2)[:5000]}",
-            f"\nBehavioral Analysis:\n{json.dumps(behavioral_data, indent=2)[:5000]}",
-        ]
-
-        if api_specs:
-            context_parts.append(f"\nAPI Specification:\n{json.dumps(api_specs, indent=2)[:3000]}")
-
-        if design_docs:
-            context_parts.append(f"\nDesign Documentation:\n{design_docs[:3000]}")
-
+    @cache_llm_response(key_prefix="semantic_model")
+    async def _call_semantic_model_llm(self, context: str) -> dict:
+        """Make cached LLM call for semantic model building."""
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=4096,
@@ -225,7 +205,7 @@ Output a JSON object with:
 }""",
             messages=[{
                 "role": "user",
-                "content": "\n".join(context_parts)
+                "content": context
             }]
         )
 
@@ -239,6 +219,32 @@ Output a JSON object with:
             self.log.warning("Failed to parse semantic model response", error=str(e))
 
         return {"purpose": "Unknown", "confidence": 0.3}
+
+    async def _build_semantic_model(
+        self,
+        app_url: str,
+        structural_data: dict,
+        behavioral_data: dict,
+        source_code: Optional[str],
+        api_specs: Optional[dict],
+        design_docs: Optional[str]
+    ) -> dict:
+        """Use Claude to build deep semantic understanding (cached)."""
+
+        context_parts = [
+            f"Application URL: {app_url}",
+            f"\nStructural Analysis:\n{json.dumps(structural_data, indent=2)[:5000]}",
+            f"\nBehavioral Analysis:\n{json.dumps(behavioral_data, indent=2)[:5000]}",
+        ]
+
+        if api_specs:
+            context_parts.append(f"\nAPI Specification:\n{json.dumps(api_specs, indent=2)[:3000]}")
+
+        if design_docs:
+            context_parts.append(f"\nDesign Documentation:\n{design_docs[:3000]}")
+
+        context = "\n".join(context_parts)
+        return await self._call_semantic_model_llm(context)
 
     async def _analyze_structure(self, app_url: str) -> dict:
         """Analyze application structure using Cloudflare Browser Rendering."""
@@ -352,6 +358,26 @@ Output as JSON array."""
         except (json.JSONDecodeError, IndexError, AttributeError) as e:
             self.log.warning("Failed to parse generated tests", error=str(e))
 
+    @cache_llm_response(key_prefix="predict_failures")
+    async def _call_predict_failures_llm(self, prompt: str) -> list[dict]:
+        """Make cached LLM call for failure prediction."""
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        try:
+            text = response.content[0].text
+            json_start = text.find("[")
+            json_end = text.rfind("]") + 1
+            if json_start >= 0:
+                return json.loads(text[json_start:json_end])
+        except (json.JSONDecodeError, IndexError, AttributeError) as e:
+            self.log.warning("Failed to parse failure predictions", error=str(e))
+
+        return []
+
     async def predict_failures(
         self,
         app_model: ApplicationModel,
@@ -359,7 +385,7 @@ Output as JSON array."""
         recent_errors: Optional[list[dict]] = None
     ) -> list[CognitiveInsight]:
         """
-        PREDICT failures before they happen.
+        PREDICT failures before they happen (cached).
 
         This is PROACTIVE, not reactive. We analyze:
         - Code changes and their potential impact
@@ -367,8 +393,6 @@ Output as JSON array."""
         - Application complexity hotspots
         - Historical failure correlations
         """
-        insights = []
-
         prompt = f"""Analyze this application for potential failures.
 
 APPLICATION:
@@ -399,32 +423,36 @@ For each prediction:
 
 Output as JSON array."""
 
+        predictions = await self._call_predict_failures_llm(prompt)
+
+        insights = []
+        for pred in predictions:
+            insights.append(CognitiveInsight(
+                type=pred.get("type", "prediction"),
+                severity=pred.get("severity", "medium"),
+                title=pred.get("title", ""),
+                description=pred.get("description", ""),
+                evidence=pred.get("evidence", []),
+                recommended_action=pred.get("recommended_action"),
+                confidence=pred.get("confidence", 0.5)
+            ))
+
+        return insights
+
+    @cache_llm_response(key_prefix="explain_failure")
+    async def _call_explain_failure_llm(self, prompt: str) -> str:
+        """Make cached LLM call for failure explanation."""
         response = await self.client.messages.create(
             model=self.model,
-            max_tokens=4096,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )
 
         try:
-            text = response.content[0].text
-            json_start = text.find("[")
-            json_end = text.rfind("]") + 1
-            if json_start >= 0:
-                predictions = json.loads(text[json_start:json_end])
-                for pred in predictions:
-                    insights.append(CognitiveInsight(
-                        type=pred.get("type", "prediction"),
-                        severity=pred.get("severity", "medium"),
-                        title=pred.get("title", ""),
-                        description=pred.get("description", ""),
-                        evidence=pred.get("evidence", []),
-                        recommended_action=pred.get("recommended_action"),
-                        confidence=pred.get("confidence", 0.5)
-                    ))
-        except (json.JSONDecodeError, IndexError, AttributeError) as e:
-            self.log.warning("Failed to parse failure predictions", error=str(e))
-
-        return insights
+            return response.content[0].text
+        except (IndexError, AttributeError) as e:
+            self.log.warning("Failed to extract failure explanation", error=str(e))
+            return "Unable to generate failure explanation"
 
     async def explain_failure(
         self,
@@ -432,7 +460,7 @@ Output as JSON array."""
         failure_context: dict
     ) -> CognitiveInsight:
         """
-        Explain a failure in HUMAN terms.
+        Explain a failure in HUMAN terms (cached).
 
         Not just "element not found" but WHY it happened,
         what the user was trying to do, and how to fix it.
@@ -457,18 +485,7 @@ Explain:
 
 Be specific and actionable."""
 
-        response = await self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        description = ""
-        try:
-            description = response.content[0].text
-        except (IndexError, AttributeError) as e:
-            self.log.warning("Failed to extract failure explanation", error=str(e))
-            description = "Unable to generate failure explanation"
+        description = await self._call_explain_failure_llm(prompt)
 
         return CognitiveInsight(
             type="explanation",
@@ -479,6 +496,26 @@ Be specific and actionable."""
             confidence=0.8
         )
 
+    @cache_llm_response(key_prefix="test_improvements")
+    async def _call_suggest_improvements_llm(self, prompt: str) -> list[dict]:
+        """Make cached LLM call for test improvement suggestions."""
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        try:
+            text = response.content[0].text
+            json_start = text.find("[")
+            json_end = text.rfind("]") + 1
+            if json_start >= 0:
+                return json.loads(text[json_start:json_end])
+        except (json.JSONDecodeError, IndexError, AttributeError) as e:
+            self.log.warning("Failed to parse test improvement suggestions", error=str(e))
+
+        return []
+
     async def suggest_test_improvements(
         self,
         app_model: ApplicationModel,
@@ -486,13 +523,11 @@ Be specific and actionable."""
         coverage_data: Optional[dict] = None
     ) -> list[CognitiveInsight]:
         """
-        Suggest how to improve test coverage and quality.
+        Suggest how to improve test coverage and quality (cached).
 
         Analyzes gaps between what we understand about the app
         and what the current tests cover.
         """
-        insights = []
-
         # Analyze coverage gaps
         prompt = f"""Analyze test coverage and suggest improvements.
 
@@ -523,28 +558,17 @@ For each suggestion:
     "confidence": 0.0-1.0
 }}"""
 
-        response = await self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}]
-        )
+        suggestions = await self._call_suggest_improvements_llm(prompt)
 
-        try:
-            text = response.content[0].text
-            json_start = text.find("[")
-            json_end = text.rfind("]") + 1
-            if json_start >= 0:
-                suggestions = json.loads(text[json_start:json_end])
-                for sug in suggestions:
-                    insights.append(CognitiveInsight(
-                        type="suggestion",
-                        severity=sug.get("severity", "medium"),
-                        title=sug.get("title", ""),
-                        description=sug.get("description", ""),
-                        recommended_action=sug.get("recommended_action"),
-                        confidence=sug.get("confidence", 0.5)
-                    ))
-        except (json.JSONDecodeError, IndexError, AttributeError) as e:
-            self.log.warning("Failed to parse test improvement suggestions", error=str(e))
+        insights = []
+        for sug in suggestions:
+            insights.append(CognitiveInsight(
+                type="suggestion",
+                severity=sug.get("severity", "medium"),
+                title=sug.get("title", ""),
+                description=sug.get("description", ""),
+                recommended_action=sug.get("recommended_action"),
+                confidence=sug.get("confidence", 0.5)
+            ))
 
         return insights

@@ -2,7 +2,7 @@
 
 from typing import TypedDict, Annotated, Literal, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from langgraph.graph.message import add_messages
@@ -212,7 +212,7 @@ def create_initial_state(
         should_continue=True,
         error=None,
         run_id=session_id,
-        started_at=datetime.utcnow().isoformat(),
+        started_at=datetime.now(timezone.utc).isoformat(),
         pr_number=pr_number,
         user_id=user_id or "anonymous",
         session_id=session_id,
