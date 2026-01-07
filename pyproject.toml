@@ -26,6 +26,7 @@ dependencies = [
     # Data validation
     "pydantic>=2.9.0",
     "pydantic-settings>=2.5.0",
+    "email-validator>=2.1.0",  # Required for EmailStr
 
     # Database
     "sqlalchemy>=2.0.0",

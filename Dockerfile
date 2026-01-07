@@ -29,6 +29,7 @@ RUN pip install --upgrade pip && \
     "httpx>=0.27.0" \
     "pydantic>=2.9.0" \
     "pydantic-settings>=2.5.0" \
+    "email-validator>=2.1.0" \
     "fastapi>=0.115.0" \
     "uvicorn>=0.32.0" \
     "structlog>=24.4.0" \
