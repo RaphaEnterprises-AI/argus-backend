@@ -80,10 +80,12 @@ async def analyze_code_node(state: TestingState) -> TestingState:
         log.info("Reading codebase with security sanitization...")
 
         # Read and sanitize all code files
+        # Reduced limits to stay within Claude's 200K token context window
+        # ~500KB of code ≈ ~125K tokens (4 chars per token)
         read_results = reader.read_codebase(
             state["codebase_path"],
-            max_files=150,  # Limit for context window
-            max_total_size_kb=1500,  # ~1.5MB of code context
+            max_files=50,  # Reduced from 150 for context window
+            max_total_size_kb=500,  # Reduced from 1500KB to ~500KB
         )
 
         # Get file summary for logging

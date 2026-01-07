@@ -262,12 +262,12 @@ async def handle_sentry_webhook(
 
         payload = SentryWebhookPayload(**body)
         action = payload.action
-        data = payload.data
+        data = payload.data or {}  # Ensure data is never None
 
         # Handle issue creation/triggering
         if action in ("issue", "created", "triggered"):
-            issue_data = data.get("issue", {})
-            event_data = data.get("event", {})
+            issue_data = data.get("issue", {}) or {}
+            event_data = data.get("event", {}) or {}
 
             if not issue_data and not event_data:
                 raise HTTPException(status_code=400, detail="No issue or event data")
@@ -322,6 +322,19 @@ async def handle_sentry_webhook(
             browser_info = contexts.get("browser", {})
             os_info = contexts.get("os", {})
 
+            # Parse occurrence count safely
+            try:
+                occurrence_count = int(issue_data.get("count", 1))
+            except (ValueError, TypeError):
+                occurrence_count = 1
+
+            # Parse tags safely - ensure each tag has key and value
+            raw_tags = issue_data.get("tags", []) or []
+            tags = []
+            for t in raw_tags:
+                if isinstance(t, dict) and "key" in t and "value" in t:
+                    tags.append(f"{t['key']}:{t['value']}")
+
             production_event = ProductionEvent(
                 project_id=project_id,
                 source="sentry",
@@ -338,13 +351,13 @@ async def handle_sentry_webhook(
                 browser=f"{browser_info.get('name', '')} {browser_info.get('version', '')}".strip() or None,
                 os=f"{os_info.get('name', '')} {os_info.get('version', '')}".strip() or None,
                 device_type=device_type,
-                occurrence_count=int(issue_data.get("count", "1")),
+                occurrence_count=occurrence_count,
                 affected_users=issue_data.get("userCount", 1),
                 first_seen_at=issue_data.get("firstSeen"),
                 last_seen_at=issue_data.get("lastSeen"),
                 status="new",
                 raw_payload=body,
-                tags=[f"{t['key']}:{t['value']}" for t in issue_data.get("tags", [])],
+                tags=tags,
                 metadata={
                     "sentry_project": event_data.get("project_name") or issue_data.get("project"),
                     "sentry_platform": event_data.get("platform") or issue_data.get("platform"),
