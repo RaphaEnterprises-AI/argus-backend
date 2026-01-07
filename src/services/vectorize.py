@@ -337,3 +337,62 @@ async def index_error_pattern(
         "values": embedding,
         "metadata": metadata or {}
     }])
+
+
+async def index_production_event(event: dict) -> bool:
+    """
+    Index a production event for semantic search.
+
+    Called automatically when new errors come in via webhooks.
+
+    Args:
+        event: Production event dict with id, title, message, etc.
+
+    Returns:
+        True if indexed successfully
+    """
+    event_id = event.get("id")
+    if not event_id:
+        logger.warning("Cannot index event without ID")
+        return False
+
+    # Build searchable text from event fields
+    title = event.get("title", "")
+    message = event.get("message", "")
+    component = event.get("component", "")
+    stack_trace = event.get("stack_trace", "")
+
+    # Combine text for embedding (limit to avoid token limits)
+    search_text = f"{title} {message}"
+    if component:
+        search_text += f" in {component}"
+    if stack_trace:
+        # Just include first 500 chars of stack trace
+        search_text += f" {stack_trace[:500]}"
+
+    search_text = search_text.strip()[:2000]  # Limit total length
+
+    if not search_text:
+        logger.warning(f"No text to index for event {event_id}")
+        return False
+
+    # Build metadata for filtering and display
+    metadata = {
+        "title": title[:200] if title else "",
+        "message": message[:500] if message else "",
+        "severity": event.get("severity", "error"),
+        "source": event.get("source", "unknown"),
+        "component": component[:100] if component else "",
+        "url": event.get("url", "")[:200],
+        "fingerprint": event.get("fingerprint", ""),
+        "project_id": event.get("project_id", ""),
+    }
+
+    success = await index_error_pattern(event_id, search_text, metadata)
+
+    if success:
+        logger.info(f"Indexed production event {event_id} for semantic search")
+    else:
+        logger.warning(f"Failed to index production event {event_id}")
+
+    return success

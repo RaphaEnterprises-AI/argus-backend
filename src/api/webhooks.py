@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 import structlog
 
 from src.services.supabase_client import get_supabase_client
+from src.services.vectorize import index_production_event
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
@@ -360,6 +361,10 @@ async def handle_sentry_webhook(
             event_id = result["data"][0]["id"] if result["data"] else None
             await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
 
+            # Auto-index for semantic search
+            if result.get("data"):
+                await index_production_event(result["data"][0])
+
             logger.info("Sentry webhook processed", event_id=event_id, fingerprint=fingerprint)
 
             return WebhookResponse(
@@ -490,6 +495,8 @@ async def handle_datadog_webhook(
             result = await supabase.insert("production_events", production_event.model_dump())
             if not result.get("error") and result.get("data"):
                 processed_events.append(result["data"][0]["id"])
+                # Auto-index for semantic search
+                await index_production_event(result["data"][0])
 
         await update_webhook_log(supabase, webhook_id, "processed")
 
@@ -591,6 +598,10 @@ async def handle_fullstory_webhook(
         event_id = result["data"][0]["id"] if result["data"] else None
         await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
 
+        # Auto-index for semantic search
+        if result.get("data"):
+            await index_production_event(result["data"][0])
+
         logger.info("FullStory webhook processed", event_id=event_id)
 
         return WebhookResponse(
@@ -686,6 +697,10 @@ async def handle_logrocket_webhook(
 
         event_id = result["data"][0]["id"] if result["data"] else None
         await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        # Auto-index for semantic search
+        if result.get("data"):
+            await index_production_event(result["data"][0])
 
         logger.info("LogRocket webhook processed", event_id=event_id)
 
@@ -786,6 +801,10 @@ async def handle_newrelic_webhook(
 
         event_id = result["data"][0]["id"] if result["data"] else None
         await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        # Auto-index for semantic search
+        if result.get("data"):
+            await index_production_event(result["data"][0])
 
         logger.info("NewRelic webhook processed", event_id=event_id)
 
@@ -890,6 +909,10 @@ async def handle_bugsnag_webhook(
 
         event_id = result["data"][0]["id"] if result["data"] else None
         await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        # Auto-index for semantic search
+        if result.get("data"):
+            await index_production_event(result["data"][0])
 
         logger.info("Bugsnag webhook processed", event_id=event_id)
 
@@ -1420,6 +1443,10 @@ async def handle_rollbar_webhook(
 
         event_id = result["data"][0]["id"] if result["data"] else None
         await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        # Auto-index for semantic search
+        if result.get("data"):
+            await index_production_event(result["data"][0])
 
         logger.info("Rollbar webhook processed", event_id=event_id)
 

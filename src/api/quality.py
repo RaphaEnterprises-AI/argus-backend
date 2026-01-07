@@ -19,6 +19,7 @@ import structlog
 from src.config import get_settings
 from src.services.supabase_client import get_supabase_client
 from src.services.cache import cache_quality_score
+from src.services.vectorize import index_production_event, semantic_search_errors
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/quality", tags=["Quality Intelligence"])
@@ -820,3 +821,96 @@ async def get_quality_score(
 ):
     """Get overall quality score for a project (cached for 5 minutes)."""
     return await _calculate_quality_score(project_id)
+
+
+# =============================================================================
+# Semantic Search Endpoints
+# =============================================================================
+
+@router.get("/similar-errors")
+async def find_similar_errors(
+    error_text: str = Query(..., description="Error text to search for"),
+    limit: int = Query(5, le=20, description="Max results"),
+    min_score: float = Query(0.7, ge=0, le=1, description="Minimum similarity score"),
+):
+    """
+    Find similar error patterns using semantic search.
+
+    Uses Cloudflare Vectorize to find errors with similar meaning,
+    not just exact text matches.
+    """
+    results = await semantic_search_errors(error_text, limit=limit, min_score=min_score)
+
+    return {
+        "query": error_text[:100],
+        "matches": results,
+        "total": len(results),
+    }
+
+
+@router.post("/backfill-index")
+async def backfill_vectorize_index(
+    project_id: Optional[str] = Query(None, description="Project ID (optional, indexes all if not specified)"),
+    limit: int = Query(100, le=500, description="Max events to index"),
+    offset: int = Query(0, description="Offset for pagination"),
+):
+    """
+    Backfill Vectorize index with existing production events.
+
+    Call this endpoint to index historical errors for semantic search.
+    Run multiple times with different offsets to index all events.
+    """
+    supabase = get_supabase_client()
+
+    # Build query
+    query_path = "/production_events?select=id,title,message,component,stack_trace,severity,source,url,fingerprint,project_id"
+    if project_id:
+        query_path += f"&project_id=eq.{project_id}"
+    query_path += f"&order=created_at.desc&limit={limit}&offset={offset}"
+
+    result = await supabase.request(query_path)
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to fetch events")
+
+    events = result.get("data", [])
+
+    if not events:
+        return {
+            "success": True,
+            "message": "No events to index",
+            "indexed": 0,
+            "total": 0,
+        }
+
+    # Index each event
+    indexed = 0
+    failed = 0
+
+    for event in events:
+        try:
+            success = await index_production_event(event)
+            if success:
+                indexed += 1
+            else:
+                failed += 1
+        except Exception as e:
+            logger.warning(f"Failed to index event {event.get('id')}: {e}")
+            failed += 1
+
+    logger.info(
+        "Backfill completed",
+        indexed=indexed,
+        failed=failed,
+        total=len(events),
+        offset=offset,
+    )
+
+    return {
+        "success": True,
+        "message": f"Indexed {indexed}/{len(events)} events",
+        "indexed": indexed,
+        "failed": failed,
+        "total": len(events),
+        "next_offset": offset + limit if len(events) == limit else None,
+    }
