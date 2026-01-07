@@ -86,10 +86,12 @@ class TestCognitiveTestingEngine:
         """Test CognitiveTestingEngine initialization."""
         with patch('src.core.cognitive_engine.AsyncAnthropic'):
             from src.core.cognitive_engine import CognitiveTestingEngine
+            from src.core.model_registry import get_model_id
 
             engine = CognitiveTestingEngine()
 
-            assert engine.model == CognitiveTestingEngine.DEFAULT_MODEL
+            # Engine uses get_model_id for default model
+            assert engine.model == get_model_id("claude-sonnet-4-5")
             assert engine.app_models == {}
 
     def test_engine_custom_model(self, mock_env_vars):

@@ -5,6 +5,45 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Generator, AsyncGenerator
 
+# Check if tree-sitter is available
+try:
+    import tree_sitter
+    import tree_sitter_languages
+    TREE_SITTER_AVAILABLE = True
+except ImportError:
+    TREE_SITTER_AVAILABLE = False
+
+
+def pytest_configure(config):
+    """Configure custom pytest markers."""
+    config.addinivalue_line(
+        "markers", "requires_tree_sitter: mark test as requiring tree-sitter"
+    )
+    config.addinivalue_line(
+        "markers", "integration: mark test as integration test requiring real API keys"
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip tests that require tree-sitter when it's not installed."""
+    if TREE_SITTER_AVAILABLE:
+        return
+
+    skip_tree_sitter = pytest.mark.skip(
+        reason="tree-sitter not installed. Install with: pip install tree-sitter tree-sitter-languages"
+    )
+
+    for item in items:
+        if "requires_tree_sitter" in item.keywords:
+            item.add_marker(skip_tree_sitter)
+
+
+@pytest.fixture
+def tree_sitter_available():
+    """Fixture that returns whether tree-sitter is available."""
+    return TREE_SITTER_AVAILABLE
+
+
 # Set test environment variables before importing modules
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
 os.environ.setdefault("OPENAI_API_KEY", "sk-test-openai-key")
