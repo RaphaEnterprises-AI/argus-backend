@@ -44,13 +44,15 @@ class CloudflareVectorizeClient:
         Generate text embedding using Cloudflare Workers AI.
 
         Uses @cf/baai/bge-base-en-v1.5 model (768 dimensions).
+        API Ref: https://developers.cloudflare.com/workers-ai/models/bge-base-en-v1.5/
         """
         try:
             client = await self._get_client()
+            # Workers AI expects text as an array
             response = await client.post(
                 self.ai_url,
                 headers=self._get_headers(),
-                json={"text": text}
+                json={"text": [text]}
             )
 
             if response.status_code == 200:
@@ -60,6 +62,7 @@ class CloudflareVectorizeClient:
                     data = result["result"].get("data", [])
                     if data and len(data) > 0:
                         return data[0]
+                logger.warning(f"Embedding response missing data: {result}")
                 return None
             else:
                 logger.warning(f"Embedding generation error: {response.status_code} - {response.text}")
