@@ -20,7 +20,8 @@ binding = "BROWSER"
 binding = "AI"
 
 # Vectorize - Vector database for semantic pattern matching
-# Create index with: wrangler vectorize create argus-patterns --dimensions=768 --metric=cosine
+# Uses bge-large-en-v1.5 embeddings (1024 dimensions) for better quality
+# Create index with: wrangler vectorize create argus-patterns --dimensions=1024 --metric=cosine
 [[vectorize]]
 binding = "VECTOR_INDEX"
 index_name = "argus-patterns"
