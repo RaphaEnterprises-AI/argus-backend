@@ -23,7 +23,8 @@ class CloudflareVectorizeClient:
         self.account_id = account_id
         self.index_name = index_name
         self.api_token = api_token
-        self.base_url = f"{CF_API_BASE}/{account_id}/vectorize/indexes/{index_name}"
+        # Use v2 API for Vectorize (v2 indexes require v2 API)
+        self.base_url = f"{CF_API_BASE}/{account_id}/vectorize/v2/indexes/{index_name}"
         self.ai_url = f"{CF_API_BASE}/{account_id}/ai/run/@cf/baai/bge-base-en-v1.5"
         self._client: Optional[httpx.AsyncClient] = None
 
