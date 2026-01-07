@@ -58,3 +58,6 @@ out/
 
 # Claude
 .claude/
+
+# Dashboard (separate git repo)
+dashboard/
