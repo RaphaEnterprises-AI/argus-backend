@@ -13,6 +13,7 @@ from typing import Optional
 
 from .base import BaseAgent, AgentResult
 from .code_analyzer import TestableSurface
+from .prompts import get_enhanced_prompt
 
 
 @dataclass
@@ -113,6 +114,11 @@ class TestPlannerAgent(BaseAgent):
     """
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for test planning."""
+        enhanced = get_enhanced_prompt("test_planner")
+        if enhanced:
+            return enhanced
+
         return """You are an expert test architect specializing in E2E test planning.
 
 Your task is to create comprehensive, executable test specifications that cover:

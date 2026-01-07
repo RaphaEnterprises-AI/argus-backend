@@ -47,17 +47,18 @@ MODEL_PRICING: dict[str, ModelPricing] = {
     # ===========================================
     # ANTHROPIC CLAUDE MODELS
     # ===========================================
-    "claude-opus-4-5-20250514": ModelPricing(
+    # Correct model IDs
+    "claude-opus-4-5": ModelPricing(
         input_price=Decimal("15.00"),
         output_price=Decimal("75.00"),
         provider="anthropic",
     ),
-    "claude-sonnet-4-5-20250514": ModelPricing(
+    "claude-sonnet-4-5": ModelPricing(
         input_price=Decimal("3.00"),
         output_price=Decimal("15.00"),
         provider="anthropic",
     ),
-    "claude-haiku-4-5-20250514": ModelPricing(
+    "claude-haiku-4-5": ModelPricing(
         input_price=Decimal("0.80"),
         output_price=Decimal("4.00"),
         provider="anthropic",
@@ -258,7 +259,7 @@ class AICostTracker:
         """Calculate cost in USD for a given usage.
 
         Args:
-            model: Model identifier (e.g., "claude-sonnet-4-5-20250514")
+            model: Model identifier (e.g., "claude-sonnet-4-5")
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
 

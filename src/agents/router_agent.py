@@ -56,6 +56,7 @@ import os
 import structlog
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 from ..core.model_router import (
     TaskType, TaskComplexity, ModelConfig, ModelProvider,
     MODELS, TASK_MODEL_MAPPING, BaseModelClient
@@ -235,7 +236,13 @@ class RouterAgent(BaseAgent):
         return self._router_model_name
 
     def _get_system_prompt(self) -> str:
-        # Use custom prompt if provided
+        """Get enhanced system prompt for routing decisions."""
+        # First check for enhanced prompt from prompts.py
+        enhanced = get_enhanced_prompt("router_agent")
+        if enhanced:
+            return enhanced
+
+        # Then use custom prompt if provided in config
         if self.config.custom_system_prompt:
             return self.config.custom_system_prompt
 

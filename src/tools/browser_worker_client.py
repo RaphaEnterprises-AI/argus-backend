@@ -360,6 +360,24 @@ class BrowserWorkerClient:
             logger.exception("Agent execution failed", error=str(e))
             return AgentResult(success=False, completed=False, error=str(e))
 
+    # Convenience aliases
+    async def discover(
+        self,
+        url: str,
+        task: Optional[str] = None,
+    ) -> DiscoveryResult:
+        """Alias for discover_elements with task parameter."""
+        return await self.discover_elements(url=url, instruction=task)
+
+    async def extract(
+        self,
+        url: str,
+        instruction: str,
+        schema: Optional[dict] = None,
+    ) -> ExtractionResult:
+        """Alias for extract_data."""
+        return await self.extract_data(url=url, instruction=instruction, schema=schema)
+
 
 # Singleton instance
 _client: Optional[BrowserWorkerClient] = None

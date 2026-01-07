@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel, ValidationError, create_model
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
 
 
@@ -97,6 +98,11 @@ class APITesterAgent(BaseAgent):
         self._variables: dict[str, Any] = {}
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for API testing."""
+        enhanced = get_enhanced_prompt("api_tester")
+        if enhanced:
+            return enhanced
+
         return """You are an expert API tester. Analyze API responses and validate them against expected behavior.
 
 When asked to analyze an API response:

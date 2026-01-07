@@ -129,10 +129,15 @@ class AutoDiscovery:
         app_url: str,
         max_pages: int = 20,
         max_depth: int = 3,
-        model: str = "claude-sonnet-4-20250514",
+        model: Optional[str] = None,
     ):
         settings = get_settings()
-        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+        api_key = settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+        self.client = anthropic.Anthropic(api_key=api_key)
+        from src.core.model_registry import get_model_id
+        model = model or get_model_id("claude-sonnet-4-5")
         self.app_url = app_url
         self.base_domain = urlparse(app_url).netloc
         self.max_pages = max_pages

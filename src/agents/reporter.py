@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 
 
 @dataclass
@@ -98,6 +99,11 @@ class ReporterAgent(BaseAgent):
     """
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for reporting."""
+        enhanced = get_enhanced_prompt("reporter")
+        if enhanced:
+            return enhanced
+
         return """You are an expert test reporting agent. Generate clear, actionable test reports.
 
 When creating reports:

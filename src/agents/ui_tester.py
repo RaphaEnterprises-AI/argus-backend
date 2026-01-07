@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union, TYPE_CHECKING
 
 from .base import BaseAgent, AgentResult
+from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec, TestStep
 
 if TYPE_CHECKING:
@@ -122,6 +123,11 @@ class UITesterAgent(BaseAgent):
         self._use_worker = use_worker
 
     def _get_system_prompt(self) -> str:
+        """Get enhanced system prompt for UI testing."""
+        enhanced = get_enhanced_prompt("ui_tester")
+        if enhanced:
+            return enhanced
+
         return """You are an expert UI test executor. Your task is to verify visual elements and states in screenshots.
 
 When asked to verify a screenshot:
