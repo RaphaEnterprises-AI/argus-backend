@@ -52,6 +52,11 @@ dependencies = [
     # API server (for webhooks)
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
+    "python-multipart>=0.0.6",
+
+    # Supabase integration
+    "supabase>=2.0.0",
+    "aiohttp>=3.9.0",
 ]
 
 [project.optional-dependencies]
