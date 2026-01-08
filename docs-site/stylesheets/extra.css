@@ -1,0 +1,53 @@
+/* ARGUS Documentation Custom Styles */
+
+:root {
+  --md-primary-fg-color: #5C6BC0;
+  --md-primary-fg-color--light: #7986CB;
+  --md-primary-fg-color--dark: #3F51B5;
+  --md-accent-fg-color: #536DFE;
+}
+
+/* Custom heading styles */
+.md-typeset h1 {
+  font-weight: 700;
+}
+
+/* Table improvements */
+.md-typeset table:not([class]) {
+  font-size: 0.85rem;
+}
+
+/* Card grid for homepage */
+.grid.cards > ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+}
+
+.grid.cards > ul > li {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  transition: box-shadow 0.2s;
+}
+
+.grid.cards > ul > li:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Confidential banner */
+.md-typeset .admonition.warning {
+  border-left-color: #ff9800;
+}
+
+/* Code block improvements */
+.md-typeset pre > code {
+  font-size: 0.8rem;
+}
+
+/* Navigation improvements */
+.md-nav__link {
+  font-size: 0.85rem;
+}
