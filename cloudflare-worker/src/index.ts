@@ -220,6 +220,8 @@ const ObserveRequestSchema = z.object({
   backend: BackendSchema,
   browser: BrowserSchema,
   device: DeviceSchema,
+  projectId: z.string().uuid().optional(),  // For activity logging
+  activityType: z.enum(['discovery', 'visual_test', 'test_run', 'quality_audit', 'global_test']).optional().default('discovery'),
 });
 
 const AgentRequestSchema = z.object({
@@ -244,6 +246,8 @@ const TestRequestSchema = z.object({
   browsers: z.array(BrowserSchema).optional(),
   device: DeviceSchema,
   devices: z.array(DeviceSchema).optional(),
+  projectId: z.string().uuid().optional(),  // For activity logging
+  activityType: z.enum(['discovery', 'visual_test', 'test_run', 'quality_audit', 'global_test']).optional().default('test_run'),
 });
 
 // ============================================================================
@@ -1341,15 +1345,25 @@ async function handleObserve(request: Request, env: Env, corsHeaders: Record<str
     return Response.json({ error: "Invalid request", details: parsed.error.message }, { status: 400, headers: corsHeaders });
   }
 
-  const { url, instruction, timeout, backend, browser: browserType, device } = parsed.data;
+  const { url, instruction, timeout, backend, browser: browserType, device, projectId, activityType } = parsed.data;
   let session: BrowserSession | null = null;
 
+  // Create activity logger if projectId is provided
+  const activityLogger = await createActivityLogger(env, projectId, activityType);
+
   const executeWithTimeout = async (): Promise<Response> => {
+    await activityLogger?.logActivity('started', 'Starting observation', `Analyzing ${url}`);
+
     session = await connectToBrowser(env, { backend: backend as Backend, browser: browserType as BrowserType, device: device as DeviceType, platform: "windows", timeout });
+    await activityLogger?.logActivity('step', 'Browser connected', `Connected via ${session.backendUsed}`);
 
     await session.navigate(url);
-    const elements = await session.getInteractiveElements();
+    await activityLogger?.logActivity('step', 'Page loaded', `Navigated to ${url}`);
 
+    const elements = await session.getInteractiveElements();
+    await activityLogger?.logActivity('step', 'Elements found', `Found ${elements.length} interactive elements`);
+
+    await activityLogger?.logActivity('thinking', 'AI analyzing elements', instruction);
     let actions = await observeWithAI(env, instruction, elements);
 
     if (!actions || actions.length === 0) {
@@ -1363,7 +1377,9 @@ async function handleObserve(request: Request, env: Env, corsHeaders: Record<str
       }));
     }
 
+    await activityLogger?.logActivity('step', 'Analysis complete', `Identified ${actions.length} actions`);
     await session.close();
+    await activityLogger?.complete(true);
 
     return Response.json({ actions, elements, _backend: session.backendUsed }, { headers: corsHeaders });
   };
@@ -1374,6 +1390,8 @@ async function handleObserve(request: Request, env: Env, corsHeaders: Record<str
     if (session) await session.close().catch(() => {});
     const message = error instanceof Error ? error.message : "Unknown";
     const isTimeout = message.includes("timed out");
+    await activityLogger?.logActivity('error', 'Observation failed', message);
+    await activityLogger?.complete(false);
     return Response.json(
       { error: "Observe failed", details: message, timedOut: isTimeout },
       { status: isTimeout ? 408 : 500, headers: corsHeaders }
@@ -1465,20 +1483,33 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
     return Response.json({ error: "Invalid request", details: parsed.error.message }, { status: 400, headers: corsHeaders });
   }
 
-  const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices } = parsed.data;
+  const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices, projectId, activityType } = parsed.data;
 
   const browserList = browsers || ["chrome"];
   const deviceList = devices || [device];
+
+  // Create activity logger for real-time progress
+  const logger = await createActivityLogger(env, projectId, activityType as ActivityType);
 
   const executeWithTimeout = async (): Promise<Response> => {
     const results: BrowserResult[] = [];
     const allScreenshots: string[] = [];
     const stepResults: Array<{ instruction: string; success: boolean; error?: string; screenshot?: string }> = [];
 
+    // Log start
+    if (logger) {
+      await logger.logActivity('started', `Starting ${activityType}`, `URL: ${url}, Steps: ${steps.length}`);
+      await logger.updateSession({ currentStep: 'Initializing browser', completedSteps: 0 });
+    }
+
     for (const browserType of browserList) {
       for (const deviceType of deviceList) {
         let session: BrowserSession | null = null;
         try {
+          if (logger) {
+            await logger.logActivity('step', 'Connecting to browser', `Browser: ${browserType}, Device: ${deviceType}`);
+          }
+
           session = await connectToBrowser(env, {
             backend: backend as Backend,
             browser: browserType as BrowserType,
@@ -1487,27 +1518,49 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
             timeout
           });
 
+          if (logger) {
+            await logger.logActivity('step', 'Navigating to URL', url);
+            await logger.updateSession({ currentStep: 'Loading page' });
+          }
+
           await session.navigate(url);
 
           if (captureScreenshots) {
             try {
               const initialScreenshot = await session.screenshot();
               allScreenshots.push(initialScreenshot);
+              if (logger) {
+                await logger.logActivity('screenshot', 'Initial screenshot captured', undefined, `data:image/png;base64,${initialScreenshot}`);
+                await logger.updateSession({ lastScreenshotUrl: `data:image/png;base64,${initialScreenshot}` });
+              }
             } catch {}
           }
 
           let allSuccess = true;
           for (let i = 0; i < steps.length; i++) {
             const step = steps[i];
+
+            if (logger) {
+              await logger.logActivity('thinking', 'Analyzing step', `Step ${i + 1}/${steps.length}: ${step}`);
+              await logger.updateSession({ currentStep: step, completedSteps: i });
+            }
+
             const pageHtml = await session.getContent();
             const elements = await session.getInteractiveElements();
             const elementsStr = elements.map(e => `${e.tag}: "${e.text}" [${e.selector}]`).join("\n");
 
             const interpreted = await interpretAction(env, step, pageHtml, elementsStr);
             if (!interpreted) {
+              if (logger) {
+                await logger.logActivity('error', 'Failed to interpret step', step);
+              }
               stepResults.push({ instruction: step, success: false, error: "Could not interpret instruction" });
               allSuccess = false;
               break;
+            }
+
+            if (logger) {
+              await logger.logActivity('action', `Executing: ${interpreted.description}`, `Selector: ${interpreted.selector}`);
             }
 
             const result = await executeAction(session, interpreted, true, env);
@@ -1517,6 +1570,10 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
               try {
                 stepScreenshot = await session.screenshot();
                 allScreenshots.push(stepScreenshot);
+                if (logger) {
+                  await logger.logActivity('screenshot', `Screenshot after step ${i + 1}`, undefined, `data:image/png;base64,${stepScreenshot}`);
+                  await logger.updateSession({ lastScreenshotUrl: `data:image/png;base64,${stepScreenshot}` });
+                }
               } catch {}
             }
 
@@ -1528,8 +1585,15 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
             });
 
             if (!result.success) {
+              if (logger) {
+                await logger.logActivity('error', `Step failed: ${step}`, result.error);
+              }
               allSuccess = false;
               break;
+            }
+
+            if (logger) {
+              await logger.updateSession({ completedSteps: i + 1 });
             }
           }
 
@@ -1537,6 +1601,9 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
           if (screenshot && !captureScreenshots) {
             try {
               screenshotBase64 = await session.screenshot();
+              if (logger) {
+                await logger.updateSession({ lastScreenshotUrl: `data:image/png;base64,${screenshotBase64}` });
+              }
             } catch {}
           }
 
@@ -1552,25 +1619,37 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
           });
         } catch (error) {
           if (session) await session.close().catch(() => {});
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          if (logger) {
+            await logger.logActivity('error', 'Browser session failed', errorMessage);
+          }
           results.push({
             browser: browserType,
             platform: "error",
             device: deviceType,
             success: false,
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: errorMessage,
           });
         }
       }
     }
 
+    const overallSuccess = results.every(r => r.success);
+
+    // Log completion
+    if (logger) {
+      await logger.complete(overallSuccess);
+    }
+
     return Response.json({
-      success: results.every(r => r.success),
+      success: overallSuccess,
       steps: stepResults.length > 0 ? stepResults : steps.map(s => ({ instruction: s, success: results.some(r => r.success) })),
       browsers: results,
       backend: backend,
       screenshots: allScreenshots.length > 0 ? allScreenshots : undefined,
       finalScreenshot: results[0]?.screenshot,
-    } as TestResult, { headers: corsHeaders });
+      sessionId: logger?.sessionId,
+    } as TestResult & { sessionId?: string }, { headers: corsHeaders });
   };
 
   try {
@@ -1578,11 +1657,133 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown";
     const isTimeout = message.includes("timed out");
+
+    // Log timeout/error
+    if (logger) {
+      await logger.logActivity('error', isTimeout ? 'Operation timed out' : 'Operation failed', message);
+      await logger.complete(false);
+    }
+
     return Response.json(
-      { success: false, steps: [], browsers: [], error: message, timedOut: isTimeout },
+      { success: false, steps: [], browsers: [], error: message, timedOut: isTimeout, sessionId: logger?.sessionId },
       { status: isTimeout ? 408 : 500, headers: corsHeaders }
     );
   }
+}
+
+// ============================================================================
+// ACTIVITY LOGGING (Real-time progress to Supabase)
+// ============================================================================
+
+type ActivityType = 'discovery' | 'visual_test' | 'test_run' | 'quality_audit' | 'global_test';
+type EventType = 'started' | 'step' | 'screenshot' | 'thinking' | 'action' | 'error' | 'completed' | 'cancelled';
+
+interface ActivityLogger {
+  sessionId: string;
+  logActivity(eventType: EventType, title: string, description?: string, screenshotUrl?: string, metadata?: Record<string, unknown>): Promise<void>;
+  updateSession(updates: { currentStep?: string; completedSteps?: number; lastScreenshotUrl?: string; status?: string }): Promise<void>;
+  complete(success: boolean): Promise<void>;
+}
+
+async function createActivityLogger(
+  env: Env,
+  projectId: string | undefined,
+  activityType: ActivityType
+): Promise<ActivityLogger | null> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !projectId) {
+    return null;
+  }
+
+  const sessionId = crypto.randomUUID();
+  const supabaseUrl = env.SUPABASE_URL;
+  const supabaseKey = env.SUPABASE_SERVICE_KEY;
+
+  const supabaseFetch = async (endpoint: string, body: unknown) => {
+    try {
+      await fetch(`${supabaseUrl}/rest/v1/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      console.error('Supabase activity log failed:', e);
+    }
+  };
+
+  const supabasePatch = async (table: string, id: string, body: unknown) => {
+    try {
+      await fetch(`${supabaseUrl}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      console.error('Supabase session update failed:', e);
+    }
+  };
+
+  // Create live session
+  await supabaseFetch('live_sessions', {
+    id: sessionId,
+    project_id: projectId,
+    session_type: activityType,
+    status: 'active',
+    total_steps: 0,
+    completed_steps: 0,
+    started_at: new Date().toISOString(),
+  });
+
+  return {
+    sessionId,
+
+    async logActivity(eventType: EventType, title: string, description?: string, screenshotUrl?: string, metadata?: Record<string, unknown>) {
+      await supabaseFetch('activity_logs', {
+        project_id: projectId,
+        session_id: sessionId,
+        activity_type: activityType,
+        event_type: eventType,
+        title,
+        description,
+        screenshot_url: screenshotUrl,
+        metadata: metadata || {},
+      });
+    },
+
+    async updateSession(updates: { currentStep?: string; completedSteps?: number; lastScreenshotUrl?: string; status?: string }) {
+      const payload: Record<string, unknown> = {};
+      if (updates.currentStep !== undefined) payload.current_step = updates.currentStep;
+      if (updates.completedSteps !== undefined) payload.completed_steps = updates.completedSteps;
+      if (updates.lastScreenshotUrl !== undefined) payload.last_screenshot_url = updates.lastScreenshotUrl;
+      if (updates.status !== undefined) payload.status = updates.status;
+
+      await supabasePatch('live_sessions', sessionId, payload);
+    },
+
+    async complete(success: boolean) {
+      await supabasePatch('live_sessions', sessionId, {
+        status: success ? 'completed' : 'failed',
+        completed_at: new Date().toISOString(),
+      });
+
+      await supabaseFetch('activity_logs', {
+        project_id: projectId,
+        session_id: sessionId,
+        activity_type: activityType,
+        event_type: 'completed',
+        title: success ? 'Completed successfully' : 'Failed',
+      });
+    },
+  };
 }
 
 // ============================================================================
