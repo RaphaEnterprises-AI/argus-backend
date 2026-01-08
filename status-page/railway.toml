@@ -1,0 +1,14 @@
+# Railway deployment configuration for Uptime Kuma
+# Deploy with: railway up
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+numReplicas = 1
+healthcheckPath = "/api/status-page/heartbeat"
+healthcheckTimeout = 30
+restartPolicyType = "always"
+
+# Railway will provide PORT automatically
