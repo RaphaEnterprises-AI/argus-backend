@@ -35,7 +35,10 @@ RUN pip install --upgrade pip && \
     "structlog>=24.4.0" \
     "python-dotenv>=1.0.0" \
     "rich>=13.9.0" \
-    "pillow>=10.4.0"
+    "pillow>=10.4.0" \
+    "python-multipart>=0.0.6" \
+    "supabase>=2.0.0" \
+    "aiohttp>=3.9.0"
 
 # Copy application code
 COPY src/ /app/src/
