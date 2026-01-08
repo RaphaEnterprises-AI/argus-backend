@@ -1136,8 +1136,114 @@ RESPOND WITH ONLY JSON.`;
 }
 
 // ============================================================================
-// SELF-HEALING (Simplified - uses fallback selectors)
+// SELF-HEALING (AI-Powered + Static Fallbacks)
 // ============================================================================
+
+interface HealingSuggestion {
+  selector: string;
+  confidence: number;
+  reason: string;
+}
+
+interface HealingContext {
+  originalSelector: string;
+  description: string;
+  errorMessage: string;
+  pageElements: Array<{ tag: string; text: string; selector: string; attributes: Record<string, string> }>;
+  pageUrl: string;
+}
+
+// AI-powered selector healing - analyzes current page to find the right element
+async function healSelectorWithAI(
+  env: Env,
+  context: HealingContext
+): Promise<HealingSuggestion[]> {
+  try {
+    const elementsStr = context.pageElements
+      .slice(0, 50)
+      .map((e, i) => `${i + 1}. ${e.tag}: "${e.text}" [${e.selector}] ${JSON.stringify(e.attributes)}`)
+      .join('\n');
+
+    const prompt = `You are a browser automation expert. The original selector failed. Find the correct element.
+
+FAILED SELECTOR: "${context.originalSelector}"
+INTENDED ACTION: "${context.description}"
+ERROR: "${context.errorMessage}"
+PAGE URL: ${context.pageUrl}
+
+CURRENT PAGE ELEMENTS:
+${elementsStr}
+
+TASK: Find the element that matches the intended action. Consider:
+1. The element text/label might have changed
+2. The class/id might have been renamed
+3. The element might have moved to a different position
+4. Look for elements with similar text, aria-labels, or roles
+
+RESPOND WITH JSON ARRAY (up to 3 suggestions, highest confidence first):
+[{"selector": "exact CSS selector from the list above", "confidence": 0.0-1.0, "reason": "why this matches"}]
+
+IMPORTANT: Only use selectors that appear in CURRENT PAGE ELEMENTS above. Do not invent selectors.`;
+
+    const text = await callAI(env, {
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 500,
+      timeout: 15000,
+    });
+
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) {
+      const suggestions = JSON.parse(match[0]) as HealingSuggestion[];
+      return suggestions.filter(s => s.selector && s.confidence > 0.3);
+    }
+  } catch (e) {
+    console.error('AI healing failed:', e);
+  }
+  return [];
+}
+
+// Generate healing suggestions for failed actions (to return to frontend)
+async function generateHealingSuggestions(
+  env: Env,
+  session: BrowserSession,
+  failedAction: { selector: string; description: string },
+  errorMessage: string
+): Promise<{ suggestions: HealingSuggestion[]; pageContext: string }> {
+  try {
+    const elements = await session.getInteractiveElements();
+    const pageUrl = await session.getUrl();
+
+    const context: HealingContext = {
+      originalSelector: failedAction.selector,
+      description: failedAction.description,
+      errorMessage,
+      pageElements: elements,
+      pageUrl,
+    };
+
+    const suggestions = await healSelectorWithAI(env, context);
+
+    // Also add static fallbacks as lower-confidence suggestions
+    const staticFallbacks = generateSelectorFallbacks(failedAction.selector, failedAction.description);
+    for (const selector of staticFallbacks.slice(1, 4)) {
+      if (!suggestions.find(s => s.selector === selector)) {
+        suggestions.push({
+          selector,
+          confidence: 0.4,
+          reason: 'Static fallback based on selector pattern',
+        });
+      }
+    }
+
+    return {
+      suggestions: suggestions.slice(0, 5),
+      pageContext: `URL: ${pageUrl}, Elements: ${elements.length}`,
+    };
+  } catch (e) {
+    console.error('Failed to generate healing suggestions:', e);
+    return { suggestions: [], pageContext: '' };
+  }
+}
 
 function generateSelectorFallbacks(originalSelector: string, description?: string): string[] {
   const selectors: string[] = [originalSelector];
@@ -1809,11 +1915,43 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
               } catch {}
             }
 
+            // If action failed, generate AI healing suggestions
+            let healingSuggestions: HealingSuggestion[] | undefined;
+            if (!result.success && interpreted) {
+              try {
+                const healing = await generateHealingSuggestions(
+                  env,
+                  session,
+                  { selector: interpreted.selector, description: interpreted.description },
+                  result.error || 'Unknown error'
+                );
+                healingSuggestions = healing.suggestions;
+
+                if (logger && healingSuggestions.length > 0) {
+                  await logger.logActivity(
+                    'thinking',
+                    'AI analyzing failure',
+                    `Found ${healingSuggestions.length} potential fixes: ${healingSuggestions.map(s => s.selector).join(', ')}`
+                  );
+                }
+              } catch (e) {
+                console.error('Failed to generate healing suggestions:', e);
+              }
+            }
+
             stepResults.push({
               instruction: step,
               success: result.success,
               error: result.success ? undefined : result.error,
               screenshot: stepScreenshot,
+              // Include retry context for failed steps
+              failedAction: !result.success && interpreted ? {
+                selector: interpreted.selector,
+                description: interpreted.description,
+                action: interpreted.action,
+                value: interpreted.value,
+              } : undefined,
+              healingSuggestions: !result.success ? healingSuggestions : undefined,
             });
 
             if (!result.success) {
@@ -2032,6 +2170,216 @@ async function createActivityLogger(
 }
 
 // ============================================================================
+// RETRY ENDPOINT - Retry failed tests with AI-suggested fixes
+// ============================================================================
+
+const RetryRequestSchema = z.object({
+  url: z.string().url(),
+  failedStep: z.object({
+    instruction: z.string(),
+    failedAction: z.object({
+      selector: z.string(),
+      description: z.string(),
+      action: z.string(),
+      value: z.string().optional(),
+    }).optional(),
+    healingSuggestions: z.array(z.object({
+      selector: z.string(),
+      confidence: z.number(),
+      reason: z.string(),
+    })).optional(),
+  }),
+  useHealingSuggestion: z.number().optional().default(0), // Index of suggestion to use (0 = highest confidence)
+  timeout: z.number().optional().default(30000),
+  backend: BackendSchema,
+  device: DeviceSchema,
+  projectId: z.string().uuid().optional(),
+});
+
+async function handleRetry(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  const body = await request.json();
+  const parsed = RetryRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json({ error: "Invalid request", details: parsed.error.message }, { status: 400, headers: corsHeaders });
+  }
+
+  const { url, failedStep, useHealingSuggestion, timeout, backend, device, projectId } = parsed.data;
+
+  // Create activity logger for retry
+  const logger = await createActivityLogger(env, projectId, 'test_run');
+
+  let session: BrowserSession | null = null;
+
+  const executeWithTimeout = async (): Promise<Response> => {
+    if (logger) {
+      await logger.logActivity('started', 'Retrying failed step', `Using AI healing suggestion #${useHealingSuggestion + 1}`);
+    }
+
+    session = await connectToBrowser(env, {
+      backend: backend as Backend,
+      browser: 'chrome' as BrowserType,
+      device: device as DeviceType,
+      platform: 'windows',
+      timeout,
+    });
+
+    await session.navigate(url);
+
+    if (logger) {
+      await logger.logActivity('step', 'Page loaded', url);
+    }
+
+    // Determine which selector to use
+    let selectorToUse: string;
+    let actionToUse = failedStep.failedAction?.action || 'click';
+    let valueToUse = failedStep.failedAction?.value;
+    let descriptionToUse = failedStep.failedAction?.description || failedStep.instruction;
+
+    if (failedStep.healingSuggestions && failedStep.healingSuggestions.length > 0) {
+      const suggestionIndex = Math.min(useHealingSuggestion, failedStep.healingSuggestions.length - 1);
+      const suggestion = failedStep.healingSuggestions[suggestionIndex];
+      selectorToUse = suggestion.selector;
+
+      if (logger) {
+        await logger.logActivity(
+          'thinking',
+          'Using AI suggestion',
+          `Selector: ${selectorToUse} (confidence: ${Math.round(suggestion.confidence * 100)}%) - ${suggestion.reason}`
+        );
+      }
+    } else if (failedStep.failedAction?.selector) {
+      // No healing suggestions, try re-interpreting the action from fresh page state
+      if (logger) {
+        await logger.logActivity('thinking', 'Re-analyzing page', 'No healing suggestions, analyzing current page state');
+      }
+
+      const pageHtml = await session.getContent();
+      const elements = await session.getInteractiveElements();
+      const elementsStr = elements.map(e => `${e.tag}: "${e.text}" [${e.selector}]`).join('\n');
+
+      const interpreted = await interpretAction(env, failedStep.instruction, pageHtml, elementsStr);
+      if (interpreted) {
+        selectorToUse = interpreted.selector;
+        actionToUse = interpreted.action;
+        valueToUse = interpreted.value;
+        descriptionToUse = interpreted.description;
+
+        if (logger) {
+          await logger.logActivity('thinking', 'Found new action', `${actionToUse}: ${selectorToUse}`);
+        }
+      } else {
+        selectorToUse = failedStep.failedAction.selector;
+      }
+    } else {
+      await session.close();
+      return Response.json({
+        success: false,
+        error: 'No selector or healing suggestions provided',
+        errorDetails: {
+          category: 'element',
+          isRetryable: false,
+          suggestedAction: 'Please provide healing suggestions or original action details',
+        },
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    if (logger) {
+      await logger.logActivity('action', `Executing: ${descriptionToUse}`, `Selector: ${selectorToUse}`);
+    }
+
+    // Execute the action with self-healing enabled
+    const result = await executeAction(
+      session,
+      { action: actionToUse, selector: selectorToUse, value: valueToUse, description: descriptionToUse },
+      true, // Enable self-healing
+      env
+    );
+
+    let screenshot: string | undefined;
+    try {
+      screenshot = await session.screenshot();
+      if (logger) {
+        await logger.updateSession({ lastScreenshotUrl: `data:image/png;base64,${screenshot}` });
+      }
+    } catch {}
+
+    // If still failing, generate new healing suggestions
+    let newHealingSuggestions: HealingSuggestion[] | undefined;
+    if (!result.success) {
+      try {
+        const healing = await generateHealingSuggestions(
+          env,
+          session,
+          { selector: selectorToUse, description: descriptionToUse },
+          result.error || 'Unknown error'
+        );
+        newHealingSuggestions = healing.suggestions;
+      } catch {}
+    }
+
+    const backendUsed = session.backendUsed;
+    await session.close();
+
+    if (logger) {
+      await logger.complete(result.success);
+    }
+
+    const categorized = result.success ? null : categorizeError(result.error || 'Unknown');
+
+    return Response.json({
+      success: result.success,
+      message: result.success
+        ? `Retry successful with healed selector: ${selectorToUse}`
+        : `Retry failed: ${result.error}`,
+      usedSelector: selectorToUse,
+      healed: result.healed,
+      healingMethod: result.healingMethod,
+      screenshot,
+      backend: backendUsed,
+      sessionId: logger?.sessionId,
+      // Include new suggestions if still failing
+      ...(newHealingSuggestions && newHealingSuggestions.length > 0 && {
+        newHealingSuggestions,
+        errorDetails: categorized ? {
+          category: categorized.category,
+          originalError: categorized.originalError,
+          isRetryable: categorized.isRetryable || newHealingSuggestions.length > 0,
+          suggestedAction: newHealingSuggestions.length > 0
+            ? `Try one of ${newHealingSuggestions.length} new AI suggestions`
+            : categorized.suggestedAction,
+        } : undefined,
+      }),
+    }, { headers: corsHeaders });
+  };
+
+  try {
+    return await withTimeout(executeWithTimeout(), timeout, 'Retry operation');
+  } catch (error) {
+    if (session) await session.close().catch(() => {});
+    const message = error instanceof Error ? error.message : 'Unknown';
+    const categorized = categorizeError(message);
+
+    if (logger) {
+      await logger.logActivity('error', categorized.message, categorized.originalError);
+      await logger.complete(false);
+    }
+
+    return Response.json({
+      success: false,
+      error: categorized.message,
+      errorDetails: {
+        category: categorized.category,
+        originalError: categorized.originalError,
+        isRetryable: categorized.isRetryable,
+        suggestedAction: categorized.suggestedAction,
+      },
+      timedOut: categorized.category === 'timeout',
+      sessionId: logger?.sessionId,
+    }, { status: categorized.category === 'timeout' ? 408 : 500, headers: corsHeaders });
+  }
+}
+
+// ============================================================================
 // QUEUE MESSAGE TYPES
 // ============================================================================
 
@@ -2141,6 +2489,7 @@ export default {
           case "/observe": return await handleObserve(request, env, corsHeaders);
           case "/agent": return await handleAgent(request, env, corsHeaders);
           case "/test": return await handleTest(request, env, corsHeaders);
+          case "/retry": return await handleRetry(request, env, corsHeaders);
         }
       }
 
