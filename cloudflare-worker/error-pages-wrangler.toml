@@ -1,0 +1,22 @@
+# Argus Error Pages Worker
+# Handles edge-level errors when origin is down
+# Deploy with: wrangler deploy -c error-pages-wrangler.toml
+
+name = "argus-error-pages"
+main = "error-pages.ts"
+compatibility_date = "2024-01-01"
+
+# Keep workers.dev subdomain active for testing
+workers_dev = true
+
+# Routes - disabled for now (requires Cloudflare proxy enabled on DNS)
+# To enable: set proxied=true on DNS records in Cloudflare dashboard
+# routes = [
+#   { pattern = "heyargus.ai/*", zone_name = "heyargus.ai" },
+#   { pattern = "heyargus.com/*", zone_name = "heyargus.com" },
+#   { pattern = "www.heyargus.ai/*", zone_name = "heyargus.ai" },
+#   { pattern = "www.heyargus.com/*", zone_name = "heyargus.com" },
+# ]
+
+[vars]
+ENVIRONMENT = "production"

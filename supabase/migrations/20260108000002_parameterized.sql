@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS parameter_sets (
     description TEXT,
 
     -- Parameter values
-    values JSONB NOT NULL,
+    "values" JSONB NOT NULL,
     -- Example: {"email": "user1@test.com", "password": "pass123", "expected_name": "User One"}
 
     -- Categorization
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS parameter_sets (
     -- Execution control
     skip BOOLEAN DEFAULT false,
     skip_reason TEXT,
-    only BOOLEAN DEFAULT false,  -- If true, only this set runs (for debugging)
+    run_only BOOLEAN DEFAULT false,  -- If true, only this set runs (for debugging)
 
     -- Ordering
     order_index INTEGER DEFAULT 0,
@@ -495,7 +495,7 @@ CREATE OR REPLACE FUNCTION get_executable_parameter_sets(
 RETURNS TABLE(
     set_id UUID,
     set_name TEXT,
-    values JSONB,
+    param_values JSONB,
     order_index INTEGER,
     expected_outcome TEXT
 ) AS $$
@@ -506,17 +506,17 @@ BEGIN
         ps.name as set_name,
         CASE
             WHEN p_environment IS NOT NULL AND ps.environment_overrides ? p_environment
-            THEN ps.values || (ps.environment_overrides -> p_environment)
-            ELSE ps.values
-        END as values,
+            THEN ps."values" || (ps.environment_overrides -> p_environment)
+            ELSE ps."values"
+        END as param_values,
         ps.order_index,
         ps.expected_outcome
     FROM parameter_sets ps
     WHERE ps.parameterized_test_id = p_parameterized_test_id
     AND ps.skip = false
     AND (
-        NOT EXISTS (SELECT 1 FROM parameter_sets WHERE parameterized_test_id = p_parameterized_test_id AND only = true)
-        OR ps.only = true
+        NOT EXISTS (SELECT 1 FROM parameter_sets WHERE parameterized_test_id = p_parameterized_test_id AND run_only = true)
+        OR ps.run_only = true
     )
     ORDER BY ps.order_index ASC;
 END;
