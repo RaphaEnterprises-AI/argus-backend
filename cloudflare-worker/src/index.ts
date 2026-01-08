@@ -579,23 +579,213 @@ class TestingBotBrowserSession implements BrowserSession {
 }
 
 // ============================================================================
+// ERROR CATEGORIZATION
+// ============================================================================
+
+type ErrorCategory = 'network' | 'element' | 'assertion' | 'browser' | 'timeout' | 'unknown';
+
+interface CategorizedError {
+  category: ErrorCategory;
+  message: string;
+  originalError: string;
+  isRetryable: boolean;
+  suggestedAction?: string;
+}
+
+function categorizeError(error: Error | string): CategorizedError {
+  const message = typeof error === 'string' ? error : error.message;
+  const lowerMessage = message.toLowerCase();
+
+  // Network errors - usually retryable
+  if (
+    lowerMessage.includes('fetch failed') ||
+    lowerMessage.includes('network') ||
+    lowerMessage.includes('dns') ||
+    lowerMessage.includes('econnrefused') ||
+    lowerMessage.includes('enotfound') ||
+    lowerMessage.includes('socket') ||
+    lowerMessage.includes('connection reset') ||
+    lowerMessage.includes('unable to connect')
+  ) {
+    return {
+      category: 'network',
+      message: 'Network connection failed. Please check your internet connection and try again.',
+      originalError: message,
+      isRetryable: true,
+      suggestedAction: 'Check network connectivity and retry',
+    };
+  }
+
+  // Browser/session errors - usually retryable
+  if (
+    lowerMessage.includes('browser') ||
+    lowerMessage.includes('session') ||
+    lowerMessage.includes('cdp') ||
+    lowerMessage.includes('target closed') ||
+    lowerMessage.includes('context') ||
+    lowerMessage.includes('crashed') ||
+    lowerMessage.includes('disconnected')
+  ) {
+    return {
+      category: 'browser',
+      message: 'Browser session error. Attempting to reconnect...',
+      originalError: message,
+      isRetryable: true,
+      suggestedAction: 'Browser will automatically retry',
+    };
+  }
+
+  // Rate limiting - retryable with backoff
+  if (
+    lowerMessage.includes('429') ||
+    lowerMessage.includes('rate limit') ||
+    lowerMessage.includes('too many requests') ||
+    lowerMessage.includes('throttle')
+  ) {
+    return {
+      category: 'network',
+      message: 'Rate limited by browser service. Retrying with fallback...',
+      originalError: message,
+      isRetryable: true,
+      suggestedAction: 'Wait and retry, or use alternate backend',
+    };
+  }
+
+  // Timeout errors - sometimes retryable
+  if (
+    lowerMessage.includes('timeout') ||
+    lowerMessage.includes('timed out') ||
+    lowerMessage.includes('exceeded')
+  ) {
+    return {
+      category: 'timeout',
+      message: 'Operation timed out. The page may be slow to load.',
+      originalError: message,
+      isRetryable: true,
+      suggestedAction: 'Increase timeout or retry',
+    };
+  }
+
+  // Element errors - not retryable without fixing selector
+  if (
+    lowerMessage.includes('selector') ||
+    lowerMessage.includes('element') ||
+    lowerMessage.includes('not found') ||
+    lowerMessage.includes('no node found') ||
+    lowerMessage.includes('waiting for') ||
+    lowerMessage.includes('locator') ||
+    lowerMessage.includes('not visible') ||
+    lowerMessage.includes('not interactable')
+  ) {
+    return {
+      category: 'element',
+      message: 'Element not found on page. The page structure may have changed.',
+      originalError: message,
+      isRetryable: false,
+      suggestedAction: 'Check selector or enable self-healing',
+    };
+  }
+
+  // Assertion errors - not retryable
+  if (
+    lowerMessage.includes('verification failed') ||
+    lowerMessage.includes('assertion') ||
+    lowerMessage.includes('expected') ||
+    lowerMessage.includes('to contain') ||
+    lowerMessage.includes('to match')
+  ) {
+    return {
+      category: 'assertion',
+      message: 'Verification failed. The page content did not match expectations.',
+      originalError: message,
+      isRetryable: false,
+      suggestedAction: 'Review test expectations',
+    };
+  }
+
+  // Unknown errors
+  return {
+    category: 'unknown',
+    message: 'An unexpected error occurred.',
+    originalError: message,
+    isRetryable: false,
+    suggestedAction: 'Check logs for details',
+  };
+}
+
+// ============================================================================
+// RETRY CONFIGURATION
+// ============================================================================
+
+const RETRY_CONFIG = {
+  maxAttempts: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 10000,
+  backoffMultiplier: 2,
+};
+
+function calculateBackoff(attempt: number): number {
+  const delay = Math.min(
+    RETRY_CONFIG.baseDelayMs * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt),
+    RETRY_CONFIG.maxDelayMs
+  );
+  // Add jitter (±20%)
+  const jitter = delay * 0.2 * (Math.random() * 2 - 1);
+  return Math.floor(delay + jitter);
+}
+
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  shouldRetry: (error: CategorizedError) => boolean = (e) => e.isRetryable
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const categorized = categorizeError(lastError);
+
+      console.log(`[Retry] ${operationName} failed (attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts}): ${categorized.category} - ${categorized.originalError}`);
+
+      if (!shouldRetry(categorized) || attempt === RETRY_CONFIG.maxAttempts - 1) {
+        throw lastError;
+      }
+
+      const delay = calculateBackoff(attempt);
+      console.log(`[Retry] Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError || new Error(`${operationName} failed after ${RETRY_CONFIG.maxAttempts} attempts`);
+}
+
+// ============================================================================
 // BROWSER CONNECTION
 // ============================================================================
 
 async function connectToCloudflare(env: Env, deviceConfig: any, timeout: number): Promise<CloudflareBrowserSession> {
-  const { endpointURLString } = await import("@cloudflare/playwright");
-  const cdpUrl = endpointURLString(env.BROWSER);
+  return await withRetry(
+    async () => {
+      const { endpointURLString } = await import("@cloudflare/playwright");
+      const cdpUrl = endpointURLString(env.BROWSER);
 
-  const browser = await cfChromium.connectOverCDP(cdpUrl);
-  const context = await browser.newContext({
-    viewport: deviceConfig.viewport,
-    userAgent: deviceConfig.userAgent,
-    isMobile: deviceConfig.isMobile,
-    hasTouch: deviceConfig.hasTouch,
-  });
-  const page = await context.newPage();
+      const browser = await cfChromium.connectOverCDP(cdpUrl);
+      const context = await browser.newContext({
+        viewport: deviceConfig.viewport,
+        userAgent: deviceConfig.userAgent,
+        isMobile: deviceConfig.isMobile,
+        hasTouch: deviceConfig.hasTouch,
+      });
+      const page = await context.newPage();
 
-  return new CloudflareBrowserSession(browser, page);
+      return new CloudflareBrowserSession(browser, page);
+    },
+    'Cloudflare browser connection'
+  );
 }
 
 async function connectToBrowser(
@@ -1283,10 +1473,21 @@ async function handleAct(request: Request, env: Env, corsHeaders: Record<string,
   } catch (error) {
     if (session) await session.close().catch(() => {});
     const message = error instanceof Error ? error.message : "Unknown error";
-    const isTimeout = message.includes("timed out");
+    const categorized = categorizeError(message);
     return Response.json(
-      { success: false, message, actions: [], timedOut: isTimeout },
-      { status: isTimeout ? 408 : 500, headers: corsHeaders }
+      {
+        success: false,
+        message: categorized.message,
+        actions: [],
+        errorDetails: {
+          category: categorized.category,
+          originalError: categorized.originalError,
+          isRetryable: categorized.isRetryable,
+          suggestedAction: categorized.suggestedAction,
+        },
+        timedOut: categorized.category === 'timeout',
+      },
+      { status: categorized.category === 'timeout' ? 408 : 500, headers: corsHeaders }
     );
   }
 }
@@ -1330,10 +1531,19 @@ async function handleExtract(request: Request, env: Env, corsHeaders: Record<str
   } catch (error) {
     if (session) await session.close().catch(() => {});
     const message = error instanceof Error ? error.message : "Unknown";
-    const isTimeout = message.includes("timed out");
+    const categorized = categorizeError(message);
     return Response.json(
-      { error: "Extract failed", details: message, timedOut: isTimeout },
-      { status: isTimeout ? 408 : 500, headers: corsHeaders }
+      {
+        error: categorized.message,
+        errorDetails: {
+          category: categorized.category,
+          originalError: categorized.originalError,
+          isRetryable: categorized.isRetryable,
+          suggestedAction: categorized.suggestedAction,
+        },
+        timedOut: categorized.category === 'timeout',
+      },
+      { status: categorized.category === 'timeout' ? 408 : 500, headers: corsHeaders }
     );
   }
 }
@@ -1389,12 +1599,21 @@ async function handleObserve(request: Request, env: Env, corsHeaders: Record<str
   } catch (error) {
     if (session) await session.close().catch(() => {});
     const message = error instanceof Error ? error.message : "Unknown";
-    const isTimeout = message.includes("timed out");
-    await activityLogger?.logActivity('error', 'Observation failed', message);
+    const categorized = categorizeError(message);
+    await activityLogger?.logActivity('error', categorized.message, categorized.originalError);
     await activityLogger?.complete(false);
     return Response.json(
-      { error: "Observe failed", details: message, timedOut: isTimeout },
-      { status: isTimeout ? 408 : 500, headers: corsHeaders }
+      {
+        error: categorized.message,
+        errorDetails: {
+          category: categorized.category,
+          originalError: categorized.originalError,
+          isRetryable: categorized.isRetryable,
+          suggestedAction: categorized.suggestedAction,
+        },
+        timedOut: categorized.category === 'timeout',
+      },
+      { status: categorized.category === 'timeout' ? 408 : 500, headers: corsHeaders }
     );
   }
 }
@@ -1468,10 +1687,23 @@ async function handleAgent(request: Request, env: Env, corsHeaders: Record<strin
   } catch (error) {
     if (session) await session.close().catch(() => {});
     const message = error instanceof Error ? error.message : "Unknown";
-    const isTimeout = message.includes("timed out");
+    const categorized = categorizeError(message);
     return Response.json(
-      { success: false, message, actions: [], completed: false, usage: { inputTokens: 0, outputTokens: 0, totalSteps: 0 }, timedOut: isTimeout },
-      { status: isTimeout ? 408 : 500, headers: corsHeaders }
+      {
+        success: false,
+        message: categorized.message,
+        actions: [],
+        completed: false,
+        usage: { inputTokens: 0, outputTokens: 0, totalSteps: 0 },
+        errorDetails: {
+          category: categorized.category,
+          originalError: categorized.originalError,
+          isRetryable: categorized.isRetryable,
+          suggestedAction: categorized.suggestedAction,
+        },
+        timedOut: categorized.category === 'timeout',
+      },
+      { status: categorized.category === 'timeout' ? 408 : 500, headers: corsHeaders }
     );
   }
 }
@@ -1656,17 +1888,30 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
     return await withTimeout(executeWithTimeout(), timeout, "Test operation");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown";
-    const isTimeout = message.includes("timed out");
+    const categorized = categorizeError(message);
 
-    // Log timeout/error
+    // Log timeout/error with categorization
     if (logger) {
-      await logger.logActivity('error', isTimeout ? 'Operation timed out' : 'Operation failed', message);
+      await logger.logActivity('error', categorized.message, categorized.originalError);
       await logger.complete(false);
     }
 
     return Response.json(
-      { success: false, steps: [], browsers: [], error: message, timedOut: isTimeout, sessionId: logger?.sessionId },
-      { status: isTimeout ? 408 : 500, headers: corsHeaders }
+      {
+        success: false,
+        steps: [],
+        browsers: [],
+        error: categorized.message,
+        errorDetails: {
+          category: categorized.category,
+          originalError: categorized.originalError,
+          isRetryable: categorized.isRetryable,
+          suggestedAction: categorized.suggestedAction,
+        },
+        timedOut: categorized.category === 'timeout',
+        sessionId: logger?.sessionId,
+      },
+      { status: categorized.category === 'timeout' ? 408 : 500, headers: corsHeaders }
     );
   }
 }
