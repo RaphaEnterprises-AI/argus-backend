@@ -6,6 +6,7 @@ This agent:
 - Uses Claude for visual verification when needed
 - Reports detailed results with evidence
 - Supports both local Playwright and remote Cloudflare Worker
+- Supports hybrid DOM+Vision execution for reliability
 """
 
 import base64
@@ -19,6 +20,7 @@ from .test_planner import TestSpec, TestStep
 
 if TYPE_CHECKING:
     from src.tools.browser_worker_client import BrowserWorkerClient
+    from src.execution import HybridExecutor, ExecutionStrategy
 
 
 @dataclass
@@ -31,6 +33,12 @@ class StepResult:
     duration_ms: int
     error: Optional[str] = None
     screenshot: Optional[bytes] = None
+    # Hybrid execution fields
+    mode_used: Optional[str] = None  # "dom", "vision", or "hybrid"
+    fallback_triggered: bool = False
+    dom_attempts: int = 0
+    vision_attempts: int = 0
+    estimated_cost: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -40,6 +48,11 @@ class StepResult:
             "duration_ms": self.duration_ms,
             "error": self.error,
             "has_screenshot": self.screenshot is not None,
+            "mode_used": self.mode_used,
+            "fallback_triggered": self.fallback_triggered,
+            "dom_attempts": self.dom_attempts,
+            "vision_attempts": self.vision_attempts,
+            "estimated_cost": self.estimated_cost,
         }
 
 
@@ -78,6 +91,13 @@ class UITestResult:
     error_message: Optional[str] = None
     final_screenshot: Optional[bytes] = None
     failure_screenshot: Optional[bytes] = None
+    # Hybrid execution stats
+    execution_mode: str = "standard"  # "standard", "hybrid", "worker"
+    total_dom_attempts: int = 0
+    total_vision_attempts: int = 0
+    vision_fallback_count: int = 0
+    total_estimated_cost: float = 0.0
+    fallback_rate: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +110,12 @@ class UITestResult:
             "error_message": self.error_message,
             "has_final_screenshot": self.final_screenshot is not None,
             "has_failure_screenshot": self.failure_screenshot is not None,
+            "execution_mode": self.execution_mode,
+            "total_dom_attempts": self.total_dom_attempts,
+            "total_vision_attempts": self.total_vision_attempts,
+            "vision_fallback_count": self.vision_fallback_count,
+            "total_estimated_cost": self.total_estimated_cost,
+            "fallback_rate": self.fallback_rate,
         }
 
 
@@ -634,3 +660,178 @@ Respond with JSON containing:
                 success=False,
                 error=str(e),
             )
+
+    async def execute_hybrid(
+        self,
+        test_spec: TestSpec | dict,
+        app_url: str,
+        hybrid_executor: "HybridExecutor",
+        strategy: Optional["ExecutionStrategy"] = None,
+    ) -> AgentResult[UITestResult]:
+        """Execute a UI test using the HybridExecutor.
+
+        This method uses the hybrid DOM+Vision execution strategy:
+        - DOM-first execution for speed (50-200ms per action)
+        - Automatic escalation through retry levels
+        - Vision fallback for reliability when DOM fails
+
+        Args:
+            test_spec: Test specification to execute
+            app_url: Base application URL
+            hybrid_executor: Configured HybridExecutor instance
+            strategy: Optional execution strategy override
+
+        Returns:
+            AgentResult containing UITestResult with hybrid execution stats
+        """
+        from src.execution import ExecutionStrategy
+
+        # Convert dict to TestSpec if needed
+        if isinstance(test_spec, dict):
+            from .test_planner import TestStep as PlannerTestStep, TestAssertion
+
+            steps = [
+                PlannerTestStep(**s) if isinstance(s, dict) else s
+                for s in test_spec.get("steps", [])
+            ]
+            assertions = [
+                TestAssertion(**a) if isinstance(a, dict) else a
+                for a in test_spec.get("assertions", [])
+            ]
+            test_spec = TestSpec(
+                id=test_spec.get("id", "unknown"),
+                name=test_spec.get("name", "Unknown Test"),
+                type=test_spec.get("type", "ui"),
+                priority=test_spec.get("priority", "medium"),
+                description=test_spec.get("description", ""),
+                steps=steps,
+                assertions=assertions,
+            )
+
+        self.log.info(
+            "Executing UI test with hybrid executor",
+            test_id=test_spec.id,
+            test_name=test_spec.name,
+            steps_count=len(test_spec.steps),
+        )
+
+        start_time = time.time()
+        step_results = []
+        assertion_results = []
+        failure_screenshot = None
+        final_screenshot = None
+        error_message = None
+        status = "passed"
+
+        # Reset stats for this test run
+        hybrid_executor.reset_stats()
+
+        try:
+            # Navigate to app URL first
+            from src.execution.hybrid_executor import TestStep as HybridTestStep
+
+            # Execute goto step
+            goto_step = HybridTestStep(
+                action="goto",
+                target=app_url,
+            )
+            goto_result = await hybrid_executor.execute_step(goto_step, step_index=-1)
+            if not goto_result.success:
+                error_message = f"Failed to navigate to {app_url}: {goto_result.error}"
+                status = "error"
+            else:
+                # Execute each test step via hybrid executor
+                for idx, step in enumerate(test_spec.steps):
+                    # Convert planner step to hybrid step
+                    hybrid_step = HybridTestStep(
+                        action=step.action.lower(),
+                        target=step.target,
+                        value=step.value,
+                        timeout_ms=step.timeout,
+                        description=f"{step.action} on {step.target or 'page'}",
+                    )
+
+                    result = await hybrid_executor.execute_step(hybrid_step, step_index=idx)
+
+                    step_results.append(
+                        StepResult(
+                            step_index=idx,
+                            action=step.action,
+                            success=result.success,
+                            duration_ms=result.total_duration_ms,
+                            error=result.error,
+                            screenshot=result.screenshot,
+                            mode_used=result.mode_used,
+                            fallback_triggered=result.fallback_triggered,
+                            dom_attempts=result.dom_attempts,
+                            vision_attempts=result.vision_attempts,
+                            estimated_cost=result.estimated_cost,
+                        )
+                    )
+
+                    if not result.success:
+                        error_message = f"Step {idx} ({step.action}) failed: {result.error}"
+                        status = "failed"
+                        failure_screenshot = result.screenshot
+                        break
+
+                # Check assertions if all steps passed
+                if status == "passed" and self._playwright:
+                    for assertion in test_spec.assertions:
+                        assertion_result = await self._check_assertion(self._playwright, assertion)
+                        assertion_results.append(assertion_result)
+                        if not assertion_result.passed:
+                            status = "failed"
+                            error_message = f"Assertion failed: {assertion.type}"
+                            try:
+                                failure_screenshot = await hybrid_executor.dom.screenshot()
+                            except Exception:
+                                pass
+
+            # Take final screenshot
+            try:
+                final_screenshot = await hybrid_executor.dom.screenshot()
+            except Exception:
+                pass
+
+        except Exception as e:
+            status = "error"
+            error_message = str(e)
+            self.log.error("Hybrid test execution error", error=str(e))
+
+        total_duration = int((time.time() - start_time) * 1000)
+
+        # Get hybrid execution stats
+        stats = hybrid_executor.get_stats()
+
+        result = UITestResult(
+            test_id=test_spec.id,
+            test_name=test_spec.name,
+            status=status,
+            step_results=step_results,
+            assertion_results=assertion_results,
+            total_duration_ms=total_duration,
+            error_message=error_message,
+            final_screenshot=final_screenshot,
+            failure_screenshot=failure_screenshot,
+            execution_mode="hybrid",
+            total_dom_attempts=stats.total_dom_attempts,
+            total_vision_attempts=stats.total_vision_attempts,
+            vision_fallback_count=stats.vision_fallback_steps,
+            total_estimated_cost=stats.total_cost,
+            fallback_rate=stats.fallback_rate,
+        )
+
+        self.log.info(
+            "Hybrid UI test complete",
+            test_id=test_spec.id,
+            status=status,
+            duration_ms=total_duration,
+            fallback_rate=f"{stats.fallback_rate:.1%}",
+            total_cost=f"${stats.total_cost:.4f}",
+        )
+
+        return AgentResult(
+            success=status == "passed",
+            data=result,
+        )

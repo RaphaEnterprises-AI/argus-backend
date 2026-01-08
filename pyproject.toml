@@ -12,6 +12,8 @@ authors = [
 dependencies = [
     # Core AI
     "anthropic>=0.75.0,<1.0.0",  # Latest v0.75.x
+    "google-genai>=1.0.0",  # Gemini Computer Use SDK
+    "google-generativeai>=0.8.0",  # Gemini standard API
     "langgraph>=1.0.5,<2.0.0",  # Latest stable v1.x
     "langchain-anthropic>=1.3.0,<2.0.0",  # Latest v1.x
     "langchain-core>=1.2.5,<2.0.0",  # Latest v1.x

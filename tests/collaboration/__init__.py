@@ -1,1 +1,1 @@
-"""Tests for collaboration modules."""
+"""Tests for real-time collaboration module."""

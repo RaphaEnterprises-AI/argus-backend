@@ -1,0 +1,153 @@
+# MkDocs Configuration for ARGUS Documentation
+# https://www.mkdocs.org/
+
+site_name: ARGUS Documentation
+site_description: AI-Powered Autonomous E2E Testing Platform
+site_author: Argus Team
+site_url: https://docs.heyargus.ai
+
+# Repository (optional - remove if you want to hide repo link)
+# repo_name: argus/e2e-testing-agent
+# repo_url: https://github.com/your-repo
+# edit_uri: edit/main/docs-site/
+
+# Copyright
+copyright: Copyright &copy; 2026 Argus
+
+# Docs directory
+docs_dir: docs-site
+
+# Theme Configuration
+theme:
+  name: material
+  language: en
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: Fira Code
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/shield-check
+  # logo: assets/logo.png  # Uncomment when you have a logo
+  # favicon: assets/favicon.ico  # Uncomment when you have a favicon
+
+# Navigation
+nav:
+  - Home: index.md
+  - Getting Started: getting-started/index.md
+  - Product:
+    - Executive Summary: product/executive-summary.md
+    - Pitch Deck: product/pitch-deck.md
+    - Strategic Knowledge Base: product/knowledge-base.md
+  - Deployment:
+    - Deployment Options: deployment/index.md
+    - Deployment FAQ: deployment/faq.md
+  - Sales:
+    - Sales Battlecard: sales/battlecard.md
+    - Competitive Analysis: sales/competitive-analysis.md
+  - Technical:
+    - Architecture: technical/architecture.md
+    - Implementation Status: technical/implementation.md
+    - Security: technical/security.md
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: argus
+      repo: e2e-testing-agent
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Plugins
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - minify:
+      minify_html: true
+
+# Extra CSS/JS
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
+
+# Extra configuration
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/argus
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/argus
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/argus
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX
+  generator: false
+  version:
+    provider: mike

@@ -1,0 +1,59 @@
+# Deploy ARGUS Documentation to Cloudflare Pages
+# This workflow builds MkDocs and deploys to Cloudflare Pages
+# Protected by Cloudflare Access (Zero Trust) for private access
+
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs-site/**'
+      - 'mkdocs.yml'
+      - 'ARGUS_*.md'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material mkdocs-minify-plugin
+
+      - name: Sync latest docs to docs-site
+        run: |
+          # Copy latest ARGUS docs to docs-site folder
+          cp -f ARGUS_GETTING_STARTED.md docs-site/getting-started/index.md 2>/dev/null || true
+          cp -f ARGUS_EXECUTIVE_SUMMARY.md docs-site/product/executive-summary.md 2>/dev/null || true
+          cp -f ARGUS_PITCH_DECK.md docs-site/product/pitch-deck.md 2>/dev/null || true
+          cp -f ARGUS_STRATEGIC_KNOWLEDGE_BASE.md docs-site/product/knowledge-base.md 2>/dev/null || true
+          cp -f ARGUS_SALES_BATTLECARD.md docs-site/sales/battlecard.md 2>/dev/null || true
+          cp -f ARGUS_DEPLOYMENT_FAQ.md docs-site/deployment/faq.md 2>/dev/null || true
+
+      - name: Build MkDocs site
+        run: mkdocs build --config-file mkdocs.yml --site-dir site
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: argus-docs
+          directory: site
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          branch: main

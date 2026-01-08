@@ -29,6 +29,13 @@ from src.api.teams import router as teams_router
 from src.api.api_keys import router as api_keys_router
 from src.api.audit import router as audit_router
 from src.api.healing import router as healing_router
+from src.api.sync import router as sync_router
+from src.api.export import router as export_router
+from src.api.recording import router as recording_router
+from src.api.collaboration import router as collaboration_router
+from src.api.scheduling import router as scheduling_router
+from src.api.notifications import router as notifications_router
+from src.api.parameterized import router as parameterized_router
 
 logger = structlog.get_logger()
 
@@ -83,6 +90,13 @@ app.include_router(teams_router)
 app.include_router(api_keys_router)
 app.include_router(audit_router)
 app.include_router(healing_router)
+app.include_router(sync_router)
+app.include_router(export_router)
+app.include_router(recording_router)
+app.include_router(collaboration_router)
+app.include_router(scheduling_router)
+app.include_router(notifications_router)
+app.include_router(parameterized_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

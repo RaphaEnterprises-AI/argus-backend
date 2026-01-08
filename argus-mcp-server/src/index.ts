@@ -92,6 +92,140 @@ interface BrainRiskScoresResponse {
   total_entities: number;
 }
 
+// Sync API Response types
+interface SyncPushResponse {
+  success: boolean;
+  events_pushed: number;
+  new_version?: number;
+  conflicts?: Array<{
+    id: string;
+    test_id: string;
+    path: string[];
+    local_value: unknown;
+    remote_value: unknown;
+  }>;
+  error?: string;
+}
+
+interface SyncPullResponse {
+  success: boolean;
+  events: Array<{
+    id: string;
+    type: string;
+    test_id: string;
+    content?: Record<string, unknown>;
+    timestamp: string;
+  }>;
+  new_version?: number;
+  error?: string;
+}
+
+interface SyncStatusResponse {
+  success: boolean;
+  project_id: string;
+  status: string;
+  tests: Record<string, {
+    test_id: string;
+    status: string;
+    local_version: number;
+    remote_version: number;
+    pending_changes: number;
+    conflicts: number;
+  }>;
+  total_pending: number;
+  total_conflicts: number;
+}
+
+interface SyncResolveResponse {
+  success: boolean;
+  resolved: boolean;
+  conflict_id: string;
+  resolved_value?: unknown;
+  error?: string;
+}
+
+// Export API Response types
+interface ExportResponse {
+  success: boolean;
+  language: string;
+  framework: string;
+  code: string;
+  filename: string;
+  imports?: string[];
+  error?: string;
+}
+
+interface ExportLanguagesResponse {
+  languages: Array<{
+    id: string;
+    name: string;
+    frameworks: string[];
+  }>;
+}
+
+// Recording API Response types
+interface RecordingConvertResponse {
+  success: boolean;
+  test: {
+    id: string;
+    name: string;
+    source: string;
+    steps: Array<{
+      action: string;
+      target?: string;
+      value?: string;
+    }>;
+    assertions: Array<{
+      type: string;
+      target?: string;
+      expected?: string;
+    }>;
+  };
+  recording_id: string;
+  duration_ms: number;
+  events_processed: number;
+  error?: string;
+}
+
+// Collaboration API Response types
+interface PresenceResponse {
+  success: boolean;
+  users: Array<{
+    user_id: string;
+    user_name: string;
+    status: string;
+    test_id?: string;
+    cursor?: {
+      step_index?: number;
+      field?: string;
+    };
+    color: string;
+    last_active: string;
+  }>;
+}
+
+interface CommentsResponse {
+  success: boolean;
+  comments: Array<{
+    id: string;
+    test_id: string;
+    step_index?: number;
+    author_id: string;
+    author_name: string;
+    content: string;
+    mentions: string[];
+    resolved: boolean;
+    created_at: string;
+    replies?: Array<{
+      id: string;
+      author_id: string;
+      author_name: string;
+      content: string;
+      created_at: string;
+    }>;
+  }>;
+}
+
 // Argus API Response types
 interface ArgusActResponse {
   success: boolean;
@@ -800,6 +934,750 @@ export class ArgusMcpAgent extends McpAgent<Env> {
         }
       }
     );
+
+    // =========================================================================
+    // SYNC TOOLS - Two-way IDE synchronization
+    // =========================================================================
+
+    // Tool: argus_sync_push - Push local test changes to Argus
+    this.server.tool(
+      "argus_sync_push",
+      "Push local test changes to Argus cloud. Syncs test specifications from your IDE to the Argus platform for team collaboration and cloud execution.",
+      {
+        project_id: z.string().describe("The project UUID"),
+        test_id: z.string().describe("The test UUID to push"),
+        content: z.object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string().optional(),
+          steps: z.array(z.object({
+            action: z.string(),
+            target: z.string().optional(),
+            value: z.string().optional(),
+          })),
+          assertions: z.array(z.object({
+            type: z.string(),
+            target: z.string().optional(),
+            expected: z.string().optional(),
+          })).optional(),
+          metadata: z.record(z.unknown()).optional(),
+        }).describe("The test specification to push"),
+        local_version: z.number().describe("Local version number for conflict detection"),
+      },
+      async ({ project_id, test_id, content, local_version }) => {
+        try {
+          const result = await callBrainAPI<SyncPushResponse>(
+            "/api/v1/sync/push",
+            "POST",
+            {
+              project_id,
+              test_id,
+              content,
+              local_version,
+              source: "mcp",
+            },
+            this.env
+          );
+
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Push failed: ${result.error || "Unknown error"}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          // Check for conflicts
+          if (result.conflicts && result.conflicts.length > 0) {
+            const conflictsList = result.conflicts.map((c, i) =>
+              `${i + 1}. Test: ${c.test_id}\n   Path: ${c.path.join(".")}\n   Local: ${JSON.stringify(c.local_value)}\n   Remote: ${JSON.stringify(c.remote_value)}`
+            ).join("\n\n");
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Sync Conflicts Detected\n\nPushed ${result.events_pushed} events but ${result.conflicts.length} conflicts need resolution:\n\n${conflictsList}\n\n**Use \`argus_sync_resolve\` to resolve conflicts.**`,
+                },
+              ],
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Push Successful\n\n**Test:** ${test_id}\n**Events pushed:** ${result.events_pushed}\n**New version:** ${result.new_version || "N/A"}\n\nTest is now synced with Argus cloud.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error pushing changes: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_sync_pull - Pull remote test changes
+    this.server.tool(
+      "argus_sync_pull",
+      "Pull test changes from Argus cloud to your local IDE. Fetches the latest test specifications and updates from team members.",
+      {
+        project_id: z.string().describe("The project UUID to pull tests from"),
+        since_version: z.number().optional().describe("Only pull changes since this version (default: 0 for all)"),
+        test_id: z.string().optional().describe("Pull specific test only (optional)"),
+      },
+      async ({ project_id, since_version = 0, test_id }) => {
+        try {
+          const queryParams = new URLSearchParams({
+            project_id,
+            since_version: since_version.toString(),
+          });
+          if (test_id) {
+            queryParams.set("test_id", test_id);
+          }
+
+          const result = await callBrainAPI<SyncPullResponse>(
+            `/api/v1/sync/pull?${queryParams}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Pull failed: ${result.error || "Unknown error"}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          if (result.events.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## No New Changes\n\nYour local tests are up to date with Argus cloud.`,
+                },
+              ],
+            };
+          }
+
+          // Format events
+          const eventsList = result.events.map((e, i) => {
+            const icon = e.type.includes("created") ? "+" : e.type.includes("deleted") ? "-" : "~";
+            return `${i + 1}. [${icon}] ${e.type} - Test: ${e.test_id}\n   Time: ${e.timestamp}`;
+          }).join("\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Pulled ${result.events.length} Changes\n\n**New version:** ${result.new_version || "N/A"}\n\n### Changes:\n${eventsList}\n\n\`\`\`json\n${JSON.stringify(result.events, null, 2)}\n\`\`\``,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error pulling changes: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_sync_status - Get sync status
+    this.server.tool(
+      "argus_sync_status",
+      "Get the synchronization status for a project. Shows pending changes, conflicts, and sync state for all tests.",
+      {
+        project_id: z.string().describe("The project UUID to check status for"),
+      },
+      async ({ project_id }) => {
+        try {
+          const result = await callBrainAPI<SyncStatusResponse>(
+            `/api/v1/sync/status/${project_id}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Could not get sync status. The project may not exist or sync is not initialized.`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          const statusEmoji = result.status === "synced" ? "✅" : result.status === "pending" ? "🔄" : result.status === "conflict" ? "⚠️" : "❌";
+
+          // Format test statuses
+          const testsStatus = Object.values(result.tests).map(t => {
+            const icon = t.status === "synced" ? "✅" : t.status === "pending" ? "🔄" : "⚠️";
+            return `- ${icon} ${t.test_id}: v${t.local_version} (local) / v${t.remote_version} (remote)${t.pending_changes > 0 ? ` - ${t.pending_changes} pending` : ""}${t.conflicts > 0 ? ` - ${t.conflicts} conflicts` : ""}`;
+          }).join("\n") || "No tests tracked";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Sync Status: ${statusEmoji} ${result.status.toUpperCase()}\n\n**Project:** ${project_id}\n**Pending changes:** ${result.total_pending}\n**Conflicts:** ${result.total_conflicts}\n\n### Tests:\n${testsStatus}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error getting sync status: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_sync_resolve - Resolve sync conflicts
+    this.server.tool(
+      "argus_sync_resolve",
+      "Resolve a synchronization conflict between local and remote test versions. Choose to keep local, keep remote, or provide a custom resolution.",
+      {
+        project_id: z.string().describe("The project UUID"),
+        conflict_id: z.string().describe("The conflict ID to resolve"),
+        strategy: z.enum(["keep_local", "keep_remote", "merge", "manual"]).describe("Resolution strategy"),
+        manual_value: z.unknown().optional().describe("Custom value for manual resolution"),
+      },
+      async ({ project_id, conflict_id, strategy, manual_value }) => {
+        try {
+          const result = await callBrainAPI<SyncResolveResponse>(
+            "/api/v1/sync/resolve",
+            "POST",
+            {
+              project_id,
+              conflict_id,
+              strategy,
+              manual_value,
+            },
+            this.env
+          );
+
+          if (!result.success || !result.resolved) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Resolution failed: ${result.error || "Could not resolve conflict"}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Conflict Resolved ✅\n\n**Conflict ID:** ${result.conflict_id}\n**Strategy:** ${strategy}\n**Resolved Value:**\n\`\`\`json\n${JSON.stringify(result.resolved_value, null, 2)}\n\`\`\`\n\nRun \`argus_sync_push\` to sync the resolved changes.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error resolving conflict: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // =========================================================================
+    // EXPORT TOOLS - Multi-language test export
+    // =========================================================================
+
+    // Tool: argus_export - Export test to multiple languages
+    this.server.tool(
+      "argus_export",
+      "Export an Argus test to executable code in multiple programming languages and frameworks. Supports Python, TypeScript, Java, C#, Ruby, and Go with various testing frameworks.",
+      {
+        test_id: z.string().describe("The test UUID to export"),
+        language: z.enum(["python", "typescript", "java", "csharp", "ruby", "go"]).describe("Target programming language"),
+        framework: z.string().describe("Testing framework (e.g., 'playwright', 'selenium', 'cypress', 'puppeteer', 'capybara', 'rod')"),
+        options: z.object({
+          include_comments: z.boolean().optional().describe("Include explanatory comments"),
+          include_assertions: z.boolean().optional().describe("Include assertion code"),
+          base_url_variable: z.string().optional().describe("Variable name for base URL"),
+          class_name: z.string().optional().describe("Custom test class name"),
+        }).optional().describe("Export options"),
+      },
+      async ({ test_id, language, framework, options = {} }) => {
+        try {
+          const result = await callBrainAPI<ExportResponse>(
+            "/api/v1/export/generate",
+            "POST",
+            {
+              test_id,
+              language,
+              framework,
+              options: {
+                include_comments: options.include_comments ?? true,
+                include_assertions: options.include_assertions ?? true,
+                base_url_variable: options.base_url_variable ?? "BASE_URL",
+                class_name: options.class_name,
+              },
+            },
+            this.env
+          );
+
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Export failed: ${result.error || "Unknown error"}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          const importsSection = result.imports && result.imports.length > 0
+            ? `### Required Imports/Dependencies:\n\`\`\`\n${result.imports.join("\n")}\n\`\`\`\n\n`
+            : "";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Exported Test: ${result.filename}\n\n**Language:** ${result.language}\n**Framework:** ${result.framework}\n\n${importsSection}### Generated Code:\n\`\`\`${result.language}\n${result.code}\n\`\`\``,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error exporting test: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_export_languages - List supported export languages
+    this.server.tool(
+      "argus_export_languages",
+      "List all supported programming languages and testing frameworks for test export.",
+      {},
+      async () => {
+        try {
+          const result = await callBrainAPI<ExportLanguagesResponse>(
+            "/api/v1/export/languages",
+            "GET",
+            undefined,
+            this.env
+          );
+
+          const languagesList = result.languages.map(l =>
+            `### ${l.name} (\`${l.id}\`)\nFrameworks: ${l.frameworks.join(", ")}`
+          ).join("\n\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Supported Export Languages\n\n${languagesList}\n\n**Usage:** \`argus_export(test_id, language, framework)\``,
+              },
+            ],
+          };
+        } catch (error) {
+          // Return static list if API fails
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Supported Export Languages\n\n### Python (\`python\`)\nFrameworks: playwright, selenium\n\n### TypeScript (\`typescript\`)\nFrameworks: playwright, puppeteer, cypress\n\n### Java (\`java\`)\nFrameworks: selenium\n\n### C# (\`csharp\`)\nFrameworks: selenium, playwright\n\n### Ruby (\`ruby\`)\nFrameworks: capybara, selenium\n\n### Go (\`go\`)\nFrameworks: rod\n\n**Usage:** \`argus_export(test_id, language, framework)\``,
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    // =========================================================================
+    // RECORDING TOOLS - Browser recording to test conversion
+    // =========================================================================
+
+    // Tool: argus_recording_to_test - Convert browser recording to test
+    this.server.tool(
+      "argus_recording_to_test",
+      "Convert a browser recording (rrweb format) to an Argus test. Analyzes DOM events from recorded sessions and generates executable test steps. Zero AI cost - pure DOM event parsing.",
+      {
+        recording: z.object({
+          events: z.array(z.object({
+            type: z.number(),
+            data: z.record(z.unknown()),
+            timestamp: z.number(),
+          })).describe("rrweb event array"),
+          metadata: z.object({
+            duration: z.number().optional(),
+            startTime: z.string().optional(),
+            url: z.string().optional(),
+          }).optional(),
+        }).describe("The rrweb recording data"),
+        options: z.object({
+          name: z.string().optional().describe("Test name (auto-generated if not provided)"),
+          filter_actions: z.array(z.string()).optional().describe("Only include these action types"),
+          min_confidence: z.number().optional().describe("Minimum selector confidence (0-1)"),
+          deduplicate: z.boolean().optional().describe("Remove duplicate consecutive actions"),
+        }).optional(),
+      },
+      async ({ recording, options = {} }) => {
+        try {
+          const result = await callBrainAPI<RecordingConvertResponse>(
+            "/api/v1/recording/convert",
+            "POST",
+            {
+              recording,
+              options: {
+                name: options.name,
+                filter_actions: options.filter_actions,
+                min_confidence: options.min_confidence ?? 0.7,
+                deduplicate: options.deduplicate ?? true,
+              },
+            },
+            this.env
+          );
+
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Conversion failed: ${result.error || "Unknown error"}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          // Format steps
+          const stepsText = result.test.steps.map((s, i) =>
+            `${i + 1}. ${s.action}${s.target ? ` on "${s.target}"` : ""}${s.value ? ` with "${s.value}"` : ""}`
+          ).join("\n");
+
+          const assertionsText = result.test.assertions?.map((a, i) =>
+            `${i + 1}. ${a.type}${a.target ? ` "${a.target}"` : ""}${a.expected ? ` = "${a.expected}"` : ""}`
+          ).join("\n") || "None generated";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Test Generated from Recording ✨\n\n**Test ID:** ${result.test.id}\n**Name:** ${result.test.name}\n**Source:** ${result.test.source}\n**Recording ID:** ${result.recording_id}\n**Duration:** ${(result.duration_ms / 1000).toFixed(1)}s\n**Events processed:** ${result.events_processed}\n\n### Test Steps (${result.test.steps.length}):\n${stepsText}\n\n### Auto-Generated Assertions:\n${assertionsText}\n\n**Tip:** Use \`argus_test\` to run this test or \`argus_export\` to convert to code.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error converting recording: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_recording_snippet - Get recorder snippet for websites
+    this.server.tool(
+      "argus_recording_snippet",
+      "Generate a JavaScript snippet to record user sessions on any website. The snippet uses rrweb for DOM-based recording that can be converted to tests.",
+      {
+        project_id: z.string().describe("The project UUID to associate recordings with"),
+        options: z.object({
+          mask_inputs: z.boolean().optional().describe("Mask sensitive input fields"),
+          record_canvas: z.boolean().optional().describe("Record canvas elements"),
+          sample_rate: z.number().optional().describe("Sampling rate for mouse movements"),
+        }).optional(),
+      },
+      async ({ project_id, options = {} }) => {
+        const snippet = `<!-- Argus Session Recorder -->
+<script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
+<script>
+(function() {
+  const events = [];
+  const projectId = "${project_id}";
+
+  // Start recording
+  rrweb.record({
+    emit(event) {
+      events.push(event);
+    },
+    maskAllInputs: ${options.mask_inputs ?? true},
+    recordCanvas: ${options.record_canvas ?? false},
+    sampling: {
+      mousemove: ${options.sample_rate ?? 50}
+    }
+  });
+
+  // Upload recording on page unload or after 5 minutes
+  const uploadRecording = () => {
+    if (events.length > 0) {
+      navigator.sendBeacon(
+        "https://argus-brain-production.up.railway.app/api/v1/recording/upload",
+        JSON.stringify({
+          project_id: projectId,
+          recording: { events, metadata: { url: window.location.href } }
+        })
+      );
+    }
+  };
+
+  window.addEventListener("beforeunload", uploadRecording);
+  setTimeout(uploadRecording, 300000); // 5 min max
+
+  // Export for manual control
+  window.ArgusRecorder = {
+    stop: uploadRecording,
+    getEvents: () => events
+  };
+})();
+</script>`;
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `## Argus Recording Snippet\n\nAdd this snippet to your website to record user sessions:\n\n\`\`\`html\n${snippet}\n\`\`\`\n\n### Usage:\n1. Add the snippet before \`</body>\`\n2. User sessions are auto-recorded\n3. Use \`argus_recording_to_test\` to convert to tests\n\n### Manual Control:\n- \`window.ArgusRecorder.stop()\` - Stop and upload\n- \`window.ArgusRecorder.getEvents()\` - Get events array`,
+            },
+          ],
+        };
+      }
+    );
+
+    // =========================================================================
+    // COLLABORATION TOOLS - Real-time team collaboration
+    // =========================================================================
+
+    // Tool: argus_presence - Get/update user presence
+    this.server.tool(
+      "argus_presence",
+      "Get or update user presence information for real-time collaboration. See who else is viewing or editing tests in your workspace.",
+      {
+        workspace_id: z.string().describe("The workspace UUID"),
+        action: z.enum(["get", "join", "leave", "update"]).describe("Presence action"),
+        user_id: z.string().optional().describe("User ID (required for join/leave/update)"),
+        user_name: z.string().optional().describe("User display name (required for join)"),
+        test_id: z.string().optional().describe("Currently viewed test ID"),
+        cursor: z.object({
+          step_index: z.number().optional(),
+          field: z.string().optional(),
+        }).optional().describe("Current cursor position"),
+      },
+      async ({ workspace_id, action, user_id, user_name, test_id, cursor }) => {
+        try {
+          if (action === "get") {
+            const result = await callBrainAPI<PresenceResponse>(
+              `/api/v1/collaboration/presence/${workspace_id}`,
+              "GET",
+              undefined,
+              this.env
+            );
+
+            if (result.users.length === 0) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `## Workspace Presence\n\nNo other users currently online in this workspace.`,
+                  },
+                ],
+              };
+            }
+
+            const usersList = result.users.map(u => {
+              const statusIcon = u.status === "online" ? "🟢" : u.status === "idle" ? "🟡" : "⚫";
+              const location = u.test_id ? `viewing ${u.test_id}` : "in workspace";
+              return `${statusIcon} **${u.user_name}** - ${location}`;
+            }).join("\n");
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Workspace Presence (${result.users.length} online)\n\n${usersList}`,
+                },
+              ],
+            };
+          }
+
+          // Join/Leave/Update actions
+          const result = await callBrainAPI<{ success: boolean }>(
+            "/api/v1/collaboration/presence",
+            "POST",
+            {
+              workspace_id,
+              action,
+              user_id,
+              user_name,
+              test_id,
+              cursor,
+            },
+            this.env
+          );
+
+          const actionText = action === "join" ? "joined" : action === "leave" ? "left" : "updated presence in";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Successfully ${actionText} workspace.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error with presence: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_comments - Manage test comments
+    this.server.tool(
+      "argus_comments",
+      "Get or add comments on tests for team collaboration. Support for threaded discussions, @mentions, and resolution tracking.",
+      {
+        test_id: z.string().describe("The test UUID"),
+        action: z.enum(["get", "add", "reply", "resolve"]).describe("Comment action"),
+        comment_id: z.string().optional().describe("Comment ID (for reply/resolve)"),
+        content: z.string().optional().describe("Comment content (for add/reply)"),
+        step_index: z.number().optional().describe("Step index to attach comment to"),
+        mentions: z.array(z.string()).optional().describe("User IDs to mention"),
+      },
+      async ({ test_id, action, comment_id, content, step_index, mentions }) => {
+        try {
+          if (action === "get") {
+            const result = await callBrainAPI<CommentsResponse>(
+              `/api/v1/collaboration/comments/${test_id}`,
+              "GET",
+              undefined,
+              this.env
+            );
+
+            if (result.comments.length === 0) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `## Test Comments\n\nNo comments on this test yet. Use \`argus_comments\` with action "add" to start a discussion.`,
+                  },
+                ],
+              };
+            }
+
+            const commentsList = result.comments.map(c => {
+              const resolved = c.resolved ? " ✅" : "";
+              const stepRef = c.step_index !== undefined ? ` (Step ${c.step_index + 1})` : "";
+              const replies = c.replies && c.replies.length > 0
+                ? `\n  └─ ${c.replies.length} replies`
+                : "";
+              return `- **${c.author_name}**${stepRef}${resolved}: ${c.content}${replies}`;
+            }).join("\n");
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Test Comments (${result.comments.length})\n\n${commentsList}`,
+                },
+              ],
+            };
+          }
+
+          // Add/Reply/Resolve actions
+          const result = await callBrainAPI<{ success: boolean; comment_id?: string }>(
+            "/api/v1/collaboration/comments",
+            "POST",
+            {
+              test_id,
+              action,
+              comment_id,
+              content,
+              step_index,
+              mentions,
+            },
+            this.env
+          );
+
+          const actionText = action === "add" ? "Comment added" : action === "reply" ? "Reply added" : "Comment resolved";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `${actionText} successfully.${result.comment_id ? ` (ID: ${result.comment_id})` : ""}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error with comments: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
   }
 }
 
@@ -844,18 +1722,44 @@ export default {
     if (url.pathname === "/") {
       return Response.json({
         name: "Argus MCP Server",
-        version: "1.0.0",
-        description: "Model Context Protocol server for Argus E2E Testing Agent",
+        version: "2.0.0",
+        description: "Model Context Protocol server for Argus E2E Testing Agent - Full IDE Integration",
         endpoint: "/sse",
-        tools: [
-          "argus_health",
-          "argus_discover",
-          "argus_act",
-          "argus_test",
-          "argus_extract",
-          "argus_agent",
-          "argus_generate_test",
-        ],
+        tools: {
+          core: [
+            "argus_health",
+            "argus_discover",
+            "argus_act",
+            "argus_test",
+            "argus_extract",
+            "argus_agent",
+            "argus_generate_test",
+          ],
+          quality: [
+            "argus_quality_score",
+            "argus_quality_stats",
+            "argus_risk_scores",
+          ],
+          sync: [
+            "argus_sync_push",
+            "argus_sync_pull",
+            "argus_sync_status",
+            "argus_sync_resolve",
+          ],
+          export: [
+            "argus_export",
+            "argus_export_languages",
+          ],
+          recording: [
+            "argus_recording_to_test",
+            "argus_recording_snippet",
+          ],
+          collaboration: [
+            "argus_presence",
+            "argus_comments",
+          ],
+        },
+        total_tools: 19,
         documentation: "https://github.com/raphaenterprises-ai/argus-e2e-testing-agent",
       });
     }
