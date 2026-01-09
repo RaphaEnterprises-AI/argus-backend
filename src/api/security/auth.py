@@ -3,6 +3,7 @@
 Supports multiple authentication methods:
 - API Keys (X-API-Key header)
 - JWT Bearer tokens (Authorization: Bearer <token>)
+- Clerk JWTs (with JWKS verification)
 - OAuth2 (for third-party integrations)
 - Service Account tokens (for internal services)
 """
@@ -11,6 +12,7 @@ import hashlib
 import hmac
 import secrets
 import time
+import os
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from typing import Optional, Callable, Any
@@ -21,8 +23,22 @@ from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredenti
 from pydantic import BaseModel, Field
 import structlog
 import jwt
+import httpx
 
 logger = structlog.get_logger()
+
+# =============================================================================
+# Clerk Configuration
+# =============================================================================
+
+# Clerk JWKS URL (for token verification)
+CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "https://api.clerk.com/v1/jwks")
+CLERK_ISSUER = os.getenv("CLERK_ISSUER")  # e.g., "https://clerk.your-app.com"
+
+# Cache for Clerk JWKS
+_clerk_jwks_cache: dict = {}
+_clerk_jwks_cache_time: float = 0
+CLERK_JWKS_CACHE_TTL = 3600  # 1 hour
 
 # =============================================================================
 # Configuration
@@ -252,8 +268,135 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
         return None
 
 
+async def get_clerk_jwks() -> dict:
+    """Fetch and cache Clerk JWKS for token verification."""
+    global _clerk_jwks_cache, _clerk_jwks_cache_time
+
+    current_time = time.time()
+
+    # Return cached JWKS if still valid
+    if _clerk_jwks_cache and (current_time - _clerk_jwks_cache_time) < CLERK_JWKS_CACHE_TTL:
+        return _clerk_jwks_cache
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(CLERK_JWKS_URL, timeout=10.0)
+            if response.status_code == 200:
+                _clerk_jwks_cache = response.json()
+                _clerk_jwks_cache_time = current_time
+                logger.info("Clerk JWKS fetched successfully")
+                return _clerk_jwks_cache
+    except Exception as e:
+        logger.error("Failed to fetch Clerk JWKS", error=str(e))
+
+    return _clerk_jwks_cache or {}
+
+
+async def verify_clerk_jwt(token: str) -> Optional[dict]:
+    """Verify a Clerk JWT token using JWKS."""
+    try:
+        # Get the unverified header to find the key ID
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+
+        if not kid:
+            logger.warning("Clerk JWT missing kid")
+            return None
+
+        # Get JWKS
+        jwks = await get_clerk_jwks()
+        keys = jwks.get("keys", [])
+
+        # Find the matching key
+        key_data = None
+        for key in keys:
+            if key.get("kid") == kid:
+                key_data = key
+                break
+
+        if not key_data:
+            logger.warning("Clerk JWT key not found", kid=kid)
+            return None
+
+        # Construct the public key
+        from jwt import PyJWK
+        public_key = PyJWK.from_dict(key_data).key
+
+        # Verify and decode the token
+        options = {
+            "verify_signature": True,
+            "verify_exp": True,
+            "verify_iat": True,
+            "require": ["exp", "iat", "sub"],
+        }
+
+        # Add issuer verification if configured
+        if CLERK_ISSUER:
+            options["verify_iss"] = True
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                options=options,
+                issuer=CLERK_ISSUER,
+            )
+        else:
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                options=options,
+            )
+
+        return payload
+
+    except jwt.ExpiredSignatureError:
+        logger.warning("Clerk JWT expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        logger.warning("Invalid Clerk JWT", error=str(e))
+        return None
+    except Exception as e:
+        logger.error("Clerk JWT verification error", error=str(e))
+        return None
+
+
 async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext]:
-    """Authenticate using JWT token."""
+    """Authenticate using JWT token (supports both internal JWTs and Clerk JWTs)."""
+
+    # First, try to verify as a Clerk JWT (RS256)
+    clerk_payload = await verify_clerk_jwt(token)
+    if clerk_payload:
+        # Clerk JWT verified successfully
+        # Extract user info from Clerk claims
+        user_id = clerk_payload.get("sub", "")
+        org_id = clerk_payload.get("org_id")
+        org_role = clerk_payload.get("org_role")
+
+        # Build roles from Clerk metadata
+        roles = []
+        if org_role:
+            roles.append(org_role)
+
+        # Check for custom claims
+        metadata = clerk_payload.get("public_metadata", {}) or {}
+        if metadata.get("roles"):
+            roles.extend(metadata["roles"])
+
+        return UserContext(
+            user_id=user_id,
+            organization_id=org_id,
+            email=clerk_payload.get("email"),
+            name=clerk_payload.get("name") or clerk_payload.get("first_name"),
+            roles=roles or ["member"],
+            scopes=["read", "write", "execute"],  # Default scopes for Clerk users
+            auth_method=AuthMethod.JWT,
+            session_id=clerk_payload.get("sid") or clerk_payload.get("jti"),
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+
+    # Fall back to internal JWT verification (HS256)
     payload = verify_jwt_token(token)
     if not payload:
         return None
