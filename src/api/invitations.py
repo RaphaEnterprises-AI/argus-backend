@@ -153,7 +153,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
 
     # Send invitation email
     email_service = get_email_service()
-    email_sent = await email_service.send_invitation_email(
+    email_sent = await email_service.send_invitation(
         to=body.email,
         org_name=org_name,
         inviter_email=user.get("email", "A team member"),
