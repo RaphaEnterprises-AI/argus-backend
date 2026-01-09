@@ -34,11 +34,17 @@ logger = structlog.get_logger()
 # Clerk JWKS URL (for token verification)
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "https://api.clerk.com/v1/jwks")
 CLERK_ISSUER = os.getenv("CLERK_ISSUER")  # e.g., "https://clerk.your-app.com"
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")  # For Backend API calls
 
 # Cache for Clerk JWKS
 _clerk_jwks_cache: dict = {}
 _clerk_jwks_cache_time: float = 0
 CLERK_JWKS_CACHE_TTL = 3600  # 1 hour
+
+# Cache for Clerk user info (email lookups)
+_clerk_user_cache: dict[str, dict] = {}
+_clerk_user_cache_time: dict[str, float] = {}
+CLERK_USER_CACHE_TTL = 300  # 5 minutes
 
 # =============================================================================
 # Configuration
@@ -446,6 +452,79 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
         return None
 
 
+async def get_clerk_user_info(user_id: str) -> Optional[dict]:
+    """Fetch user info from Clerk Backend API.
+
+    This is used to get the user's email when it's not included in the JWT.
+    Requires CLERK_SECRET_KEY to be configured.
+
+    Returns:
+        Dict with user info (email, name, etc.) or None if unavailable
+    """
+    global _clerk_user_cache, _clerk_user_cache_time
+
+    if not CLERK_SECRET_KEY:
+        logger.debug("CLERK_SECRET_KEY not configured, cannot fetch user info")
+        return None
+
+    if not user_id or not user_id.startswith("user_"):
+        return None
+
+    current_time = time.time()
+
+    # Return cached user info if still valid
+    if user_id in _clerk_user_cache and (current_time - _clerk_user_cache_time.get(user_id, 0)) < CLERK_USER_CACHE_TTL:
+        return _clerk_user_cache[user_id]
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={
+                    "Authorization": f"Bearer {CLERK_SECRET_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10.0,
+            )
+
+            if response.status_code == 200:
+                user_data = response.json()
+
+                # Extract primary email
+                email = None
+                email_addresses = user_data.get("email_addresses", [])
+                if email_addresses:
+                    # Find primary email or use first one
+                    for addr in email_addresses:
+                        if addr.get("id") == user_data.get("primary_email_address_id"):
+                            email = addr.get("email_address")
+                            break
+                    if not email and email_addresses:
+                        email = email_addresses[0].get("email_address")
+
+                # Build user info dict
+                user_info = {
+                    "id": user_data.get("id"),
+                    "email": email,
+                    "first_name": user_data.get("first_name"),
+                    "last_name": user_data.get("last_name"),
+                    "image_url": user_data.get("image_url"),
+                }
+
+                # Cache the result
+                _clerk_user_cache[user_id] = user_info
+                _clerk_user_cache_time[user_id] = current_time
+
+                logger.debug("Fetched Clerk user info", user_id=user_id, email=email)
+                return user_info
+            else:
+                logger.warning("Failed to fetch Clerk user", user_id=user_id, status=response.status_code)
+    except Exception as e:
+        logger.error("Error fetching Clerk user info", user_id=user_id, error=str(e))
+
+    return None
+
+
 async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext]:
     """Authenticate using JWT token (supports both internal JWTs and Clerk JWTs)."""
 
@@ -494,6 +573,18 @@ async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext
             first = clerk_payload.get("first_name", "")
             last = clerk_payload.get("last_name", "")
             name = f"{first} {last}".strip() or None
+
+        # If email/name not in JWT, fetch from Clerk Backend API
+        # This is common when using default Clerk JWT (no custom template)
+        if (not email or not name) and user_id:
+            clerk_user = await get_clerk_user_info(user_id)
+            if clerk_user:
+                if not email:
+                    email = clerk_user.get("email")
+                if not name:
+                    first = clerk_user.get("first_name", "")
+                    last = clerk_user.get("last_name", "")
+                    name = f"{first} {last}".strip() or None
 
         return UserContext(
             user_id=user_id,
