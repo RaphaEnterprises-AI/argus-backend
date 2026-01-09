@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, EmailStr
 import structlog
 
 from src.services.supabase_client import get_supabase_client
+from src.services.email_service import get_email_service
 from src.api.teams import get_current_user, verify_org_access, log_audit
 
 logger = structlog.get_logger()
@@ -146,6 +147,24 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
 
     invitation = invitation_result["data"][0]
 
+    # Get organization name for the email
+    org_result = await supabase.request(f"/organizations?id=eq.{org_id}&select=name")
+    org_name = org_result["data"][0]["name"] if org_result.get("data") else "the organization"
+
+    # Send invitation email
+    email_service = get_email_service()
+    email_sent = await email_service.send_invitation_email(
+        to=body.email,
+        org_name=org_name,
+        inviter_email=user.get("email", "A team member"),
+        token=token,
+        role=body.role,
+    )
+
+    if not email_sent:
+        logger.warning("Failed to send invitation email", email=body.email)
+        # Don't fail the request - invitation is created, email can be resent
+
     # Audit log
     await log_audit(
         organization_id=org_id,
@@ -155,11 +174,11 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
         resource_type="invitation",
         resource_id=invitation["id"],
         description=f"Sent invitation to {body.email} as {body.role}",
-        metadata={"invited_email": body.email, "role": body.role},
+        metadata={"invited_email": body.email, "role": body.role, "email_sent": email_sent},
         request=request,
     )
 
-    logger.info("Invitation sent", org_id=org_id, email=body.email, role=body.role)
+    logger.info("Invitation sent", org_id=org_id, email=body.email, role=body.role, email_sent=email_sent)
 
     return InvitationResponse(
         id=invitation["id"],
