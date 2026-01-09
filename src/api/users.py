@@ -78,7 +78,7 @@ class UserProfileResponse(BaseModel):
     default_organization_id: Optional[str]
     default_project_id: Optional[str]
     onboarding_completed: bool
-    onboarding_step: Optional[str]
+    onboarding_step: Optional[int]
     last_login_at: Optional[str]
     last_active_at: Optional[str]
     login_count: int
