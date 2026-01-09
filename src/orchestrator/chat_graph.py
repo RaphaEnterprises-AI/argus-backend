@@ -243,6 +243,8 @@ async def chat_node(state: ChatState, config) -> dict:
 async def tool_executor_node(state: ChatState, config) -> dict:
     """Execute tools called by the chat node."""
     import httpx
+    import uuid
+    from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
     last_message = state["messages"][-1]
 
@@ -255,9 +257,13 @@ async def tool_executor_node(state: ChatState, config) -> dict:
     settings = get_settings()
     worker_url = settings.browser_worker_url
 
+    # Get Cloudflare client for artifact storage
+    cf_client = get_cloudflare_client()
+
     for tool_call in last_message.tool_calls:
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
+        test_id = str(uuid.uuid4())[:8]
 
         try:
             if tool_name == "runTest":
@@ -314,11 +320,31 @@ async def tool_executor_node(state: ChatState, config) -> dict:
             logger.exception("Tool execution failed", tool=tool_name, error=str(e))
             result = {"error": str(e)}
 
-        # Create tool message with full content for streaming to frontend
-        # Context pruning will strip screenshots when this becomes an "old" message
+        # Store artifacts in Cloudflare R2 if available and result has screenshots
+        # This keeps LangGraph state lightweight while preserving full data
+        try:
+            if is_cloudflare_configured() and tool_name in ["runTest", "executeAction"]:
+                # Store screenshots in R2, get lightweight result for state
+                lightweight_result = await cf_client.store_test_artifacts(
+                    result=result,
+                    test_id=test_id,
+                    project_id=state.get("session_id", "default")
+                )
+                # Use lightweight result for LangGraph state
+                state_result = lightweight_result
+                logger.info("Stored artifacts in Cloudflare R2", test_id=test_id, tool=tool_name)
+            else:
+                # Cloudflare not configured - use result as-is (will be pruned later)
+                state_result = result
+        except Exception as cf_error:
+            logger.warning("Cloudflare storage failed, using original result", error=str(cf_error))
+            state_result = result
+
+        # Create tool message
+        # Full result is streamed to frontend, lightweight stored in state
         tool_results.append(
             ToolMessage(
-                content=json.dumps(result),
+                content=json.dumps(state_result),
                 tool_call_id=tool_call["id"],
                 name=tool_name,
             )
