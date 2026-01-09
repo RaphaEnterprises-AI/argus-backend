@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 import structlog
 
 from src.orchestrator.chat_graph import create_chat_graph, ChatState
@@ -158,12 +158,14 @@ async def stream_message(request: ChatRequest):
                                 yield f'0:{json.dumps(content)}\n'
 
                 elif event_type == "values":
-                    # Check for tool calls in the state
+                    # Check for tool calls and tool results in the state
                     state = event_data
                     if isinstance(state, dict):
                         messages = state.get("messages", [])
                         if messages:
                             last_msg = messages[-1]
+
+                            # Check for tool calls (AI requesting tool execution)
                             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                                 for tc in last_msg.tool_calls:
                                     # AI SDK tool call format: 9:{"toolCallId":...}\n
@@ -173,6 +175,15 @@ async def stream_message(request: ChatRequest):
                                         "args": tc["args"],
                                     }
                                     yield f'9:{json.dumps(tool_call_data)}\n'
+
+                            # Check for tool results (results from tool execution)
+                            if isinstance(last_msg, ToolMessage):
+                                # AI SDK tool result format: a:{"toolCallId":...,"result":...}\n
+                                tool_result_data = {
+                                    "toolCallId": last_msg.tool_call_id,
+                                    "result": last_msg.content,
+                                }
+                                yield f'a:{json.dumps(tool_result_data)}\n'
 
             # AI SDK finish message: d:{"finishReason":"stop"}\n
             yield f'd:{json.dumps({"finishReason": "stop", "threadId": thread_id})}\n'
