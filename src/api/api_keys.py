@@ -99,15 +99,46 @@ def hash_api_key(key: str) -> str:
 # Endpoints
 # ============================================================================
 
+async def resolve_org_id(org_id: str, user: dict) -> str:
+    """Resolve 'default' org_id to user's actual organization.
+
+    If org_id is 'default', tries to find user's organization from:
+    1. User's organization_id from auth context (Clerk)
+    2. First organization user is a member of
+    """
+    if org_id != "default":
+        return org_id
+
+    # Try to get from user's auth context (set by Clerk)
+    if user.get("organization_id"):
+        return user["organization_id"]
+
+    # Fall back to looking up user's first organization
+    supabase = get_supabase_client()
+    result = await supabase.request(
+        f"/organization_members?user_id=eq.{user['user_id']}&status=eq.active&select=organization_id&limit=1"
+    )
+
+    if result.get("data") and len(result["data"]) > 0:
+        return result["data"][0]["organization_id"]
+
+    # No organization found - this will cause a 403 in verify_org_access
+    return org_id
+
+
 @router.get("/organizations/{org_id}/keys", response_model=list[APIKeyResponse])
 async def list_api_keys(org_id: str, request: Request, include_revoked: bool = False):
     """List all API keys for an organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    # Resolve 'default' to actual organization ID
+    resolved_org_id = await resolve_org_id(org_id, user)
+
+    await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
 
     supabase = get_supabase_client()
 
-    query = f"/api_keys?organization_id=eq.{org_id}&select=*&order=created_at.desc"
+    query = f"/api_keys?organization_id=eq.{resolved_org_id}&select=*&order=created_at.desc"
 
     if not include_revoked:
         query += "&revoked_at=is.null"
@@ -144,7 +175,11 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
 async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Request):
     """Create a new API key for the organization."""
     user = await get_current_user(request)
-    member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    # Resolve 'default' to actual organization ID
+    resolved_org_id = await resolve_org_id(org_id, user)
+
+    member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
 
     supabase = get_supabase_client()
 
@@ -165,7 +200,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
 
     # Store the key
     key_result = await supabase.insert("api_keys", {
-        "organization_id": org_id,
+        "organization_id": resolved_org_id,
         "name": body.name,
         "key_hash": key_hash,
         "key_prefix": key_prefix,
@@ -181,7 +216,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=resolved_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="api_key.create",
@@ -192,7 +227,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
         request=request,
     )
 
-    logger.info("API key created", org_id=org_id, key_name=body.name)
+    logger.info("API key created", org_id=resolved_org_id, key_name=body.name)
 
     return APIKeyCreatedResponse(
         id=key_data["id"],
@@ -213,13 +248,17 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
 async def rotate_api_key(org_id: str, key_id: str, request: Request):
     """Rotate an API key (revoke old, create new with same settings)."""
     user = await get_current_user(request)
-    member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    # Resolve 'default' to actual organization ID
+    resolved_org_id = await resolve_org_id(org_id, user)
+
+    member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
 
     supabase = get_supabase_client()
 
     # Get the existing key
     existing = await supabase.request(
-        f"/api_keys?id=eq.{key_id}&organization_id=eq.{org_id}&select=*"
+        f"/api_keys?id=eq.{key_id}&organization_id=eq.{resolved_org_id}&select=*"
     )
 
     if not existing.get("data"):
@@ -236,7 +275,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
 
     # Create new key
     new_key_result = await supabase.insert("api_keys", {
-        "organization_id": org_id,
+        "organization_id": resolved_org_id,
         "name": f"{old_key['name']} (rotated)",
         "key_hash": key_hash,
         "key_prefix": key_prefix,
@@ -259,7 +298,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=resolved_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="api_key.rotate",
@@ -270,7 +309,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
         request=request,
     )
 
-    logger.info("API key rotated", org_id=org_id, old_key_id=key_id, new_key_id=new_key_data["id"])
+    logger.info("API key rotated", org_id=resolved_org_id, old_key_id=key_id, new_key_id=new_key_data["id"])
 
     return RotateKeyResponse(
         old_key_id=key_id,
@@ -295,13 +334,17 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
 async def revoke_api_key(org_id: str, key_id: str, request: Request):
     """Revoke an API key."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+
+    # Resolve 'default' to actual organization ID
+    resolved_org_id = await resolve_org_id(org_id, user)
+
+    await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
 
     supabase = get_supabase_client()
 
     # Get the key
     existing = await supabase.request(
-        f"/api_keys?id=eq.{key_id}&organization_id=eq.{org_id}&select=*"
+        f"/api_keys?id=eq.{key_id}&organization_id=eq.{resolved_org_id}&select=*"
     )
 
     if not existing.get("data"):
@@ -321,7 +364,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=resolved_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="api_key.revoke",
@@ -332,7 +375,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
         request=request,
     )
 
-    logger.info("API key revoked", org_id=org_id, key_id=key_id)
+    logger.info("API key revoked", org_id=resolved_org_id, key_id=key_id)
 
     return {"success": True, "message": "API key revoked"}
 
