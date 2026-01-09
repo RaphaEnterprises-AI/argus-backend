@@ -3,14 +3,18 @@
 Provides endpoints for:
 - Sending test notifications
 - Configuring notification settings
+- Managing notification channels and rules
 - Checking notification service status
+
+Now with Supabase persistence for production use.
 """
 
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field
 import structlog
 
@@ -23,6 +27,7 @@ from src.integrations.slack import (
     QualityReport,
     create_slack_notifier,
 )
+from src.integrations.supabase import get_supabase, is_supabase_configured
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/notifications", tags=["Notifications"])
@@ -130,10 +135,305 @@ class SlackStatusResponse(BaseModel):
 
 
 # =============================================================================
-# In-Memory Configuration Store (use database in production)
+# Additional Models for Channel/Rule Management
+# =============================================================================
+
+class ChannelCreateRequest(BaseModel):
+    """Request to create a notification channel."""
+    organization_id: str = Field(..., description="Organization ID")
+    project_id: Optional[str] = Field(None, description="Project ID (null = org-wide)")
+    name: str = Field(..., min_length=1, max_length=100, description="Channel name")
+    channel_type: Literal["slack", "email", "webhook", "discord", "teams", "pagerduty", "opsgenie"] = Field(
+        ..., description="Channel type"
+    )
+    config: dict = Field(..., description="Channel-specific configuration")
+    enabled: bool = Field(True, description="Whether the channel is enabled")
+    rate_limit_per_hour: int = Field(100, ge=1, le=1000, description="Rate limit per hour")
+
+
+class ChannelUpdateRequest(BaseModel):
+    """Request to update a notification channel."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    config: Optional[dict] = None
+    enabled: Optional[bool] = None
+    rate_limit_per_hour: Optional[int] = Field(None, ge=1, le=1000)
+
+
+class ChannelResponse(BaseModel):
+    """Notification channel response."""
+    id: str
+    organization_id: str
+    project_id: Optional[str]
+    name: str
+    channel_type: str
+    config: dict
+    enabled: bool
+    verified: bool
+    rate_limit_per_hour: int
+    last_sent_at: Optional[str]
+    sent_today: int
+    created_at: str
+    updated_at: str
+
+
+class RuleCreateRequest(BaseModel):
+    """Request to create a notification rule."""
+    channel_id: str = Field(..., description="Channel ID to send notifications to")
+    name: Optional[str] = Field(None, description="Rule name")
+    event_type: str = Field(..., description="Event type that triggers this rule")
+    conditions: Optional[dict] = Field(default_factory=dict, description="Conditions for triggering")
+    message_template: Optional[str] = Field(None, description="Custom message template")
+    priority: Literal["low", "normal", "high", "urgent"] = Field("normal", description="Notification priority")
+    cooldown_minutes: int = Field(0, ge=0, le=1440, description="Cooldown between notifications")
+    enabled: bool = Field(True, description="Whether the rule is enabled")
+
+
+class RuleResponse(BaseModel):
+    """Notification rule response."""
+    id: str
+    channel_id: str
+    name: Optional[str]
+    event_type: str
+    conditions: dict
+    message_template: Optional[str]
+    priority: str
+    cooldown_minutes: int
+    enabled: bool
+    last_triggered_at: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class NotificationLogResponse(BaseModel):
+    """Notification log entry response."""
+    id: str
+    channel_id: str
+    rule_id: Optional[str]
+    event_type: str
+    status: str
+    response_code: Optional[int]
+    error_message: Optional[str]
+    sent_at: Optional[str]
+    created_at: str
+
+
+# =============================================================================
+# In-Memory Configuration Store (fallback when Supabase not configured)
 # =============================================================================
 
 _slack_config: Optional[SlackConfig] = None
+_channels: dict[str, dict] = {}  # In-memory fallback
+_rules: dict[str, dict] = {}  # In-memory fallback
+_logs: list[dict] = []  # In-memory fallback
+
+
+# =============================================================================
+# Supabase Helper Functions
+# =============================================================================
+
+async def _get_channel_from_db(channel_id: str) -> Optional[dict]:
+    """Get a notification channel from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _channels.get(channel_id)
+
+    result = await supabase.select(
+        "notification_channels",
+        columns="*",
+        filters={"id": channel_id},
+        limit=1
+    )
+    return result[0] if result else None
+
+
+async def _list_channels_from_db(
+    organization_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    channel_type: Optional[str] = None,
+    enabled: Optional[bool] = None,
+    limit: int = 50
+) -> list[dict]:
+    """List notification channels from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        channels = list(_channels.values())
+        if organization_id:
+            channels = [c for c in channels if c.get("organization_id") == organization_id]
+        if project_id:
+            channels = [c for c in channels if c.get("project_id") == project_id]
+        if channel_type:
+            channels = [c for c in channels if c.get("channel_type") == channel_type]
+        if enabled is not None:
+            channels = [c for c in channels if c.get("enabled") == enabled]
+        return channels[:limit]
+
+    filters = {}
+    if organization_id:
+        filters["organization_id"] = organization_id
+    if project_id:
+        filters["project_id"] = project_id
+    if channel_type:
+        filters["channel_type"] = channel_type
+    if enabled is not None:
+        filters["enabled"] = enabled
+
+    return await supabase.select(
+        "notification_channels",
+        columns="*",
+        filters=filters if filters else None,
+        order_by="created_at",
+        ascending=False,
+        limit=limit
+    )
+
+
+async def _save_channel_to_db(channel: dict) -> bool:
+    """Save a notification channel to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        _channels[channel["id"]] = channel
+        return True
+
+    return await supabase.insert("notification_channels", [channel])
+
+
+async def _update_channel_in_db(channel_id: str, updates: dict) -> bool:
+    """Update a notification channel in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if channel_id in _channels:
+            _channels[channel_id].update(updates)
+            return True
+        return False
+
+    return await supabase.update("notification_channels", updates, {"id": channel_id})
+
+
+async def _delete_channel_from_db(channel_id: str) -> bool:
+    """Delete a notification channel from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if channel_id in _channels:
+            del _channels[channel_id]
+            return True
+        return False
+
+    return await supabase.delete("notification_channels", {"id": channel_id})
+
+
+async def _get_rule_from_db(rule_id: str) -> Optional[dict]:
+    """Get a notification rule from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _rules.get(rule_id)
+
+    result = await supabase.select(
+        "notification_rules",
+        columns="*",
+        filters={"id": rule_id},
+        limit=1
+    )
+    return result[0] if result else None
+
+
+async def _list_rules_from_db(channel_id: Optional[str] = None, event_type: Optional[str] = None, limit: int = 50) -> list[dict]:
+    """List notification rules from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        rules = list(_rules.values())
+        if channel_id:
+            rules = [r for r in rules if r.get("channel_id") == channel_id]
+        if event_type:
+            rules = [r for r in rules if r.get("event_type") == event_type]
+        return rules[:limit]
+
+    filters = {}
+    if channel_id:
+        filters["channel_id"] = channel_id
+    if event_type:
+        filters["event_type"] = event_type
+
+    return await supabase.select(
+        "notification_rules",
+        columns="*",
+        filters=filters if filters else None,
+        order_by="created_at",
+        ascending=False,
+        limit=limit
+    )
+
+
+async def _save_rule_to_db(rule: dict) -> bool:
+    """Save a notification rule to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        _rules[rule["id"]] = rule
+        return True
+
+    return await supabase.insert("notification_rules", [rule])
+
+
+async def _update_rule_in_db(rule_id: str, updates: dict) -> bool:
+    """Update a notification rule in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if rule_id in _rules:
+            _rules[rule_id].update(updates)
+            return True
+        return False
+
+    return await supabase.update("notification_rules", updates, {"id": rule_id})
+
+
+async def _delete_rule_from_db(rule_id: str) -> bool:
+    """Delete a notification rule from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if rule_id in _rules:
+            del _rules[rule_id]
+            return True
+        return False
+
+    return await supabase.delete("notification_rules", {"id": rule_id})
+
+
+async def _save_notification_log(log: dict) -> bool:
+    """Save a notification log entry to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        _logs.append(log)
+        if len(_logs) > 1000:  # Keep last 1000 in memory
+            _logs.pop(0)
+        return True
+
+    return await supabase.insert("notification_logs", [log])
+
+
+async def _list_notification_logs(channel_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50) -> list[dict]:
+    """List notification logs from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        logs = _logs.copy()
+        if channel_id:
+            logs = [l for l in logs if l.get("channel_id") == channel_id]
+        if status:
+            logs = [l for l in logs if l.get("status") == status]
+        return logs[-limit:]
+
+    filters = {}
+    if channel_id:
+        filters["channel_id"] = channel_id
+    if status:
+        filters["status"] = status
+
+    return await supabase.select(
+        "notification_logs",
+        columns="*",
+        filters=filters if filters else None,
+        order_by="created_at",
+        ascending=False,
+        limit=limit
+    )
 
 
 def get_slack_notifier() -> SlackNotifier:
@@ -568,3 +868,319 @@ async def send_custom_message(
     except Exception as e:
         logger.exception("Failed to send message", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Channel Management Endpoints
+# =============================================================================
+
+@router.post("/channels", response_model=ChannelResponse, status_code=201)
+async def create_channel(body: ChannelCreateRequest, request: Request):
+    """
+    Create a new notification channel.
+
+    Channels can be Slack, email, webhook, Discord, Teams, PagerDuty, or OpsGenie.
+    """
+    channel_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    user_id = request.headers.get("x-user-id")
+
+    channel = {
+        "id": channel_id,
+        "organization_id": body.organization_id,
+        "project_id": body.project_id,
+        "name": body.name,
+        "channel_type": body.channel_type,
+        "config": body.config,
+        "enabled": body.enabled,
+        "verified": False,
+        "rate_limit_per_hour": body.rate_limit_per_hour,
+        "last_sent_at": None,
+        "sent_today": 0,
+        "created_by": user_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    await _save_channel_to_db(channel)
+
+    logger.info(
+        "Notification channel created",
+        channel_id=channel_id,
+        name=body.name,
+        type=body.channel_type,
+        persistent=is_supabase_configured(),
+    )
+
+    return ChannelResponse(**channel)
+
+
+@router.get("/channels", response_model=list[ChannelResponse])
+async def list_channels(
+    organization_id: Optional[str] = Query(None, description="Filter by organization"),
+    project_id: Optional[str] = Query(None, description="Filter by project"),
+    channel_type: Optional[str] = Query(None, description="Filter by channel type"),
+    enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum channels to return"),
+):
+    """
+    List notification channels with optional filtering.
+    """
+    channels = await _list_channels_from_db(
+        organization_id=organization_id,
+        project_id=project_id,
+        channel_type=channel_type,
+        enabled=enabled,
+        limit=limit
+    )
+
+    return [ChannelResponse(**c) for c in channels]
+
+
+@router.get("/channels/{channel_id}", response_model=ChannelResponse)
+async def get_channel(channel_id: str):
+    """
+    Get a notification channel by ID.
+    """
+    channel = await _get_channel_from_db(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    return ChannelResponse(**channel)
+
+
+@router.patch("/channels/{channel_id}", response_model=ChannelResponse)
+async def update_channel(channel_id: str, body: ChannelUpdateRequest):
+    """
+    Update a notification channel.
+    """
+    channel = await _get_channel_from_db(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await _update_channel_in_db(channel_id, update_data)
+    channel.update(update_data)
+
+    logger.info("Notification channel updated", channel_id=channel_id, updates=list(update_data.keys()))
+
+    return ChannelResponse(**channel)
+
+
+@router.delete("/channels/{channel_id}")
+async def delete_channel(channel_id: str):
+    """
+    Delete a notification channel.
+    """
+    channel = await _get_channel_from_db(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    await _delete_channel_from_db(channel_id)
+
+    logger.info("Notification channel deleted", channel_id=channel_id, name=channel.get("name"))
+
+    return {"success": True, "message": "Channel deleted", "channel_id": channel_id}
+
+
+@router.post("/channels/{channel_id}/test", response_model=NotificationResponse)
+async def test_channel(channel_id: str):
+    """
+    Send a test notification to verify a channel is working.
+    """
+    channel = await _get_channel_from_db(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # For now, only support Slack testing through this endpoint
+    if channel["channel_type"] != "slack":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Testing for {channel['channel_type']} channels not yet implemented"
+        )
+
+    config = channel.get("config", {})
+    slack_config = SlackConfig(
+        webhook_url=config.get("webhook_url"),
+        bot_token=config.get("bot_token"),
+        default_channel=config.get("channel", "#testing"),
+    )
+
+    notifier = SlackNotifier(config=slack_config)
+    success = await notifier.send_message(
+        message=f"Test notification from Argus - Channel: {channel['name']}",
+    )
+
+    if success:
+        # Mark channel as verified
+        await _update_channel_in_db(channel_id, {
+            "verified": True,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+
+        return NotificationResponse(
+            success=True,
+            message="Test notification sent successfully",
+            details={"channel_id": channel_id, "verified": True},
+        )
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send test notification")
+
+
+# =============================================================================
+# Rule Management Endpoints
+# =============================================================================
+
+@router.post("/rules", response_model=RuleResponse, status_code=201)
+async def create_rule(body: RuleCreateRequest, request: Request):
+    """
+    Create a new notification rule.
+
+    Rules define when notifications are sent based on event types and conditions.
+    """
+    # Verify channel exists
+    channel = await _get_channel_from_db(body.channel_id)
+    if not channel:
+        raise HTTPException(status_code=400, detail="Channel not found")
+
+    rule_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    user_id = request.headers.get("x-user-id")
+
+    rule = {
+        "id": rule_id,
+        "channel_id": body.channel_id,
+        "name": body.name or f"Rule for {body.event_type}",
+        "event_type": body.event_type,
+        "conditions": body.conditions or {},
+        "message_template": body.message_template,
+        "priority": body.priority,
+        "cooldown_minutes": body.cooldown_minutes,
+        "enabled": body.enabled,
+        "last_triggered_at": None,
+        "trigger_count": 0,
+        "created_by": user_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    await _save_rule_to_db(rule)
+
+    logger.info(
+        "Notification rule created",
+        rule_id=rule_id,
+        event_type=body.event_type,
+        channel_id=body.channel_id,
+    )
+
+    return RuleResponse(**rule)
+
+
+@router.get("/rules", response_model=list[RuleResponse])
+async def list_rules(
+    channel_id: Optional[str] = Query(None, description="Filter by channel"),
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum rules to return"),
+):
+    """
+    List notification rules with optional filtering.
+    """
+    rules = await _list_rules_from_db(channel_id=channel_id, event_type=event_type, limit=limit)
+    return [RuleResponse(**r) for r in rules]
+
+
+@router.get("/rules/{rule_id}", response_model=RuleResponse)
+async def get_rule(rule_id: str):
+    """
+    Get a notification rule by ID.
+    """
+    rule = await _get_rule_from_db(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    return RuleResponse(**rule)
+
+
+@router.patch("/rules/{rule_id}", response_model=RuleResponse)
+async def update_rule(rule_id: str, body: RuleCreateRequest):
+    """
+    Update a notification rule.
+    """
+    rule = await _get_rule_from_db(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await _update_rule_in_db(rule_id, update_data)
+    rule.update(update_data)
+
+    logger.info("Notification rule updated", rule_id=rule_id, updates=list(update_data.keys()))
+
+    return RuleResponse(**rule)
+
+
+@router.delete("/rules/{rule_id}")
+async def delete_rule(rule_id: str):
+    """
+    Delete a notification rule.
+    """
+    rule = await _get_rule_from_db(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    await _delete_rule_from_db(rule_id)
+
+    logger.info("Notification rule deleted", rule_id=rule_id, event_type=rule.get("event_type"))
+
+    return {"success": True, "message": "Rule deleted", "rule_id": rule_id}
+
+
+# =============================================================================
+# Notification Logs Endpoints
+# =============================================================================
+
+@router.get("/logs", response_model=list[NotificationLogResponse])
+async def list_notification_logs(
+    channel_id: Optional[str] = Query(None, description="Filter by channel"),
+    status: Optional[str] = Query(None, description="Filter by status (sent, failed, pending)"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum logs to return"),
+):
+    """
+    List notification delivery logs.
+
+    Use this to monitor notification delivery status and troubleshoot failures.
+    """
+    logs = await _list_notification_logs(channel_id=channel_id, status=status, limit=limit)
+    return [NotificationLogResponse(**log) for log in logs]
+
+
+# =============================================================================
+# Event Types Reference
+# =============================================================================
+
+@router.get("/event-types")
+async def list_event_types():
+    """
+    List all available event types for notification rules.
+    """
+    return {
+        "event_types": [
+            {"type": "test.started", "description": "Test execution started"},
+            {"type": "test.passed", "description": "Test execution passed"},
+            {"type": "test.failed", "description": "Test execution failed"},
+            {"type": "test.flaky", "description": "Flaky test detected"},
+            {"type": "schedule.started", "description": "Scheduled run started"},
+            {"type": "schedule.completed", "description": "Scheduled run completed"},
+            {"type": "schedule.failed", "description": "Scheduled run failed"},
+            {"type": "healing.applied", "description": "Self-healing fix applied"},
+            {"type": "healing.suggested", "description": "Self-healing fix suggested"},
+            {"type": "quality.threshold", "description": "Quality score crossed threshold"},
+            {"type": "quality.report", "description": "Weekly quality report"},
+            {"type": "alert.security", "description": "Security alert"},
+            {"type": "alert.performance", "description": "Performance degradation"},
+        ]
+    }
