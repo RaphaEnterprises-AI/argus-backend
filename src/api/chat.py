@@ -150,7 +150,13 @@ async def stream_message(request: ChatRequest):
                     # Handle message streaming - output in AI SDK format
                     if isinstance(event_data, tuple):
                         chunk, metadata = event_data
+                        # Skip ToolMessage content - it's handled as 'a:' in values stream
+                        # Only emit AIMessage text content as '0:' text
                         if chunk and hasattr(chunk, "content") and chunk.content:
+                            # Check if this is a ToolMessage (skip - handled separately)
+                            if isinstance(chunk, ToolMessage):
+                                continue
+
                             content = chunk.content
                             # Handle different content types
                             if isinstance(content, list):

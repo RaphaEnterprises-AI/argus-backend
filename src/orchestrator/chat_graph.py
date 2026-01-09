@@ -3,16 +3,109 @@
 from typing import TypedDict, Annotated, Literal, Optional, List
 from datetime import datetime, timezone
 import json
+import re
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_anthropic import ChatAnthropic
 import structlog
 
 from src.config import get_settings
 
 logger = structlog.get_logger()
+
+# Token limits for context management
+MAX_CONTEXT_TOKENS = 150000  # Leave headroom below 200k limit
+MAX_TOOL_RESULT_TOKENS = 2000  # Truncate large tool results
+KEEP_RECENT_MESSAGES = 10  # Keep last N messages unmodified
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimation (4 chars per token for English)."""
+    return len(text) // 4
+
+
+def strip_base64_from_content(content: str) -> str:
+    """Remove base64 image data from content to save tokens."""
+    # Match base64 patterns (data URLs and raw base64)
+    # Pattern for data URLs: data:image/...;base64,XXXX
+    content = re.sub(
+        r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+',
+        '[IMAGE_REMOVED]',
+        content
+    )
+    # Pattern for raw base64 in JSON (screenshot fields)
+    content = re.sub(
+        r'"(screenshot|image|finalScreenshot|screenshotBase64)":\s*"[A-Za-z0-9+/=]{1000,}"',
+        r'"\1": "[IMAGE_REMOVED]"',
+        content
+    )
+    return content
+
+
+def truncate_tool_result(content: str, max_tokens: int = MAX_TOOL_RESULT_TOKENS) -> str:
+    """Truncate tool result content if too long."""
+    # First strip base64 images
+    content = strip_base64_from_content(content)
+
+    # Then truncate if still too long
+    estimated = estimate_tokens(content)
+    if estimated > max_tokens:
+        # Keep first part and add truncation notice
+        max_chars = max_tokens * 4
+        return content[:max_chars] + "\n...[TRUNCATED - result too long]..."
+    return content
+
+
+def prune_messages_for_context(messages: List[BaseMessage], max_tokens: int = MAX_CONTEXT_TOKENS) -> List[BaseMessage]:
+    """Prune messages to fit within context limit.
+
+    Strategy:
+    1. ALWAYS strip base64 images from ALL tool results (frontend gets them from stream)
+    2. Truncate very long tool results
+    3. If still over limit, drop oldest messages (keeping last KEEP_RECENT_MESSAGES human/AI exchanges)
+    """
+    if not messages:
+        return messages
+
+    # Process ALL messages - always strip images from tool results
+    processed_messages = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            # ALWAYS strip images and truncate tool results
+            # Frontend receives full results from streaming, Claude doesn't need screenshots
+            new_content = truncate_tool_result(msg.content)
+            processed_messages.append(ToolMessage(
+                content=new_content,
+                tool_call_id=msg.tool_call_id,
+                name=msg.name if hasattr(msg, 'name') else None,
+            ))
+        elif isinstance(msg, AIMessage) and hasattr(msg, 'content'):
+            # Strip images from AI messages too (they might quote tool results)
+            new_content = strip_base64_from_content(msg.content) if isinstance(msg.content, str) else msg.content
+            processed_messages.append(AIMessage(content=new_content, tool_calls=getattr(msg, 'tool_calls', None)))
+        else:
+            processed_messages.append(msg)
+
+    # Estimate total tokens
+    total_tokens = sum(estimate_tokens(str(m.content) if hasattr(m, 'content') else str(m)) for m in processed_messages)
+
+    # If still over limit, drop oldest messages until under limit
+    # But keep at least KEEP_RECENT_MESSAGES
+    min_keep = min(KEEP_RECENT_MESSAGES, len(processed_messages))
+    while total_tokens > max_tokens and len(processed_messages) > min_keep:
+        dropped = processed_messages.pop(0)
+        dropped_tokens = estimate_tokens(str(dropped.content) if hasattr(dropped, 'content') else str(dropped))
+        total_tokens -= dropped_tokens
+        logger.info("Dropped old message to fit context", dropped_type=type(dropped).__name__, tokens_freed=dropped_tokens)
+
+    logger.info("Message pruning complete",
+                original_count=len(messages),
+                final_count=len(processed_messages),
+                estimated_tokens=total_tokens)
+
+    return processed_messages
 
 
 class ChatState(TypedDict):
@@ -75,7 +168,9 @@ async def chat_node(state: ChatState, config) -> dict:
     # Build messages with system prompt
     system_prompt = create_system_prompt(state.get("app_url", ""))
 
-    messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
+    # Prune messages to prevent context overflow
+    pruned_messages = prune_messages_for_context(list(state["messages"]))
+    messages = [SystemMessage(content=system_prompt)] + pruned_messages
 
     # Define tools
     tools = [
@@ -219,11 +314,11 @@ async def tool_executor_node(state: ChatState, config) -> dict:
             logger.exception("Tool execution failed", tool=tool_name, error=str(e))
             result = {"error": str(e)}
 
-        # Create tool message with properly formatted JSON content
-        from langchain_core.messages import ToolMessage
+        # Create tool message with full content for streaming to frontend
+        # Context pruning will strip screenshots when this becomes an "old" message
         tool_results.append(
             ToolMessage(
-                content=json.dumps(result),  # Use json.dumps for valid JSON, not str()
+                content=json.dumps(result),
                 tool_call_id=tool_call["id"],
                 name=tool_name,
             )
