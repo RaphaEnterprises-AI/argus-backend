@@ -117,8 +117,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Check API key header
         api_key = request.headers.get("x-api-key")
+        logger.debug("Auth check", has_api_key=bool(api_key), api_key_prefix=api_key[:16] if api_key else None)
         if api_key:
             user = await authenticate_api_key(api_key, request)
+            logger.debug("API key auth result", authenticated=bool(user))
 
         # Check Authorization header
         if not user:
