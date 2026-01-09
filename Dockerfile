@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy dependency files first (for caching)
 COPY pyproject.toml ./
 
-# Install Python dependencies (v2.0.0 - LangGraph 1.0 compatible)
+# Install Python dependencies (v2.0.1 - LangGraph 1.0 + Security)
 RUN pip install --upgrade pip && \
     pip install -e . || pip install \
     "anthropic>=0.75.0" \
@@ -48,7 +48,8 @@ RUN pip install --upgrade pip && \
     "python-multipart>=0.0.6" \
     "supabase>=2.0.0" \
     "aiohttp>=3.9.0" \
-    "openai>=1.0.0"
+    "openai>=1.0.0" \
+    "PyJWT[crypto]>=2.8.0"
 
 # Copy application code
 COPY src/ /app/src/
