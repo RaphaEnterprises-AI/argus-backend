@@ -399,8 +399,24 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
 
         return response
 
+    def _is_valid_uuid(self, value: str) -> bool:
+        """Check if a string is a valid UUID."""
+        if not value:
+            return False
+        try:
+            uuid.UUID(str(value))
+            return True
+        except (ValueError, TypeError):
+            return False
+
     async def _store_audit_log(self, entry: dict) -> None:
-        """Store audit log entry to database."""
+        """Store audit log entry to security_audit_logs table.
+
+        Uses the security_audit_logs table (not audit_logs) because:
+        - It has duration_ms, status_code, method, path columns natively
+        - It has flexible constraints (no CHECK on action/resource_type)
+        - It's designed for API request logging per SOC2 requirements
+        """
         try:
             from src.integrations.supabase import get_supabase
 
@@ -410,16 +426,39 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 duration = entry.get("duration_ms")
                 duration_int = int(round(duration)) if duration is not None else None
 
-                await supabase.insert("audit_logs", {
-                    "request_id": entry["request_id"],
+                # Determine severity and outcome based on status code
+                status_code = entry.get("status_code", 200)
+                if status_code >= 500:
+                    severity = "error"
+                    outcome = "error"
+                elif status_code >= 400:
+                    severity = "warning"
+                    outcome = "failure"
+                else:
+                    severity = "info"
+                    outcome = "success"
+
+                # Validate organization_id - must be valid UUID for FK constraint
+                # Dev mode uses "dev-org" which is not a valid UUID
+                org_id = entry.get("organization_id")
+                if not self._is_valid_uuid(org_id):
+                    org_id = None
+
+                await supabase.insert("security_audit_logs", {
                     "event_type": entry["event_type"],
+                    "severity": severity,
                     "user_id": entry["user_id"],
-                    "organization_id": entry["organization_id"],
-                    "action": f"{entry['method']} {entry['path']}",
-                    "resource_type": "api",
+                    "organization_id": org_id,
+                    "request_id": entry["request_id"],
                     "ip_address": entry["client_ip"],
                     "user_agent": entry.get("user_agent"),
-                    "status_code": entry.get("status_code"),
+                    "method": entry["method"],
+                    "path": entry["path"],
+                    "resource_type": "api_request",
+                    "action": f"{entry['method']} {entry['path']}",
+                    "description": f"API {entry['method']} request to {entry['path']}",
+                    "outcome": outcome,
+                    "status_code": status_code,
                     "duration_ms": duration_int,
                     "metadata": {
                         "query_params": entry.get("query_params"),
