@@ -294,18 +294,34 @@ async def get_clerk_jwks() -> dict:
 
 async def verify_clerk_jwt(token: str) -> Optional[dict]:
     """Verify a Clerk JWT token using JWKS."""
+    # Check if Clerk is configured
+    if not CLERK_JWKS_URL or CLERK_JWKS_URL == "https://api.clerk.com/v1/jwks":
+        # Clerk not configured, skip verification
+        return None
+
     try:
+        # Import PyJWK - may not be available in all environments
+        try:
+            from jwt import PyJWK
+        except ImportError:
+            logger.warning("PyJWK not available, skipping Clerk verification")
+            return None
+
         # Get the unverified header to find the key ID
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
 
         if not kid:
-            logger.warning("Clerk JWT missing kid")
+            # Not a Clerk token (no kid), skip silently
             return None
 
         # Get JWKS
         jwks = await get_clerk_jwks()
         keys = jwks.get("keys", [])
+
+        if not keys:
+            logger.warning("No keys in Clerk JWKS")
+            return None
 
         # Find the matching key
         key_data = None
@@ -315,11 +331,10 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
                 break
 
         if not key_data:
-            logger.warning("Clerk JWT key not found", kid=kid)
+            # Key not found - might be an internal JWT, skip silently
             return None
 
         # Construct the public key
-        from jwt import PyJWK
         public_key = PyJWK.from_dict(key_data).key
 
         # Verify and decode the token
@@ -354,7 +369,8 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
         logger.warning("Clerk JWT expired")
         return None
     except jwt.InvalidTokenError as e:
-        logger.warning("Invalid Clerk JWT", error=str(e))
+        # Could be an internal JWT, not a Clerk JWT - skip silently
+        logger.debug("JWT not a valid Clerk token", error=str(e))
         return None
     except Exception as e:
         logger.error("Clerk JWT verification error", error=str(e))
