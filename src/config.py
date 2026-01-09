@@ -82,15 +82,23 @@ class Settings(BaseSettings):
     supabase_url: Optional[str] = Field(None, description="Supabase project URL")
     supabase_service_key: Optional[SecretStr] = Field(None, description="Supabase service role key")
 
-    # Cloudflare KV Configuration (for caching via REST API)
-    cloudflare_api_token: Optional[SecretStr] = Field(None, description="Cloudflare API token for KV/Vectorize access")
+    # Cloudflare Storage Configuration (for artifacts, caching, memory)
+    cloudflare_api_token: Optional[SecretStr] = Field(None, description="Cloudflare API token for R2/KV/Vectorize access")
+    cloudflare_r2_bucket: Optional[str] = Field(
+        "argus-artifacts",
+        description="Cloudflare R2 bucket for screenshots and artifacts"
+    )
     cloudflare_kv_namespace_id: Optional[str] = Field(
         "e1f3cdefb05c43b88528adb515bde16a",
         description="Cloudflare KV namespace ID (from wrangler.toml)"
     )
     cloudflare_vectorize_index: Optional[str] = Field(
         "argus-patterns",
-        description="Cloudflare Vectorize index name"
+        description="Cloudflare Vectorize index name for self-healing memory"
+    )
+    cloudflare_d1_database_id: Optional[str] = Field(
+        None,
+        description="Cloudflare D1 database ID for test history"
     )
     cache_enabled: bool = Field(True, description="Enable caching layer")
     cache_ttl_quality_scores: int = Field(300, description="TTL for quality scores in seconds (default: 5 min)")
