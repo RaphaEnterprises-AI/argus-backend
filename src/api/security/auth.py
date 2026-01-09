@@ -384,6 +384,9 @@ async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext
     clerk_payload = await verify_clerk_jwt(token)
     if clerk_payload:
         # Clerk JWT verified successfully
+        # Log available claims for debugging
+        logger.debug("Clerk JWT claims", claims=list(clerk_payload.keys()))
+
         # Extract user info from Clerk claims
         user_id = clerk_payload.get("sub", "")
         org_id = clerk_payload.get("org_id")
@@ -394,16 +397,40 @@ async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext
         if org_role:
             roles.append(org_role)
 
-        # Check for custom claims
+        # Check for custom claims (set in Clerk Dashboard → Sessions → Customize)
         metadata = clerk_payload.get("public_metadata", {}) or {}
         if metadata.get("roles"):
             roles.extend(metadata["roles"])
 
+        # Extract email - check multiple possible claim locations
+        # Clerk can include these via session token customization
+        email = (
+            clerk_payload.get("email") or
+            clerk_payload.get("primary_email") or
+            clerk_payload.get("email_address") or
+            (clerk_payload.get("user", {}) or {}).get("email") or
+            (clerk_payload.get("user", {}) or {}).get("primary_email_address")
+        )
+
+        # Extract name - check multiple possible claim locations
+        name = (
+            clerk_payload.get("name") or
+            clerk_payload.get("full_name") or
+            clerk_payload.get("first_name") or
+            (clerk_payload.get("user", {}) or {}).get("first_name")
+        )
+
+        # If we have first_name and last_name, combine them
+        if not name and clerk_payload.get("first_name"):
+            first = clerk_payload.get("first_name", "")
+            last = clerk_payload.get("last_name", "")
+            name = f"{first} {last}".strip() or None
+
         return UserContext(
             user_id=user_id,
             organization_id=org_id,
-            email=clerk_payload.get("email"),
-            name=clerk_payload.get("name") or clerk_payload.get("first_name"),
+            email=email,
+            name=name,
             roles=roles or ["member"],
             scopes=["read", "write", "execute"],  # Default scopes for Clerk users
             auth_method=AuthMethod.JWT,
