@@ -317,6 +317,40 @@ async def security_info():
     )
 
 
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@app.get("/api/v1/auth/me", tags=["Authentication"])
+async def get_current_user_info(request: Request):
+    """Get current authenticated user information.
+
+    Returns the user context from the authenticated JWT token (Clerk or internal).
+    """
+    from src.api.security.auth import get_current_user, UserContext
+
+    try:
+        user: UserContext = await get_current_user(request)
+        return {
+            "authenticated": True,
+            "user_id": user.user_id,
+            "organization_id": user.organization_id,
+            "email": user.email,
+            "name": user.name,
+            "roles": user.roles,
+            "scopes": user.scopes,
+            "auth_method": user.auth_method,
+            "session_id": user.session_id,
+            "ip_address": user.ip_address,
+            "authenticated_at": user.authenticated_at.isoformat() if user.authenticated_at else None,
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error("Error getting user info", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/ready", tags=["Health"])
 async def readiness_check():
     """Readiness check - verifies all dependencies are available."""
