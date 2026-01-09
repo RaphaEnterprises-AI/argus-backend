@@ -66,6 +66,9 @@ dependencies = [
 
     # Embeddings for memory store
     "openai>=1.0.0",
+
+    # Security / JWT
+    "PyJWT[crypto]>=2.8.0",  # JWT with RS256 support for Clerk
 ]
 
 [project.optional-dependencies]
