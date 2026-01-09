@@ -52,6 +52,10 @@ from src.api.chat import router as chat_router
 from src.api.streaming import router as streaming_router
 from src.api.approvals import router as approvals_router
 from src.api.time_travel import router as time_travel_router
+from src.api.invitations import router as invitations_router
+from src.api.organizations import router as organizations_router
+from src.api.users import router as users_router
+from src.api.projects import router as projects_router
 
 # Security Module
 from src.api.security.middleware import (
@@ -178,6 +182,7 @@ app.add_middleware(
         "X-API-Key",
         "X-Request-ID",
         "X-API-Version",
+        "X-Organization-ID",
         "Accept",
         "Origin",
     ],
@@ -208,6 +213,10 @@ app.include_router(chat_router)
 app.include_router(streaming_router)
 app.include_router(approvals_router)
 app.include_router(time_travel_router)
+app.include_router(invitations_router)
+app.include_router(organizations_router)
+app.include_router(users_router)
+app.include_router(projects_router)
 app.include_router(device_auth_router)
 
 # In-memory job storage (use Redis for production)
