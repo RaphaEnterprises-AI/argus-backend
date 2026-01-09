@@ -104,7 +104,8 @@ async def resolve_org_id(org_id: str, user: dict) -> str:
 
     If org_id is 'default', tries to find user's organization from:
     1. User's organization_id from auth context (Clerk)
-    2. First organization user is a member of
+    2. First organization user is a member of (by user_id)
+    3. First organization user is a member of (by email)
     """
     if org_id != "default":
         return org_id
@@ -113,14 +114,23 @@ async def resolve_org_id(org_id: str, user: dict) -> str:
     if user.get("organization_id"):
         return user["organization_id"]
 
-    # Fall back to looking up user's first organization
     supabase = get_supabase_client()
-    result = await supabase.request(
-        f"/organization_members?user_id=eq.{user['user_id']}&status=eq.active&select=organization_id&limit=1"
-    )
 
-    if result.get("data") and len(result["data"]) > 0:
-        return result["data"][0]["organization_id"]
+    # Try looking up by user_id first
+    if user.get("user_id"):
+        result = await supabase.request(
+            f"/organization_members?user_id=eq.{user['user_id']}&status=eq.active&select=organization_id&limit=1"
+        )
+        if result.get("data") and len(result["data"]) > 0:
+            return result["data"][0]["organization_id"]
+
+    # Fall back to looking up by email
+    if user.get("email"):
+        result = await supabase.request(
+            f"/organization_members?email=eq.{user['email']}&status=eq.active&select=organization_id&limit=1"
+        )
+        if result.get("data") and len(result["data"]) > 0:
+            return result["data"][0]["organization_id"]
 
     # No organization found - this will cause a 403 in verify_org_access
     return org_id
@@ -134,7 +144,7 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
-    await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
 
     supabase = get_supabase_client()
 
@@ -179,7 +189,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
-    member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
+    member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
 
     supabase = get_supabase_client()
 
@@ -252,7 +262,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
-    member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
+    member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
 
     supabase = get_supabase_client()
 
@@ -338,7 +348,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
-    await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
 
     supabase = get_supabase_client()
 
