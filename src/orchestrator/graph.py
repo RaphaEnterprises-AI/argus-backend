@@ -1,15 +1,51 @@
-"""LangGraph orchestrator for the testing agent."""
+"""LangGraph orchestrator for the testing agent.
 
-from typing import Literal
+Supports human-in-the-loop breakpoints for approval workflows:
+- interrupt_before self_heal node to require healing approval
+- interrupt_before plan_tests node for test plan approval
+
+When breakpoints are enabled, execution will pause before the specified nodes,
+allowing external systems to approve/reject/modify state before resuming.
+"""
+
+from typing import Literal, Optional
 import structlog
 
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from .state import TestingState, TestStatus
+from .checkpointer import get_checkpointer
 from ..config import Settings, get_settings
 
 logger = structlog.get_logger()
+
+
+def get_interrupt_nodes(settings: Settings) -> list[str]:
+    """
+    Determine which nodes should have interrupt_before breakpoints.
+
+    Based on configuration settings, returns a list of node names
+    that should pause for human approval.
+
+    Args:
+        settings: Application settings
+
+    Returns:
+        List of node names to interrupt before
+    """
+    interrupt_nodes = []
+
+    # Add self_heal to interrupt list if healing approval is required
+    if settings.require_healing_approval or settings.require_human_approval_for_healing:
+        interrupt_nodes.append("self_heal")
+        logger.info("Breakpoint enabled: self_heal node requires approval")
+
+    # Add plan_tests to interrupt list if test plan approval is required
+    if settings.require_test_plan_approval:
+        interrupt_nodes.append("execute_test")  # Interrupt before first test execution
+        logger.info("Breakpoint enabled: test execution requires plan approval")
+
+    return interrupt_nodes
 
 
 def route_after_analysis(state: TestingState) -> Literal["plan_tests", "report", "__end__"]:
@@ -201,18 +237,51 @@ def create_testing_graph(settings: Settings) -> StateGraph:
     return graph
 
 
+def create_testing_graph_with_interrupts(settings: Settings) -> StateGraph:
+    """
+    Create graph with human-in-the-loop breakpoints.
+
+    This is a convenience wrapper that creates the graph but doesn't compile it,
+    allowing the caller to specify interrupt_before nodes at compile time.
+
+    Args:
+        settings: Application settings
+
+    Returns:
+        Uncompiled StateGraph
+    """
+    return create_testing_graph(settings)
+
+
 class TestingOrchestrator:
     """
     Main orchestrator for E2E testing.
-    
+
+    Supports human-in-the-loop breakpoints for approval workflows.
+    When require_healing_approval is True, execution pauses before self_heal
+    and waits for approval via the approvals API.
+
     Usage:
         orchestrator = TestingOrchestrator(
             codebase_path="/path/to/app",
             app_url="http://localhost:3000"
         )
         results = await orchestrator.run()
+
+    With breakpoints:
+        # Enable approval requirement in settings or env
+        # REQUIRE_HEALING_APPROVAL=true
+
+        # Start test run - will pause at self_heal
+        result = await orchestrator.run(thread_id="my-run-123")
+
+        # Check if paused (result will have next node info)
+        # Use approvals API to approve/reject
+
+        # Resume execution
+        result = await orchestrator.resume(thread_id="my-run-123")
     """
-    
+
     def __init__(
         self,
         codebase_path: str,
@@ -226,17 +295,27 @@ class TestingOrchestrator:
         self.settings = settings or get_settings()
         self.pr_number = pr_number
         self.changed_files = changed_files or []
-        
+
         # Create graph
         graph = create_testing_graph(self.settings)
-        
-        # Compile with memory for checkpointing
-        self.memory = MemorySaver()
-        self.app = graph.compile(checkpointer=self.memory)
-        
+
+        # Compile with checkpointer for state persistence
+        # Uses PostgresSaver if DATABASE_URL is set, otherwise MemorySaver
+        self.checkpointer = get_checkpointer()
+
+        # Determine which nodes need approval breakpoints
+        interrupt_nodes = get_interrupt_nodes(self.settings)
+
+        # Compile with interrupt_before for human-in-the-loop
+        self.app = graph.compile(
+            checkpointer=self.checkpointer,
+            interrupt_before=interrupt_nodes if interrupt_nodes else None,
+        )
+
         self.log = logger.bind(
             codebase=codebase_path,
             app_url=app_url,
+            breakpoints=interrupt_nodes,
         )
     
     async def run(self, thread_id: str | None = None) -> dict:
@@ -304,7 +383,7 @@ class TestingOrchestrator:
     def get_run_summary(self, state: dict) -> dict:
         """Get a summary of the test run."""
         total_tests = state["passed_count"] + state["failed_count"] + state["skipped_count"]
-        
+
         return {
             "run_id": state["run_id"],
             "started_at": state["started_at"],
@@ -317,3 +396,135 @@ class TestingOrchestrator:
             "iterations": state["iteration"],
             "error": state.get("error"),
         }
+
+    async def resume(self, thread_id: str, state_updates: Optional[dict] = None) -> dict:
+        """
+        Resume a paused execution.
+
+        Used after approving a breakpoint to continue execution.
+
+        Args:
+            thread_id: The thread ID of the paused execution
+            state_updates: Optional state modifications to apply before resuming
+
+        Returns:
+            Final state after execution completes (or hits another breakpoint)
+        """
+        config = {"configurable": {"thread_id": thread_id}}
+
+        self.log.info("Resuming execution", thread_id=thread_id)
+
+        try:
+            # Apply state updates if provided
+            if state_updates:
+                await self.app.aupdate_state(config, state_updates)
+                self.log.info("Applied state updates before resume", updates=list(state_updates.keys()))
+
+            # Resume execution from the paused state
+            final_state = await self.app.ainvoke(None, config)
+
+            self.log.info(
+                "Resumed execution completed",
+                thread_id=thread_id,
+                passed=final_state.get("passed_count", 0),
+                failed=final_state.get("failed_count", 0),
+            )
+
+            return final_state
+
+        except Exception as e:
+            self.log.error("Resume failed", thread_id=thread_id, error=str(e))
+            raise
+
+    async def get_state(self, thread_id: str) -> Optional[dict]:
+        """
+        Get the current state of a paused or completed execution.
+
+        Args:
+            thread_id: The thread ID to query
+
+        Returns:
+            Current state dict or None if not found
+        """
+        config = {"configurable": {"thread_id": thread_id}}
+
+        try:
+            state_snapshot = await self.app.aget_state(config)
+
+            if state_snapshot:
+                return {
+                    "values": state_snapshot.values,
+                    "next": state_snapshot.next,
+                    "config": state_snapshot.config,
+                    "metadata": state_snapshot.metadata,
+                    "created_at": state_snapshot.created_at if hasattr(state_snapshot, 'created_at') else None,
+                    "is_paused": bool(state_snapshot.next),
+                    "paused_before": state_snapshot.next[0] if state_snapshot.next else None,
+                }
+
+            return None
+
+        except Exception as e:
+            self.log.error("Failed to get state", thread_id=thread_id, error=str(e))
+            return None
+
+    async def update_state(self, thread_id: str, updates: dict) -> bool:
+        """
+        Update the state of a paused execution.
+
+        Useful for modifying state before approving a breakpoint.
+
+        Args:
+            thread_id: The thread ID to update
+            updates: State updates to apply
+
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        config = {"configurable": {"thread_id": thread_id}}
+
+        try:
+            await self.app.aupdate_state(config, updates)
+            self.log.info("State updated", thread_id=thread_id, updates=list(updates.keys()))
+            return True
+
+        except Exception as e:
+            self.log.error("Failed to update state", thread_id=thread_id, error=str(e))
+            return False
+
+    async def abort(self, thread_id: str, reason: str = "Aborted by user") -> dict:
+        """
+        Abort a paused execution.
+
+        Sets error state and skips to reporting.
+
+        Args:
+            thread_id: The thread ID to abort
+            reason: Reason for aborting
+
+        Returns:
+            Final state after abort
+        """
+        config = {"configurable": {"thread_id": thread_id}}
+
+        self.log.info("Aborting execution", thread_id=thread_id, reason=reason)
+
+        try:
+            # Update state to mark as aborted
+            await self.app.aupdate_state(
+                config,
+                {
+                    "error": reason,
+                    "should_continue": False,
+                    "healing_queue": [],  # Clear healing queue
+                },
+            )
+
+            # Resume to let it complete the report
+            final_state = await self.app.ainvoke(None, config)
+
+            return final_state
+
+        except Exception as e:
+            self.log.error("Abort failed", thread_id=thread_id, error=str(e))
+            raise

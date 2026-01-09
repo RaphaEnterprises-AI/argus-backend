@@ -22,6 +22,12 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: mark test as integration test requiring real API keys"
     )
+    config.addinivalue_line(
+        "markers", "slow: mark test as slow running"
+    )
+    config.addinivalue_line(
+        "markers", "e2e: mark test as end-to-end test"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -212,3 +218,260 @@ def cleanup():
     """Cleanup after each test."""
     yield
     # Any cleanup code here
+
+
+# ==============================================================================
+# Session-scoped fixtures for test environment setup
+# ==============================================================================
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_environment():
+    """Setup test environment variables for the entire test session."""
+    with patch.dict(os.environ, {
+        "ANTHROPIC_API_KEY": "sk-ant-test-key-12345",
+        "SUPABASE_URL": "https://test.supabase.co",
+        "SUPABASE_SERVICE_KEY": "test-service-key",
+    }):
+        yield
+
+
+# ==============================================================================
+# Mock Anthropic/LangChain fixtures
+# ==============================================================================
+
+@pytest.fixture
+def mock_chat_anthropic():
+    """Mock ChatAnthropic for LangChain."""
+    with patch("langchain_anthropic.ChatAnthropic") as mock:
+        mock_instance = mock.return_value
+        mock_instance.ainvoke = AsyncMock(return_value=MagicMock(
+            content="Test response",
+            tool_calls=[],
+        ))
+        mock_instance.invoke = MagicMock(return_value=MagicMock(
+            content="Test response",
+            tool_calls=[],
+        ))
+        yield mock_instance
+
+
+@pytest.fixture
+def mock_langchain_messages():
+    """Provide mock LangChain message classes."""
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+    return {
+        "HumanMessage": HumanMessage,
+        "AIMessage": AIMessage,
+        "SystemMessage": SystemMessage,
+        "ToolMessage": ToolMessage,
+    }
+
+
+# ==============================================================================
+# LangGraph fixtures
+# ==============================================================================
+
+@pytest.fixture
+def mock_checkpointer():
+    """Create a MemorySaver checkpointer for testing."""
+    from langgraph.checkpoint.memory import MemorySaver
+    return MemorySaver()
+
+
+@pytest.fixture
+def sample_test_state():
+    """Sample test state for testing orchestrator."""
+    from datetime import datetime, timezone
+    return {
+        "run_id": "test-run-123",
+        "codebase_path": "/test/app",
+        "app_url": "http://localhost:3000",
+        "messages": [],
+        "codebase_summary": "",
+        "testable_surfaces": [],
+        "changed_files": [],
+        "test_plan": [],
+        "test_priorities": {},
+        "current_test_index": 0,
+        "current_test": None,
+        "test_results": [],
+        "passed_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "failures": [],
+        "healing_queue": [],
+        "screenshots": [],
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_cost": 0.0,
+        "iteration": 0,
+        "max_iterations": 100,
+        "next_agent": "analyze_code",
+        "should_continue": True,
+        "error": None,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "pr_number": None,
+        "user_id": "test-user",
+        "session_id": "test-session",
+        "security_summary": None,
+    }
+
+
+@pytest.fixture
+def sample_test_plan():
+    """Sample test plan for testing."""
+    return [
+        {
+            "id": "test-001",
+            "name": "Login Flow Test",
+            "type": "ui",
+            "priority": "high",
+            "steps": [
+                {"action": "goto", "target": "/login"},
+                {"action": "fill", "target": "#email", "value": "test@example.com"},
+                {"action": "fill", "target": "#password", "value": "password123"},
+                {"action": "click", "target": "#submit"},
+            ],
+            "assertions": [
+                {"type": "url_contains", "expected": "/dashboard"},
+            ],
+        },
+        {
+            "id": "test-002",
+            "name": "Logout Flow Test",
+            "type": "ui",
+            "priority": "medium",
+            "steps": [
+                {"action": "click", "target": "#logout-btn"},
+            ],
+            "assertions": [
+                {"type": "url_contains", "expected": "/login"},
+            ],
+        },
+    ]
+
+
+@pytest.fixture
+def sample_test_results():
+    """Sample test results for testing."""
+    return [
+        {
+            "test_id": "test-001",
+            "status": "passed",
+            "duration_seconds": 5.5,
+            "assertions_passed": 2,
+            "assertions_failed": 0,
+            "error_message": None,
+        },
+        {
+            "test_id": "test-002",
+            "status": "failed",
+            "duration_seconds": 3.2,
+            "assertions_passed": 0,
+            "assertions_failed": 1,
+            "error_message": "Element not found: #logout-btn",
+        },
+    ]
+
+
+# ==============================================================================
+# Streaming/SSE fixtures
+# ==============================================================================
+
+@pytest.fixture
+def mock_sse_response():
+    """Mock SSE EventSourceResponse for testing."""
+    from sse_starlette.sse import EventSourceResponse
+
+    async def mock_generator():
+        yield {"event": "start", "data": '{"thread_id": "test-123"}'}
+        yield {"event": "complete", "data": '{"success": true}'}
+
+    return EventSourceResponse(mock_generator())
+
+
+class AsyncIteratorMock:
+    """Mock async iterator for testing streaming."""
+
+    def __init__(self, items):
+        self.items = items
+        self.index = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.index >= len(self.items):
+            raise StopAsyncIteration
+        item = self.items[self.index]
+        self.index += 1
+        return item
+
+
+@pytest.fixture
+def async_iterator_mock():
+    """Factory for creating async iterator mocks."""
+    return AsyncIteratorMock
+
+
+# ==============================================================================
+# Graph state fixtures for time travel testing
+# ==============================================================================
+
+@pytest.fixture
+def mock_state_history():
+    """Create mock state history for time travel tests."""
+    states = []
+    for i in range(5):
+        mock_state = MagicMock()
+        mock_state.config = {"configurable": {"checkpoint_id": f"cp-{i}"}}
+        mock_state.parent_config = {"configurable": {"checkpoint_id": f"cp-{i-1}"}} if i > 0 else None
+        mock_state.next = ["execute_test"] if i < 4 else None
+        mock_state.values = {
+            "iteration": i,
+            "passed_count": i,
+            "failed_count": 0,
+            "current_test_index": i,
+            "error": None,
+            "should_continue": True,
+        }
+        states.append(mock_state)
+    return states
+
+
+@pytest.fixture
+def mock_langgraph_app():
+    """Create a mock LangGraph compiled app."""
+    mock_app = AsyncMock()
+    mock_app.aget_state = AsyncMock(return_value=None)
+    mock_app.aupdate_state = AsyncMock()
+    mock_app.ainvoke = AsyncMock(return_value={})
+
+    async def mock_empty_history(*args, **kwargs):
+        return
+        yield
+
+    mock_app.aget_state_history = mock_empty_history
+    mock_app.astream = MagicMock(return_value=AsyncIteratorMock([]))
+    return mock_app
+
+
+# ==============================================================================
+# Settings fixtures
+# ==============================================================================
+
+@pytest.fixture
+def mock_settings():
+    """Create mock settings for testing."""
+    settings = MagicMock()
+    settings.anthropic_api_key = MagicMock()
+    settings.anthropic_api_key.get_secret_value.return_value = "sk-ant-test-key"
+    settings.cost_limit_per_run = 10.0
+    settings.cost_limit_per_test = 1.0
+    settings.self_heal_enabled = True
+    settings.self_heal_confidence_threshold = 0.8
+    settings.require_healing_approval = False
+    settings.require_human_approval_for_healing = False
+    settings.require_test_plan_approval = False
+    settings.browser_worker_url = "https://test-worker.example.com"
+    return settings

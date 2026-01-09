@@ -39,6 +39,55 @@ This project builds a **fully autonomous end-to-end testing agent** that can:
                          └───────────────────┘
 ```
 
+## LangGraph 1.0 Features
+
+This project leverages the full power of LangGraph 1.0 for production-ready orchestration:
+
+### Durable Execution (PostgresSaver)
+- All graph state persists to PostgreSQL via Supabase
+- Test runs survive server restarts
+- Automatic checkpoint creation at each node
+- File: `src/orchestrator/checkpointer.py`
+
+### Long-term Memory (PostgresStore + pgvector)
+- Semantic search on failure patterns using pgvector
+- Cross-session learning for self-healing
+- Memory namespaces for different contexts
+- Files:
+  - `src/orchestrator/memory_store.py`
+  - `supabase/migrations/20260109000001_langgraph_memory_store.sql`
+
+### Streaming (SSE)
+- Real-time execution updates via Server-Sent Events
+- Multiple stream modes: values, updates, messages, custom
+- Live log streaming to dashboard
+- File: `src/api/streaming.py`
+
+### Human-in-the-Loop
+- Breakpoints before/after critical nodes
+- Approval workflow for destructive operations
+- Resume from interruption with modified state
+- File: `src/api/approvals.py`
+
+### Time Travel Debugging
+- Browse historical state checkpoints
+- Replay from any checkpoint
+- Fork test runs for A/B testing
+- Compare divergent executions
+- File: `src/api/time_travel.py`
+
+### Multi-agent Supervisor
+- Supervisor pattern for dynamic agent routing
+- Specialized agents: CodeAnalyzer, UITester, APITester, SelfHealer, Reporter
+- Automatic task delegation based on current state
+- File: `src/orchestrator/supervisor.py`
+
+### Chat-through-Orchestrator
+- All chat routed through LangGraph
+- Full tool execution with checkpointing
+- Conversation memory with semantic search
+- File: `src/orchestrator/chat_graph.py`
+
 ## Tech Stack
 
 - **Orchestration**: LangGraph (Python)

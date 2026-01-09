@@ -22,6 +22,7 @@ import structlog
 from src.config import get_settings
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
+from src.orchestrator.checkpointer import setup_checkpointer
 from src.integrations.reporter import create_reporter, create_report_from_state
 from src.api.webhooks import router as webhooks_router
 from src.api.quality import router as quality_router
@@ -36,6 +37,10 @@ from src.api.collaboration import router as collaboration_router
 from src.api.scheduling import router as scheduling_router
 from src.api.notifications import router as notifications_router
 from src.api.parameterized import router as parameterized_router
+from src.api.chat import router as chat_router
+from src.api.streaming import router as streaming_router
+from src.api.approvals import router as approvals_router
+from src.api.time_travel import router as time_travel_router
 
 logger = structlog.get_logger()
 
@@ -97,6 +102,10 @@ app.include_router(collaboration_router)
 app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
+app.include_router(chat_router)
+app.include_router(streaming_router)
+app.include_router(approvals_router)
+app.include_router(time_travel_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -854,6 +863,338 @@ async def predictive_quality(
 
 
 # ============================================================================
+# Supervisor Orchestrator Endpoints
+# ============================================================================
+
+class SupervisorStartRequest(BaseModel):
+    """Request to start a supervised test run."""
+    codebase_path: str = Field(..., description="Path to codebase to analyze")
+    app_url: str = Field(..., description="URL of the application to test")
+    pr_number: Optional[int] = Field(None, description="PR number for GitHub integration")
+    changed_files: Optional[list[str]] = Field(None, description="Specific files to focus on")
+    initial_message: Optional[str] = Field(None, description="Custom initial message to the supervisor")
+
+
+class SupervisorStartResponse(BaseModel):
+    """Response after starting a supervised test run."""
+    thread_id: str
+    status: str
+    message: str
+    current_phase: str
+    agents_available: list[str]
+    created_at: str
+
+
+class SupervisorStatusResponse(BaseModel):
+    """Response for supervisor status query."""
+    thread_id: str
+    status: str  # running, paused, completed, failed
+    current_phase: str
+    iteration: int
+    is_complete: bool
+    next_node: Optional[str] = None
+    results: Optional[dict] = None
+    progress: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: str
+
+
+# In-memory storage for supervisor jobs (use Redis for production)
+supervisor_jobs: dict[str, dict] = {}
+
+
+@app.post("/api/v1/orchestrator/supervisor/start", response_model=SupervisorStartResponse, tags=["Supervisor"])
+async def start_supervised_test_run(request: SupervisorStartRequest, background_tasks: BackgroundTasks):
+    """
+    Start a new supervised test run using the multi-agent supervisor pattern.
+
+    The supervisor orchestrates specialized agents:
+    - code_analyzer: Analyzes codebase structure
+    - test_planner: Creates comprehensive test plans
+    - ui_tester: Executes browser-based UI tests
+    - api_tester: Tests REST/GraphQL APIs
+    - self_healer: Fixes broken tests
+    - reporter: Generates reports
+
+    The test run executes in the background. Use the returned thread_id to check status.
+    """
+    from src.orchestrator.supervisor import (
+        SupervisorOrchestrator,
+        AGENTS as SUPERVISOR_AGENTS,
+        AGENT_DESCRIPTIONS as SUPERVISOR_AGENT_DESCRIPTIONS,
+        create_initial_supervisor_state,
+    )
+
+    thread_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    # Store initial job state
+    supervisor_jobs[thread_id] = {
+        "status": "pending",
+        "created_at": created_at,
+        "request": request.model_dump(),
+        "current_phase": "analysis",
+        "iteration": 0,
+        "is_complete": False,
+        "progress": {
+            "phase": "initializing",
+            "agents_invoked": [],
+            "tests_completed": 0,
+        },
+    }
+
+    # Run supervised tests in background
+    async def run_supervised_tests():
+        try:
+            supervisor_jobs[thread_id]["status"] = "running"
+            supervisor_jobs[thread_id]["progress"]["phase"] = "starting"
+
+            # Create supervisor orchestrator
+            orchestrator = SupervisorOrchestrator(
+                codebase_path=request.codebase_path,
+                app_url=request.app_url,
+                pr_number=request.pr_number,
+                changed_files=request.changed_files,
+            )
+
+            # Run the supervised orchestration
+            final_state = await orchestrator.run(thread_id=thread_id)
+
+            # Get summary
+            summary = orchestrator.get_summary(final_state)
+
+            # Update job with results
+            supervisor_jobs[thread_id].update({
+                "status": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_phase": final_state.get("current_phase", "complete"),
+                "iteration": final_state.get("iteration", 0),
+                "is_complete": True,
+                "result": summary,
+                "progress": {
+                    "phase": "completed",
+                    "tests_completed": final_state.get("passed_count", 0) + final_state.get("failed_count", 0),
+                    "passed": final_state.get("passed_count", 0),
+                    "failed": final_state.get("failed_count", 0),
+                },
+            })
+
+            logger.info(
+                "Supervised test run completed",
+                thread_id=thread_id,
+                passed=final_state.get("passed_count", 0),
+                failed=final_state.get("failed_count", 0),
+                iterations=final_state.get("iteration", 0),
+            )
+
+        except Exception as e:
+            logger.exception("Supervised test run failed", thread_id=thread_id, error=str(e))
+            supervisor_jobs[thread_id].update({
+                "status": "failed",
+                "error": str(e),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    background_tasks.add_task(run_supervised_tests)
+
+    logger.info(
+        "Supervised test run started",
+        thread_id=thread_id,
+        app_url=request.app_url,
+    )
+
+    return SupervisorStartResponse(
+        thread_id=thread_id,
+        status="pending",
+        message="Supervised test run started. Use /api/v1/orchestrator/supervisor/status/{thread_id} to check status.",
+        current_phase="analysis",
+        agents_available=list(SUPERVISOR_AGENTS),
+        created_at=created_at,
+    )
+
+
+@app.get("/api/v1/orchestrator/supervisor/status/{thread_id}", response_model=SupervisorStatusResponse, tags=["Supervisor"])
+async def get_supervisor_status(thread_id: str):
+    """
+    Get the status of a supervised test run.
+
+    Returns current phase, iteration count, results, and whether the run is complete.
+    """
+    if thread_id not in supervisor_jobs:
+        raise HTTPException(status_code=404, detail="Supervisor job not found")
+
+    job = supervisor_jobs[thread_id]
+
+    return SupervisorStatusResponse(
+        thread_id=thread_id,
+        status=job.get("status", "unknown"),
+        current_phase=job.get("current_phase", "unknown"),
+        iteration=job.get("iteration", 0),
+        is_complete=job.get("is_complete", False),
+        next_node=job.get("next_node"),
+        results=job.get("result"),
+        progress=job.get("progress"),
+        error=job.get("error"),
+        created_at=job.get("created_at", ""),
+    )
+
+
+@app.get("/api/v1/orchestrator/supervisor/agents", tags=["Supervisor"])
+async def list_supervisor_agents():
+    """
+    List available supervisor agents and their descriptions.
+    """
+    from src.orchestrator.supervisor import AGENTS as SUPERVISOR_AGENTS, AGENT_DESCRIPTIONS as SUPERVISOR_AGENT_DESCRIPTIONS
+
+    return {
+        "agents": [
+            {
+                "name": agent,
+                "description": SUPERVISOR_AGENT_DESCRIPTIONS.get(agent, ""),
+            }
+            for agent in SUPERVISOR_AGENTS
+        ],
+        "total": len(SUPERVISOR_AGENTS),
+    }
+
+
+@app.get("/api/v1/orchestrator/supervisor/jobs", tags=["Supervisor"])
+async def list_supervisor_jobs(
+    limit: int = 20,
+    status: Optional[str] = None,
+):
+    """
+    List recent supervised test runs.
+    """
+    filtered = list(supervisor_jobs.items())
+
+    if status:
+        filtered = [(k, v) for k, v in filtered if v.get("status") == status]
+
+    # Sort by created_at descending
+    filtered.sort(key=lambda x: x[1].get("created_at", ""), reverse=True)
+
+    return {
+        "jobs": [
+            {
+                "thread_id": k,
+                "status": v.get("status"),
+                "current_phase": v.get("current_phase"),
+                "iteration": v.get("iteration", 0),
+                "is_complete": v.get("is_complete", False),
+                "created_at": v.get("created_at"),
+                "completed_at": v.get("completed_at"),
+            }
+            for k, v in filtered[:limit]
+        ],
+        "total": len(filtered),
+    }
+
+
+@app.post("/api/v1/orchestrator/supervisor/resume/{thread_id}", tags=["Supervisor"])
+async def resume_supervisor_run(thread_id: str, background_tasks: BackgroundTasks):
+    """
+    Resume a paused supervised test run.
+
+    This is useful when the run is paused at a breakpoint (e.g., waiting for approval).
+    """
+    from src.orchestrator.supervisor import SupervisorOrchestrator
+
+    if thread_id not in supervisor_jobs:
+        raise HTTPException(status_code=404, detail="Supervisor job not found")
+
+    job = supervisor_jobs[thread_id]
+
+    if job.get("status") not in ["paused", "pending"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resume job with status '{job.get('status')}'. Only paused or pending jobs can be resumed."
+        )
+
+    # Get original request
+    original_request = job.get("request", {})
+
+    async def resume_supervised_run():
+        try:
+            supervisor_jobs[thread_id]["status"] = "running"
+
+            # Create orchestrator
+            orchestrator = SupervisorOrchestrator(
+                codebase_path=original_request.get("codebase_path", ""),
+                app_url=original_request.get("app_url", ""),
+                pr_number=original_request.get("pr_number"),
+                changed_files=original_request.get("changed_files"),
+            )
+
+            # Resume execution
+            final_state = await orchestrator.resume(thread_id)
+
+            # Update job with results
+            summary = orchestrator.get_summary(final_state)
+
+            supervisor_jobs[thread_id].update({
+                "status": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_phase": final_state.get("current_phase", "complete"),
+                "iteration": final_state.get("iteration", 0),
+                "is_complete": True,
+                "result": summary,
+            })
+
+            logger.info("Supervised test run resumed and completed", thread_id=thread_id)
+
+        except Exception as e:
+            logger.exception("Supervised test run resume failed", thread_id=thread_id, error=str(e))
+            supervisor_jobs[thread_id].update({
+                "status": "failed",
+                "error": str(e),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    background_tasks.add_task(resume_supervised_run)
+
+    return {
+        "success": True,
+        "thread_id": thread_id,
+        "message": "Supervisor run resumed. Check status for updates.",
+    }
+
+
+@app.delete("/api/v1/orchestrator/supervisor/{thread_id}", tags=["Supervisor"])
+async def abort_supervisor_run(thread_id: str, reason: str = "Aborted by user"):
+    """
+    Abort a running supervised test run.
+
+    This will mark the run as failed and stop any further processing.
+    """
+    if thread_id not in supervisor_jobs:
+        raise HTTPException(status_code=404, detail="Supervisor job not found")
+
+    job = supervisor_jobs[thread_id]
+
+    if job.get("status") in ["completed", "failed"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot abort job with status '{job.get('status')}'. Job is already finished."
+        )
+
+    # Update job status
+    supervisor_jobs[thread_id].update({
+        "status": "failed",
+        "error": reason,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info("Supervised test run aborted", thread_id=thread_id, reason=reason)
+
+    return {
+        "success": True,
+        "thread_id": thread_id,
+        "message": f"Supervisor run aborted: {reason}",
+    }
+
+
+# ============================================================================
 # Error Handlers
 # ============================================================================
 
@@ -886,6 +1227,10 @@ async def startup():
 
     # Ensure output directory exists
     os.makedirs(settings.output_dir, exist_ok=True)
+
+    # Initialize checkpointer for durable execution
+    # This sets up PostgresSaver if DATABASE_URL is configured
+    await setup_checkpointer()
 
 
 @app.on_event("shutdown")
