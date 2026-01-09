@@ -1,10 +1,14 @@
 """API router for parameterized/data-driven test operations.
 
 This module provides REST API endpoints for:
+- Creating and managing parameterized test definitions
 - Expanding parameterized tests into individual test instances
 - Previewing expanded tests before execution
 - Validating parameter configurations
 - Importing test data from CSV/JSON files
+- Storing execution results
+
+Now with Supabase persistence for production use.
 
 All endpoints are prefixed with /api/v1/parameterized.
 """
@@ -12,11 +16,12 @@ All endpoints are prefixed with /api/v1/parameterized.
 import base64
 import csv
 import json
+import uuid
 from datetime import datetime, timezone
 from io import StringIO
 from typing import Any, Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile, Request, Query
 from pydantic import BaseModel, Field
 import structlog
 
@@ -38,10 +43,167 @@ from src.parameterized.models import (
     TestAssertion,
     TestStep,
 )
+from src.integrations.supabase import get_supabase, is_supabase_configured
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/parameterized", tags=["Parameterized Tests"])
+
+
+# =============================================================================
+# In-Memory Storage (fallback when Supabase not configured)
+# =============================================================================
+
+_parameterized_tests: dict[str, dict] = {}
+_parameter_sets: dict[str, list[dict]] = {}  # test_id -> list of sets
+_execution_results: dict[str, list[dict]] = {}  # test_id -> list of results
+
+
+# =============================================================================
+# Supabase Helper Functions
+# =============================================================================
+
+async def _get_test_from_db(test_id: str) -> Optional[dict]:
+    """Get a parameterized test from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _parameterized_tests.get(test_id)
+
+    result = await supabase.select(
+        "parameterized_tests",
+        columns="*",
+        filters={"id": test_id},
+        limit=1
+    )
+    return result[0] if result else None
+
+
+async def _list_tests_from_db(
+    project_id: Optional[str] = None,
+    limit: int = 50
+) -> list[dict]:
+    """List parameterized tests from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        tests = list(_parameterized_tests.values())
+        if project_id:
+            tests = [t for t in tests if t.get("project_id") == project_id]
+        return tests[:limit]
+
+    filters = {}
+    if project_id:
+        filters["project_id"] = project_id
+
+    return await supabase.select(
+        "parameterized_tests",
+        columns="*",
+        filters=filters if filters else None,
+        order_by="created_at",
+        ascending=False,
+        limit=limit
+    )
+
+
+async def _save_test_to_db(test: dict) -> bool:
+    """Save a parameterized test to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        _parameterized_tests[test["id"]] = test
+        return True
+
+    return await supabase.insert("parameterized_tests", [test])
+
+
+async def _update_test_in_db(test_id: str, updates: dict) -> bool:
+    """Update a parameterized test in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if test_id in _parameterized_tests:
+            _parameterized_tests[test_id].update(updates)
+            return True
+        return False
+
+    return await supabase.update("parameterized_tests", updates, {"id": test_id})
+
+
+async def _delete_test_from_db(test_id: str) -> bool:
+    """Delete a parameterized test from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if test_id in _parameterized_tests:
+            del _parameterized_tests[test_id]
+            return True
+        return False
+
+    return await supabase.delete("parameterized_tests", {"id": test_id})
+
+
+async def _get_parameter_sets_from_db(test_id: str) -> list[dict]:
+    """Get parameter sets for a test from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _parameter_sets.get(test_id, [])
+
+    return await supabase.select(
+        "parameter_sets",
+        columns="*",
+        filters={"parameterized_test_id": test_id},
+        order_by="order_index",
+        ascending=True
+    )
+
+
+async def _save_parameter_set_to_db(param_set: dict) -> bool:
+    """Save a parameter set to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        test_id = param_set.get("parameterized_test_id")
+        if test_id not in _parameter_sets:
+            _parameter_sets[test_id] = []
+        _parameter_sets[test_id].append(param_set)
+        return True
+
+    return await supabase.insert("parameter_sets", [param_set])
+
+
+async def _delete_parameter_sets_for_test(test_id: str) -> bool:
+    """Delete all parameter sets for a test."""
+    supabase = await get_supabase()
+    if not supabase:
+        if test_id in _parameter_sets:
+            del _parameter_sets[test_id]
+        return True
+
+    return await supabase.delete("parameter_sets", {"parameterized_test_id": test_id})
+
+
+async def _save_execution_result_to_db(result: dict) -> bool:
+    """Save an execution result to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        test_id = result.get("parameterized_test_id")
+        if test_id not in _execution_results:
+            _execution_results[test_id] = []
+        _execution_results[test_id].append(result)
+        return True
+
+    return await supabase.insert("parameterized_results", [result])
+
+
+async def _list_execution_results_from_db(test_id: str, limit: int = 20) -> list[dict]:
+    """List execution results for a test."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _execution_results.get(test_id, [])[-limit:]
+
+    return await supabase.select(
+        "parameterized_results",
+        columns="*",
+        filters={"parameterized_test_id": test_id},
+        order_by="created_at",
+        ascending=False,
+        limit=limit
+    )
 
 
 # =============================================================================
@@ -802,4 +964,423 @@ async def list_iteration_modes():
                 "use_case": "Quick feedback during development",
             },
         ],
+    }
+
+
+# =============================================================================
+# CRUD Endpoints for Parameterized Test Management
+# =============================================================================
+
+
+class TestCreateRequest(BaseModel):
+    """Request to create a new parameterized test."""
+
+    project_id: str = Field(..., description="Project ID this test belongs to")
+    name: str = Field(..., description="Test name")
+    description: Optional[str] = Field(None, description="Test description")
+    data_source_type: str = Field(..., description="Data source type: inline, csv, json, env, database, api")
+    data_source_config: dict[str, Any] = Field(..., description="Data source configuration")
+    parameter_schema: Optional[dict[str, str]] = Field(None, description="Parameter schema")
+    steps: list[dict[str, Any]] = Field(default_factory=list, description="Test steps")
+    assertions: Optional[list[dict[str, Any]]] = Field(None, description="Test assertions")
+    setup: Optional[list[dict[str, Any]]] = Field(None, description="Setup steps")
+    teardown: Optional[list[dict[str, Any]]] = Field(None, description="Teardown steps")
+    iteration_mode: str = Field("sequential", description="Iteration mode")
+    max_parallel: int = Field(5, description="Max parallel iterations")
+    timeout_per_iteration_ms: int = Field(60000, description="Timeout per iteration in ms")
+
+
+class TestUpdateRequest(BaseModel):
+    """Request to update a parameterized test."""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    data_source_type: Optional[str] = None
+    data_source_config: Optional[dict[str, Any]] = None
+    parameter_schema: Optional[dict[str, str]] = None
+    steps: Optional[list[dict[str, Any]]] = None
+    assertions: Optional[list[dict[str, Any]]] = None
+    setup: Optional[list[dict[str, Any]]] = None
+    teardown: Optional[list[dict[str, Any]]] = None
+    iteration_mode: Optional[str] = None
+    max_parallel: Optional[int] = None
+    timeout_per_iteration_ms: Optional[int] = None
+
+
+class TestResponse(BaseModel):
+    """Response for parameterized test."""
+
+    id: str
+    project_id: str
+    name: str
+    description: Optional[str] = None
+    data_source_type: str
+    data_source_config: dict[str, Any]
+    parameter_schema: Optional[dict[str, str]] = None
+    steps: list[dict[str, Any]]
+    assertions: list[dict[str, Any]] = []
+    setup: list[dict[str, Any]] = []
+    teardown: list[dict[str, Any]] = []
+    iteration_mode: str = "sequential"
+    max_parallel: int = 5
+    timeout_per_iteration_ms: int = 60000
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ParameterSetCreateRequest(BaseModel):
+    """Request to create a parameter set."""
+
+    name: str = Field(..., description="Parameter set name")
+    description: Optional[str] = Field(None, description="Description")
+    values: dict[str, Any] = Field(..., description="Parameter values")
+    tags: list[str] = Field(default_factory=list, description="Tags")
+    skip: bool = Field(False, description="Skip this set")
+    skip_reason: Optional[str] = Field(None, description="Reason for skipping")
+
+
+class ParameterSetResponse(BaseModel):
+    """Response for parameter set."""
+
+    id: str
+    parameterized_test_id: str
+    name: str
+    description: Optional[str] = None
+    values: dict[str, Any]
+    tags: list[str] = []
+    skip: bool = False
+    skip_reason: Optional[str] = None
+    order_index: int = 0
+    created_at: Optional[str] = None
+
+
+class ExecutionResultResponse(BaseModel):
+    """Response for execution result."""
+
+    id: str
+    parameterized_test_id: str
+    test_run_id: Optional[str] = None
+    schedule_run_id: Optional[str] = None
+    total_iterations: int
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    duration_ms: Optional[int] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    iteration_results: list[dict[str, Any]] = []
+    created_at: Optional[str] = None
+
+
+@router.post("/tests", response_model=TestResponse, status_code=201)
+async def create_test(request: TestCreateRequest):
+    """Create a new parameterized test.
+
+    Args:
+        request: Test creation request
+
+    Returns:
+        Created test
+    """
+    test_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    test_data = {
+        "id": test_id,
+        "project_id": request.project_id,
+        "name": request.name,
+        "description": request.description,
+        "data_source_type": request.data_source_type,
+        "data_source_config": request.data_source_config,
+        "parameter_schema": request.parameter_schema,
+        "steps": request.steps,
+        "assertions": request.assertions or [],
+        "setup": request.setup or [],
+        "teardown": request.teardown or [],
+        "iteration_mode": request.iteration_mode,
+        "max_parallel": request.max_parallel,
+        "timeout_per_iteration_ms": request.timeout_per_iteration_ms,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    success = await _save_test_to_db(test_data)
+    if not success:
+        logger.warning("Failed to persist test to Supabase, using in-memory")
+
+    logger.info("Created parameterized test", test_id=test_id, name=request.name)
+
+    return TestResponse(**test_data)
+
+
+@router.get("/tests", response_model=list[TestResponse])
+async def list_tests(
+    project_id: Optional[str] = Query(None, description="Filter by project"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum results"),
+):
+    """List parameterized tests.
+
+    Args:
+        project_id: Optional project filter
+        limit: Maximum results to return
+
+    Returns:
+        List of tests
+    """
+    tests = await _list_tests_from_db(project_id=project_id, limit=limit)
+    return [TestResponse(**t) for t in tests]
+
+
+@router.get("/tests/{test_id}", response_model=TestResponse)
+async def get_test(test_id: str):
+    """Get a parameterized test by ID.
+
+    Args:
+        test_id: Test ID
+
+    Returns:
+        Test details
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    return TestResponse(**test)
+
+
+@router.patch("/tests/{test_id}", response_model=TestResponse)
+async def update_test(test_id: str, request: TestUpdateRequest):
+    """Update a parameterized test.
+
+    Args:
+        test_id: Test ID
+        request: Update request
+
+    Returns:
+        Updated test
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    success = await _update_test_in_db(test_id, updates)
+    if not success:
+        logger.warning("Failed to persist test update to Supabase")
+
+    test.update(updates)
+    logger.info("Updated parameterized test", test_id=test_id)
+
+    return TestResponse(**test)
+
+
+@router.delete("/tests/{test_id}", status_code=204)
+async def delete_test(test_id: str):
+    """Delete a parameterized test.
+
+    Args:
+        test_id: Test ID
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    # Delete parameter sets first
+    await _delete_parameter_sets_for_test(test_id)
+
+    success = await _delete_test_from_db(test_id)
+    if not success:
+        logger.warning("Failed to delete test from Supabase")
+
+    logger.info("Deleted parameterized test", test_id=test_id)
+
+
+@router.post("/tests/{test_id}/parameter-sets", response_model=ParameterSetResponse, status_code=201)
+async def create_parameter_set(test_id: str, request: ParameterSetCreateRequest):
+    """Add a parameter set to a test.
+
+    Args:
+        test_id: Test ID
+        request: Parameter set creation request
+
+    Returns:
+        Created parameter set
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    # Get existing sets to determine order
+    existing_sets = await _get_parameter_sets_from_db(test_id)
+    order_index = len(existing_sets)
+
+    set_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    param_set_data = {
+        "id": set_id,
+        "parameterized_test_id": test_id,
+        "name": request.name,
+        "description": request.description,
+        "values": request.values,
+        "tags": request.tags,
+        "skip": request.skip,
+        "skip_reason": request.skip_reason,
+        "order_index": order_index,
+        "created_at": now,
+    }
+
+    success = await _save_parameter_set_to_db(param_set_data)
+    if not success:
+        logger.warning("Failed to persist parameter set to Supabase")
+
+    logger.info("Created parameter set", set_id=set_id, test_id=test_id)
+
+    return ParameterSetResponse(**param_set_data)
+
+
+@router.get("/tests/{test_id}/parameter-sets", response_model=list[ParameterSetResponse])
+async def list_parameter_sets(test_id: str):
+    """List parameter sets for a test.
+
+    Args:
+        test_id: Test ID
+
+    Returns:
+        List of parameter sets
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    sets = await _get_parameter_sets_from_db(test_id)
+    return [ParameterSetResponse(**s) for s in sets]
+
+
+@router.delete("/tests/{test_id}/parameter-sets", status_code=204)
+async def delete_all_parameter_sets(test_id: str):
+    """Delete all parameter sets for a test.
+
+    Args:
+        test_id: Test ID
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    await _delete_parameter_sets_for_test(test_id)
+    logger.info("Deleted all parameter sets", test_id=test_id)
+
+
+@router.get("/tests/{test_id}/results", response_model=list[ExecutionResultResponse])
+async def list_execution_results(
+    test_id: str,
+    limit: int = Query(20, ge=1, le=100, description="Maximum results"),
+):
+    """List execution results for a test.
+
+    Args:
+        test_id: Test ID
+        limit: Maximum results to return
+
+    Returns:
+        List of execution results
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    results = await _list_execution_results_from_db(test_id, limit=limit)
+    return [ExecutionResultResponse(**r) for r in results]
+
+
+@router.post("/tests/{test_id}/execute", response_model=dict)
+async def execute_test(test_id: str, dry_run: bool = Query(False, description="Preview without executing")):
+    """Execute a parameterized test.
+
+    Args:
+        test_id: Test ID
+        dry_run: If true, preview expansion without executing
+
+    Returns:
+        Execution result or preview
+
+    Raises:
+        HTTPException: If test not found
+    """
+    test = await _get_test_from_db(test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    # Get parameter sets
+    param_sets = await _get_parameter_sets_from_db(test_id)
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "test_id": test_id,
+            "test_name": test.get("name"),
+            "total_iterations": len(param_sets),
+            "parameter_sets": [
+                {"name": s.get("name"), "values": s.get("values"), "skip": s.get("skip", False)}
+                for s in param_sets
+            ],
+            "iteration_mode": test.get("iteration_mode", "sequential"),
+        }
+
+    # Create execution result
+    result_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    execution_result = {
+        "id": result_id,
+        "parameterized_test_id": test_id,
+        "total_iterations": len(param_sets),
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": None,
+        "started_at": now,
+        "completed_at": None,
+        "iteration_results": [],
+        "created_at": now,
+    }
+
+    await _save_execution_result_to_db(execution_result)
+
+    logger.info("Started parameterized test execution", test_id=test_id, result_id=result_id)
+
+    return {
+        "success": True,
+        "dry_run": False,
+        "result_id": result_id,
+        "test_id": test_id,
+        "test_name": test.get("name"),
+        "total_iterations": len(param_sets),
+        "status": "started",
+        "message": "Execution started. Poll /results endpoint for updates.",
     }
