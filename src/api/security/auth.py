@@ -237,44 +237,52 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
     if not api_key or not api_key.startswith(API_KEY_PREFIX):
         return None
 
-    from src.integrations.supabase import get_supabase
+    from src.services.supabase_client import get_supabase_client
 
     try:
-        supabase = await get_supabase()
-        if not supabase:
+        supabase = get_supabase_client()
+        if not supabase.is_configured:
             logger.warning("Supabase not available for API key verification")
             return None
 
         key_hash = hash_api_key(api_key)
-        result = await supabase.fetch_one(
-            f"/api_keys?key_hash=eq.{key_hash}&revoked_at=is.null&select=*,organizations(id,name)"
+        result = await supabase.request(
+            f"/api_keys?key_hash=eq.{key_hash}&revoked_at=is.null&select=*"
         )
 
-        if not result:
+        if result.get("error") or not result.get("data"):
+            logger.warning("Invalid API key", key_prefix=api_key[:12])
+            return None
+
+        key_data = result["data"][0] if result["data"] else None
+        if not key_data:
             logger.warning("Invalid API key", key_prefix=api_key[:12])
             return None
 
         # Check expiration
-        if result.get("expires_at"):
-            expires = datetime.fromisoformat(result["expires_at"].replace("Z", "+00:00"))
+        if key_data.get("expires_at"):
+            expires = datetime.fromisoformat(key_data["expires_at"].replace("Z", "+00:00"))
             if expires < datetime.now(timezone.utc):
-                logger.warning("Expired API key", key_id=result["id"])
+                logger.warning("Expired API key", key_id=key_data["id"])
                 return None
 
         # Update last used
         await supabase.update(
             "api_keys",
-            {"last_used_at": datetime.now(timezone.utc).isoformat()},
-            f"id=eq.{result['id']}"
+            {"id": f"eq.{key_data['id']}"},
+            {
+                "last_used_at": datetime.now(timezone.utc).isoformat(),
+                "request_count": (key_data.get("request_count", 0) or 0) + 1,
+            }
         )
 
         return UserContext(
-            user_id=result.get("created_by", "system"),
-            organization_id=result["organization_id"],
+            user_id=key_data.get("created_by", "system"),
+            organization_id=key_data["organization_id"],
             roles=["api_user"],
-            scopes=result.get("scopes", ["read"]),
+            scopes=key_data.get("scopes", ["read"]),
             auth_method=AuthMethod.API_KEY,
-            api_key_id=result["id"],
+            api_key_id=key_data["id"],
             ip_address=get_client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
