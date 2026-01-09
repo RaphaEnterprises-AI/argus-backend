@@ -83,7 +83,31 @@ class MemberResponse(BaseModel):
 # ============================================================================
 
 async def get_current_user(request: Request) -> dict:
-    """Extract current user from request headers (set by auth middleware)."""
+    """Extract current user from request state (set by auth middleware).
+
+    The AuthenticationMiddleware stores authenticated user info in request.state.user
+    as a UserContext object. This function extracts it for use in route handlers.
+    """
+    # Check if user was authenticated by middleware
+    if hasattr(request.state, "user") and request.state.user:
+        user = request.state.user
+        # Handle both UserContext objects and dict-like objects
+        if hasattr(user, "user_id"):
+            return {
+                "user_id": user.user_id,
+                "email": getattr(user, "email", None),
+                "organization_id": getattr(user, "organization_id", None),
+                "roles": getattr(user, "roles", []),
+            }
+        elif isinstance(user, dict):
+            return {
+                "user_id": user.get("user_id"),
+                "email": user.get("email"),
+                "organization_id": user.get("organization_id"),
+                "roles": user.get("roles", []),
+            }
+
+    # Fallback to headers (legacy support)
     user_id = request.headers.get("x-user-id")
     user_email = request.headers.get("x-user-email")
 
