@@ -5,6 +5,14 @@ Provides REST API endpoints for:
 - Checking status
 - Managing baselines
 - Webhooks for CI/CD integration
+
+Security Features (SOC2 Compliant):
+- Global authentication middleware
+- Rate limiting
+- Security headers (OWASP)
+- Comprehensive audit logging
+- RBAC (Role-Based Access Control)
+- Input validation and sanitization
 """
 
 import asyncio
@@ -13,9 +21,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field
 import structlog
 
@@ -24,6 +33,8 @@ from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
 from src.orchestrator.checkpointer import setup_checkpointer
 from src.integrations.reporter import create_reporter, create_report_from_state
+
+# API Routers
 from src.api.webhooks import router as webhooks_router
 from src.api.quality import router as quality_router
 from src.api.teams import router as teams_router
@@ -41,6 +52,16 @@ from src.api.chat import router as chat_router
 from src.api.streaming import router as streaming_router
 from src.api.approvals import router as approvals_router
 from src.api.time_travel import router as time_travel_router
+
+# Security Module
+from src.api.security.middleware import (
+    SecurityMiddleware,
+    AuthenticationMiddleware,
+    RateLimitMiddleware,
+    AuditLogMiddleware,
+)
+from src.api.security.headers import SecurityHeadersMiddleware
+from src.api.security.auth import get_current_user, UserContext
 
 logger = structlog.get_logger()
 
@@ -71,21 +92,101 @@ class AutonomousLoopRequest(BaseModel):
 # App Configuration
 # ============================================================================
 
+# Get settings for configuration
+settings = get_settings()
+
+# API Version
+API_VERSION = "2.0.1"
+API_VERSION_DATE = "2026-01-09"
+
 app = FastAPI(
-    title="E2E Testing Agent API",
-    description="Autonomous E2E testing powered by Claude AI",
-    version="0.1.0",
+    title="Argus E2E Testing Agent API",
+    description="""
+Autonomous E2E testing powered by Claude AI.
+
+## Security Features (SOC2 Compliant)
+- **Authentication**: API Key and JWT Bearer token support
+- **Authorization**: Role-Based Access Control (RBAC)
+- **Rate Limiting**: Configurable per-endpoint limits
+- **Audit Logging**: Comprehensive security event logging
+- **Input Validation**: XSS, SQL injection, and path traversal protection
+- **Security Headers**: OWASP-compliant headers
+
+## API Versioning
+- Current Version: v1
+- Version Header: X-API-Version
+    """,
+    version=API_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Health", "description": "Health check endpoints"},
+        {"name": "Authentication", "description": "Authentication and authorization"},
+        {"name": "Tests", "description": "Test execution and management"},
+        {"name": "Chat", "description": "Chat-based test orchestration"},
+        {"name": "Streaming", "description": "Server-Sent Events for real-time updates"},
+        {"name": "Time Travel", "description": "State inspection and replay"},
+        {"name": "Security", "description": "Security and audit endpoints"},
+    ],
 )
 
-# CORS middleware
+# =============================================================================
+# Security Middleware Stack (Order matters - executed bottom to top)
+# =============================================================================
+
+# 1. Security Headers (OWASP) - Outermost layer
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    enable_hsts=settings.enable_hsts,
+    hsts_max_age=settings.hsts_max_age,
+    enable_csp=settings.enable_csp,
+)
+
+# 2. Audit Logging - Log all requests for SOC2 compliance
+app.add_middleware(
+    AuditLogMiddleware,
+    enabled=settings.audit_logging_enabled,
+    log_request_body=settings.audit_log_request_body,
+    log_response_body=settings.audit_log_response_body,
+)
+
+# 3. Rate Limiting - Prevent abuse
+app.add_middleware(
+    RateLimitMiddleware,
+    enabled=settings.rate_limiting_enabled,
+)
+
+# 4. Authentication - Enforce auth on protected endpoints
+app.add_middleware(
+    AuthenticationMiddleware,
+    enforce_auth=settings.enforce_authentication,
+)
+
+# 5. Core Security - Request ID, timing attack prevention
+app.add_middleware(SecurityMiddleware)
+
+# 6. CORS - Allow cross-origin requests (configure for production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-API-Key",
+        "X-Request-ID",
+        "X-API-Version",
+        "Accept",
+        "Origin",
+    ],
+    expose_headers=[
+        "X-Request-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "X-API-Version",
+    ],
 )
 
 # Include routers
@@ -149,6 +250,17 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     timestamp: str
+    security: Optional[dict] = None
+
+
+class SecurityInfoResponse(BaseModel):
+    """Security configuration info response."""
+    authentication_enabled: bool
+    rate_limiting_enabled: bool
+    audit_logging_enabled: bool
+    security_headers_enabled: bool
+    api_version: str
+    supported_auth_methods: list[str]
 
 
 class NLPTestRequest(BaseModel):
@@ -182,8 +294,26 @@ async def health_check():
     """Health check endpoint for load balancers and monitoring."""
     return HealthResponse(
         status="healthy",
-        version="0.1.0",
+        version=API_VERSION,
         timestamp=datetime.now(timezone.utc).isoformat(),
+        security={
+            "authentication": settings.enforce_authentication,
+            "rate_limiting": settings.rate_limiting_enabled,
+            "audit_logging": settings.audit_logging_enabled,
+        },
+    )
+
+
+@app.get("/api/v1/security/info", response_model=SecurityInfoResponse, tags=["Security"])
+async def security_info():
+    """Get security configuration info (public endpoint)."""
+    return SecurityInfoResponse(
+        authentication_enabled=settings.enforce_authentication,
+        rate_limiting_enabled=settings.rate_limiting_enabled,
+        audit_logging_enabled=settings.audit_logging_enabled,
+        security_headers_enabled=settings.enable_hsts or settings.enable_csp,
+        api_version=API_VERSION,
+        supported_auth_methods=["api_key", "jwt_bearer"],
     )
 
 
@@ -1212,17 +1342,97 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # ============================================================================
+# Custom OpenAPI Schema with Security
+# ============================================================================
+
+def custom_openapi():
+    """Generate custom OpenAPI schema with security schemes."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+
+    # Add security schemes
+    openapi_schema["components"] = openapi_schema.get("components", {})
+    openapi_schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "API key for authentication. Format: argus_xxxx",
+        },
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "JWT Bearer token for authentication",
+        },
+    }
+
+    # Add global security requirement (optional - can be overridden per-endpoint)
+    openapi_schema["security"] = [
+        {"ApiKeyAuth": []},
+        {"BearerAuth": []},
+    ]
+
+    # Add server info
+    openapi_schema["servers"] = [
+        {
+            "url": "https://argus-brain-production.up.railway.app",
+            "description": "Production server",
+        },
+        {
+            "url": "http://localhost:8000",
+            "description": "Local development server",
+        },
+    ]
+
+    # Add contact and license info for SOC2
+    openapi_schema["info"]["contact"] = {
+        "name": "Argus Security Team",
+        "email": "security@heyargus.com",
+    }
+    openapi_schema["info"]["license"] = {
+        "name": "MIT",
+        "url": "https://opensource.org/licenses/MIT",
+    }
+
+    # Add external docs
+    openapi_schema["externalDocs"] = {
+        "description": "Argus Documentation",
+        "url": "https://docs.heyargus.com",
+    }
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
+
+# ============================================================================
 # Startup/Shutdown Events
 # ============================================================================
 
 @app.on_event("startup")
 async def startup():
     """Initialize resources on startup."""
-    settings = get_settings()
+    startup_settings = get_settings()
     logger.info(
-        "E2E Testing Agent API starting",
-        version="0.1.0",
-        output_dir=settings.output_dir,
+        "Argus E2E Testing Agent API starting",
+        version=API_VERSION,
+        output_dir=startup_settings.output_dir,
+        security={
+            "authentication": startup_settings.enforce_authentication,
+            "rate_limiting": startup_settings.rate_limiting_enabled,
+            "audit_logging": startup_settings.audit_logging_enabled,
+        },
     )
 
     # Ensure output directory exists
