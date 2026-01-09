@@ -120,14 +120,25 @@ async def get_current_user(request: Request) -> dict:
 async def verify_org_access(
     organization_id: str,
     user_id: str,
-    required_roles: list[str] = None
+    required_roles: list[str] = None,
+    user_email: str = None
 ) -> dict:
-    """Verify user has access to the organization with required role."""
+    """Verify user has access to the organization with required role.
+
+    Checks membership by user_id first, then falls back to email.
+    """
     supabase = get_supabase_client()
 
+    # Try by user_id first
     result = await supabase.request(
         f"/organization_members?organization_id=eq.{organization_id}&user_id=eq.{user_id}&select=*"
     )
+
+    # If not found by user_id, try by email
+    if (not result.get("data") or result.get("error")) and user_email:
+        result = await supabase.request(
+            f"/organization_members?organization_id=eq.{organization_id}&email=eq.{user_email}&select=*"
+        )
 
     if result.get("error") or not result.get("data"):
         raise HTTPException(status_code=403, detail="Access denied to this organization")
