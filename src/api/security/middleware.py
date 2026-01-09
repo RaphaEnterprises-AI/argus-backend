@@ -406,6 +406,10 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
 
             supabase = await get_supabase()
             if supabase:
+                # Convert duration_ms to int (column is INTEGER type)
+                duration = entry.get("duration_ms")
+                duration_int = int(round(duration)) if duration is not None else None
+
                 await supabase.insert("audit_logs", {
                     "request_id": entry["request_id"],
                     "event_type": entry["event_type"],
@@ -416,7 +420,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                     "ip_address": entry["client_ip"],
                     "user_agent": entry.get("user_agent"),
                     "status_code": entry.get("status_code"),
-                    "duration_ms": entry.get("duration_ms"),
+                    "duration_ms": duration_int,
                     "metadata": {
                         "query_params": entry.get("query_params"),
                         "error": entry.get("error"),
