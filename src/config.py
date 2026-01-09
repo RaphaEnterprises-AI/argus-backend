@@ -130,9 +130,28 @@ class Settings(BaseSettings):
     
     # Execution Settings
     parallel_tests: int = Field(1, description="Number of tests to run in parallel")
+    parallel_threshold: int = Field(5, description="Minimum tests to trigger parallel execution")
     retry_failed_tests: int = Field(2, description="Number of retries for failed tests")
     self_heal_enabled: bool = Field(True, description="Enable automatic test healing")
     self_heal_confidence_threshold: float = Field(0.8, description="Min confidence for auto-heal")
+
+    # Human-in-the-Loop Approval Settings
+    require_healing_approval: bool = Field(
+        default=False,
+        description="Require human approval before applying self-healing"
+    )
+    require_test_plan_approval: bool = Field(
+        default=False,
+        description="Require human approval of test plan before execution"
+    )
+    require_human_approval_for_healing: bool = Field(
+        default=False,
+        description="Alias for require_healing_approval (backwards compatibility)"
+    )
+    approval_timeout_seconds: int = Field(
+        default=300,
+        description="Timeout in seconds for approval requests"
+    )
     
     # Paths
     output_dir: str = Field("./test-results", description="Directory for test outputs")

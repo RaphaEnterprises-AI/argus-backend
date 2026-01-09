@@ -6,6 +6,7 @@ This agent:
 - Generates fix suggestions with confidence scores
 - Can auto-apply fixes above confidence threshold
 - Learns from successful healings via Cloudflare KV cache
+- LONG-TERM MEMORY: Uses pgvector semantic search for cross-session learning
 - CODE-AWARE HEALING: Reads git history to understand WHY selectors changed
 - SOURCE ANALYSIS: Extracts selectors from actual source code
 
@@ -14,6 +15,11 @@ The code-aware healing is what differentiates Argus from competitors:
 - Explains WHY changes happened (git blame, commit messages)
 - Zero false positives on major refactors
 - Works with component renames (competitors fail here)
+
+Long-term memory features:
+- Stores successful healing patterns with embeddings for semantic search
+- Retrieves similar past failures to suggest proven fixes
+- Tracks success/failure rates for continuous improvement
 """
 
 import base64
@@ -30,6 +36,7 @@ from ..core.model_router import TaskType, TaskComplexity
 from ..services.cache import cache_healing_pattern, get_cached, set_cached
 from ..services.git_analyzer import GitAnalyzer, GitCommit, SelectorChange, get_git_analyzer
 from ..services.source_analyzer import SourceAnalyzer, ExtractedSelector, get_source_analyzer
+from ..orchestrator.memory_store import get_memory_store, MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +211,8 @@ class SelfHealerAgent(BaseAgent):
         auto_heal_threshold: float = 0.9,
         repo_path: str = ".",
         enable_code_aware: bool = True,
+        enable_memory_store: bool = True,
+        embeddings: Optional[object] = None,
         **kwargs,
     ):
         """Initialize healer with configuration.
@@ -212,11 +221,14 @@ class SelfHealerAgent(BaseAgent):
             auto_heal_threshold: Minimum confidence to auto-apply fixes
             repo_path: Path to git repository for code-aware healing
             enable_code_aware: Whether to use code-aware healing
+            enable_memory_store: Whether to use long-term memory store
+            embeddings: Optional embeddings instance for semantic search
         """
         super().__init__(**kwargs)
         self.auto_heal_threshold = auto_heal_threshold
         self.repo_path = repo_path
         self.enable_code_aware = enable_code_aware
+        self.enable_memory_store = enable_memory_store
 
         # Initialize code-aware analyzers
         if enable_code_aware:
@@ -225,6 +237,12 @@ class SelfHealerAgent(BaseAgent):
         else:
             self.git_analyzer = None
             self.source_analyzer = None
+
+        # Initialize long-term memory store for cross-session learning
+        if enable_memory_store:
+            self.memory_store: Optional[MemoryStore] = get_memory_store(embeddings=embeddings)
+        else:
+            self.memory_store = None
 
         # Override to use vision-capable model (only used in single-model mode)
         self.model = ModelName.SONNET
@@ -264,6 +282,178 @@ class SelfHealerAgent(BaseAgent):
                 requires_review=False,
             )
         return None
+
+    async def _lookup_memory_store_healing(
+        self,
+        error_message: str,
+        original_selector: Optional[str] = None,
+        error_type: Optional[str] = None,
+    ) -> Optional[tuple[FixSuggestion, str]]:
+        """Look up similar failures from the long-term memory store using semantic search.
+
+        This enables cross-session learning by finding similar past failures
+        and their healing solutions using pgvector semantic search.
+
+        Args:
+            error_message: The error message from the current failure
+            original_selector: The broken selector (optional)
+            error_type: Type of error (optional filter)
+
+        Returns:
+            Tuple of (FixSuggestion, pattern_id) if found, None otherwise
+        """
+        if not self.memory_store:
+            return None
+
+        try:
+            # Search for similar failures using semantic search
+            similar_failures = await self.memory_store.find_similar_failures(
+                error_message=error_message,
+                limit=5,
+                threshold=0.75,  # Higher threshold for reliable matches
+                error_type=error_type,
+            )
+
+            if not similar_failures:
+                return None
+
+            # Find the best match with high success rate
+            best_match = None
+            for failure in similar_failures:
+                # Require at least 70% success rate and some history
+                if (
+                    failure.get("success_rate", 0) >= 0.7
+                    and failure.get("success_count", 0) >= 1
+                    and failure.get("healed_selector")
+                ):
+                    if best_match is None or failure["similarity"] > best_match["similarity"]:
+                        best_match = failure
+
+            if not best_match:
+                self.log.debug(
+                    "Found similar failures but none with high enough success rate",
+                    count=len(similar_failures),
+                )
+                return None
+
+            # Calculate confidence based on similarity and success rate
+            confidence = min(0.95, best_match["similarity"] * best_match["success_rate"] + 0.1)
+
+            self.log.info(
+                "Found healing pattern from memory store",
+                pattern_id=best_match["id"],
+                similarity=best_match["similarity"],
+                success_rate=best_match["success_rate"],
+                healed_selector=best_match["healed_selector"],
+            )
+
+            fix = FixSuggestion(
+                fix_type=FixType.UPDATE_SELECTOR,
+                old_value=original_selector or best_match.get("original_selector"),
+                new_value=best_match["healed_selector"],
+                confidence=confidence,
+                explanation=(
+                    f"Using learned healing pattern from memory store "
+                    f"(similarity: {best_match['similarity']:.0%}, "
+                    f"success rate: {best_match['success_rate']:.0%}, "
+                    f"method: {best_match.get('healing_method', 'unknown')})"
+                ),
+                requires_review=confidence < self.auto_heal_threshold,
+            )
+
+            return fix, best_match["id"]
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to lookup memory store healing",
+                error=str(e),
+            )
+            return None
+
+    async def _store_to_memory(
+        self,
+        error_message: str,
+        original_selector: str,
+        healed_selector: str,
+        error_type: str,
+        healing_method: str,
+        test_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ) -> Optional[str]:
+        """Store a successful healing pattern in the long-term memory store.
+
+        This enables future healing attempts to benefit from this solution.
+
+        Args:
+            error_message: The error message from the failure
+            original_selector: The original broken selector
+            healed_selector: The selector that fixed the issue
+            error_type: Type of error
+            healing_method: Method used to heal
+            test_id: Optional test ID for correlation
+            metadata: Additional metadata
+
+        Returns:
+            Pattern ID if stored successfully, None otherwise
+        """
+        if not self.memory_store:
+            return None
+
+        try:
+            pattern_id = await self.memory_store.store_failure_pattern(
+                error_message=error_message,
+                healed_selector=healed_selector,
+                healing_method=healing_method,
+                test_id=test_id,
+                error_type=error_type,
+                original_selector=original_selector,
+                metadata=metadata,
+            )
+
+            self.log.info(
+                "Stored healing pattern to memory store",
+                pattern_id=pattern_id,
+                healing_method=healing_method,
+            )
+
+            return pattern_id
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to store healing pattern to memory store",
+                error=str(e),
+            )
+            return None
+
+    async def _record_memory_outcome(
+        self,
+        pattern_id: str,
+        success: bool,
+    ) -> None:
+        """Record the outcome of applying a healing pattern from memory store.
+
+        This updates the success/failure counts for continuous learning.
+
+        Args:
+            pattern_id: ID of the pattern
+            success: Whether the healing was successful
+        """
+        if not self.memory_store:
+            return
+
+        try:
+            await self.memory_store.record_healing_outcome(pattern_id, success)
+            self.log.debug(
+                "Recorded healing outcome",
+                pattern_id=pattern_id,
+                success=success,
+            )
+        except Exception as e:
+            self.log.warning(
+                "Failed to record healing outcome",
+                pattern_id=pattern_id,
+                error=str(e),
+            )
 
     async def _store_healing_pattern(
         self,
@@ -573,6 +763,7 @@ Output must be valid JSON."""
         # Check for cached healing pattern first (before LLM call)
         original_selector = failure_details.get("selector") or failure_details.get("target")
         error_type = failure_details.get("type", "unknown")
+        error_message = failure_details.get("message") or failure_details.get("error", "")
 
         if original_selector and error_type == "selector_changed":
             cached_fix = await self._lookup_cached_healing(original_selector, error_type)
@@ -606,6 +797,60 @@ Output must be valid JSON."""
                     input_tokens=0,  # No LLM call made
                     output_tokens=0,
                 )
+
+        # =====================================================================
+        # LONG-TERM MEMORY STORE LOOKUP (Cross-Session Learning)
+        # Search for similar past failures using semantic search with pgvector
+        # This enables learning from failures across all test runs
+        # =====================================================================
+        if error_message and self.enable_memory_store:
+            memory_result = await self._lookup_memory_store_healing(
+                error_message=error_message,
+                original_selector=original_selector,
+                error_type=error_type if error_type != "unknown" else None,
+            )
+
+            if memory_result:
+                memory_fix, pattern_id = memory_result
+
+                if memory_fix.confidence >= self.auto_heal_threshold:
+                    diagnosis = FailureDiagnosis(
+                        failure_type=FailureType.SELECTOR_CHANGED,
+                        confidence=memory_fix.confidence,
+                        explanation="Using learned healing pattern from long-term memory store",
+                        evidence=[
+                            "Memory store pattern matched via semantic search",
+                            f"Pattern ID: {pattern_id}",
+                        ],
+                    )
+
+                    healed_spec = self._apply_fix(test_spec, memory_fix)
+
+                    self.log.info(
+                        "Applied memory store healing pattern",
+                        test_id=test_id,
+                        pattern_id=pattern_id,
+                        original_selector=original_selector,
+                        healed_selector=memory_fix.new_value,
+                    )
+
+                    # Add pattern_id to result for outcome tracking
+                    result = HealingResult(
+                        test_id=test_id,
+                        diagnosis=diagnosis,
+                        suggested_fixes=[memory_fix],
+                        auto_healed=True,
+                        healed_test_spec=healed_spec,
+                    )
+                    # Store pattern_id for later outcome recording
+                    result._memory_pattern_id = pattern_id  # type: ignore
+
+                    return AgentResult(
+                        success=True,
+                        data=result,
+                        input_tokens=0,  # No LLM call made
+                        output_tokens=0,
+                    )
 
         # =====================================================================
         # CODE-AWARE HEALING (The Argus Advantage)
@@ -659,7 +904,7 @@ Output must be valid JSON."""
                         author=code_context.commit_author,
                     )
 
-                    # Store the healing pattern for future use
+                    # Store the healing pattern for future use (cache)
                     if code_fix.new_value:
                         await self._store_healing_pattern(
                             original_selector=original_selector,
@@ -667,6 +912,23 @@ Output must be valid JSON."""
                             error_type=failure_type.value,
                             success=True,
                         )
+
+                        # Also store to long-term memory store for cross-session learning
+                        if error_message:
+                            await self._store_to_memory(
+                                error_message=error_message,
+                                original_selector=original_selector,
+                                healed_selector=code_fix.new_value,
+                                error_type=failure_type.value,
+                                healing_method="code_aware",
+                                test_id=test_id,
+                                metadata={
+                                    "commit_sha": code_context.commit_sha,
+                                    "commit_author": code_context.commit_author,
+                                    "commit_message": code_context.commit_message,
+                                    "file_changed": code_context.file_changed,
+                                },
+                            )
 
                 return AgentResult(
                     success=True,
@@ -754,7 +1016,7 @@ Output must be valid JSON."""
                     confidence=fixes[0].confidence,
                 )
 
-                # Store successful healing pattern for future use
+                # Store successful healing pattern for future use (cache)
                 if fixes[0].fix_type == FixType.UPDATE_SELECTOR and fixes[0].old_value and fixes[0].new_value:
                     await self._store_healing_pattern(
                         original_selector=fixes[0].old_value,
@@ -762,6 +1024,22 @@ Output must be valid JSON."""
                         error_type=diagnosis.failure_type.value,
                         success=True,
                     )
+
+                    # Also store to long-term memory store for cross-session learning
+                    if error_message:
+                        await self._store_to_memory(
+                            error_message=error_message,
+                            original_selector=fixes[0].old_value,
+                            healed_selector=fixes[0].new_value,
+                            error_type=diagnosis.failure_type.value,
+                            healing_method="llm_analysis",
+                            test_id=test_id,
+                            metadata={
+                                "diagnosis_confidence": diagnosis.confidence,
+                                "fix_confidence": fixes[0].confidence,
+                                "explanation": fixes[0].explanation,
+                            },
+                        )
 
             result = HealingResult(
                 test_id=test_id,
