@@ -167,6 +167,58 @@ class Settings(BaseSettings):
         description="URL of the browser automation Cloudflare Worker"
     )
 
+    # ==========================================================================
+    # Security Settings (SOC2 Compliance)
+    # ==========================================================================
+
+    # Authentication
+    enforce_authentication: bool = Field(
+        False,  # Set to True in production
+        description="Enforce authentication on all endpoints"
+    )
+    jwt_secret_key: Optional[SecretStr] = Field(
+        None,
+        description="Secret key for JWT token signing (required for auth)"
+    )
+    jwt_expiration_hours: int = Field(24, description="JWT token expiration in hours")
+    jwt_refresh_expiration_days: int = Field(30, description="JWT refresh token expiration in days")
+
+    # Rate Limiting
+    rate_limiting_enabled: bool = Field(True, description="Enable rate limiting")
+    rate_limit_requests: int = Field(60, description="Max requests per window")
+    rate_limit_window_seconds: int = Field(60, description="Rate limit window in seconds")
+
+    # CORS Security
+    cors_allowed_origins: list[str] = Field(
+        default=["*"],  # Configure for production
+        description="Allowed CORS origins (use specific domains in production)"
+    )
+
+    # Security Headers
+    enable_hsts: bool = Field(True, description="Enable HSTS header")
+    enable_csp: bool = Field(True, description="Enable Content-Security-Policy header")
+    hsts_max_age: int = Field(31536000, description="HSTS max-age in seconds (1 year)")
+
+    # Audit Logging
+    audit_logging_enabled: bool = Field(True, description="Enable comprehensive audit logging")
+    audit_log_request_body: bool = Field(False, description="Log request bodies (sensitive)")
+    audit_log_response_body: bool = Field(False, description="Log response bodies (sensitive)")
+    audit_log_retention_days: int = Field(365, description="Audit log retention in days (SOC2: min 1 year)")
+
+    # Input Validation
+    max_request_body_size: int = Field(10485760, description="Max request body size in bytes (10MB)")
+    max_string_length: int = Field(10000, description="Max string field length")
+    max_array_length: int = Field(1000, description="Max array length in requests")
+
+    # Session Security
+    session_timeout_minutes: int = Field(60, description="Session timeout in minutes")
+    max_concurrent_sessions: int = Field(5, description="Max concurrent sessions per user")
+
+    # API Versioning
+    api_version: str = Field("v1", description="Current API version")
+    api_version_header: str = Field("X-API-Version", description="API version header name")
+    deprecation_warning_enabled: bool = Field(True, description="Enable deprecation warnings")
+
 
 class AgentConfig(BaseSettings):
     """Configuration for individual agents."""
