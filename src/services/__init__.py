@@ -12,6 +12,15 @@ from src.services.ai_cost_tracker import (
     BudgetStatus,
     MODEL_PRICING,
 )
+from src.services.email_service import (
+    EmailService,
+    EmailProvider,
+    ConsoleEmailProvider,
+    ResendEmailProvider,
+    SendGridEmailProvider,
+    SMTPEmailProvider,
+    get_email_service,
+)
 
 __all__ = [
     # Supabase
@@ -27,4 +36,12 @@ __all__ = [
     "UsageRecord",
     "BudgetStatus",
     "MODEL_PRICING",
+    # Email Service
+    "EmailService",
+    "EmailProvider",
+    "ConsoleEmailProvider",
+    "ResendEmailProvider",
+    "SendGridEmailProvider",
+    "SMTPEmailProvider",
+    "get_email_service",
 ]

@@ -64,6 +64,9 @@ dependencies = [
     "supabase>=2.0.0",
     "aiohttp>=3.9.0",
 
+    # Email
+    "aiosmtplib>=3.0.0",
+
     # Embeddings for memory store
     "openai>=1.0.0",
 
