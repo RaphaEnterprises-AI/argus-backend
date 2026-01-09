@@ -190,8 +190,8 @@ async def stream_message(request: ChatRequest):
 
         except Exception as e:
             logger.exception("Chat stream error", error=str(e))
-            # AI SDK error format: 3:{"error":"message"}\n
-            yield f'3:{json.dumps({"error": str(e)})}\n'
+            # AI SDK error format: 3:"error message"\n (must be a string, not object)
+            yield f'3:{json.dumps(str(e))}\n'
 
     return StreamingResponse(
         generate_ai_sdk_stream(),
