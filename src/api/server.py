@@ -62,6 +62,7 @@ from src.api.security.middleware import (
 )
 from src.api.security.headers import SecurityHeadersMiddleware
 from src.api.security.auth import get_current_user, UserContext
+from src.api.security.device_auth import router as device_auth_router
 
 logger = structlog.get_logger()
 
@@ -207,6 +208,7 @@ app.include_router(chat_router)
 app.include_router(streaming_router)
 app.include_router(approvals_router)
 app.include_router(time_travel_router)
+app.include_router(device_auth_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

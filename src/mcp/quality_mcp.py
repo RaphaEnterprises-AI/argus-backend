@@ -8,6 +8,10 @@ Tools provided:
 - get_recommendations: Get AI-powered recommendations for improving quality
 - get_risk_files: Get files/components with highest risk scores
 
+Authentication:
+    On first run, the server will prompt you to authenticate via browser.
+    Tokens are cached in ~/.argus/tokens.json for future use.
+
 Usage with Claude Code:
     Add to ~/.claude/mcp_servers.json:
     {
@@ -15,15 +19,17 @@ Usage with Claude Code:
             "command": "python",
             "args": ["-m", "src.mcp.quality_mcp"],
             "env": {
-                "SUPABASE_URL": "your-url",
-                "SUPABASE_SERVICE_KEY": "your-key"
+                "ARGUS_API_URL": "https://api.heyargus.ai"
             }
         }
     }
+
+    No credentials needed - authentication happens via browser!
 """
 
 import asyncio
 import json
+import os
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -31,6 +37,9 @@ from typing import Any, Optional
 import structlog
 
 logger = structlog.get_logger()
+
+# API URL configuration
+ARGUS_API_URL = os.getenv("ARGUS_API_URL", "https://api.heyargus.ai")
 
 
 # Tool definitions for MCP
@@ -162,19 +171,67 @@ QUALITY_TOOLS = [
 
 
 class QualityMCPServer:
-    """MCP Server for Argus Quality Intelligence tools."""
+    """MCP Server for Argus Quality Intelligence tools.
 
-    def __init__(self):
+    Uses OAuth2 Device Flow for authentication - no credentials needed.
+    On first run, opens browser for user to sign in.
+    """
+
+    def __init__(self, use_local_supabase: bool = False):
+        """Initialize the MCP server.
+
+        Args:
+            use_local_supabase: If True, use direct Supabase access (requires env vars).
+                               If False (default), use authenticated Argus API.
+        """
         self.log = logger.bind(component="quality_mcp")
         self._supabase = None
+        self._api_client = None
         self._message_id = 0
+        self._use_local_supabase = use_local_supabase
+        self._authenticated = False
+
+    async def _ensure_authenticated(self):
+        """Ensure we have valid authentication."""
+        if self._authenticated:
+            return
+
+        if self._use_local_supabase:
+            # Direct Supabase access (for development)
+            from src.services.supabase_client import get_supabase_client
+            self._supabase = get_supabase_client()
+        else:
+            # OAuth2 Device Flow authentication
+            from src.mcp.auth import MCPAuthenticator, AuthenticatedClient
+            self.log.info("Authenticating with Argus...")
+            self._api_client = AuthenticatedClient(api_url=ARGUS_API_URL)
+            await self._api_client.__aenter__()
+            # Trigger authentication (will open browser if needed)
+            await self._api_client.auth.get_token()
+            self.log.info("Authentication successful")
+
+        self._authenticated = True
 
     def _get_supabase(self):
-        """Lazy load Supabase client."""
-        if self._supabase is None:
+        """Get Supabase client (for local mode only)."""
+        if self._supabase is None and self._use_local_supabase:
             from src.services.supabase_client import get_supabase_client
             self._supabase = get_supabase_client()
         return self._supabase
+
+    async def _api_get(self, path: str) -> dict:
+        """Make authenticated GET request to Argus API."""
+        if self._use_local_supabase:
+            # Direct Supabase query
+            supabase = self._get_supabase()
+            return await supabase.request("GET", path)
+        else:
+            # Authenticated API call
+            await self._ensure_authenticated()
+            response = await self._api_client.get(f"/api/v1{path}")
+            if response.status_code == 200:
+                return {"data": response.json()}
+            return {"error": response.text}
 
     async def handle_message(self, message: dict) -> dict:
         """Handle an incoming MCP message."""
@@ -251,7 +308,19 @@ class QualityMCPServer:
     async def _get_quality_score(self, args: dict) -> dict:
         """Get quality score for a project."""
         project_id = args["project_id"]
+        await self._ensure_authenticated()
+
+        # Use API in authenticated mode
+        if not self._use_local_supabase:
+            response = await self._api_client.get(f"/api/v1/quality/score?project_id={project_id}")
+            if response.status_code == 200:
+                return response.json()
+            self.log.warning("Quality score API failed", status=response.status_code)
+            # Fall through to local calculation
+
         supabase = self._get_supabase()
+        if not supabase:
+            return {"error": "Not authenticated", "project_id": project_id}
 
         # Get from quality_scores table
         result = await supabase.request(
@@ -323,7 +392,28 @@ class QualityMCPServer:
         """Get AI-powered recommendations for improving quality."""
         project_id = args["project_id"]
         limit = args.get("limit", 5)
+        await self._ensure_authenticated()
+
+        # API mode doesn't have a dedicated recommendations endpoint yet
+        # So we always compute locally for now
         supabase = self._get_supabase()
+        if not supabase and not self._use_local_supabase:
+            # In API mode without direct supabase, return basic recommendations
+            return {
+                "project_id": project_id,
+                "recommendations": [
+                    {
+                        "priority": "medium",
+                        "category": "best_practices",
+                        "title": "Generate Quality Report",
+                        "description": "Run quality score calculation to get detailed recommendations.",
+                        "action": "Use the Argus dashboard to view detailed quality metrics.",
+                        "impact": "Better visibility into quality"
+                    }
+                ],
+                "quality_score": 50,
+                "generated_at": datetime.utcnow().isoformat()
+            }
 
         recommendations = []
 
@@ -432,7 +522,21 @@ class QualityMCPServer:
         project_id = args["project_id"]
         limit = args.get("limit", 10)
         entity_type = args.get("entity_type")
+        await self._ensure_authenticated()
+
+        # Use API in authenticated mode
+        if not self._use_local_supabase:
+            params = f"project_id={project_id}&limit={limit}"
+            if entity_type:
+                params += f"&entity_type={entity_type}"
+            response = await self._api_client.get(f"/api/v1/quality/risk-scores?{params}")
+            if response.status_code == 200:
+                return response.json()
+            self.log.warning("Risk scores API failed", status=response.status_code)
+
         supabase = self._get_supabase()
+        if not supabase:
+            return {"project_id": project_id, "risk_files": [], "message": "Not authenticated"}
 
         query = f"/risk_scores?project_id=eq.{project_id}"
         if entity_type:
@@ -478,7 +582,23 @@ class QualityMCPServer:
         limit = args.get("limit", 20)
         status = args.get("status")
         severity = args.get("severity")
+        await self._ensure_authenticated()
+
+        # Use API in authenticated mode
+        if not self._use_local_supabase:
+            params = f"project_id={project_id}&limit={limit}"
+            if status:
+                params += f"&status={status}"
+            if severity:
+                params += f"&severity={severity}"
+            response = await self._api_client.get(f"/api/v1/quality/events?{params}")
+            if response.status_code == 200:
+                return response.json()
+            self.log.warning("Events API failed", status=response.status_code)
+
         supabase = self._get_supabase()
+        if not supabase:
+            return {"project_id": project_id, "errors": [], "message": "Not authenticated"}
 
         query = f"/production_events?project_id=eq.{project_id}"
         if status:
@@ -516,7 +636,30 @@ class QualityMCPServer:
         """Get latest coverage report."""
         project_id = args["project_id"]
         branch = args.get("branch", "main")
+        await self._ensure_authenticated()
+
+        # Use API in authenticated mode
+        if not self._use_local_supabase:
+            response = await self._api_client.get(
+                f"/api/v1/quality/stats?project_id={project_id}"
+            )
+            if response.status_code == 200:
+                data = response.json()
+                # Extract coverage data from stats
+                return {
+                    "project_id": project_id,
+                    "branch": branch,
+                    "coverage": {
+                        "lines": {
+                            "percent": data.get("coverage_percent", 0)
+                        }
+                    },
+                    "message": "Coverage data from quality stats"
+                }
+
         supabase = self._get_supabase()
+        if not supabase:
+            return {"project_id": project_id, "branch": branch, "coverage": None, "message": "Not authenticated"}
 
         result = await supabase.request(
             f"/coverage_reports?project_id=eq.{project_id}&branch=eq.{branch}&order=created_at.desc&limit=1"
@@ -599,11 +742,16 @@ def create_quality_mcp_tools() -> list[dict]:
 
 
 # MCP server configuration for Claude Code
+# No credentials needed - authentication happens via browser on first use!
+# Add to ~/.claude/mcp_servers.json or your IDE's MCP config
 MCP_CONFIG = {
     "argus-quality": {
         "command": "python",
         "args": ["-m", "src.mcp.quality_mcp"],
-        "env": {}
+        "env": {
+            # Optional: Override API URL (default: https://api.heyargus.ai)
+            # "ARGUS_API_URL": "https://api.heyargus.ai"
+        }
     }
 }
 

@@ -57,6 +57,11 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/chat/",
     "/api/v1/chat/message",
     "/api/v1/chat/stream",
+    # Device auth endpoints (must be public for MCP/CLI to authenticate)
+    "/api/v1/auth/device/authorize",
+    "/api/v1/auth/device/token",
+    "/api/v1/auth/device/verify",
+    "/api/v1/auth/device/refresh",
 }
 
 # Endpoints that only require API key (not full auth)

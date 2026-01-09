@@ -30,6 +30,7 @@ from src.api.security.rbac import (
 from src.api.security.headers import SecurityHeadersMiddleware
 from src.api.security.validation import InputValidator, sanitize_input
 from src.api.security.audit import SecurityAuditLogger
+from src.api.security.device_auth import router as device_auth_router
 
 __all__ = [
     # Middleware
@@ -52,4 +53,6 @@ __all__ = [
     "sanitize_input",
     # Audit
     "SecurityAuditLogger",
+    # Device Auth
+    "device_auth_router",
 ]
