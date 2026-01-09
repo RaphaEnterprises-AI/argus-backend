@@ -101,11 +101,12 @@ async def send_message(request: ChatRequest):
 
 @router.post("/stream")
 async def stream_message(request: ChatRequest):
-    """Send a message and stream the response using Server-Sent Events."""
+    """Send a message and stream the response using Vercel AI SDK compatible format."""
 
     thread_id = request.thread_id or str(uuid.uuid4())
 
-    async def event_generator():
+    async def generate_ai_sdk_stream():
+        """Generate stream in Vercel AI SDK format (text streaming protocol)."""
         try:
             # Create graph with checkpointer
             checkpointer = get_checkpointer()
@@ -142,17 +143,20 @@ async def stream_message(request: ChatRequest):
                 event_data = event[1] if isinstance(event, tuple) else event
 
                 if event_type == "messages":
-                    # Handle message streaming
+                    # Handle message streaming - output in AI SDK format
                     if isinstance(event_data, tuple):
                         chunk, metadata = event_data
                         if chunk and hasattr(chunk, "content") and chunk.content:
-                            yield {
-                                "event": "token",
-                                "data": json.dumps({
-                                    "content": chunk.content,
-                                    "thread_id": thread_id,
-                                })
-                            }
+                            content = chunk.content
+                            # Handle different content types
+                            if isinstance(content, list):
+                                for item in content:
+                                    if isinstance(item, dict) and "text" in item:
+                                        # AI SDK text format: 0:"text"\n
+                                        yield f'0:{json.dumps(item["text"])}\n'
+                            elif isinstance(content, str):
+                                yield f'0:{json.dumps(content)}\n'
+
                 elif event_type == "values":
                     # Check for tool calls in the state
                     state = event_data
@@ -162,28 +166,31 @@ async def stream_message(request: ChatRequest):
                             last_msg = messages[-1]
                             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                                 for tc in last_msg.tool_calls:
-                                    yield {
-                                        "event": "tool_call",
-                                        "data": json.dumps({
-                                            "name": tc["name"],
-                                            "args": tc["args"],
-                                            "thread_id": thread_id,
-                                        })
+                                    # AI SDK tool call format: 9:{"toolCallId":...}\n
+                                    tool_call_data = {
+                                        "toolCallId": tc.get("id", str(uuid.uuid4())),
+                                        "toolName": tc["name"],
+                                        "args": tc["args"],
                                     }
+                                    yield f'9:{json.dumps(tool_call_data)}\n'
 
-            yield {
-                "event": "complete",
-                "data": json.dumps({"thread_id": thread_id})
-            }
+            # AI SDK finish message: d:{"finishReason":"stop"}\n
+            yield f'd:{json.dumps({"finishReason": "stop", "threadId": thread_id})}\n'
 
         except Exception as e:
             logger.exception("Chat stream error", error=str(e))
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(e), "thread_id": thread_id})
-            }
+            # AI SDK error format: 3:{"error":"message"}\n
+            yield f'3:{json.dumps({"error": str(e)})}\n'
 
-    return EventSourceResponse(event_generator())
+    return StreamingResponse(
+        generate_ai_sdk_stream(),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Thread-Id": thread_id,
+        }
+    )
 
 
 @router.get("/history/{thread_id}")
