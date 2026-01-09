@@ -351,6 +351,46 @@ async def get_current_user_info(request: Request):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/api/v1/auth/debug-token", tags=["Authentication"])
+async def debug_jwt_token(request: Request):
+    """Debug endpoint to show raw JWT claims (for development only).
+
+    Shows all claims in the JWT token to help with session token customization.
+    """
+    from src.api.security.auth import verify_clerk_jwt
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+    # Get bearer token
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token required")
+
+    token = auth_header.replace("Bearer ", "")
+
+    # Try to decode as Clerk JWT
+    clerk_payload = await verify_clerk_jwt(token)
+    if clerk_payload:
+        return {
+            "token_type": "clerk_jwt",
+            "claims": clerk_payload,
+            "available_keys": list(clerk_payload.keys()),
+            "hint": "To add email/name, go to Clerk Dashboard → Sessions → Customize session token",
+        }
+
+    # Try to decode without verification to see claims
+    try:
+        import jwt
+        unverified = jwt.decode(token, options={"verify_signature": False})
+        return {
+            "token_type": "unknown_jwt",
+            "claims": unverified,
+            "available_keys": list(unverified.keys()),
+            "warning": "Token signature not verified",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JWT: {str(e)}")
+
+
 @app.get("/ready", tags=["Health"])
 async def readiness_check():
     """Readiness check - verifies all dependencies are available."""
