@@ -5,6 +5,8 @@ Provides endpoints for:
 - Cron-style scheduling with croniter pattern
 - Manual trigger of scheduled runs
 - Run history and statistics
+
+Now with Supabase persistence for production use.
 """
 
 import asyncio
@@ -17,16 +19,120 @@ from fastapi import APIRouter, HTTPException, Request, Query, BackgroundTasks
 from pydantic import BaseModel, Field, field_validator
 import structlog
 
+from src.integrations.supabase import get_supabase, is_supabase_configured
+
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/schedules", tags=["Scheduling"])
 
 
 # ============================================================================
-# In-Memory Storage (use database for production)
+# In-Memory Storage (fallback when Supabase not configured)
 # ============================================================================
 
 schedules: dict[str, dict] = {}
 schedule_runs: dict[str, list[dict]] = {}  # schedule_id -> list of runs
+
+
+# ============================================================================
+# Supabase Helper Functions
+# ============================================================================
+
+async def _get_schedule_from_db(schedule_id: str) -> Optional[dict]:
+    """Get a schedule from Supabase by ID."""
+    supabase = await get_supabase()
+    if not supabase:
+        return schedules.get(schedule_id)
+
+    result = await supabase.select(
+        "test_schedules",
+        columns="*",
+        filters={"id": schedule_id},
+        limit=1
+    )
+    return result[0] if result else None
+
+
+async def _get_schedule_runs_from_db(schedule_id: str, status: Optional[str] = None, limit: int = 20, offset: int = 0) -> list[dict]:
+    """Get schedule runs from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        runs = schedule_runs.get(schedule_id, [])
+        if status:
+            runs = [r for r in runs if r.get("status") == status]
+        return runs[offset:offset + limit]
+
+    filters = {"schedule_id": schedule_id}
+    if status:
+        filters["status"] = status
+
+    result = await supabase.select(
+        "schedule_runs",
+        columns="*",
+        filters=filters,
+        order_by="triggered_at",
+        ascending=False,
+        limit=limit
+    )
+    return result
+
+
+async def _save_schedule_to_db(schedule: dict) -> bool:
+    """Save a schedule to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        schedules[schedule["id"]] = schedule
+        return True
+
+    return await supabase.insert("test_schedules", [schedule])
+
+
+async def _update_schedule_in_db(schedule_id: str, updates: dict) -> bool:
+    """Update a schedule in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if schedule_id in schedules:
+            schedules[schedule_id].update(updates)
+            return True
+        return False
+
+    return await supabase.update("test_schedules", updates, {"id": schedule_id})
+
+
+async def _delete_schedule_from_db(schedule_id: str) -> bool:
+    """Delete a schedule from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if schedule_id in schedules:
+            del schedules[schedule_id]
+            return True
+        return False
+
+    return await supabase.delete("test_schedules", {"id": schedule_id})
+
+
+async def _save_schedule_run_to_db(run: dict) -> bool:
+    """Save a schedule run to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        runs = schedule_runs.setdefault(run["schedule_id"], [])
+        runs.append(run)
+        return True
+
+    return await supabase.insert("schedule_runs", [run])
+
+
+async def _update_schedule_run_in_db(run_id: str, updates: dict) -> bool:
+    """Update a schedule run in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        for runs in schedule_runs.values():
+            for run in runs:
+                if run["id"] == run_id:
+                    run.update(updates)
+                    return True
+        return False
+
+    return await supabase.update("schedule_runs", updates, {"id": run_id})
 
 
 # ============================================================================
@@ -403,21 +509,31 @@ def cron_to_readable(cron_expression: str) -> str:
 
 
 def schedule_to_response(schedule: dict) -> ScheduleResponse:
-    """Convert internal schedule dict to response model."""
+    """Convert internal schedule dict to response model (sync version for in-memory)."""
     runs = schedule_runs.get(schedule["id"], [])
+    return _build_schedule_response(schedule, runs)
 
+
+async def schedule_to_response_async(schedule: dict) -> ScheduleResponse:
+    """Convert internal schedule dict to response model (async version with DB lookup)."""
+    runs = await _get_schedule_runs_from_db(schedule["id"], limit=100)
+    return _build_schedule_response(schedule, runs)
+
+
+def _build_schedule_response(schedule: dict, runs: list[dict]) -> ScheduleResponse:
+    """Build ScheduleResponse from schedule dict and runs list."""
     # Calculate statistics
-    success_count = sum(1 for r in runs if r.get("status") == "success")
-    failure_count = sum(1 for r in runs if r.get("status") == "failure")
+    success_count = sum(1 for r in runs if r.get("status") in ("success", "passed"))
+    failure_count = sum(1 for r in runs if r.get("status") in ("failure", "failed"))
 
-    durations = [r.get("duration_seconds") for r in runs if r.get("duration_seconds")]
+    durations = [r.get("duration_seconds") or r.get("duration_ms", 0) // 1000 for r in runs if r.get("duration_seconds") or r.get("duration_ms")]
     avg_duration = sum(durations) / len(durations) if durations else None
 
-    last_run = runs[-1] if runs else None
+    last_run = runs[0] if runs else None  # Runs are ordered by triggered_at DESC
 
     # Calculate next run time
-    next_run = None
-    if schedule.get("enabled", True):
+    next_run = schedule.get("next_run_at")
+    if not next_run and schedule.get("enabled", True):
         next_run_dt = calculate_next_run(schedule["cron_expression"])
         next_run = next_run_dt.isoformat() if next_run_dt else None
 
@@ -427,8 +543,22 @@ def schedule_to_response(schedule: dict) -> ScheduleResponse:
         status = "paused"
     elif last_run and last_run.get("status") == "running":
         status = "running"
-    elif last_run and last_run.get("status") == "failure" and failure_count > success_count:
+    elif last_run and last_run.get("status") in ("failure", "failed") and failure_count > success_count:
         status = "error"
+
+    # Handle notification config (DB format vs API format)
+    notification_config = schedule.get("notification_config", {})
+    notify_on_failure = notification_config.get("on_failure", True) if isinstance(notification_config, dict) else True
+    notification_channels = schedule.get("notification_channels", {"email": True, "slack": False})
+    if isinstance(notification_config, dict) and "channels" in notification_config:
+        notification_channels = {ch: True for ch in notification_config.get("channels", [])}
+
+    # Handle timeout (DB stores ms, API uses minutes)
+    timeout_ms = schedule.get("timeout_ms", 3600000)
+    timeout_minutes = schedule.get("timeout_minutes", timeout_ms // 60000)
+
+    # Handle app_url (DB uses app_url_override)
+    app_url = schedule.get("app_url") or schedule.get("app_url_override", "")
 
     return ScheduleResponse(
         id=schedule["id"],
@@ -437,22 +567,22 @@ def schedule_to_response(schedule: dict) -> ScheduleResponse:
         cron_expression=schedule["cron_expression"],
         cron_readable=cron_to_readable(schedule["cron_expression"]),
         test_ids=schedule.get("test_ids"),
-        app_url=schedule["app_url"],
+        app_url=app_url,
         enabled=schedule.get("enabled", True),
         status=status,
-        notify_on_failure=schedule.get("notify_on_failure", True),
-        notification_channels=schedule.get("notification_channels", {"email": True, "slack": False}),
+        notify_on_failure=notify_on_failure,
+        notification_channels=notification_channels,
         description=schedule.get("description"),
-        timeout_minutes=schedule.get("timeout_minutes", 60),
+        timeout_minutes=timeout_minutes,
         retry_count=schedule.get("retry_count", 0),
         environment_variables=schedule.get("environment_variables"),
         tags=schedule.get("tags"),
         next_run_at=next_run,
-        last_run_at=last_run["started_at"] if last_run else None,
+        last_run_at=last_run.get("started_at") or last_run.get("triggered_at") if last_run else None,
         last_run_status=last_run.get("status") if last_run else None,
-        run_count=len(runs),
+        run_count=schedule.get("run_count", len(runs)),
         success_count=success_count,
-        failure_count=failure_count,
+        failure_count=schedule.get("failure_count", failure_count),
         avg_duration_seconds=round(avg_duration, 2) if avg_duration else None,
         created_at=schedule["created_at"],
         updated_at=schedule.get("updated_at", schedule["created_at"]),
@@ -469,18 +599,13 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: Optio
     2. Track progress and update run status
     3. Send notifications on completion
     """
-    schedule = schedules.get(schedule_id)
+    schedule = await _get_schedule_from_db(schedule_id)
     if not schedule:
-        return
-
-    runs = schedule_runs.setdefault(schedule_id, [])
-    run = next((r for r in runs if r["id"] == run_id), None)
-    if not run:
         return
 
     try:
         # Update run status to running
-        run["status"] = "running"
+        await _update_schedule_run_in_db(run_id, {"status": "running"})
         logger.info("Starting scheduled test run", schedule_id=schedule_id, run_id=run_id)
 
         # Simulate test execution (replace with actual orchestrator call in production)
@@ -488,7 +613,7 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: Optio
         # from src.orchestrator.graph import TestingOrchestrator
         # orchestrator = TestingOrchestrator(
         #     codebase_path="...",
-        #     app_url=schedule["app_url"],
+        #     app_url=schedule["app_url_override"],
         # )
         # result = await orchestrator.run(...)
 
@@ -496,32 +621,39 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: Optio
 
         # Update run with results
         completed_at = datetime.now(timezone.utc)
-        run["status"] = "success"
-        run["completed_at"] = completed_at.isoformat()
-        run["duration_seconds"] = int((completed_at - datetime.fromisoformat(run["started_at"])).total_seconds())
-        run["test_results"] = {
-            "total": 10,
-            "passed": 10,
-            "failed": 0,
-            "skipped": 0,
-        }
+        duration_ms = 2000  # Would be calculated from actual run
+
+        await _update_schedule_run_in_db(run_id, {
+            "status": "passed",
+            "completed_at": completed_at.isoformat(),
+            "duration_ms": duration_ms,
+            "tests_total": 10,
+            "tests_passed": 10,
+            "tests_failed": 0,
+            "tests_skipped": 0,
+        })
 
         logger.info(
             "Scheduled test run completed",
             schedule_id=schedule_id,
             run_id=run_id,
             status="success",
-            duration_seconds=run["duration_seconds"],
+            duration_ms=duration_ms,
         )
 
     except Exception as e:
         logger.exception("Scheduled test run failed", schedule_id=schedule_id, run_id=run_id, error=str(e))
-        run["status"] = "failure"
-        run["completed_at"] = datetime.now(timezone.utc).isoformat()
-        run["error_message"] = str(e)
+
+        await _update_schedule_run_in_db(run_id, {
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "error_message": str(e),
+        })
 
         # Handle notifications on failure
-        if schedule.get("notify_on_failure", True):
+        notification_config = schedule.get("notification_config", {})
+        notify_on_failure = notification_config.get("on_failure", True) if isinstance(notification_config, dict) else True
+        if notify_on_failure:
             # In production: send notifications via configured channels
             logger.info("Would send failure notification", schedule_id=schedule_id, run_id=run_id)
 
@@ -545,33 +677,53 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request):
     - "*/30 * * * *" - Every 30 minutes
     """
     schedule_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
 
     # Get user from request headers (set by auth middleware)
     user_id = request.headers.get("x-user-id")
+
+    # Calculate next run time
+    next_run = calculate_next_run(body.cron_expression, now)
 
     schedule = {
         "id": schedule_id,
         "project_id": body.project_id,
         "name": body.name,
         "cron_expression": body.cron_expression,
-        "test_ids": body.test_ids,
-        "app_url": body.app_url,
+        "test_ids": body.test_ids or [],
+        "test_filter": {},
+        "timezone": "UTC",
         "enabled": body.enabled,
-        "notify_on_failure": body.notify_on_failure,
-        "notification_channels": body.notification_channels or {"email": True, "slack": False},
-        "description": body.description,
-        "timeout_minutes": body.timeout_minutes,
+        "is_recurring": True,
+        "next_run_at": next_run.isoformat() if next_run else None,
+        "last_run_at": None,
+        "run_count": 0,
+        "failure_count": 0,
+        "success_rate": 0,
+        "notification_config": {
+            "on_failure": body.notify_on_failure,
+            "on_success": False,
+            "channels": list(k for k, v in (body.notification_channels or {}).items() if v)
+        },
+        "max_parallel_tests": 5,
+        "timeout_ms": body.timeout_minutes * 60 * 1000,
+        "retry_failed_tests": body.retry_count > 0,
         "retry_count": body.retry_count,
-        "environment_variables": body.environment_variables,
-        "tags": body.tags,
-        "created_at": now,
-        "updated_at": now,
+        "environment": "staging",
+        "browser": "chromium",
+        "app_url_override": body.app_url,
         "created_by": user_id,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        # Fields for backward compatibility with response model
+        "description": body.description,
+        "tags": body.tags,
+        "environment_variables": body.environment_variables,
     }
 
-    schedules[schedule_id] = schedule
-    schedule_runs[schedule_id] = []
+    # Save to database
+    await _save_schedule_to_db(schedule)
 
     logger.info(
         "Schedule created",
@@ -579,9 +731,10 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request):
         name=body.name,
         cron=body.cron_expression,
         project_id=body.project_id,
+        persistent=is_supabase_configured(),
     )
 
-    return schedule_to_response(schedule)
+    return await schedule_to_response_async(schedule)
 
 
 @router.get("", response_model=ScheduleListResponse)
@@ -597,24 +750,53 @@ async def list_schedules(
 
     Supports pagination and filtering by project, status, and tags.
     """
-    filtered = list(schedules.values())
+    supabase = await get_supabase()
 
-    # Apply filters
-    if project_id:
-        filtered = [s for s in filtered if s.get("project_id") == project_id]
+    if supabase:
+        # Build filters for Supabase query
+        filters = {}
+        if project_id:
+            filters["project_id"] = project_id
+        if enabled is not None:
+            filters["enabled"] = enabled
 
-    if enabled is not None:
-        filtered = [s for s in filtered if s.get("enabled", True) == enabled]
+        # Get schedules from Supabase
+        all_schedules = await supabase.select(
+            "test_schedules",
+            columns="*",
+            filters=filters if filters else None,
+            order_by="created_at",
+            ascending=False,
+            limit=per_page * page  # Get enough for pagination
+        )
 
-    if tags:
-        tag_list = [t.strip() for t in tags.split(",")]
-        filtered = [
-            s for s in filtered
-            if s.get("tags") and any(t in s["tags"] for t in tag_list)
-        ]
+        # Apply tag filter in Python (JSONB array filtering is complex in Supabase)
+        if tags:
+            tag_list = [t.strip() for t in tags.split(",")]
+            all_schedules = [
+                s for s in all_schedules
+                if s.get("tags") and any(t in s["tags"] for t in tag_list)
+            ]
 
-    # Sort by created_at descending
-    filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        filtered = all_schedules
+    else:
+        # Fallback to in-memory
+        filtered = list(schedules.values())
+
+        if project_id:
+            filtered = [s for s in filtered if s.get("project_id") == project_id]
+
+        if enabled is not None:
+            filtered = [s for s in filtered if s.get("enabled", True) == enabled]
+
+        if tags:
+            tag_list = [t.strip() for t in tags.split(",")]
+            filtered = [
+                s for s in filtered
+                if s.get("tags") and any(t in s["tags"] for t in tag_list)
+            ]
+
+        filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
     # Paginate
     total = len(filtered)
@@ -622,8 +804,13 @@ async def list_schedules(
     end = start + per_page
     paginated = filtered[start:end]
 
+    # Build responses
+    responses = []
+    for s in paginated:
+        responses.append(await schedule_to_response_async(s))
+
     return ScheduleListResponse(
-        schedules=[schedule_to_response(s) for s in paginated],
+        schedules=responses,
         total=total,
         page=page,
         per_page=per_page,
@@ -637,11 +824,11 @@ async def get_schedule(schedule_id: str):
 
     Returns full schedule configuration and statistics.
     """
-    schedule = schedules.get(schedule_id)
+    schedule = await _get_schedule_from_db(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    return schedule_to_response(schedule)
+    return await schedule_to_response_async(schedule)
 
 
 @router.patch("/{schedule_id}", response_model=ScheduleResponse)
@@ -654,17 +841,24 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateRequest):
     - Change the cron expression
     - Update notification settings
     """
-    schedule = schedules.get(schedule_id)
+    schedule = await _get_schedule_from_db(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     # Update only provided fields
     update_data = body.model_dump(exclude_unset=True)
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    for key, value in update_data.items():
-        schedule[key] = value
+    # Recalculate next_run if cron changed
+    if "cron_expression" in update_data:
+        next_run = calculate_next_run(update_data["cron_expression"])
+        update_data["next_run_at"] = next_run.isoformat() if next_run else None
 
-    schedule["updated_at"] = datetime.now(timezone.utc).isoformat()
+    # Update in database
+    await _update_schedule_in_db(schedule_id, update_data)
+
+    # Merge updates for response
+    schedule.update(update_data)
 
     logger.info(
         "Schedule updated",
@@ -672,7 +866,7 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateRequest):
         updates=list(update_data.keys()),
     )
 
-    return schedule_to_response(schedule)
+    return await schedule_to_response_async(schedule)
 
 
 @router.delete("/{schedule_id}")
@@ -682,15 +876,20 @@ async def delete_schedule(schedule_id: str):
 
     This will stop all future runs. Run history is preserved.
     """
-    if schedule_id not in schedules:
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    schedule = schedules.pop(schedule_id)
+    schedule_name = schedule.get("name")
+    success = await _delete_schedule_from_db(schedule_id)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete schedule")
 
     logger.info(
         "Schedule deleted",
         schedule_id=schedule_id,
-        name=schedule.get("name"),
+        name=schedule_name,
     )
 
     return {
@@ -716,7 +915,7 @@ async def trigger_schedule(
     This immediately starts a test run regardless of the schedule.
     Useful for testing schedule configuration or running on-demand.
     """
-    schedule = schedules.get(schedule_id)
+    schedule = await _get_schedule_from_db(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -732,19 +931,25 @@ async def trigger_schedule(
         "id": run_id,
         "schedule_id": schedule_id,
         "status": "pending",
+        "triggered_at": now.isoformat(),
         "started_at": now.isoformat(),
         "completed_at": None,
-        "duration_seconds": None,
+        "duration_ms": None,
         "trigger_type": "manual",
         "triggered_by": triggered_by,
-        "test_results": None,
+        "tests_total": 0,
+        "tests_passed": 0,
+        "tests_failed": 0,
+        "tests_skipped": 0,
         "error_message": None,
-        "retry_attempt": 0,
-        "logs_url": None,
+        "error_details": None,
+        "logs": [],
+        "metadata": {},
+        "created_at": now.isoformat(),
     }
 
-    runs = schedule_runs.setdefault(schedule_id, [])
-    runs.append(run)
+    # Save run to database
+    await _save_schedule_run_to_db(run)
 
     # Run tests in background
     background_tasks.add_task(run_scheduled_tests, schedule_id, run_id, triggered_by)
@@ -777,37 +982,33 @@ async def get_schedule_runs(
 
     Returns recent runs with their status, duration, and results.
     """
-    if schedule_id not in schedules:
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    runs = schedule_runs.get(schedule_id, [])
-
-    # Filter by status if provided
-    if status:
-        runs = [r for r in runs if r.get("status") == status]
-
-    # Sort by started_at descending (most recent first)
-    runs = sorted(runs, key=lambda x: x.get("started_at", ""), reverse=True)
-
-    # Apply pagination
-    paginated = runs[offset:offset + limit]
+    runs = await _get_schedule_runs_from_db(schedule_id, status=status, limit=limit, offset=offset)
 
     return [
         ScheduleRunResponse(
             id=r["id"],
             schedule_id=r["schedule_id"],
             status=r.get("status", "pending"),
-            started_at=r["started_at"],
+            started_at=r.get("started_at") or r.get("triggered_at", ""),
             completed_at=r.get("completed_at"),
-            duration_seconds=r.get("duration_seconds"),
+            duration_seconds=r.get("duration_seconds") or (r.get("duration_ms", 0) // 1000 if r.get("duration_ms") else None),
             trigger_type=r.get("trigger_type", "scheduled"),
             triggered_by=r.get("triggered_by"),
-            test_results=r.get("test_results"),
+            test_results={
+                "total": r.get("tests_total", 0),
+                "passed": r.get("tests_passed", 0),
+                "failed": r.get("tests_failed", 0),
+                "skipped": r.get("tests_skipped", 0),
+            } if r.get("tests_total") else r.get("test_results"),
             error_message=r.get("error_message"),
             retry_attempt=r.get("retry_attempt", 0),
             logs_url=r.get("logs_url"),
         )
-        for r in paginated
+        for r in runs
     ]
 
 
