@@ -52,6 +52,11 @@ PUBLIC_ENDPOINTS = {
     "/docs/oauth2-redirect",
     "/redoc",
     "/favicon.ico",
+    # Chat endpoints - temporarily public for debugging
+    # TODO: Remove after fixing Clerk auth forwarding
+    "/api/v1/chat/",
+    "/api/v1/chat/message",
+    "/api/v1/chat/stream",
 }
 
 # Endpoints that only require API key (not full auth)
