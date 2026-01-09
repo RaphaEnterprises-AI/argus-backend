@@ -302,13 +302,47 @@ async def get_clerk_jwks() -> dict:
     return _clerk_jwks_cache or {}
 
 
-async def verify_clerk_jwt(token: str) -> Optional[dict]:
-    """Verify a Clerk JWT token using JWKS."""
-    # Check if Clerk is configured
-    if not CLERK_JWKS_URL or CLERK_JWKS_URL == "https://api.clerk.com/v1/jwks":
-        # Clerk not configured, skip verification
-        return None
+# Cache for auto-detected JWKS URLs (keyed by issuer)
+_issuer_jwks_cache: dict[str, dict] = {}
+_issuer_jwks_cache_time: dict[str, float] = {}
 
+
+async def get_jwks_for_issuer(issuer: str) -> dict:
+    """Fetch JWKS for a specific issuer (auto-detected from token)."""
+    global _issuer_jwks_cache, _issuer_jwks_cache_time
+
+    current_time = time.time()
+
+    # Return cached JWKS if still valid
+    if issuer in _issuer_jwks_cache and (current_time - _issuer_jwks_cache_time.get(issuer, 0)) < CLERK_JWKS_CACHE_TTL:
+        return _issuer_jwks_cache[issuer]
+
+    # Derive JWKS URL from issuer
+    jwks_url = f"{issuer.rstrip('/')}/.well-known/jwks.json"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(jwks_url, timeout=10.0)
+            if response.status_code == 200:
+                _issuer_jwks_cache[issuer] = response.json()
+                _issuer_jwks_cache_time[issuer] = current_time
+                logger.info("JWKS fetched successfully", issuer=issuer)
+                return _issuer_jwks_cache[issuer]
+            else:
+                logger.warning("Failed to fetch JWKS", issuer=issuer, status=response.status_code)
+    except Exception as e:
+        logger.error("Failed to fetch JWKS for issuer", issuer=issuer, error=str(e))
+
+    return _issuer_jwks_cache.get(issuer, {})
+
+
+async def verify_clerk_jwt(token: str) -> Optional[dict]:
+    """Verify a Clerk JWT token using JWKS.
+
+    Supports two modes:
+    1. Auto-detection: Extracts issuer from token and derives JWKS URL
+    2. Configured: Uses CLERK_JWKS_URL if properly set
+    """
     try:
         # Import PyJWK - may not be available in all environments
         try:
@@ -322,15 +356,36 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
         kid = unverified_header.get("kid")
 
         if not kid:
-            # Not a Clerk token (no kid), skip silently
+            # Not a Clerk/JWKS token (no kid), skip silently
             return None
 
-        # Get JWKS
-        jwks = await get_clerk_jwks()
+        # Get unverified claims to extract issuer for auto-detection
+        unverified_claims = jwt.decode(token, options={"verify_signature": False})
+        token_issuer = unverified_claims.get("iss", "")
+
+        # Determine which JWKS to use:
+        # 1. If CLERK_JWKS_URL is properly configured, use it
+        # 2. Otherwise, auto-detect from token's issuer claim
+        jwks = {}
+
+        if CLERK_JWKS_URL and CLERK_JWKS_URL != "https://api.clerk.com/v1/jwks":
+            # Use configured JWKS URL
+            jwks = await get_clerk_jwks()
+        elif token_issuer and token_issuer.startswith("https://"):
+            # Auto-detect: derive JWKS URL from token's issuer
+            # Clerk issuers look like: https://proven-pug-84.clerk.accounts.dev
+            # JWKS URL is: https://proven-pug-84.clerk.accounts.dev/.well-known/jwks.json
+            logger.debug("Auto-detecting JWKS from token issuer", issuer=token_issuer)
+            jwks = await get_jwks_for_issuer(token_issuer)
+        else:
+            # No way to get JWKS
+            logger.debug("Cannot determine JWKS URL, skipping verification")
+            return None
+
         keys = jwks.get("keys", [])
 
         if not keys:
-            logger.warning("No keys in Clerk JWKS")
+            logger.warning("No keys in JWKS")
             return None
 
         # Find the matching key
@@ -342,6 +397,7 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
 
         if not key_data:
             # Key not found - might be an internal JWT, skip silently
+            logger.debug("Key ID not found in JWKS", kid=kid)
             return None
 
         # Construct the public key
@@ -355,15 +411,17 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
             "require": ["exp", "iat", "sub"],
         }
 
-        # Add issuer verification if configured
-        if CLERK_ISSUER:
+        # Determine issuer for verification
+        verify_issuer = CLERK_ISSUER or token_issuer
+
+        if verify_issuer:
             options["verify_iss"] = True
             payload = jwt.decode(
                 token,
                 public_key,
                 algorithms=["RS256"],
                 options=options,
-                issuer=CLERK_ISSUER,
+                issuer=verify_issuer,
             )
         else:
             payload = jwt.decode(
@@ -373,6 +431,7 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
                 options=options,
             )
 
+        logger.info("Clerk JWT verified successfully", user_id=payload.get("sub"))
         return payload
 
     except jwt.ExpiredSignatureError:
