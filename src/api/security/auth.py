@@ -234,7 +234,10 @@ def verify_api_key_signature(key: str, signature: str, payload: str) -> bool:
 
 async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserContext]:
     """Authenticate using API key."""
+    logger.debug("API key auth attempt", key_prefix=api_key[:16] if api_key else None)
+
     if not api_key or not api_key.startswith(API_KEY_PREFIX):
+        logger.debug("API key prefix mismatch", expected=API_KEY_PREFIX, got=api_key[:10] if api_key else None)
         return None
 
     from src.services.supabase_client import get_supabase_client
@@ -246,9 +249,11 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
             return None
 
         key_hash = hash_api_key(api_key)
+        logger.debug("Looking up API key", key_hash_prefix=key_hash[:16])
         result = await supabase.request(
             f"/api_keys?key_hash=eq.{key_hash}&revoked_at=is.null&select=*"
         )
+        logger.debug("API key lookup result", found=bool(result.get("data")), error=result.get("error"))
 
         if result.get("error") or not result.get("data"):
             logger.warning("Invalid API key", key_prefix=api_key[:12])
