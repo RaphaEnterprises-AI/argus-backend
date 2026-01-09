@@ -1,8 +1,8 @@
 """Configuration management for E2E Testing Agent."""
 
 from enum import Enum
-from typing import Optional, Literal
-from pydantic import Field, SecretStr
+from typing import Optional, Literal, Union
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,7 +45,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
+        populate_by_name=True
     )
 
     # API Keys - Multi-Provider Support
@@ -188,11 +189,28 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(60, description="Max requests per window")
     rate_limit_window_seconds: int = Field(60, description="Rate limit window in seconds")
 
-    # CORS Security
-    cors_allowed_origins: list[str] = Field(
-        default=["*"],  # Configure for production
-        description="Allowed CORS origins (use specific domains in production)"
+    # CORS Security - accepts comma-separated string or JSON array
+    cors_allowed_origins_raw: str = Field(
+        default="*",
+        alias="cors_allowed_origins",
+        description="Allowed CORS origins (comma-separated or JSON array)"
     )
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        """Parse CORS origins from comma-separated string or JSON array."""
+        v = self.cors_allowed_origins_raw
+        if not v or not v.strip():
+            return ["*"]
+        # If it looks like JSON array, try to parse it
+        if v.strip().startswith("["):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                pass
+        # Otherwise treat as comma-separated
+        return [origin.strip() for origin in v.split(",") if origin.strip()]
 
     # Security Headers
     enable_hsts: bool = Field(True, description="Enable HSTS header")
