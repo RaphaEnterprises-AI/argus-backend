@@ -2,6 +2,7 @@
 
 from typing import TypedDict, Annotated, Literal, Optional, List
 from datetime import datetime, timezone
+import json
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
@@ -218,11 +219,11 @@ async def tool_executor_node(state: ChatState, config) -> dict:
             logger.exception("Tool execution failed", tool=tool_name, error=str(e))
             result = {"error": str(e)}
 
-        # Create tool message
+        # Create tool message with properly formatted JSON content
         from langchain_core.messages import ToolMessage
         tool_results.append(
             ToolMessage(
-                content=str(result),
+                content=json.dumps(result),  # Use json.dumps for valid JSON, not str()
                 tool_call_id=tool_call["id"],
                 name=tool_name,
             )

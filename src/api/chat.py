@@ -133,6 +133,10 @@ async def stream_message(request: ChatRequest):
 
             logger.info("Starting chat stream", thread_id=thread_id)
 
+            # Track sent items to avoid duplicates (values stream sends full state each time)
+            sent_tool_calls = set()
+            sent_tool_results = set()
+
             # Stream the graph execution
             async for event in app.astream(
                 initial_state,
@@ -168,9 +172,15 @@ async def stream_message(request: ChatRequest):
                             # Check for tool calls (AI requesting tool execution)
                             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                                 for tc in last_msg.tool_calls:
+                                    tc_id = tc.get("id", str(uuid.uuid4()))
+                                    # Skip if already sent
+                                    if tc_id in sent_tool_calls:
+                                        continue
+                                    sent_tool_calls.add(tc_id)
+
                                     # AI SDK tool call format: 9:{"toolCallId":...}\n
                                     tool_call_data = {
-                                        "toolCallId": tc.get("id", str(uuid.uuid4())),
+                                        "toolCallId": tc_id,
                                         "toolName": tc["name"],
                                         "args": tc["args"],
                                     }
@@ -178,10 +188,23 @@ async def stream_message(request: ChatRequest):
 
                             # Check for tool results (results from tool execution)
                             if isinstance(last_msg, ToolMessage):
+                                # Skip if already sent
+                                if last_msg.tool_call_id in sent_tool_results:
+                                    continue
+                                sent_tool_results.add(last_msg.tool_call_id)
+
+                                # Parse content if it's a JSON string, otherwise use as-is
+                                result_content = last_msg.content
+                                try:
+                                    # Try to parse as JSON to avoid double-encoding
+                                    result_content = json.loads(last_msg.content)
+                                except (json.JSONDecodeError, TypeError):
+                                    pass  # Keep as string if not valid JSON
+
                                 # AI SDK tool result format: a:{"toolCallId":...,"result":...}\n
                                 tool_result_data = {
                                     "toolCallId": last_msg.tool_call_id,
-                                    "result": last_msg.content,
+                                    "result": result_content,
                                 }
                                 yield f'a:{json.dumps(tool_result_data)}\n'
 
