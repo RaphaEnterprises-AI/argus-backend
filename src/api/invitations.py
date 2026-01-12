@@ -205,7 +205,8 @@ async def list_pending_invitations(org_id: str, request: Request):
     supabase = get_supabase_client()
 
     # Get pending invitations (not expired)
-    now = datetime.now(timezone.utc).isoformat()
+    # Use 'Z' suffix instead of '+00:00' to avoid URL encoding issues with '+'
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     invitations_result = await supabase.request(
         f"/invitations?organization_id=eq.{org_id}&status=eq.pending"
         f"&token_expires_at=gt.{now}&select=*&order=created_at.desc"
