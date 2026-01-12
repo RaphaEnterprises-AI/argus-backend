@@ -56,6 +56,8 @@ from src.api.invitations import router as invitations_router
 from src.api.organizations import router as organizations_router
 from src.api.users import router as users_router
 from src.api.projects import router as projects_router
+from src.api.visual_ai import router as visual_ai_router
+from src.api.discovery import router as discovery_router
 
 # Security Module
 from src.api.security.middleware import (
@@ -132,6 +134,8 @@ Autonomous E2E testing powered by Claude AI.
         {"name": "Streaming", "description": "Server-Sent Events for real-time updates"},
         {"name": "Time Travel", "description": "State inspection and replay"},
         {"name": "Security", "description": "Security and audit endpoints"},
+        {"name": "Visual AI", "description": "Visual regression testing with AI-powered comparison"},
+        {"name": "Discovery", "description": "Intelligent application discovery and flow detection"},
     ],
 )
 
@@ -218,6 +222,8 @@ app.include_router(organizations_router)
 app.include_router(users_router)
 app.include_router(projects_router)
 app.include_router(device_auth_router)
+app.include_router(visual_ai_router)
+app.include_router(discovery_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

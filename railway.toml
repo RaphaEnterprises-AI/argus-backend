@@ -1,0 +1,11 @@
+# Railway Configuration for Argus
+# This is the root configuration file
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

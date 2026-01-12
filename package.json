@@ -1,0 +1,26 @@
+{
+  "name": "e2e-testing-agent-discovery",
+  "version": "1.0.0",
+  "description": "Discovery Intelligence Platform crawlers using Crawlee and Playwright",
+  "type": "module",
+  "main": "src/discovery/crawlers/dist/index.js",
+  "types": "src/discovery/crawlers/dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p src/discovery/crawlers/tsconfig.json",
+    "crawl": "npx ts-node --esm src/discovery/crawlers/crawlee_crawler.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@crawlee/playwright": "^3.15.3",
+    "crawlee": "^3.15.3",
+    "playwright": "^1.57.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
