@@ -83,8 +83,8 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 JWT_REFRESH_EXPIRATION_DAYS = 30
 
-# API Key prefix
-API_KEY_PREFIX = "argus_"
+# API Key prefix - must match KEY_PREFIX in api_keys.py
+API_KEY_PREFIX = "argus_sk_"
 
 # =============================================================================
 # Security Schemes
