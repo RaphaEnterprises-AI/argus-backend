@@ -1083,43 +1083,69 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     })
 
             # Use local AI to infer flows from Crawlee pages
-            discovery = AutoDiscovery(
-                app_url=session["app_url"],
-                max_pages=config.get("max_pages", 50),
-                max_depth=config.get("max_depth", 3),
-            )
-            flows_result = await discovery._infer_flows_with_ai(pages_discovered)
+            # Wrap in try/except so flow inference failure doesn't fail the session
+            try:
+                from src.agents.auto_discovery import DiscoveredPage as AutoDiscoveredPage
 
-            # Process discovered flows
-            for i, flow in enumerate(flows_result):
-                flow_id = f"flow-{session_id[:8]}-{i}"
-                flow_data = {
-                    "id": flow_id,
-                    "session_id": session_id,
-                    "name": flow.get("name", f"Flow {i+1}"),
-                    "description": flow.get("description", ""),
-                    "category": flow.get("category", "user_journey"),
-                    "priority": flow.get("priority", "medium"),
-                    "start_url": flow.get("start_url", session["app_url"]),
-                    "steps": flow.get("steps", []),
-                    "pages_involved": [],
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "validated": False,
-                    "test_generated": False,
-                }
-                session["flows"].append(flow_data)
-                _discovered_flows[flow_id] = flow_data
+                discovery = AutoDiscovery(
+                    app_url=session["app_url"],
+                    max_pages=config.get("max_pages", 50),
+                    max_depth=config.get("max_depth", 3),
+                )
 
-                # Emit flow discovered event
-                if events_queue:
-                    await events_queue.put({
-                        "event": "flow_discovered",
-                        "data": json.dumps({
-                            "session_id": session_id,
-                            "flow": flow_data,
-                            "total_flows": len(session["flows"]),
+                # Convert Crawlee pages to AutoDiscovery format and populate discovered_pages
+                for page in pages_discovered:
+                    discovery.discovered_pages.append(AutoDiscoveredPage(
+                        url=page.get("url", ""),
+                        title=page.get("title", ""),
+                        description=page.get("description") or "",
+                        elements=[],  # Not needed for flow analysis
+                        forms=page.get("forms", []),
+                        links=page.get("links", []),
+                        user_flows=[],
+                    ))
+
+                # Now call _analyze_flows which uses self.discovered_pages
+                flows_result = await discovery._analyze_flows()
+
+                # Process discovered flows
+                for i, flow in enumerate(flows_result):
+                    flow_id = f"flow-{session_id[:8]}-{i}"
+                    flow_data = {
+                        "id": flow_id,
+                        "session_id": session_id,
+                        "name": flow.name if hasattr(flow, 'name') else flow.get("name", f"Flow {i+1}"),
+                        "description": flow.description if hasattr(flow, 'description') else flow.get("description", ""),
+                        "category": flow.category if hasattr(flow, 'category') else flow.get("category", "user_journey"),
+                        "priority": flow.priority if hasattr(flow, 'priority') else flow.get("priority", "medium"),
+                        "start_url": flow.start_url if hasattr(flow, 'start_url') else flow.get("start_url", session["app_url"]),
+                        "steps": flow.steps if hasattr(flow, 'steps') else flow.get("steps", []),
+                        "pages_involved": [],
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "validated": False,
+                        "test_generated": False,
+                    }
+                    session["flows"].append(flow_data)
+                    _discovered_flows[flow_id] = flow_data
+
+                    # Emit flow discovered event
+                    if events_queue:
+                        await events_queue.put({
+                            "event": "flow_discovered",
+                            "data": json.dumps({
+                                "session_id": session_id,
+                                "flow": flow_data,
+                                "total_flows": len(session["flows"]),
+                            })
                         })
-                    })
+
+            except Exception as flow_error:
+                # Log but don't fail the session - pages were still discovered successfully
+                logger.warning(
+                    "Flow inference failed, session will complete with pages only",
+                    session_id=session_id,
+                    error=str(flow_error),
+                )
 
             # Calculate coverage
             total_elements = result_data.get("totalElements", 0)
