@@ -121,12 +121,37 @@ async def verify_org_access(
     organization_id: str,
     user_id: str,
     required_roles: list[str] = None,
-    user_email: str = None
+    user_email: str = None,
+    request: "Request" = None
 ) -> dict:
     """Verify user has access to the organization with required role.
 
     Checks membership by user_id first, then falls back to email.
+    For API key authentication, trusts the API key's organization_id claim.
     """
+    # Handle API key authentication - trust the API key's organization_id
+    if request and hasattr(request.state, "user") and request.state.user:
+        user = request.state.user
+        auth_method = getattr(user, "auth_method", None)
+        user_org_id = getattr(user, "organization_id", None)
+
+        # API key auth: if the API key's org_id matches the requested org_id, grant access
+        if auth_method and str(auth_method) == "AuthMethod.API_KEY":
+            if user_org_id == organization_id:
+                # Return synthetic member record for API key access
+                return {
+                    "user_id": user_id,
+                    "organization_id": organization_id,
+                    "role": "admin",  # API keys get admin role by default
+                    "status": "active",
+                    "auth_method": "api_key"
+                }
+            else:
+                raise HTTPException(
+                    status_code=403,
+                    detail="API key not authorized for this organization"
+                )
+
     supabase = get_supabase_client()
 
     # Try by user_id first

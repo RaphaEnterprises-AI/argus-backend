@@ -92,7 +92,7 @@ async def get_project_test_count(project_id: str) -> int:
     return len(tests.get("data", []))
 
 
-async def verify_project_access(project_id: str, user_id: str, user_email: str = None) -> dict:
+async def verify_project_access(project_id: str, user_id: str, user_email: str = None, request: Request = None) -> dict:
     """Verify user has access to the project via organization membership.
 
     Returns the project data if access is granted.
@@ -110,7 +110,7 @@ async def verify_project_access(project_id: str, user_id: str, user_email: str =
     project = project_result["data"][0]
 
     # Verify user has access to the organization
-    await verify_org_access(project["organization_id"], user_id, user_email=user_email)
+    await verify_org_access(project["organization_id"], user_id, user_email=user_email, request=request)
 
     return project
 
@@ -132,7 +132,7 @@ async def list_organization_projects(
     Requires membership in the organization.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"))
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -181,7 +181,7 @@ async def create_organization_project(
     Requires admin or owner role in the organization.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -330,7 +330,7 @@ async def get_project(project_id: str, request: Request):
     Requires membership in the project's organization.
     """
     user = await get_current_user(request)
-    project = await verify_project_access(project_id, user["user_id"], user.get("email"))
+    project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
     test_count = await get_project_test_count(project_id)
 
@@ -358,10 +358,10 @@ async def update_project(project_id: str, body: UpdateProjectRequest, request: R
     Requires admin or owner role in the project's organization.
     """
     user = await get_current_user(request)
-    project = await verify_project_access(project_id, user["user_id"], user.get("email"))
+    project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
     # Verify admin/owner access
-    await verify_org_access(project["organization_id"], user["user_id"], ["owner", "admin"], user.get("email"))
+    await verify_org_access(project["organization_id"], user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -415,10 +415,10 @@ async def delete_project(project_id: str, request: Request):
     This permanently deletes the project and all associated data.
     """
     user = await get_current_user(request)
-    project = await verify_project_access(project_id, user["user_id"], user.get("email"))
+    project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
     # Verify owner access
-    await verify_org_access(project["organization_id"], user["user_id"], ["owner"], user.get("email"))
+    await verify_org_access(project["organization_id"], user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
