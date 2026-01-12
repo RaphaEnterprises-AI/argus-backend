@@ -102,8 +102,8 @@ class AutonomousLoopRequest(BaseModel):
 # Get settings for configuration
 settings = get_settings()
 
-# API Version
-API_VERSION = "2.2.0"
+# API Version - x-release-please-version
+API_VERSION = "2.2.0"  # x-release-please-version
 API_VERSION_DATE = "2026-01-12"
 
 app = FastAPI(
