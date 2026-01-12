@@ -53,6 +53,8 @@ dependencies = [
     "tiktoken>=0.8.0",
     "pillow>=10.4.0",
     "numpy>=1.26.0",
+    "imagehash>=4.3.0",  # Perceptual image hashing
+    "scikit-image>=0.22.0",  # SSIM and image metrics
 
     # API server (for webhooks)
     "fastapi>=0.115.0",

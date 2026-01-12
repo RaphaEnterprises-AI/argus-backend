@@ -101,10 +101,15 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip auth enforcement if disabled (development mode)
+        # But still respect headers if provided (for testing)
         if not self.enforce_auth:
+            # Allow headers to override defaults for testing
+            dev_user_id = request.headers.get("x-user-id", "dev-user")
+            dev_org_id = request.headers.get("x-organization-id")
+
             request.state.user = UserContext(
-                user_id="dev-user",
-                organization_id="dev-org",
+                user_id=dev_user_id,
+                organization_id=dev_org_id,  # Can be None if not provided
                 roles=["admin"],
                 scopes=["read", "write", "admin", "execute"],
                 auth_method=AuthMethod.ANONYMOUS,
