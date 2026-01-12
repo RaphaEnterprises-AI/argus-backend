@@ -273,6 +273,117 @@ def build_session_response(session: dict) -> DiscoverySessionResponse:
 # =============================================================================
 
 
+class DiscoverySessionListResponse(BaseModel):
+    """List of discovery sessions."""
+    sessions: list[DiscoverySessionResponse]
+    total: int
+
+
+class DiscoveryPatternResponse(BaseModel):
+    """Discovery pattern response."""
+    id: str
+    pattern_type: str
+    pattern_name: str
+    pattern_signature: str
+    pattern_data: dict
+    times_seen: int
+    test_success_rate: Optional[float]
+    self_heal_success_rate: Optional[float]
+    created_at: str
+    updated_at: Optional[str]
+
+
+class DiscoveryPatternListResponse(BaseModel):
+    """List of discovery patterns."""
+    patterns: list[DiscoveryPatternResponse]
+    total: int
+
+
+@router.get("/sessions", response_model=DiscoverySessionListResponse)
+async def list_discovery_sessions(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """
+    List all discovery sessions.
+
+    Optionally filter by project_id or status.
+    """
+    sessions = list(_discovery_sessions.values())
+
+    # Apply filters
+    if project_id:
+        sessions = [s for s in sessions if s.get("project_id") == project_id]
+    if status:
+        sessions = [s for s in sessions if s.get("status") == status]
+
+    # Sort by started_at descending
+    sessions.sort(key=lambda s: s.get("started_at", ""), reverse=True)
+
+    total = len(sessions)
+
+    # Apply pagination
+    sessions = sessions[offset:offset + limit]
+
+    return DiscoverySessionListResponse(
+        sessions=[build_session_response(s) for s in sessions],
+        total=total,
+    )
+
+
+@router.get("/patterns", response_model=DiscoveryPatternListResponse)
+async def list_discovery_patterns(
+    pattern_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """
+    List all discovery patterns.
+
+    Patterns are learned from cross-project discovery sessions and used to
+    improve element detection and flow inference.
+    """
+    from src.services.supabase_client import get_supabase_client
+
+    supabase = get_supabase_client()
+
+    # Build query
+    query = "/discovery_patterns?select=*&order=times_seen.desc"
+    if pattern_type:
+        query += f"&pattern_type=eq.{pattern_type}"
+    query += f"&limit={limit}&offset={offset}"
+
+    result = await supabase.request(query)
+
+    if result.get("error"):
+        # If table doesn't exist, return empty list
+        logger.warning("discovery_patterns table may not exist", error=result.get("error"))
+        return DiscoveryPatternListResponse(patterns=[], total=0)
+
+    patterns = result.get("data", [])
+
+    return DiscoveryPatternListResponse(
+        patterns=[
+            DiscoveryPatternResponse(
+                id=p["id"],
+                pattern_type=p.get("pattern_type", "unknown"),
+                pattern_name=p.get("pattern_name", ""),
+                pattern_signature=p.get("pattern_signature", ""),
+                pattern_data=p.get("pattern_data", {}),
+                times_seen=p.get("times_seen", 0),
+                test_success_rate=p.get("test_success_rate"),
+                self_heal_success_rate=p.get("self_heal_success_rate"),
+                created_at=p.get("created_at", ""),
+                updated_at=p.get("updated_at"),
+            )
+            for p in patterns
+        ],
+        total=len(patterns),
+    )
+
+
 @router.post("/sessions", response_model=DiscoverySessionResponse)
 async def start_discovery(
     request: StartDiscoveryRequest,
