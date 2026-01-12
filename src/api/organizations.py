@@ -287,7 +287,7 @@ async def list_organizations(request: Request):
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"))
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -323,7 +323,7 @@ async def get_organization(org_id: str, request: Request):
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -378,7 +378,7 @@ async def delete_organization(org_id: str, request: Request):
     This permanently deletes the organization and all associated data.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"))
+    await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -421,7 +421,7 @@ async def transfer_ownership(org_id: str, body: TransferOwnershipRequest, reques
     The current owner will be demoted to admin.
     """
     user = await get_current_user(request)
-    current_member = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"))
+    current_member = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
