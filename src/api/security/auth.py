@@ -282,7 +282,7 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
         )
 
         return UserContext(
-            user_id=key_data.get("created_by", "system"),
+            user_id=key_data.get("created_by") or "system",  # Handle NULL values
             organization_id=key_data["organization_id"],
             roles=["api_user"],
             scopes=key_data.get("scopes", ["read"]),
