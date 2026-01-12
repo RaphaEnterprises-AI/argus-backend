@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy dependency files first (for caching)
 COPY pyproject.toml ./
 
-# Install Python dependencies (v2.0.1 - LangGraph 1.0 + Security)
+# Install Python dependencies (v2.2.0 - Discovery API + API Key Auth)
 RUN pip install --upgrade pip && \
     pip install -e . || pip install \
     "anthropic>=0.75.0" \

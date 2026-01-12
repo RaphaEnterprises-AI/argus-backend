@@ -103,8 +103,8 @@ class AutonomousLoopRequest(BaseModel):
 settings = get_settings()
 
 # API Version
-API_VERSION = "2.0.1"
-API_VERSION_DATE = "2026-01-09"
+API_VERSION = "2.2.0"
+API_VERSION_DATE = "2026-01-12"
 
 app = FastAPI(
     title="Argus E2E Testing Agent API",

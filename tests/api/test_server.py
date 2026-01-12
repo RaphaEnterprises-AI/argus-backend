@@ -143,7 +143,7 @@ class TestHealthEndpoints:
         response = await health_check()
 
         assert response.status == "healthy"
-        assert response.version == "2.0.1"
+        assert response.version == "2.2.0"
         assert response.timestamp is not None
 
     @pytest.mark.asyncio
@@ -718,7 +718,7 @@ class TestAppConfiguration:
         from src.api.server import app
 
         assert app.title == "Argus E2E Testing Agent API"
-        assert app.version == "2.0.1"
+        assert app.version == "2.2.0"
         assert app.docs_url == "/docs"
         assert app.redoc_url == "/redoc"
 
