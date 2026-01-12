@@ -502,6 +502,7 @@ e2e-testing-agent/
 ## 📚 Documentation
 
 - [docs/WORKFLOWS.md](./docs/WORKFLOWS.md) - **Start here!** User workflows and examples
+- [docs/ARCHITECTURE_DIAGRAMS.md](./docs/ARCHITECTURE_DIAGRAMS.md) - **Complete system architecture** with C4, ERD, sequence diagrams
 - [docs/SECURITY.md](./docs/SECURITY.md) - Enterprise security architecture
 - [docs/COMPETITIVE_ANALYSIS.md](./docs/COMPETITIVE_ANALYSIS.md) - Feature comparison with competitors
 - [docs/QUICKSTART.md](./docs/QUICKSTART.md) - 1-minute setup guide

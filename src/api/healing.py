@@ -122,7 +122,7 @@ async def get_healing_config(
 ):
     """Get healing configuration for organization (optionally project-specific)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"])
+    await verify_org_access(org_id, user["user_id"], request=request)
 
     supabase = get_supabase_client()
 
@@ -160,7 +160,7 @@ async def update_healing_config(
 ):
     """Update healing configuration."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 
@@ -263,7 +263,7 @@ async def list_healing_patterns(
 ):
     """List learned healing patterns."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"])
+    await verify_org_access(org_id, user["user_id"], request=request)
 
     supabase = get_supabase_client()
 
@@ -310,7 +310,7 @@ async def list_healing_patterns(
 async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request):
     """Delete a healing pattern."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 
@@ -352,7 +352,7 @@ async def get_healing_stats(
 ):
     """Get healing statistics for the organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"])
+    await verify_org_access(org_id, user["user_id"], request=request)
 
     supabase = get_supabase_client()
 
@@ -459,7 +459,7 @@ async def get_pending_approvals(
 ):
     """Get healing suggestions pending approval."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"])
+    await verify_org_access(org_id, user["user_id"], request=request)
 
     # For now, return empty list - would be populated by actual healing suggestions
     # This would query a healing_suggestions table in production
@@ -474,7 +474,7 @@ async def get_pending_approvals(
 async def approve_healing(org_id: str, pattern_id: str, request: Request):
     """Approve a healing suggestion."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 
@@ -504,7 +504,7 @@ async def approve_healing(org_id: str, pattern_id: str, request: Request):
 async def reject_healing(org_id: str, pattern_id: str, request: Request):
     """Reject a healing suggestion."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 

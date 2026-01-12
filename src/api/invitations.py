@@ -99,7 +99,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
     The invitation email should be sent separately (e.g., via email service).
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -200,7 +200,7 @@ async def list_pending_invitations(org_id: str, request: Request):
     Returns invitations with status 'pending' that haven't expired.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"))
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -242,7 +242,7 @@ async def revoke_invitation(org_id: str, invite_id: str, request: Request):
     Sets the invitation status to 'revoked', preventing it from being accepted.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 

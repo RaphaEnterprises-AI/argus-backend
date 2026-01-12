@@ -148,7 +148,7 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
     # Only verify org membership for JWT/session auth
     is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
     if not is_api_key_auth:
-        await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+        await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -199,7 +199,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
         # API key auth - use the user_id as created_by (it's the original key creator's member ID)
         member = {"id": user["user_id"]}
     else:
-        member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+        member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -277,7 +277,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
     if is_api_key_auth:
         member = {"id": user["user_id"]}
     else:
-        member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+        member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -366,7 +366,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
     # For API key auth, the key's organization_id IS the authorization
     is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
     if not is_api_key_auth:
-        await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"))
+        await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 

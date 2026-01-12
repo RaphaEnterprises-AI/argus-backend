@@ -343,7 +343,7 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"])
+    await verify_org_access(org_id, user["user_id"], request=request)
 
     supabase = get_supabase_client()
 
@@ -378,7 +378,7 @@ async def get_organization(org_id: str, request: Request):
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 
@@ -422,7 +422,7 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
 async def list_members(org_id: str, request: Request):
     """List all members of an organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"])
+    await verify_org_access(org_id, user["user_id"], request=request)
 
     supabase = get_supabase_client()
 
@@ -452,7 +452,7 @@ async def list_members(org_id: str, request: Request):
 async def invite_member(org_id: str, body: InviteMemberRequest, request: Request):
     """Invite a new member to the organization (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 
@@ -528,7 +528,7 @@ async def update_member_role(
 ):
     """Update a member's role (owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner"])
+    await verify_org_access(org_id, user["user_id"], ["owner"], request=request)
 
     supabase = get_supabase_client()
 
@@ -577,7 +577,7 @@ async def update_member_role(
 async def remove_member(org_id: str, member_id: str, request: Request):
     """Remove a member from the organization (admin/owner only)."""
     user = await get_current_user(request)
-    current_member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"])
+    current_member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
 
     supabase = get_supabase_client()
 
