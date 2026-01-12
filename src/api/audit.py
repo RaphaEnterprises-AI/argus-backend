@@ -167,8 +167,10 @@ async def get_audit_summary(org_id: str, request: Request):
     month_start = today_start.replace(day=1)
 
     # Get all logs for this month (for aggregation)
+    # Use 'Z' suffix instead of '+00:00' to avoid URL encoding issues with '+'
+    month_start_str = month_start.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     logs_result = await supabase.request(
-        f"/audit_logs?organization_id=eq.{org_id}&created_at=gte.{month_start.isoformat()}&select=*&order=created_at.desc"
+        f"/audit_logs?organization_id=eq.{org_id}&created_at=gte.{month_start_str}&select=*&order=created_at.desc"
     )
 
     if logs_result.get("error"):
