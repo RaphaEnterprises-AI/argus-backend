@@ -143,7 +143,7 @@ class TestHealthEndpoints:
         response = await health_check()
 
         assert response.status == "healthy"
-        assert response.version == "0.1.0"
+        assert response.version == "2.0.1"
         assert response.timestamp is not None
 
     @pytest.mark.asyncio
@@ -691,14 +691,14 @@ class TestStartupShutdown:
         from src.api.server import startup
 
         mock_settings = MagicMock()
-        mock_settings.output_dir = "/tmp/test-output"
+        mock_settings.output_dir = "./test-results"
 
         with patch("src.api.server.get_settings", return_value=mock_settings):
             with patch("os.makedirs") as mock_makedirs:
                 await startup()
 
                 mock_makedirs.assert_called_once_with(
-                    "/tmp/test-output", exist_ok=True
+                    "./test-results", exist_ok=True
                 )
 
     @pytest.mark.asyncio
@@ -717,8 +717,8 @@ class TestAppConfiguration:
         """Test FastAPI app metadata."""
         from src.api.server import app
 
-        assert app.title == "E2E Testing Agent API"
-        assert app.version == "0.1.0"
+        assert app.title == "Argus E2E Testing Agent API"
+        assert app.version == "2.0.1"
         assert app.docs_url == "/docs"
         assert app.redoc_url == "/redoc"
 
