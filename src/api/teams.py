@@ -136,7 +136,8 @@ async def verify_org_access(
         user_org_id = getattr(user, "organization_id", None)
 
         # API key auth: if the API key's org_id matches the requested org_id, grant access
-        if auth_method and str(auth_method) == "AuthMethod.API_KEY":
+        # str(AuthMethod.API_KEY) returns "api_key" for StrEnum
+        if auth_method and str(auth_method) == "api_key":
             if user_org_id == organization_id:
                 # Return synthetic member record for API key access
                 return {
