@@ -7,6 +7,7 @@ Provides endpoints for:
 """
 
 import hashlib
+import re
 import secrets
 from datetime import datetime, timezone
 from typing import Optional
@@ -29,7 +30,7 @@ router = APIRouter(prefix="/api/v1/teams", tags=["Team Management"])
 class CreateOrganizationRequest(BaseModel):
     """Request to create a new organization."""
     name: str = Field(..., min_length=2, max_length=100)
-    slug: str = Field(..., min_length=2, max_length=50, pattern="^[a-z0-9-]+$")
+    slug: Optional[str] = Field(None, min_length=2, max_length=50, pattern="^[a-z0-9-]+$")
 
 
 class UpdateOrganizationRequest(BaseModel):
@@ -426,18 +427,30 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
+    # Generate slug from name if not provided
+    if body.slug:
+        slug = body.slug
+    else:
+        # Auto-generate slug from name
+        slug = body.name.lower()
+        slug = re.sub(r'[^a-z0-9\s-]', '', slug)  # Remove special chars
+        slug = re.sub(r'\s+', '-', slug)          # Spaces to hyphens
+        slug = re.sub(r'-+', '-', slug)           # Multiple hyphens to single
+        slug = slug[:50].strip('-')               # Limit length, trim hyphens
+
     # Check if slug is available
     existing = await supabase.request(
-        f"/organizations?slug=eq.{body.slug}&select=id"
+        f"/organizations?slug=eq.{slug}&select=id"
     )
 
+    # If slug taken, append random suffix
     if existing.get("data"):
-        raise HTTPException(status_code=400, detail="Organization slug already taken")
+        slug = f"{slug[:42]}-{secrets.token_hex(4)}"
 
     # Create organization
     org_result = await supabase.insert("organizations", {
         "name": body.name,
-        "slug": body.slug,
+        "slug": slug,
         "plan": "free",
     })
 
