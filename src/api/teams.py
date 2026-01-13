@@ -117,6 +117,101 @@ async def get_current_user(request: Request) -> dict:
     return {"user_id": user_id, "email": user_email}
 
 
+def is_clerk_org_id(org_id: str) -> bool:
+    """Check if an organization ID is from Clerk (format: org_xxx)."""
+    return org_id and org_id.startswith("org_")
+
+
+async def ensure_clerk_org_synced(
+    clerk_org_id: str,
+    user_id: str,
+    user_email: str = None
+) -> str:
+    """Ensure a Clerk organization is synced to Supabase.
+
+    If the Clerk org doesn't exist in Supabase, auto-create it and add
+    the current user as owner. Returns the Supabase organization ID
+    (a UUID, not the Clerk org ID).
+
+    This bridges Clerk's organization system with Supabase's storage.
+    """
+    supabase = get_supabase_client()
+
+    # Check if org already exists in Supabase (by clerk_org_id)
+    existing = await supabase.request(
+        f"/organizations?clerk_org_id=eq.{clerk_org_id}&select=id"
+    )
+
+    if existing.get("data") and len(existing["data"]) > 0:
+        # Org already exists, return its Supabase UUID
+        return existing["data"][0]["id"]
+
+    # Create new organization synced from Clerk
+    # Generate a slug from the clerk_org_id (remove prefix, lowercase)
+    slug_base = clerk_org_id.lower().replace("org_", "").replace("_", "-")
+    slug = f"clerk-{slug_base[:20]}"  # Keep it short
+
+    # Create the organization (Supabase will generate a UUID for id)
+    org_result = await supabase.insert("organizations", {
+        "name": "My Organization",  # Default name, user can update later
+        "slug": slug,
+        "plan": "free",
+        "clerk_org_id": clerk_org_id,  # Store Clerk reference for lookups
+    })
+
+    if org_result.get("error"):
+        # If insert fails (e.g., duplicate slug), try with a unique slug
+        unique_slug = f"{slug}-{secrets.token_hex(4)}"
+        org_result = await supabase.insert("organizations", {
+            "name": "My Organization",
+            "slug": unique_slug,
+            "plan": "free",
+            "clerk_org_id": clerk_org_id,
+        })
+
+        if org_result.get("error"):
+            logger.error("Failed to create Clerk org in Supabase",
+                        clerk_org_id=clerk_org_id,
+                        error=org_result.get("error"))
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to sync organization from Clerk"
+            )
+
+    org = org_result["data"][0]
+
+    # Add the current user as owner
+    member_result = await supabase.insert("organization_members", {
+        "organization_id": org["id"],
+        "user_id": user_id,
+        "email": user_email or "",
+        "role": "owner",
+        "status": "active",
+        "accepted_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    if member_result.get("error"):
+        logger.warning("Failed to add owner to synced org",
+                      org_id=org["id"],
+                      error=member_result.get("error"))
+
+    # Create default healing config (ignore errors - not critical)
+    try:
+        await supabase.insert("self_healing_config", {
+            "organization_id": org["id"],
+        })
+    except Exception as e:
+        logger.warning("Failed to create healing config for synced org",
+                      org_id=org["id"], error=str(e))
+
+    logger.info("Synced Clerk organization to Supabase",
+               clerk_org_id=clerk_org_id,
+               supabase_org_id=org["id"],
+               user_id=user_id)
+
+    return org["id"]
+
+
 async def verify_org_access(
     organization_id: str,
     user_id: str,
@@ -128,6 +223,8 @@ async def verify_org_access(
 
     Checks membership by user_id first, then falls back to email.
     For API key authentication, trusts the API key's organization_id claim.
+
+    For Clerk organizations (org_xxx format), auto-syncs to Supabase if needed.
     """
     # Handle API key authentication - trust the API key's organization_id
     if request and hasattr(request.state, "user") and request.state.user:
@@ -154,6 +251,21 @@ async def verify_org_access(
                 )
 
     supabase = get_supabase_client()
+
+    # For Clerk org IDs, ensure the org is synced to Supabase first
+    if is_clerk_org_id(organization_id):
+        try:
+            # This will create the org in Supabase if it doesn't exist
+            organization_id = await ensure_clerk_org_synced(
+                organization_id,
+                user_id,
+                user_email
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Failed to sync Clerk org", org_id=organization_id, error=str(e))
+            # Continue with verification - might still work if already synced
 
     # Try by user_id first
     result = await supabase.request(
