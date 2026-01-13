@@ -212,6 +212,45 @@ async def ensure_clerk_org_synced(
     return org["id"]
 
 
+async def translate_clerk_org_id(org_id: str, user_id: str = None, user_email: str = None) -> str:
+    """Translate a Clerk organization ID to its Supabase UUID.
+
+    If the org_id is already a Supabase UUID (not starting with 'org_'),
+    returns it unchanged. If it's a Clerk org ID, looks up or creates
+    the corresponding Supabase organization and returns its UUID.
+
+    Args:
+        org_id: The organization ID (Clerk format org_xxx or Supabase UUID)
+        user_id: User ID for syncing new orgs (optional)
+        user_email: User email for syncing new orgs (optional)
+
+    Returns:
+        The Supabase organization UUID
+    """
+    if not is_clerk_org_id(org_id):
+        return org_id
+
+    # Look up existing mapping
+    supabase = get_supabase_client()
+    result = await supabase.request(
+        f"/organizations?clerk_org_id=eq.{org_id}&select=id"
+    )
+
+    if result.get("data") and len(result["data"]) > 0:
+        return result["data"][0]["id"]
+
+    # If no mapping exists and we have user info, sync the org
+    if user_id:
+        return await ensure_clerk_org_synced(org_id, user_id, user_email)
+
+    # No mapping and no user info - can't proceed
+    logger.error("Clerk org not synced and no user info to sync", clerk_org_id=org_id)
+    raise HTTPException(
+        status_code=404,
+        detail=f"Organization {org_id} not found"
+    )
+
+
 async def verify_org_access(
     organization_id: str,
     user_id: str,

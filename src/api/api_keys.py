@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 import structlog
 
 from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit
+from src.api.teams import get_current_user, verify_org_access, log_audit, translate_clerk_org_id
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/api-keys", tags=["API Keys"])
@@ -144,15 +144,22 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
+    # Translate Clerk org ID to Supabase UUID if needed
+    supabase_org_id = await translate_clerk_org_id(
+        resolved_org_id,
+        user.get("user_id"),
+        user.get("email")
+    )
+
     # For API key auth, the key's organization_id IS the authorization
     # Only verify org membership for JWT/session auth
     is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
     if not is_api_key_auth:
-        await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
-    query = f"/api_keys?organization_id=eq.{resolved_org_id}&select=*&order=created_at.desc"
+    query = f"/api_keys?organization_id=eq.{supabase_org_id}&select=*&order=created_at.desc"
 
     if not include_revoked:
         query += "&revoked_at=is.null"
@@ -193,13 +200,20 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
+    # Translate Clerk org ID to Supabase UUID if needed
+    supabase_org_id = await translate_clerk_org_id(
+        resolved_org_id,
+        user.get("user_id"),
+        user.get("email")
+    )
+
     # For API key auth, the key's organization_id IS the authorization
     is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
     if is_api_key_auth:
         # API key auth - use the user_id as created_by (it's the original key creator's member ID)
         member = {"id": user["user_id"]}
     else:
-        member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        member = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -220,7 +234,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
 
     # Store the key
     key_result = await supabase.insert("api_keys", {
-        "organization_id": resolved_org_id,
+        "organization_id": supabase_org_id,
         "name": body.name,
         "key_hash": key_hash,
         "key_prefix": key_prefix,
@@ -236,7 +250,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
 
     # Audit log
     await log_audit(
-        organization_id=resolved_org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="api_key.create",
@@ -247,7 +261,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
         request=request,
     )
 
-    logger.info("API key created", org_id=resolved_org_id, key_name=body.name)
+    logger.info("API key created", org_id=supabase_org_id, key_name=body.name)
 
     return APIKeyCreatedResponse(
         id=key_data["id"],
@@ -272,18 +286,25 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
+    # Translate Clerk org ID to Supabase UUID if needed
+    supabase_org_id = await translate_clerk_org_id(
+        resolved_org_id,
+        user.get("user_id"),
+        user.get("email")
+    )
+
     # For API key auth, the key's organization_id IS the authorization
     is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
     if is_api_key_auth:
         member = {"id": user["user_id"]}
     else:
-        member = await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        member = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get the existing key
     existing = await supabase.request(
-        f"/api_keys?id=eq.{key_id}&organization_id=eq.{resolved_org_id}&select=*"
+        f"/api_keys?id=eq.{key_id}&organization_id=eq.{supabase_org_id}&select=*"
     )
 
     if not existing.get("data"):
@@ -300,7 +321,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
 
     # Create new key
     new_key_result = await supabase.insert("api_keys", {
-        "organization_id": resolved_org_id,
+        "organization_id": supabase_org_id,
         "name": f"{old_key['name']} (rotated)",
         "key_hash": key_hash,
         "key_prefix": key_prefix,
@@ -323,7 +344,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=resolved_org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="api_key.rotate",
@@ -334,7 +355,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
         request=request,
     )
 
-    logger.info("API key rotated", org_id=resolved_org_id, old_key_id=key_id, new_key_id=new_key_data["id"])
+    logger.info("API key rotated", org_id=supabase_org_id, old_key_id=key_id, new_key_id=new_key_data["id"])
 
     return RotateKeyResponse(
         old_key_id=key_id,
@@ -363,16 +384,23 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
     # Resolve 'default' to actual organization ID
     resolved_org_id = await resolve_org_id(org_id, user)
 
+    # Translate Clerk org ID to Supabase UUID if needed
+    supabase_org_id = await translate_clerk_org_id(
+        resolved_org_id,
+        user.get("user_id"),
+        user.get("email")
+    )
+
     # For API key auth, the key's organization_id IS the authorization
     is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
     if not is_api_key_auth:
-        await verify_org_access(resolved_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get the key
     existing = await supabase.request(
-        f"/api_keys?id=eq.{key_id}&organization_id=eq.{resolved_org_id}&select=*"
+        f"/api_keys?id=eq.{key_id}&organization_id=eq.{supabase_org_id}&select=*"
     )
 
     if not existing.get("data"):
@@ -392,7 +420,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=resolved_org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="api_key.revoke",
@@ -403,7 +431,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
         request=request,
     )
 
-    logger.info("API key revoked", org_id=resolved_org_id, key_id=key_id)
+    logger.info("API key revoked", org_id=supabase_org_id, key_id=key_id)
 
     return {"success": True, "message": "API key revoked"}
 
