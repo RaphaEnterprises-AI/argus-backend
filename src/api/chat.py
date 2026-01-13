@@ -1,6 +1,6 @@
 """Chat API endpoint that routes through LangGraph orchestrator."""
 
-from typing import Optional, List
+from typing import Any, Optional, List
 from datetime import datetime, timezone
 import json
 import uuid
@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 import structlog
 
 from src.orchestrator.chat_graph import create_chat_graph, ChatState
@@ -233,9 +233,82 @@ async def stream_message(request: ChatRequest):
     )
 
 
+def _serialize_message_content(content) -> Any:
+    """Serialize message content to a JSON-compatible format.
+
+    Handles:
+    - String content (simple text)
+    - List content (AI messages with text blocks and tool_use blocks)
+    - Dict content (tool results)
+    """
+    if isinstance(content, str):
+        # Try to parse as JSON for tool results
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return content
+    elif isinstance(content, list):
+        # AI messages can have list content with text blocks and tool_use blocks
+        return content
+    elif isinstance(content, dict):
+        return content
+    else:
+        return str(content)
+
+
+def _serialize_message(msg: BaseMessage) -> dict:
+    """Serialize a LangChain message to a dict for the API response.
+
+    Includes all message types:
+    - HumanMessage -> role: "user"
+    - AIMessage -> role: "assistant" (includes tool_calls if present)
+    - ToolMessage -> role: "tool" (includes tool_call_id and tool result)
+    """
+    if isinstance(msg, HumanMessage):
+        return {
+            "role": "user",
+            "content": _serialize_message_content(msg.content),
+        }
+    elif isinstance(msg, AIMessage):
+        result = {
+            "role": "assistant",
+            "content": _serialize_message_content(msg.content),
+        }
+        # Include tool calls if present
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.get("id", ""),
+                    "name": tc.get("name", ""),
+                    "args": tc.get("args", {}),
+                }
+                for tc in msg.tool_calls
+            ]
+        return result
+    elif isinstance(msg, ToolMessage):
+        return {
+            "role": "tool",
+            "tool_call_id": msg.tool_call_id,
+            "name": getattr(msg, "name", None),
+            "content": _serialize_message_content(msg.content),
+        }
+    else:
+        # Fallback for any other message type
+        return {
+            "role": "unknown",
+            "content": str(msg.content) if hasattr(msg, "content") else str(msg),
+        }
+
+
 @router.get("/history/{thread_id}")
 async def get_chat_history(thread_id: str):
-    """Get chat history for a thread."""
+    """Get chat history for a thread.
+
+    Returns all messages including:
+    - User messages (HumanMessage)
+    - Assistant messages (AIMessage) with tool_calls if present
+    - Tool results (ToolMessage) with full content including _artifact_refs
+    """
     checkpointer = get_checkpointer()
     graph = create_chat_graph()
     app = graph.compile(checkpointer=checkpointer)
@@ -250,12 +323,9 @@ async def get_chat_history(thread_id: str):
             return {
                 "thread_id": thread_id,
                 "messages": [
-                    {
-                        "role": "user" if isinstance(msg, HumanMessage) else "assistant",
-                        "content": msg.content if hasattr(msg, "content") else str(msg),
-                    }
+                    _serialize_message(msg)
                     for msg in messages
-                    if isinstance(msg, (HumanMessage, AIMessage))
+                    if isinstance(msg, (HumanMessage, AIMessage, ToolMessage))
                 ],
             }
         else:
@@ -294,3 +364,46 @@ async def delete_chat_history(thread_id: str):
         "deleted": False,
         "message": "Deletion not supported with MemorySaver. Use PostgresSaver for full support.",
     }
+
+
+@router.delete("/cancel/{thread_id}")
+async def cancel_chat(thread_id: str):
+    """Cancel an ongoing chat execution.
+
+    This updates the state to stop execution by setting should_continue to False.
+    The chat graph will check this flag and stop processing.
+    """
+    checkpointer = get_checkpointer()
+    graph = create_chat_graph()
+    app = graph.compile(checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": thread_id}}
+
+    try:
+        # Get current state
+        state = await app.aget_state(config)
+
+        if not state or not state.values:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        # Update state to stop execution
+        updated_values = dict(state.values)
+        updated_values["should_continue"] = False
+
+        # Update the state
+        await app.aupdate_state(config, updated_values)
+
+        logger.info("Chat execution cancelled", thread_id=thread_id)
+
+        return {
+            "success": True,
+            "thread_id": thread_id,
+            "message": "Chat execution cancelled",
+            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error cancelling chat", thread_id=thread_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
