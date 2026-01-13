@@ -3,7 +3,7 @@
   "info": {
     "title": "Argus E2E Testing Agent API",
     "description": "\nAutonomous E2E testing powered by Claude AI.\n\n## Security Features (SOC2 Compliant)\n- **Authentication**: API Key and JWT Bearer token support\n- **Authorization**: Role-Based Access Control (RBAC)\n- **Rate Limiting**: Configurable per-endpoint limits\n- **Audit Logging**: Comprehensive security event logging\n- **Input Validation**: XSS, SQL injection, and path traversal protection\n- **Security Headers**: OWASP-compliant headers\n\n## API Versioning\n- Current Version: v1\n- Version Header: X-API-Version\n    ",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "contact": {
       "name": "Argus Security Team",
       "email": "security@heyargus.com"
@@ -332,7 +332,7 @@
           "Webhooks"
         ],
         "summary": "Handle Github Actions Webhook",
-        "description": "Handle GitHub Actions webhook events.\n\nGitHub sends webhooks for workflow runs and jobs.\nConfigure in GitHub: Settings \u2192 Webhooks \u2192 Add webhook\nEvents: workflow_run, workflow_job",
+        "description": "Handle GitHub Actions webhook events.\n\nGitHub sends webhooks for workflow runs and jobs.\nConfigure in GitHub: Settings → Webhooks → Add webhook\nEvents: workflow_run, workflow_job",
         "operationId": "handle_github_actions_webhook_api_v1_webhooks_github_actions_post",
         "parameters": [
           {
@@ -478,7 +478,7 @@
           "Webhooks"
         ],
         "summary": "Handle Gitlab Ci Webhook",
-        "description": "Handle GitLab CI/CD webhook events.\n\nGitLab sends webhooks for pipeline and job events.\nConfigure in GitLab: Settings \u2192 Webhooks \u2192 Add webhook\nEvents: Pipeline events",
+        "description": "Handle GitLab CI/CD webhook events.\n\nGitLab sends webhooks for pipeline and job events.\nConfigure in GitLab: Settings → Webhooks → Add webhook\nEvents: Pipeline events",
         "operationId": "handle_gitlab_ci_webhook_api_v1_webhooks_gitlab_ci_post",
         "parameters": [
           {
@@ -530,7 +530,7 @@
           "Webhooks"
         ],
         "summary": "Handle Circleci Webhook",
-        "description": "Handle CircleCI webhook events.\n\nCircleCI sends webhooks for workflow and job completions.\nConfigure in CircleCI: Project Settings \u2192 Webhooks \u2192 Add webhook",
+        "description": "Handle CircleCI webhook events.\n\nCircleCI sends webhooks for workflow and job completions.\nConfigure in CircleCI: Project Settings → Webhooks → Add webhook",
         "operationId": "handle_circleci_webhook_api_v1_webhooks_circleci_post",
         "parameters": [
           {
@@ -2373,7 +2373,7 @@
             "required": false,
             "schema": {
               "type": "number",
-              "default": 0.0,
+              "default": 0,
               "title": "Min Confidence"
             }
           },
@@ -12079,8 +12079,8 @@
           },
           "discovery_depth": {
             "type": "integer",
-            "maximum": 5.0,
-            "minimum": 1.0,
+            "maximum": 5,
+            "minimum": 1,
             "title": "Discovery Depth",
             "description": "Crawl depth",
             "default": 2
@@ -12183,7 +12183,7 @@
           },
           "limit": {
             "type": "integer",
-            "maximum": 50.0,
+            "maximum": 50,
             "title": "Limit",
             "description": "Max events to process",
             "default": 10
@@ -12592,8 +12592,8 @@
           },
           "rate_limit_per_hour": {
             "type": "integer",
-            "maximum": 1000.0,
-            "minimum": 1.0,
+            "maximum": 1000,
+            "minimum": 1,
             "title": "Rate Limit Per Hour",
             "description": "Rate limit per hour",
             "default": 100
@@ -12740,8 +12740,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 1000.0,
-                "minimum": 1.0
+                "maximum": 1000,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -13452,8 +13452,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 365.0,
-                "minimum": 1.0
+                "maximum": 365,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -14863,7 +14863,7 @@
           },
           "retry_count": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Retry Count",
             "description": "Number of retries attempted",
             "default": 0
@@ -15088,7 +15088,7 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 1.0,
+                "maximum": 1,
                 "minimum": 0.5
               },
               {
@@ -15101,7 +15101,7 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 1.0,
+                "maximum": 1,
                 "minimum": 0.3
               },
               {
@@ -15125,8 +15125,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 20.0,
-                "minimum": 1.0
+                "maximum": 20,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -15163,8 +15163,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 120000.0,
-                "minimum": 1000.0
+                "maximum": 120000,
+                "minimum": 1000
               },
               {
                 "type": "null"
@@ -15187,7 +15187,7 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 1.0,
+                "maximum": 1,
                 "minimum": 0.5
               },
               {
@@ -15278,8 +15278,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 168.0,
-                "minimum": 1.0
+                "maximum": 168,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -15305,8 +15305,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 1000.0,
-                "minimum": 1.0
+                "maximum": 1000,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -15318,8 +15318,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 50.0,
-                "minimum": 1.0
+                "maximum": 50,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -17109,8 +17109,8 @@
           },
           "limit": {
             "type": "integer",
-            "maximum": 50.0,
-            "minimum": 1.0,
+            "maximum": 50,
+            "minimum": 1,
             "title": "Limit",
             "description": "Number of previews",
             "default": 5
@@ -17400,8 +17400,8 @@
           },
           "overall_score": {
             "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.0,
+            "maximum": 100,
+            "minimum": 0,
             "title": "Overall Score",
             "description": "Overall quality score"
           },
@@ -17412,21 +17412,21 @@
           },
           "test_coverage": {
             "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.0,
+            "maximum": 100,
+            "minimum": 0,
             "title": "Test Coverage",
             "description": "Test coverage percentage"
           },
           "error_count": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Error Count",
             "description": "Active error count",
             "default": 0
           },
           "resolved_count": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Resolved Count",
             "description": "Resolved error count",
             "default": 0
@@ -18047,8 +18047,8 @@
           },
           "cooldown_minutes": {
             "type": "integer",
-            "maximum": 1440.0,
-            "minimum": 0.0,
+            "maximum": 1440,
+            "minimum": 0,
             "title": "Cooldown Minutes",
             "description": "Cooldown between notifications",
             "default": 0
@@ -18238,16 +18238,16 @@
           },
           "timeout_minutes": {
             "type": "integer",
-            "maximum": 480.0,
-            "minimum": 5.0,
+            "maximum": 480,
+            "minimum": 5,
             "title": "Timeout Minutes",
             "description": "Maximum run duration in minutes",
             "default": 60
           },
           "retry_count": {
             "type": "integer",
-            "maximum": 3.0,
-            "minimum": 0.0,
+            "maximum": 3,
+            "minimum": 0,
             "title": "Retry Count",
             "description": "Number of retries on failure",
             "default": 0
@@ -18360,7 +18360,7 @@
           },
           "estimated_duration_minutes": {
             "type": "integer",
-            "minimum": 1.0,
+            "minimum": 1,
             "title": "Estimated Duration Minutes",
             "description": "Estimated duration",
             "default": 30
@@ -18841,8 +18841,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 480.0,
-                "minimum": 5.0
+                "maximum": 480,
+                "minimum": 5
               },
               {
                 "type": "null"
@@ -18854,8 +18854,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 3.0,
-                "minimum": 0.0
+                "maximum": 3,
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -18945,15 +18945,15 @@
           },
           "limit": {
             "type": "integer",
-            "maximum": 20.0,
+            "maximum": 20,
             "title": "Limit",
             "description": "Maximum results to return",
             "default": 5
           },
           "min_score": {
             "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
+            "maximum": 1,
+            "minimum": 0,
             "title": "Min Score",
             "description": "Minimum similarity score",
             "default": 0.7
@@ -19243,16 +19243,16 @@
           },
           "max_pages": {
             "type": "integer",
-            "maximum": 500.0,
-            "minimum": 1.0,
+            "maximum": 500,
+            "minimum": 1,
             "title": "Max Pages",
             "description": "Maximum pages to discover",
             "default": 50
           },
           "max_depth": {
             "type": "integer",
-            "maximum": 10.0,
-            "minimum": 1.0,
+            "maximum": 10,
+            "minimum": 1,
             "title": "Max Depth",
             "description": "Maximum crawl depth",
             "default": 3
@@ -19319,8 +19319,8 @@
           },
           "timeout_seconds": {
             "type": "integer",
-            "maximum": 120.0,
-            "minimum": 5.0,
+            "maximum": 120,
+            "minimum": 5,
             "title": "Timeout Seconds",
             "description": "Page timeout",
             "default": 30
@@ -20616,41 +20616,41 @@
           },
           "total": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Total",
             "description": "Total tests"
           },
           "passed": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Passed",
             "description": "Passed tests"
           },
           "failed": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Failed",
             "description": "Failed tests"
           },
           "skipped": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Skipped",
             "description": "Skipped tests",
             "default": 0
           },
           "duration_seconds": {
             "type": "number",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Duration Seconds",
             "description": "Test duration in seconds"
           },
           "cost_usd": {
             "type": "number",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Cost Usd",
             "description": "AI cost in USD",
-            "default": 0.0
+            "default": 0
           },
           "failures": {
             "items": {
@@ -21551,8 +21551,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 10000.0,
-                "minimum": 0.0
+                "maximum": 10000,
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -21564,8 +21564,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 100000.0,
-                "minimum": 0.0
+                "maximum": 100000,
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -22170,15 +22170,15 @@
           },
           "width": {
             "type": "integer",
-            "maximum": 3840.0,
-            "minimum": 320.0,
+            "maximum": 3840,
+            "minimum": 320,
             "title": "Width",
             "default": 1440
           },
           "height": {
             "type": "integer",
-            "maximum": 2160.0,
-            "minimum": 480.0,
+            "maximum": 2160,
+            "minimum": 480,
             "title": "Height",
             "default": 900
           }
@@ -22482,8 +22482,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 10000.0,
-                "minimum": 0.0
+                "maximum": 10000,
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -22495,8 +22495,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 100000.0,
-                "minimum": 0.0
+                "maximum": 100000,
+                "minimum": 0
               },
               {
                 "type": "null"
