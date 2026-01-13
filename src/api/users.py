@@ -27,13 +27,29 @@ router = APIRouter(prefix="/api/v1/users", tags=["User Profile"])
 
 class NotificationPreferences(BaseModel):
     """User notification preferences."""
+    # Master toggles for each channel
+    email_notifications: bool = True
+    slack_notifications: bool = False
+    in_app_notifications: bool = True
+
+    # Email-specific settings
     email_test_failures: bool = True
     email_test_completions: bool = False
     email_weekly_digest: bool = True
+
+    # Slack-specific settings
     slack_test_failures: bool = False
     slack_test_completions: bool = False
+
+    # In-app specific settings
     in_app_test_failures: bool = True
     in_app_test_completions: bool = True
+
+    # Alert settings
+    test_failure_alerts: bool = True
+    daily_digest: bool = False
+    weekly_report: bool = True
+    alert_threshold: int = 80  # Percentage threshold for alerting
 
 
 class UpdateProfileRequest(BaseModel):
@@ -48,13 +64,51 @@ class UpdateProfileRequest(BaseModel):
 
 class UpdateNotificationPreferencesRequest(BaseModel):
     """Request to update notification preferences."""
+    # Master toggles
+    email_notifications: Optional[bool] = None
+    slack_notifications: Optional[bool] = None
+    in_app_notifications: Optional[bool] = None
+
+    # Email-specific settings
     email_test_failures: Optional[bool] = None
     email_test_completions: Optional[bool] = None
     email_weekly_digest: Optional[bool] = None
+
+    # Slack-specific settings
     slack_test_failures: Optional[bool] = None
     slack_test_completions: Optional[bool] = None
+
+    # In-app specific settings
     in_app_test_failures: Optional[bool] = None
     in_app_test_completions: Optional[bool] = None
+
+    # Alert settings
+    test_failure_alerts: Optional[bool] = None
+    daily_digest: Optional[bool] = None
+    weekly_report: Optional[bool] = None
+    alert_threshold: Optional[int] = None
+
+
+class TestDefaults(BaseModel):
+    """User test execution defaults."""
+    default_browser: str = "chromium"  # chromium, firefox, webkit
+    default_timeout: int = 30000  # Timeout in milliseconds
+    parallel_execution: bool = True
+    retry_failed_tests: bool = True
+    max_retries: int = 2
+    screenshot_on_failure: bool = True
+    video_recording: bool = False
+
+
+class UpdateTestDefaultsRequest(BaseModel):
+    """Request to update test defaults."""
+    default_browser: Optional[str] = Field(None, pattern="^(chromium|firefox|webkit)$")
+    default_timeout: Optional[int] = Field(None, ge=1000, le=300000)
+    parallel_execution: Optional[bool] = None
+    retry_failed_tests: Optional[bool] = None
+    max_retries: Optional[int] = Field(None, ge=0, le=10)
+    screenshot_on_failure: Optional[bool] = None
+    video_recording: Optional[bool] = None
 
 
 class SetDefaultOrganizationRequest(BaseModel):
@@ -75,6 +129,7 @@ class UserProfileResponse(BaseModel):
     language: Optional[str]
     theme: Optional[str]
     notification_preferences: NotificationPreferences
+    test_defaults: TestDefaults
     default_organization_id: Optional[str]
     default_project_id: Optional[str]
     onboarding_completed: bool
@@ -104,13 +159,38 @@ class OrganizationSummary(BaseModel):
 def get_default_notification_preferences() -> dict:
     """Get default notification preferences."""
     return {
+        # Master toggles
+        "email_notifications": True,
+        "slack_notifications": False,
+        "in_app_notifications": True,
+        # Email-specific
         "email_test_failures": True,
         "email_test_completions": False,
         "email_weekly_digest": True,
+        # Slack-specific
         "slack_test_failures": False,
         "slack_test_completions": False,
+        # In-app specific
         "in_app_test_failures": True,
         "in_app_test_completions": True,
+        # Alert settings
+        "test_failure_alerts": True,
+        "daily_digest": False,
+        "weekly_report": True,
+        "alert_threshold": 80,
+    }
+
+
+def get_default_test_defaults() -> dict:
+    """Get default test execution settings."""
+    return {
+        "default_browser": "chromium",
+        "default_timeout": 30000,
+        "parallel_execution": True,
+        "retry_failed_tests": True,
+        "max_retries": 2,
+        "screenshot_on_failure": True,
+        "video_recording": False,
     }
 
 
@@ -141,6 +221,7 @@ async def get_or_create_profile(user_id: str, email: Optional[str] = None) -> di
         "user_id": user_id,
         "email": email,
         "notification_preferences": get_default_notification_preferences(),
+        "test_defaults": get_default_test_defaults(),
         "onboarding_completed": False,
         "login_count": 1,
         "last_login_at": now,
@@ -186,8 +267,9 @@ async def get_my_profile(request: Request):
         {"last_active_at": datetime.now(timezone.utc).isoformat()}
     )
 
-    # Parse notification preferences
+    # Parse notification preferences and test defaults
     notification_prefs = profile.get("notification_preferences") or get_default_notification_preferences()
+    test_defaults = profile.get("test_defaults") or get_default_test_defaults()
 
     return UserProfileResponse(
         id=profile["id"],
@@ -200,6 +282,7 @@ async def get_my_profile(request: Request):
         language=profile.get("language"),
         theme=profile.get("theme"),
         notification_preferences=NotificationPreferences(**notification_prefs),
+        test_defaults=TestDefaults(**test_defaults),
         default_organization_id=profile.get("default_organization_id"),
         default_project_id=profile.get("default_project_id"),
         onboarding_completed=profile.get("onboarding_completed", False),
@@ -269,21 +352,43 @@ async def update_notification_preferences(
     # Get current preferences
     current_prefs = profile.get("notification_preferences") or get_default_notification_preferences()
 
-    # Merge updates
+    # Merge updates - Master toggles
+    if body.email_notifications is not None:
+        current_prefs["email_notifications"] = body.email_notifications
+    if body.slack_notifications is not None:
+        current_prefs["slack_notifications"] = body.slack_notifications
+    if body.in_app_notifications is not None:
+        current_prefs["in_app_notifications"] = body.in_app_notifications
+
+    # Email-specific settings
     if body.email_test_failures is not None:
         current_prefs["email_test_failures"] = body.email_test_failures
     if body.email_test_completions is not None:
         current_prefs["email_test_completions"] = body.email_test_completions
     if body.email_weekly_digest is not None:
         current_prefs["email_weekly_digest"] = body.email_weekly_digest
+
+    # Slack-specific settings
     if body.slack_test_failures is not None:
         current_prefs["slack_test_failures"] = body.slack_test_failures
     if body.slack_test_completions is not None:
         current_prefs["slack_test_completions"] = body.slack_test_completions
+
+    # In-app specific settings
     if body.in_app_test_failures is not None:
         current_prefs["in_app_test_failures"] = body.in_app_test_failures
     if body.in_app_test_completions is not None:
         current_prefs["in_app_test_completions"] = body.in_app_test_completions
+
+    # Alert settings
+    if body.test_failure_alerts is not None:
+        current_prefs["test_failure_alerts"] = body.test_failure_alerts
+    if body.daily_digest is not None:
+        current_prefs["daily_digest"] = body.daily_digest
+    if body.weekly_report is not None:
+        current_prefs["weekly_report"] = body.weekly_report
+    if body.alert_threshold is not None:
+        current_prefs["alert_threshold"] = body.alert_threshold
 
     result = await supabase.update(
         "user_profiles",
@@ -298,6 +403,56 @@ async def update_notification_preferences(
         raise HTTPException(status_code=500, detail="Failed to update preferences")
 
     logger.info("User notification preferences updated", user_id=user["user_id"])
+
+    # Return updated profile
+    return await get_my_profile(request)
+
+
+@router.put("/me/test-defaults", response_model=UserProfileResponse)
+async def update_test_defaults(
+    body: UpdateTestDefaultsRequest,
+    request: Request
+):
+    """Update test execution defaults."""
+    user = await get_current_user(request)
+
+    # Ensure profile exists
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Get current test defaults
+    current_defaults = profile.get("test_defaults") or get_default_test_defaults()
+
+    # Merge updates
+    if body.default_browser is not None:
+        current_defaults["default_browser"] = body.default_browser
+    if body.default_timeout is not None:
+        current_defaults["default_timeout"] = body.default_timeout
+    if body.parallel_execution is not None:
+        current_defaults["parallel_execution"] = body.parallel_execution
+    if body.retry_failed_tests is not None:
+        current_defaults["retry_failed_tests"] = body.retry_failed_tests
+    if body.max_retries is not None:
+        current_defaults["max_retries"] = body.max_retries
+    if body.screenshot_on_failure is not None:
+        current_defaults["screenshot_on_failure"] = body.screenshot_on_failure
+    if body.video_recording is not None:
+        current_defaults["video_recording"] = body.video_recording
+
+    result = await supabase.update(
+        "user_profiles",
+        {"id": f"eq.{profile['id']}"},
+        {
+            "test_defaults": current_defaults,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to update test defaults")
+
+    logger.info("User test defaults updated", user_id=user["user_id"])
 
     # Return updated profile
     return await get_my_profile(request)
@@ -445,3 +600,83 @@ async def list_my_organizations(request: Request):
     result.sort(key=lambda x: (not x.is_default, x.name.lower()))
 
     return result
+
+
+class SwitchOrganizationResponse(BaseModel):
+    """Response for organization switch."""
+    success: bool
+    organization_id: str
+    organization_name: str
+    message: str
+
+
+@router.post("/me/organizations/{org_id}/switch", response_model=SwitchOrganizationResponse)
+async def switch_organization(org_id: str, request: Request):
+    """Switch the user's active organization.
+
+    This endpoint updates the user's default organization and is intended
+    to be called when the user switches organizations in the UI.
+    """
+    user = await get_current_user(request)
+
+    # Ensure profile exists
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Verify user has access to the organization
+    membership = await supabase.request(
+        f"/organization_members?organization_id=eq.{org_id}&user_id=eq.{user['user_id']}&status=eq.active&select=id,role"
+    )
+
+    # Also check by email if not found by user_id
+    if (not membership.get("data") or len(membership["data"]) == 0) and user.get("email"):
+        membership = await supabase.request(
+            f"/organization_members?organization_id=eq.{org_id}&email=eq.{user['email']}&status=eq.active&select=id,role"
+        )
+
+    if not membership.get("data") or len(membership["data"]) == 0:
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have access to this organization"
+        )
+
+    # Get organization details
+    org_result = await supabase.request(
+        f"/organizations?id=eq.{org_id}&select=id,name,slug"
+    )
+
+    if not org_result.get("data") or len(org_result["data"]) == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Organization not found"
+        )
+
+    org = org_result["data"][0]
+
+    # Update profile with new default organization
+    result = await supabase.update(
+        "user_profiles",
+        {"id": f"eq.{profile['id']}"},
+        {
+            "default_organization_id": org_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to switch organization")
+
+    logger.info(
+        "User switched organization",
+        user_id=user["user_id"],
+        organization_id=org_id,
+        organization_name=org["name"]
+    )
+
+    return SwitchOrganizationResponse(
+        success=True,
+        organization_id=org_id,
+        organization_name=org["name"],
+        message=f"Successfully switched to {org['name']}"
+    )
