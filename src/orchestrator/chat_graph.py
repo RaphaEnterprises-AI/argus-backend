@@ -115,6 +115,7 @@ class ChatState(TypedDict):
     current_tool: Optional[str]
     tool_results: List[dict]
     session_id: str
+    should_continue: bool  # Flag to allow cancellation of execution
 
 
 def create_system_prompt(app_url: str = "") -> str:
@@ -355,6 +356,11 @@ async def tool_executor_node(state: ChatState, config) -> dict:
 
 def should_continue(state: ChatState) -> Literal["tools", "end"]:
     """Determine if we should execute tools or end."""
+    # Check if execution was cancelled
+    if not state.get("should_continue", True):
+        logger.info("Execution cancelled by user, stopping graph")
+        return "end"
+
     last_message = state["messages"][-1]
 
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
