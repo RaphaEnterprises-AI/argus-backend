@@ -367,6 +367,7 @@ class BrowserWorkerClient:
         viewport_height: int = 900,
         full_page: bool = False,
         wait_for: Optional[str] = None,
+        timeout: float = 90.0,
     ) -> tuple[Optional[bytes], dict]:
         """Capture a screenshot of a page using the cloud browser.
 
@@ -376,6 +377,7 @@ class BrowserWorkerClient:
             viewport_height: Viewport height in pixels
             full_page: Capture full scrollable page
             wait_for: CSS selector to wait for before capture
+            timeout: Timeout in seconds for the request (default 90s for complex pages)
 
         Returns:
             Tuple of (screenshot_bytes, metadata) or (None, error_dict)
@@ -395,8 +397,9 @@ class BrowserWorkerClient:
                     },
                     "fullPage": full_page,
                     "waitFor": wait_for,
+                    "timeout": int(timeout * 1000),  # Pass timeout to worker in ms
                 },
-                timeout=60.0,
+                timeout=timeout,
             )
 
             if not response.is_success:
@@ -408,8 +411,9 @@ class BrowserWorkerClient:
                         "url": url,
                         "instruction": "Wait for page to load",
                         "screenshot": True,
+                        "timeout": int(timeout * 1000),  # Pass timeout to worker in ms
                     },
-                    timeout=60.0,
+                    timeout=timeout,
                 )
 
             if not response.is_success:
