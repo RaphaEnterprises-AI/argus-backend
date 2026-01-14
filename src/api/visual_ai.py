@@ -238,57 +238,42 @@ async def _capture_screenshot(
     wait_timeout: int = 30000,
     full_page: bool = False,
 ) -> tuple[bytes, Dict[str, Any]]:
-    """Capture screenshot using Playwright.
+    """Capture screenshot using the cloud browser worker.
+
+    Uses BrowserWorkerClient which connects to Cloudflare's @cloudflare/playwright
+    for reliable, cloud-based screenshot capture without local Playwright installation.
 
     Returns:
         Tuple of (screenshot_bytes, metadata)
     """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
+    from src.tools.browser_worker_client import get_browser_client
+
+    browser_client = get_browser_client()
+
+    screenshot_bytes, result = await browser_client.capture_screenshot(
+        url=url,
+        viewport_width=viewport.width,
+        viewport_height=viewport.height,
+        full_page=full_page,
+        wait_for=wait_for,
+    )
+
+    if screenshot_bytes is None:
+        error_msg = result.get("error", "Unknown error capturing screenshot")
         raise HTTPException(
             status_code=500,
-            detail="Playwright not installed. Run: playwright install"
+            detail=f"Failed to capture screenshot: {error_msg}"
         )
 
+    # Merge metadata from browser worker with additional info
     metadata = {
         "url": url,
         "viewport": {"width": viewport.width, "height": viewport.height},
         "browser": browser,
         "full_page": full_page,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": result.get("captured_at", datetime.now(timezone.utc).isoformat()),
+        "source": "browser_worker",
     }
-
-    async with async_playwright() as p:
-        # Select browser
-        browser_launcher = getattr(p, browser, p.chromium)
-        browser_instance = await browser_launcher.launch()
-
-        try:
-            context = await browser_instance.new_context(
-                viewport={"width": viewport.width, "height": viewport.height}
-            )
-            page = await context.new_page()
-
-            # Navigate to URL
-            await page.goto(url, wait_until="networkidle", timeout=60000)
-
-            # Wait for specific element if requested
-            if wait_for:
-                await page.wait_for_selector(wait_for, timeout=wait_timeout)
-
-            # Small delay for any animations
-            await page.wait_for_timeout(500)
-
-            # Capture screenshot
-            screenshot_bytes = await page.screenshot(full_page=full_page)
-
-            # Get page title and other metadata
-            metadata["title"] = await page.title()
-            metadata["final_url"] = page.url
-
-        finally:
-            await browser_instance.close()
 
     return screenshot_bytes, metadata
 
