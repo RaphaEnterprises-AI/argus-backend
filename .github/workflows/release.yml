@@ -48,6 +48,15 @@ jobs:
           echo "Enabling auto-merge for PR #${PR_NUMBER}"
           gh pr merge ${PR_NUMBER} --auto --squash --repo ${{ github.repository }} || echo "Auto-merge may already be enabled or PR is not mergeable yet"
 
+  # Claude Code Review for release PRs
+  claude-review:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr }}
+    uses: ./.github/workflows/claude-code-review.yml
+    with:
+      pr_number: ${{ needs.release-please.outputs.pr }}
+    secrets: inherit
+
   # Build and test on release
   build-on-release:
     needs: release-please
