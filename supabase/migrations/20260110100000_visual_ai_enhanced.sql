@@ -23,6 +23,30 @@ CREATE TABLE IF NOT EXISTS visual_baselines (
 -- Add enhanced columns to visual_baselines
 DO $$
 BEGIN
+    -- Test ID reference (may be missing from existing tables)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_baselines' AND column_name = 'test_id') THEN
+        ALTER TABLE visual_baselines ADD COLUMN test_id UUID;
+    END IF;
+
+    -- Screenshot hash for quick comparison
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_baselines' AND column_name = 'screenshot_hash') THEN
+        ALTER TABLE visual_baselines ADD COLUMN screenshot_hash VARCHAR(64);
+    END IF;
+
+    -- Screenshot URL
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_baselines' AND column_name = 'screenshot_url') THEN
+        ALTER TABLE visual_baselines ADD COLUMN screenshot_url TEXT;
+    END IF;
+
+    -- Metadata
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_baselines' AND column_name = 'metadata') THEN
+        ALTER TABLE visual_baselines ADD COLUMN metadata JSONB DEFAULT '{}';
+    END IF;
+
     -- DOM snapshot for structural comparison
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name = 'visual_baselines' AND column_name = 'dom_snapshot') THEN
@@ -192,6 +216,112 @@ CREATE TABLE IF NOT EXISTS visual_comparisons (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add missing columns to visual_comparisons if they don't exist
+DO $$
+BEGIN
+    -- Snapshot ID reference
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'snapshot_id') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN snapshot_id UUID REFERENCES visual_snapshots(id) ON DELETE CASCADE;
+    END IF;
+
+    -- Baseline ID reference
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'baseline_id') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN baseline_id UUID REFERENCES visual_baselines(id) ON DELETE CASCADE;
+    END IF;
+
+    -- Algorithm
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'algorithm') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN algorithm TEXT DEFAULT 'pixelmatch';
+    END IF;
+
+    -- Match percentage
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'match_percentage') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN match_percentage FLOAT;
+    END IF;
+
+    -- Diff pixel count
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'diff_pixel_count') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN diff_pixel_count INTEGER;
+    END IF;
+
+    -- Diff percentage
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'diff_percentage') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN diff_percentage FLOAT;
+    END IF;
+
+    -- Diff image URL
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'diff_image_url') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN diff_image_url TEXT;
+    END IF;
+
+    -- Heatmap URL
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'heatmap_url') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN heatmap_url TEXT;
+    END IF;
+
+    -- AI analysis
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'ai_analysis') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN ai_analysis JSONB DEFAULT '{}';
+    END IF;
+
+    -- Status
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'status') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN status TEXT DEFAULT 'pending';
+    END IF;
+
+    -- Reviewed by
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'reviewed_by') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN reviewed_by TEXT;
+    END IF;
+
+    -- Reviewed at
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'reviewed_at') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN reviewed_at TIMESTAMPTZ;
+    END IF;
+
+    -- Review notes
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'review_notes') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN review_notes TEXT;
+    END IF;
+
+    -- Threshold percentage
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'threshold_percentage') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN threshold_percentage FLOAT DEFAULT 0.1;
+    END IF;
+
+    -- Performance diff
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'performance_diff') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN performance_diff JSONB DEFAULT '{}';
+    END IF;
+
+    -- Metadata
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'metadata') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN metadata JSONB DEFAULT '{}';
+    END IF;
+
+    -- Updated at
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'visual_comparisons' AND column_name = 'updated_at') THEN
+        ALTER TABLE visual_comparisons ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
+    END IF;
+END $$;
 
 -- Indexes for visual_comparisons
 CREATE INDEX IF NOT EXISTS idx_visual_comparisons_project ON visual_comparisons(project_id);
