@@ -360,6 +360,86 @@ class BrowserWorkerClient:
             logger.exception("Agent execution failed", error=str(e))
             return AgentResult(success=False, completed=False, error=str(e))
 
+    async def capture_screenshot(
+        self,
+        url: str,
+        viewport_width: int = 1440,
+        viewport_height: int = 900,
+        full_page: bool = False,
+        wait_for: Optional[str] = None,
+    ) -> tuple[Optional[bytes], dict]:
+        """Capture a screenshot of a page using the cloud browser.
+
+        Args:
+            url: URL to capture
+            viewport_width: Viewport width in pixels
+            viewport_height: Viewport height in pixels
+            full_page: Capture full scrollable page
+            wait_for: CSS selector to wait for before capture
+
+        Returns:
+            Tuple of (screenshot_bytes, metadata) or (None, error_dict)
+        """
+        import base64
+        from datetime import datetime, timezone
+
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                "/screenshot",
+                json={
+                    "url": url,
+                    "viewport": {
+                        "width": viewport_width,
+                        "height": viewport_height,
+                    },
+                    "fullPage": full_page,
+                    "waitFor": wait_for,
+                },
+                timeout=60.0,
+            )
+
+            if not response.is_success:
+                # Fallback: use /act with no-op instruction to get screenshot
+                logger.info("Screenshot endpoint unavailable, using /act fallback")
+                response = await client.post(
+                    "/act",
+                    json={
+                        "url": url,
+                        "instruction": "Wait for page to load",
+                        "screenshot": True,
+                    },
+                    timeout=60.0,
+                )
+
+            if not response.is_success:
+                return None, {"error": f"Screenshot capture failed: {response.text}"}
+
+            data = response.json()
+            screenshot_b64 = data.get("screenshot")
+
+            if not screenshot_b64:
+                return None, {"error": "No screenshot returned from browser worker"}
+
+            # Decode base64 screenshot
+            screenshot_bytes = base64.b64decode(screenshot_b64)
+
+            metadata = {
+                "url": url,
+                "viewport": {"width": viewport_width, "height": viewport_height},
+                "full_page": full_page,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "source": "browser_worker",
+            }
+
+            return screenshot_bytes, metadata
+
+        except httpx.TimeoutException:
+            return None, {"error": "Screenshot capture timed out"}
+        except Exception as e:
+            logger.exception("Screenshot capture failed", error=str(e))
+            return None, {"error": str(e)}
+
     # Convenience aliases
     async def discover(
         self,
