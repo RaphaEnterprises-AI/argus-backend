@@ -204,6 +204,195 @@ interface PresenceResponse {
   }>;
 }
 
+// Production Events Response types
+interface ProductionEventsResponse {
+  events: Array<{
+    id: string;
+    title: string;
+    message?: string;
+    severity: string;
+    status: string;
+    url?: string;
+    component?: string;
+    occurrence_count: number;
+    affected_users: number;
+    source: string;
+    first_seen_at: string;
+    last_seen_at: string;
+    ai_analysis?: {
+      generated_test_id?: string;
+      confidence_score?: number;
+    };
+  }>;
+}
+
+// Generated Tests Response types
+interface GeneratedTestsResponse {
+  tests: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    status: string;
+    framework: string;
+    test_code?: string;
+    test_file_path?: string;
+    confidence_score: number;
+    production_event_id?: string;
+    created_at: string;
+    reviewed_at?: string;
+  }>;
+}
+
+// Healing Config Response types
+interface HealingConfigResponse {
+  id: string;
+  organization_id: string;
+  project_id?: string;
+  enabled: boolean;
+  auto_apply: boolean;
+  min_confidence_auto: number;
+  min_confidence_suggest: number;
+  heal_selectors: boolean;
+  heal_timeouts: boolean;
+  heal_text_content: boolean;
+  learn_from_success: boolean;
+  notify_on_heal: boolean;
+  require_approval: boolean;
+}
+
+// Healing Patterns Response types
+interface HealingPatternsResponse {
+  patterns: Array<{
+    id: string;
+    fingerprint: string;
+    original_selector: string;
+    healed_selector: string;
+    error_type: string;
+    success_count: number;
+    failure_count: number;
+    confidence: number;
+    project_id?: string;
+    created_at: string;
+  }>;
+}
+
+// Healing Stats Response types
+interface HealingStatsResponse {
+  total_patterns: number;
+  total_heals_applied: number;
+  total_heals_suggested: number;
+  success_rate: number;
+  top_error_types: Record<string, number>;
+  heals_last_24h: number;
+  heals_last_7d: number;
+  avg_confidence: number;
+  recent_heals: Array<{
+    id: string;
+    original: string;
+    healed: string;
+    error_type: string;
+    confidence: number;
+  }>;
+}
+
+// Projects Response types
+interface ProjectsResponse {
+  projects: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    app_url?: string;
+    organization_id: string;
+    created_at: string;
+    test_count?: number;
+    event_count?: number;
+  }>;
+}
+
+// Test Run History Response types
+interface TestRunHistoryResponse {
+  runs: Array<{
+    id: string;
+    test_id: string;
+    status: string;
+    duration_ms: number;
+    passed_steps: number;
+    total_steps: number;
+    error_message?: string;
+    screenshot_url?: string;
+    started_at: string;
+    completed_at?: string;
+  }>;
+}
+
+// What To Test Response types
+interface WhatToTestResponse {
+  recommendations: Array<{
+    priority: string;
+    entity: string;
+    entity_type: string;
+    reason: string;
+    risk_score: number;
+    affected_users: number;
+    suggested_test_description: string;
+  }>;
+  summary: string;
+}
+
+// Coverage Gaps Response types
+interface CoverageGapsResponse {
+  gaps: Array<{
+    entity: string;
+    entity_type: string;
+    error_count: number;
+    has_test: boolean;
+    risk_score: number;
+    suggestion: string;
+  }>;
+  coverage_percentage: number;
+  total_entities: number;
+  tested_entities: number;
+}
+
+// Flaky Tests Response types
+interface FlakyTestsResponse {
+  flaky_tests: Array<{
+    test_id: string;
+    test_name: string;
+    flakiness_score: number;
+    pass_rate: number;
+    total_runs: number;
+    recent_failures: number;
+    common_failure_reason?: string;
+  }>;
+  total_flaky: number;
+}
+
+// Schedule Response types
+interface ScheduleResponse {
+  schedules: Array<{
+    id: string;
+    name: string;
+    cron_expression: string;
+    test_ids: string[];
+    enabled: boolean;
+    last_run_at?: string;
+    next_run_at?: string;
+    created_at: string;
+  }>;
+}
+
+// AI Ask Response types
+interface AskResponse {
+  answer: string;
+  sources: Array<{
+    type: string;
+    id: string;
+    relevance: number;
+  }>;
+  suggestions?: string[];
+}
+
 interface CommentsResponse {
   success: boolean;
   comments: Array<{
@@ -334,7 +523,7 @@ async function callWorkerAPI<T>(
 // Helper to call Brain API (intelligence)
 async function callBrainAPI<T>(
   endpoint: string,
-  method: "GET" | "POST" = "POST",
+  method: "GET" | "POST" | "PUT" | "DELETE" = "POST",
   body?: Record<string, unknown>,
   env?: Env
 ): Promise<T> {
@@ -349,7 +538,7 @@ async function callBrainAPI<T>(
     headers,
   };
 
-  if (body && method === "POST") {
+  if (body && (method === "POST" || method === "PUT")) {
     fetchOptions.body = JSON.stringify(body);
   }
 
@@ -1678,6 +1867,1173 @@ export class ArgusMcpAgent extends McpAgent<Env> {
         }
       }
     );
+
+    // =========================================================================
+    // PRODUCTION EVENTS - Query and manage production errors
+    // =========================================================================
+
+    // Tool: argus_events - List and filter production events
+    this.server.tool(
+      "argus_events",
+      "List production errors and events that need test coverage. Filter by severity, status, or time range to find what needs attention. This is your window into what's breaking in production.",
+      {
+        project_id: z.string().describe("The project UUID"),
+        status: z.enum(["new", "analyzing", "test_pending_review", "test_generated", "ignored"]).optional().describe("Filter by status"),
+        severity: z.enum(["fatal", "error", "warning"]).optional().describe("Filter by severity"),
+        source: z.string().optional().describe("Filter by source (sentry, datadog, etc.)"),
+        limit: z.number().min(1).max(100).optional().describe("Max results (default: 20)"),
+      },
+      async ({ project_id, status, severity, source, limit = 20 }) => {
+        try {
+          const params = new URLSearchParams({ project_id, limit: limit.toString() });
+          if (status) params.set("status", status);
+          if (severity) params.set("severity", severity);
+          if (source) params.set("source", source);
+
+          const result = await callBrainAPI<ProductionEventsResponse>(
+            `/api/v1/quality/events?${params}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          if (!result.events || result.events.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Production Events\n\nNo events found matching your criteria. Your app is running clean! 🎉\n\n**Tip:** Set up webhooks from Sentry/Datadog to start capturing production errors.`,
+                },
+              ],
+            };
+          }
+
+          const eventsList = result.events.map((e, i) => {
+            const severityIcon = e.severity === "fatal" ? "🔴" : e.severity === "error" ? "🟠" : "🟡";
+            const statusIcon = e.status === "test_generated" ? "✅" : e.status === "test_pending_review" ? "⏳" : "❌";
+            return `${i + 1}. ${severityIcon} **${e.title}**\n   Status: ${statusIcon} ${e.status} | Occurrences: ${e.occurrence_count} | Users: ${e.affected_users}\n   Component: ${e.component || "Unknown"} | Source: ${e.source}\n   ID: \`${e.id}\``;
+          }).join("\n\n");
+
+          const newCount = result.events.filter(e => e.status === "new").length;
+          const summary = newCount > 0 
+            ? `⚠️ **${newCount} events need tests!** Use \`argus_test_from_event\` to generate tests.`
+            : "All events have been processed.";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Production Events (${result.events.length} found)\n\n${summary}\n\n${eventsList}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error fetching events: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_test_from_event - Generate test from production error
+    this.server.tool(
+      "argus_test_from_event",
+      "Generate an E2E test from a specific production error. The AI analyzes the error context, stack trace, and user action to create a comprehensive test that prevents regression.",
+      {
+        event_id: z.string().describe("The production event UUID to generate test from"),
+        project_id: z.string().describe("The project UUID"),
+        framework: z.enum(["playwright", "cypress", "jest"]).optional().describe("Test framework (default: playwright)"),
+      },
+      async ({ event_id, project_id, framework = "playwright" }) => {
+        try {
+          const result = await callBrainAPI<{
+            success: boolean;
+            message: string;
+            generated_test?: {
+              id: string;
+              name: string;
+              file_path: string;
+              confidence_score: number;
+            };
+            test_code?: string;
+          }>(
+            "/api/v1/quality/generate-test",
+            "POST",
+            {
+              production_event_id: event_id,
+              project_id,
+              framework,
+            },
+            this.env
+          );
+
+          if (!result.success || !result.generated_test) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Test Generation Failed\n\n${result.message || "Could not generate test from this event."}\n\n**Tip:** Make sure the event has enough context (URL, stack trace, component).`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          const confidenceEmoji = result.generated_test.confidence_score > 0.8 ? "🟢" : result.generated_test.confidence_score > 0.6 ? "🟡" : "🔴";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Test Generated Successfully! 🎉\n\n**Name:** ${result.generated_test.name}\n**File:** \`${result.generated_test.file_path}\`\n**Confidence:** ${confidenceEmoji} ${(result.generated_test.confidence_score * 100).toFixed(0)}%\n**Framework:** ${framework}\n\n### Generated Code:\n\`\`\`typescript\n${result.test_code || "// Code available in the dashboard"}\n\`\`\`\n\n**Next Steps:**\n1. Review the test with \`argus_tests\`\n2. Approve with \`argus_test_review\`\n3. Export to your repo with \`argus_export\``,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error generating test: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_event_triage - AI-powered event triage
+    this.server.tool(
+      "argus_event_triage",
+      "Get AI-powered triage recommendations for production events. Identifies which errors are most critical, suggests groupings, and recommends test priorities.",
+      {
+        project_id: z.string().describe("The project UUID"),
+        limit: z.number().min(1).max(50).optional().describe("Max events to analyze (default: 10)"),
+      },
+      async ({ project_id, limit = 10 }) => {
+        try {
+          // Get events and risk scores to provide triage recommendations
+          const [eventsResult, riskResult] = await Promise.all([
+            callBrainAPI<ProductionEventsResponse>(
+              `/api/v1/quality/events?project_id=${project_id}&status=new&limit=${limit}`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<BrainRiskScoresResponse>(
+              `/api/v1/quality/risk-scores?project_id=${project_id}&limit=10`,
+              "GET",
+              undefined,
+              this.env
+            ),
+          ]);
+
+          const events = eventsResult.events || [];
+          const riskScores = riskResult.risk_scores || [];
+
+          if (events.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Event Triage\n\n✅ **No untriaged events!** All production errors have been processed.\n\nYour test coverage is keeping production stable.`,
+                },
+              ],
+            };
+          }
+
+          // Group events by severity and component
+          const fatalEvents = events.filter(e => e.severity === "fatal");
+          const errorEvents = events.filter(e => e.severity === "error");
+          const warningEvents = events.filter(e => e.severity === "warning");
+
+          // Create triage recommendations
+          let triageText = `## Event Triage Report\n\n`;
+          triageText += `**${events.length} events need attention**\n\n`;
+
+          if (fatalEvents.length > 0) {
+            triageText += `### 🔴 CRITICAL (${fatalEvents.length})\nThese are crashing your app for users!\n`;
+            fatalEvents.forEach(e => {
+              triageText += `- **${e.title}** - ${e.affected_users} users affected\n  \`${e.id}\`\n`;
+            });
+            triageText += "\n";
+          }
+
+          if (errorEvents.length > 0) {
+            triageText += `### 🟠 HIGH PRIORITY (${errorEvents.length})\nThese are causing errors but not crashes.\n`;
+            errorEvents.slice(0, 5).forEach(e => {
+              triageText += `- **${e.title}** - ${e.occurrence_count} occurrences\n`;
+            });
+            triageText += "\n";
+          }
+
+          if (warningEvents.length > 0) {
+            triageText += `### 🟡 MEDIUM PRIORITY (${warningEvents.length})\nWarnings that might become errors.\n`;
+          }
+
+          // Add risk context
+          if (riskScores.length > 0) {
+            const topRisk = riskScores[0];
+            triageText += `\n### 🎯 Recommended Focus\nHighest risk area: **${topRisk.entity_identifier}** (Risk: ${topRisk.overall_score}/100)\n`;
+          }
+
+          triageText += `\n**Quick Actions:**\n`;
+          triageText += `- Generate tests: \`argus_test_from_event(event_id, project_id)\`\n`;
+          triageText += `- Batch generate: \`argus_batch_generate(project_id)\`\n`;
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: triageText,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error triaging events: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // =========================================================================
+    // SELF-HEALING - Configuration and pattern management
+    // =========================================================================
+
+    // Tool: argus_healing_config - Get/update self-healing configuration
+    this.server.tool(
+      "argus_healing_config",
+      "View or update self-healing configuration. Control how Argus automatically fixes broken selectors, handles timeouts, and learns from patterns.",
+      {
+        organization_id: z.string().describe("The organization UUID"),
+        project_id: z.string().optional().describe("Project-specific config (optional)"),
+        action: z.enum(["get", "update"]).describe("Get or update configuration"),
+        config: z.object({
+          enabled: z.boolean().optional(),
+          auto_apply: z.boolean().optional(),
+          min_confidence_auto: z.number().optional(),
+          heal_selectors: z.boolean().optional(),
+          heal_timeouts: z.boolean().optional(),
+          learn_from_success: z.boolean().optional(),
+          notify_on_heal: z.boolean().optional(),
+          require_approval: z.boolean().optional(),
+        }).optional().describe("Configuration updates (for update action)"),
+      },
+      async ({ organization_id, project_id, action, config }) => {
+        try {
+          if (action === "get") {
+            const params = project_id ? `?project_id=${project_id}` : "";
+            const result = await callBrainAPI<HealingConfigResponse>(
+              `/api/v1/healing/organizations/${organization_id}/config${params}`,
+              "GET",
+              undefined,
+              this.env
+            );
+
+            const statusEmoji = result.enabled ? "🟢 Enabled" : "🔴 Disabled";
+            const autoApplyEmoji = result.auto_apply ? "✅ Auto" : "👤 Manual";
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Self-Healing Configuration\n\n**Status:** ${statusEmoji}\n**Application:** ${autoApplyEmoji}\n\n### Settings:\n- Min confidence (auto): ${(result.min_confidence_auto * 100).toFixed(0)}%\n- Min confidence (suggest): ${(result.min_confidence_suggest * 100).toFixed(0)}%\n- Heal selectors: ${result.heal_selectors ? "Yes" : "No"}\n- Heal timeouts: ${result.heal_timeouts ? "Yes" : "No"}\n- Heal text content: ${result.heal_text_content ? "Yes" : "No"}\n- Learn from success: ${result.learn_from_success ? "Yes" : "No"}\n\n### Notifications:\n- Notify on heal: ${result.notify_on_heal ? "Yes" : "No"}\n- Require approval: ${result.require_approval ? "Yes" : "No"}`,
+                },
+              ],
+            };
+          }
+
+          // Update config - Backend uses PUT method
+          const result = await callBrainAPI<HealingConfigResponse>(
+            `/api/v1/healing/organizations/${organization_id}/config${project_id ? `?project_id=${project_id}` : ""}`,
+            "PUT",
+            config || {},
+            this.env
+          );
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Configuration Updated ✅\n\nSelf-healing is now ${result.enabled ? "enabled" : "disabled"}.\n\nChanges will take effect immediately for new test runs.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error with healing config: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_healing_patterns - List learned healing patterns
+    this.server.tool(
+      "argus_healing_patterns",
+      "View learned self-healing patterns. These are selector fixes that Argus has learned from past test runs and can apply automatically.",
+      {
+        organization_id: z.string().describe("The organization UUID"),
+        project_id: z.string().optional().describe("Filter by project"),
+        min_confidence: z.number().min(0).max(1).optional().describe("Minimum confidence filter (default: 0.5)"),
+        limit: z.number().min(1).max(100).optional().describe("Max patterns (default: 20)"),
+      },
+      async ({ organization_id, project_id, min_confidence = 0.5, limit = 20 }) => {
+        try {
+          const params = new URLSearchParams({
+            min_confidence: min_confidence.toString(),
+            limit: limit.toString(),
+          });
+          if (project_id) params.set("project_id", project_id);
+
+          // Backend returns array directly, not wrapped
+          const result = await callBrainAPI<HealingPatternsResponse["patterns"]>(
+            `/api/v1/healing/organizations/${organization_id}/patterns?${params}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          // Handle both array response and wrapped response
+          const patterns = Array.isArray(result) ? result : (result as unknown as { patterns: HealingPatternsResponse["patterns"] }).patterns || [];
+
+          if (patterns.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Healing Patterns\n\nNo patterns learned yet. As tests run and selectors break, Argus will learn how to fix them automatically.\n\n**Tip:** Run tests with self-healing enabled to start building patterns.`,
+                },
+              ],
+            };
+          }
+
+          const patternsList = patterns.map((p, i) => {
+            const confidenceEmoji = p.confidence > 0.9 ? "🟢" : p.confidence > 0.7 ? "🟡" : "🔴";
+            const successRate = p.success_count / (p.success_count + p.failure_count) * 100;
+            return `${i + 1}. ${confidenceEmoji} **${p.error_type}** (${(p.confidence * 100).toFixed(0)}% confident)\n   From: \`${p.original_selector.slice(0, 40)}...\`\n   To: \`${p.healed_selector.slice(0, 40)}...\`\n   Success: ${successRate.toFixed(0)}% (${p.success_count}/${p.success_count + p.failure_count})`;
+          }).join("\n\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Healing Patterns (${patterns.length} learned)\n\n${patternsList}\n\n**Legend:** 🟢 High confidence | 🟡 Medium | 🔴 Low`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error fetching patterns: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_healing_stats - Get healing statistics
+    this.server.tool(
+      "argus_healing_stats",
+      "Get comprehensive self-healing statistics. See how many tests have been healed, success rates, and trends over time.",
+      {
+        organization_id: z.string().describe("The organization UUID"),
+        project_id: z.string().optional().describe("Filter by project"),
+      },
+      async ({ organization_id, project_id }) => {
+        try {
+          const params = project_id ? `?project_id=${project_id}` : "";
+          const result = await callBrainAPI<HealingStatsResponse>(
+            `/api/v1/healing/organizations/${organization_id}/stats${params}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          const successEmoji = result.success_rate > 80 ? "🟢" : result.success_rate > 50 ? "🟡" : "🔴";
+
+          let errorTypesText = "";
+          if (Object.keys(result.top_error_types).length > 0) {
+            errorTypesText = "\n### Top Error Types:\n" +
+              Object.entries(result.top_error_types)
+                .map(([type, count]) => `- ${type}: ${count}`)
+                .join("\n");
+          }
+
+          let recentHealsText = "";
+          if (result.recent_heals && result.recent_heals.length > 0) {
+            recentHealsText = "\n### Recent Heals:\n" +
+              result.recent_heals.slice(0, 5)
+                .map(h => `- ${h.error_type}: \`${h.original.slice(0, 30)}...\` → \`${h.healed.slice(0, 30)}...\``)
+                .join("\n");
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Self-Healing Statistics\n\n### Overview:\n- **Total Patterns:** ${result.total_patterns}\n- **Total Heals Applied:** ${result.total_heals_applied}\n- **Success Rate:** ${successEmoji} ${result.success_rate.toFixed(1)}%\n- **Avg Confidence:** ${(result.avg_confidence * 100).toFixed(0)}%\n\n### Activity:\n- Last 24 hours: ${result.heals_last_24h} heals\n- Last 7 days: ${result.heals_last_7d} heals${errorTypesText}${recentHealsText}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error fetching stats: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_healing_review - Approve or reject healing suggestions
+    this.server.tool(
+      "argus_healing_review",
+      "Review and approve/reject healing suggestions. When require_approval is enabled, heals wait for human review before being applied.",
+      {
+        organization_id: z.string().describe("The organization UUID"),
+        pattern_id: z.string().describe("The pattern UUID to review"),
+        action: z.enum(["approve", "reject"]).describe("Approve or reject the healing"),
+      },
+      async ({ organization_id, pattern_id, action }) => {
+        try {
+          const endpoint = action === "approve" ? "approve" : "reject";
+          const result = await callBrainAPI<{ success: boolean; message: string }>(
+            `/api/v1/healing/organizations/${organization_id}/${endpoint}/${pattern_id}`,
+            "POST",
+            {},
+            this.env
+          );
+
+          const emoji = action === "approve" ? "✅" : "❌";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Healing ${action === "approve" ? "Approved" : "Rejected"} ${emoji}\n\n${result.message}\n\n${action === "approve" 
+                  ? "This pattern will now be applied automatically in future test runs."
+                  : "This pattern has been marked as unreliable and won't be used."}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error reviewing healing: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // =========================================================================
+    // PROJECT MANAGEMENT - List and switch contexts
+    // =========================================================================
+
+    // Tool: argus_projects - List all projects
+    this.server.tool(
+      "argus_projects",
+      "List all projects you have access to. Projects organize tests, events, and configurations for different applications.",
+      {
+        organization_id: z.string().optional().describe("Filter by organization (optional)"),
+      },
+      async ({ organization_id }) => {
+        try {
+          const params = organization_id ? `?organization_id=${organization_id}` : "";
+          // Backend returns array directly, not wrapped in { projects: [...] }
+          const result = await callBrainAPI<ProjectsResponse["projects"]>(
+            `/api/v1/projects${params}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          // Handle both array response and wrapped response
+          const projects = Array.isArray(result) ? result : (result as unknown as ProjectsResponse).projects || [];
+
+          if (projects.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Projects\n\nNo projects found. Create a project in the Argus dashboard to get started.\n\n**Tip:** Each project typically maps to one application or microservice.`,
+                },
+              ],
+            };
+          }
+
+          const projectsList = projects.map((p, i) => {
+            return `${i + 1}. **${p.name}**\n   ${p.description || "No description"}\n   URL: ${p.app_url || "Not set"}\n   Tests: ${p.test_count || 0} | Events: ${p.event_count || 0}\n   ID: \`${p.id}\``;
+          }).join("\n\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Your Projects (${projects.length})\n\n${projectsList}\n\n**Tip:** Use the project ID with other commands like \`argus_events\`, \`argus_tests\`, etc.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error fetching projects: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // =========================================================================
+    // TEST MANAGEMENT - List, review, and manage tests
+    // =========================================================================
+
+    // Tool: argus_tests - List tests with filters
+    this.server.tool(
+      "argus_tests",
+      "List generated tests for a project. Filter by status to find tests pending review, approved tests, or rejected ones.",
+      {
+        project_id: z.string().describe("The project UUID"),
+        status: z.enum(["pending", "approved", "rejected", "modified"]).optional().describe("Filter by review status"),
+        limit: z.number().min(1).max(100).optional().describe("Max results (default: 20)"),
+      },
+      async ({ project_id, status, limit = 20 }) => {
+        try {
+          const params = new URLSearchParams({ project_id, limit: limit.toString() });
+          if (status) params.set("status", status);
+
+          const result = await callBrainAPI<GeneratedTestsResponse>(
+            `/api/v1/quality/generated-tests?${params}`,
+            "GET",
+            undefined,
+            this.env
+          );
+
+          const tests = result.tests || [];
+
+          if (tests.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Generated Tests\n\nNo tests found${status ? ` with status "${status}"` : ""}.\n\n**Tip:** Use \`argus_test_from_event\` or \`argus_generate_test\` to create tests from production errors.`,
+                },
+              ],
+            };
+          }
+
+          const pendingCount = tests.filter(t => t.status === "pending").length;
+          const statusBanner = pendingCount > 0 
+            ? `⚠️ **${pendingCount} tests need review!**\n\n`
+            : "";
+
+          const testsList = tests.map((t, i) => {
+            const statusIcon = t.status === "approved" ? "✅" : t.status === "pending" ? "⏳" : t.status === "rejected" ? "❌" : "✏️";
+            const confidenceEmoji = t.confidence_score > 0.8 ? "🟢" : t.confidence_score > 0.6 ? "🟡" : "🔴";
+            return `${i + 1}. ${statusIcon} **${t.name}**\n   Confidence: ${confidenceEmoji} ${(t.confidence_score * 100).toFixed(0)}% | Framework: ${t.framework}\n   File: \`${t.test_file_path || "Not generated"}\`\n   ID: \`${t.id}\``;
+          }).join("\n\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Generated Tests (${tests.length})\n\n${statusBanner}${testsList}\n\n**Actions:**\n- Review: \`argus_test_review(test_id, action)\`\n- Export: \`argus_export(test_id, language, framework)\``,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error fetching tests: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_test_review - Approve/reject/modify generated tests
+    this.server.tool(
+      "argus_test_review",
+      "Review a generated test - approve it for use, reject it, or modify the code. Approved tests can be exported and run in CI.",
+      {
+        test_id: z.string().describe("The generated test UUID"),
+        action: z.enum(["approve", "reject", "modify"]).describe("Review action"),
+        review_notes: z.string().optional().describe("Notes about your review decision"),
+        modified_code: z.string().optional().describe("Modified test code (for modify action)"),
+      },
+      async ({ test_id, action, review_notes, modified_code }) => {
+        try {
+          const result = await callBrainAPI<{ success: boolean; message: string }>(
+            "/api/v1/quality/update-test",
+            "POST",
+            {
+              test_id,
+              action,
+              review_notes,
+              modified_code,
+            },
+            this.env
+          );
+
+          const emoji = action === "approve" ? "✅" : action === "reject" ? "❌" : "✏️";
+          const actionText = action === "approve" ? "approved" : action === "reject" ? "rejected" : "modified";
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Test ${actionText.charAt(0).toUpperCase() + actionText.slice(1)} ${emoji}\n\n${result.message}\n\n${action === "approve" 
+                  ? "**Next:** Export this test with `argus_export` to add it to your test suite."
+                  : action === "modify"
+                  ? "Your changes have been saved. Review again when ready to approve."
+                  : "This test won't be used. Consider regenerating with more context."}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error reviewing test: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // =========================================================================
+    // SMART INSIGHTS - AI-powered recommendations
+    // =========================================================================
+
+    // Tool: argus_what_to_test - AI recommendations on what to test
+    this.server.tool(
+      "argus_what_to_test",
+      "Get AI-powered recommendations on what to test next. Analyzes risk scores, recent errors, and coverage gaps to prioritize testing efforts.",
+      {
+        project_id: z.string().describe("The project UUID"),
+      },
+      async ({ project_id }) => {
+        try {
+          // Gather data for recommendations
+          const [eventsResult, riskResult, statsResult] = await Promise.all([
+            callBrainAPI<ProductionEventsResponse>(
+              `/api/v1/quality/events?project_id=${project_id}&status=new&limit=10`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<BrainRiskScoresResponse>(
+              `/api/v1/quality/risk-scores?project_id=${project_id}&limit=5`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<BrainQualityStatsResponse>(
+              `/api/v1/quality/stats?project_id=${project_id}`,
+              "GET",
+              undefined,
+              this.env
+            ),
+          ]);
+
+          const events = eventsResult.events || [];
+          const riskScores = riskResult.risk_scores || [];
+          const stats = statsResult.stats;
+
+          let recommendations = `## What to Test Next 🎯\n\n`;
+
+          // Priority 1: High-risk areas without tests
+          if (riskScores.length > 0) {
+            const highRisk = riskScores.filter(r => r.overall_score > 70);
+            if (highRisk.length > 0) {
+              recommendations += `### 🔴 Critical Priority\nHigh-risk areas that need immediate test coverage:\n\n`;
+              highRisk.forEach(r => {
+                recommendations += `- **${r.entity_identifier}** (${r.entity_type})\n  Risk: ${r.overall_score}/100 | Errors: ${r.error_count} | Users: ${r.affected_users}\n`;
+              });
+              recommendations += "\n";
+            }
+          }
+
+          // Priority 2: Recent production errors
+          if (events.length > 0) {
+            const fatalErrors = events.filter(e => e.severity === "fatal");
+            const recentErrors = events.slice(0, 5);
+            
+            if (fatalErrors.length > 0) {
+              recommendations += `### 🟠 Fatal Errors (${fatalErrors.length})\nThese are crashing your app:\n\n`;
+              fatalErrors.forEach(e => {
+                recommendations += `- **${e.title}**\n  ${e.affected_users} users affected | \`${e.id}\`\n`;
+              });
+              recommendations += "\n";
+            } else if (recentErrors.length > 0) {
+              recommendations += `### 🟡 Recent Errors (${recentErrors.length})\nNew errors that need test coverage:\n\n`;
+              recentErrors.forEach(e => {
+                recommendations += `- **${e.title}** (${e.severity})\n`;
+              });
+              recommendations += "\n";
+            }
+          }
+
+          // Summary with action items
+          recommendations += `### 📊 Coverage Summary\n`;
+          recommendations += `- Total events: ${stats.total_events}\n`;
+          recommendations += `- Tests generated: ${stats.total_generated_tests}\n`;
+          recommendations += `- Coverage rate: ${stats.coverage_rate}%\n\n`;
+
+          recommendations += `### 💡 Quick Actions\n`;
+          if (events.length > 0) {
+            recommendations += `- Generate tests for all new events: Use \`argus_batch_generate\`\n`;
+          }
+          if (stats.coverage_rate < 50) {
+            recommendations += `- Low coverage! Focus on high-risk areas first\n`;
+          }
+          if (stats.tests_by_status && stats.tests_by_status["pending"] > 0) {
+            recommendations += `- Review ${stats.tests_by_status["pending"]} pending tests with \`argus_tests\`\n`;
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: recommendations,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error getting recommendations: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_coverage_gaps - Find untested areas
+    this.server.tool(
+      "argus_coverage_gaps",
+      "Identify areas of your application that have production errors but no test coverage. These are your blind spots.",
+      {
+        project_id: z.string().describe("The project UUID"),
+      },
+      async ({ project_id }) => {
+        try {
+          const [eventsResult, testsResult] = await Promise.all([
+            callBrainAPI<ProductionEventsResponse>(
+              `/api/v1/quality/events?project_id=${project_id}&limit=100`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<GeneratedTestsResponse>(
+              `/api/v1/quality/generated-tests?project_id=${project_id}&status=approved&limit=100`,
+              "GET",
+              undefined,
+              this.env
+            ),
+          ]);
+
+          const events = eventsResult.events || [];
+          const tests = testsResult.tests || [];
+
+          // Find components with errors but no tests
+          const testedEventIds = new Set(tests.map(t => t.production_event_id).filter(Boolean));
+          const untestedEvents = events.filter(e => !testedEventIds.has(e.id));
+
+          // Group by component
+          const componentGaps: Record<string, { errors: number; severity: string }> = {};
+          untestedEvents.forEach(e => {
+            const component = e.component || e.url || "Unknown";
+            if (!componentGaps[component]) {
+              componentGaps[component] = { errors: 0, severity: "warning" };
+            }
+            componentGaps[component].errors++;
+            if (e.severity === "fatal" || (e.severity === "error" && componentGaps[component].severity === "warning")) {
+              componentGaps[component].severity = e.severity;
+            }
+          });
+
+          const coveragePercent = events.length > 0 
+            ? ((events.length - untestedEvents.length) / events.length * 100).toFixed(1)
+            : "100";
+
+          if (Object.keys(componentGaps).length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `## Coverage Gaps\n\n✅ **No gaps found!** All known production errors have test coverage.\n\nCoverage: ${coveragePercent}%`,
+                },
+              ],
+            };
+          }
+
+          const gapsList = Object.entries(componentGaps)
+            .sort((a, b) => b[1].errors - a[1].errors)
+            .map(([component, data], i) => {
+              const icon = data.severity === "fatal" ? "🔴" : data.severity === "error" ? "🟠" : "🟡";
+              return `${i + 1}. ${icon} **${component}**\n   ${data.errors} untested error${data.errors > 1 ? "s" : ""} (${data.severity})`;
+            })
+            .join("\n\n");
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `## Coverage Gaps Found! ⚠️\n\n**Coverage:** ${coveragePercent}% (${events.length - untestedEvents.length}/${events.length} events)\n\n### Untested Areas:\n\n${gapsList}\n\n**Action:** Generate tests with \`argus_test_from_event\` for critical gaps.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error finding gaps: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_batch_generate - Generate tests for multiple events
+    this.server.tool(
+      "argus_batch_generate",
+      "Generate tests for multiple production events at once. Perfect for catching up on test coverage after connecting a new error source.",
+      {
+        project_id: z.string().describe("The project UUID"),
+        status: z.enum(["new", "analyzing"]).optional().describe("Process events with this status (default: new)"),
+        limit: z.number().min(1).max(50).optional().describe("Max events to process (default: 10)"),
+        framework: z.enum(["playwright", "cypress", "jest"]).optional().describe("Test framework (default: playwright)"),
+      },
+      async ({ project_id, status = "new", limit = 10, framework = "playwright" }) => {
+        try {
+          const result = await callBrainAPI<{
+            success: boolean;
+            message: string;
+            job_id: string;
+            results: Array<{
+              event_id: string;
+              success: boolean;
+              test_id?: string;
+              error?: string;
+            }>;
+          }>(
+            "/api/v1/quality/batch-generate",
+            "POST",
+            {
+              project_id,
+              status,
+              limit,
+              framework,
+            },
+            this.env
+          );
+
+          const successCount = result.results.filter(r => r.success).length;
+          const failCount = result.results.filter(r => !r.success).length;
+
+          let resultText = `## Batch Generation Complete\n\n`;
+          resultText += `**Generated:** ${successCount}/${result.results.length} tests\n`;
+          resultText += `**Framework:** ${framework}\n`;
+          resultText += `**Job ID:** \`${result.job_id}\`\n\n`;
+
+          if (successCount > 0) {
+            resultText += `### ✅ Successful (${successCount})\n`;
+            result.results.filter(r => r.success).slice(0, 5).forEach(r => {
+              resultText += `- Event \`${r.event_id.slice(0, 8)}...\` → Test \`${r.test_id?.slice(0, 8)}...\`\n`;
+            });
+            if (successCount > 5) resultText += `- ... and ${successCount - 5} more\n`;
+            resultText += "\n";
+          }
+
+          if (failCount > 0) {
+            resultText += `### ❌ Failed (${failCount})\n`;
+            result.results.filter(r => !r.success).slice(0, 3).forEach(r => {
+              resultText += `- Event \`${r.event_id.slice(0, 8)}...\`: ${r.error}\n`;
+            });
+            resultText += "\n";
+          }
+
+          resultText += `**Next:** Review generated tests with \`argus_tests(project_id, status="pending")\``;
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: resultText,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error in batch generation: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_ask - Conversational AI for testing questions
+    this.server.tool(
+      "argus_ask",
+      "Ask any question about your tests, errors, or testing strategy. The AI will analyze your data and provide insights.",
+      {
+        question: z.string().describe("Your question about testing"),
+        project_id: z.string().optional().describe("Project context (optional)"),
+      },
+      async ({ question, project_id }) => {
+        try {
+          // Gather context if project is specified
+          let context = "";
+          if (project_id) {
+            const [statsResult, eventsResult] = await Promise.all([
+              callBrainAPI<BrainQualityStatsResponse>(
+                `/api/v1/quality/stats?project_id=${project_id}`,
+                "GET",
+                undefined,
+                this.env
+              ),
+              callBrainAPI<ProductionEventsResponse>(
+                `/api/v1/quality/events?project_id=${project_id}&limit=5`,
+                "GET",
+                undefined,
+                this.env
+              ),
+            ]);
+
+            context = `
+Project Stats:
+- Total events: ${statsResult.stats.total_events}
+- Coverage rate: ${statsResult.stats.coverage_rate}%
+- Tests generated: ${statsResult.stats.total_generated_tests}
+
+Recent events: ${eventsResult.events?.map(e => e.title).join(", ") || "None"}
+`;
+          }
+
+          // For now, provide helpful responses based on common questions
+          const lowerQuestion = question.toLowerCase();
+          let answer = "";
+
+          if (lowerQuestion.includes("start") || lowerQuestion.includes("begin") || lowerQuestion.includes("how to")) {
+            answer = `## Getting Started with Argus\n\n1. **Connect error sources** - Set up webhooks from Sentry, Datadog, etc.\n2. **View events** - Use \`argus_events(project_id)\` to see production errors\n3. **Generate tests** - Use \`argus_test_from_event\` or \`argus_batch_generate\`\n4. **Review & approve** - Use \`argus_tests\` and \`argus_test_review\`\n5. **Export** - Use \`argus_export\` to add tests to your repo`;
+          } else if (lowerQuestion.includes("coverage") || lowerQuestion.includes("gap")) {
+            answer = `## Test Coverage\n\nUse \`argus_coverage_gaps(project_id)\` to find untested areas.\n\n${context ? `Your current coverage: ${context}` : "Specify a project_id for specific coverage data."}`;
+          } else if (lowerQuestion.includes("heal") || lowerQuestion.includes("self-healing") || lowerQuestion.includes("selector")) {
+            answer = `## Self-Healing\n\nArgus automatically learns to fix broken selectors.\n\n- View config: \`argus_healing_config(org_id, "get")\`\n- See patterns: \`argus_healing_patterns(org_id)\`\n- View stats: \`argus_healing_stats(org_id)\``;
+          } else if (lowerQuestion.includes("export") || lowerQuestion.includes("playwright") || lowerQuestion.includes("cypress")) {
+            answer = `## Exporting Tests\n\nExport generated tests to code:\n\n\`\`\`\nargus_export(test_id, "typescript", "playwright")\nargus_export(test_id, "python", "selenium")\n\`\`\`\n\nSupported: Python, TypeScript, Java, C#, Ruby, Go`;
+          } else if (lowerQuestion.includes("risk") || lowerQuestion.includes("priorit")) {
+            answer = `## Risk Prioritization\n\nArgus calculates risk scores based on:\n- Error frequency & severity\n- User impact\n- Test coverage\n- Recency\n\nUse \`argus_risk_scores(project_id)\` to see high-risk areas.\nUse \`argus_what_to_test(project_id)\` for prioritized recommendations.`;
+          } else {
+            answer = `## Argus Help\n\nHere are some things I can help with:\n\n**Production Events:**\n- \`argus_events\` - View errors\n- \`argus_event_triage\` - AI triage\n- \`argus_test_from_event\` - Generate test\n\n**Test Management:**\n- \`argus_tests\` - List tests\n- \`argus_test_review\` - Approve/reject\n- \`argus_export\` - Export to code\n\n**Insights:**\n- \`argus_what_to_test\` - Recommendations\n- \`argus_coverage_gaps\` - Find gaps\n- \`argus_risk_scores\` - Risk analysis\n\n**Self-Healing:**\n- \`argus_healing_config\` - Configuration\n- \`argus_healing_patterns\` - Learned fixes\n- \`argus_healing_stats\` - Statistics`;
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: answer,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `I encountered an error processing your question. Please try rephrasing or use specific tool commands.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // Tool: argus_dashboard - Get a quick overview of everything
+    this.server.tool(
+      "argus_dashboard",
+      "Get a comprehensive dashboard view of your testing status. Shows quality score, recent events, pending tests, and actionable insights all in one place.",
+      {
+        project_id: z.string().describe("The project UUID"),
+      },
+      async ({ project_id }) => {
+        try {
+          // Fetch all relevant data in parallel
+          const [scoreResult, statsResult, eventsResult, testsResult, riskResult] = await Promise.all([
+            callBrainAPI<BrainQualityScoreResponse>(
+              `/api/v1/quality/score?project_id=${project_id}`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<BrainQualityStatsResponse>(
+              `/api/v1/quality/stats?project_id=${project_id}`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<ProductionEventsResponse>(
+              `/api/v1/quality/events?project_id=${project_id}&limit=5`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<GeneratedTestsResponse>(
+              `/api/v1/quality/generated-tests?project_id=${project_id}&status=pending&limit=5`,
+              "GET",
+              undefined,
+              this.env
+            ),
+            callBrainAPI<BrainRiskScoresResponse>(
+              `/api/v1/quality/risk-scores?project_id=${project_id}&limit=3`,
+              "GET",
+              undefined,
+              this.env
+            ),
+          ]);
+
+          const stats = statsResult.stats;
+          const events = eventsResult.events || [];
+          const tests = testsResult.tests || [];
+          const risks = riskResult.risk_scores || [];
+
+          // Build dashboard
+          const scoreEmoji = scoreResult.quality_score >= 80 ? "🟢" : scoreResult.quality_score >= 50 ? "🟡" : "🔴";
+          const riskEmoji = scoreResult.risk_level === "low" ? "🟢" : scoreResult.risk_level === "medium" ? "🟡" : "🔴";
+
+          let dashboard = `# Argus Dashboard 📊\n\n`;
+          
+          // Quality Score Section
+          dashboard += `## Quality Score: ${scoreEmoji} ${scoreResult.quality_score}/100\n\n`;
+          dashboard += `| Metric | Value |\n|--------|-------|\n`;
+          dashboard += `| Risk Level | ${riskEmoji} ${scoreResult.risk_level.toUpperCase()} |\n`;
+          dashboard += `| Test Coverage | ${scoreResult.test_coverage}% |\n`;
+          dashboard += `| Production Events | ${scoreResult.total_events} |\n`;
+          dashboard += `| Generated Tests | ${scoreResult.total_tests} |\n`;
+          dashboard += `| Approved Tests | ${scoreResult.approved_tests} |\n\n`;
+
+          // Alerts Section
+          const newEvents = events.filter(e => e.status === "new").length;
+          const pendingTests = tests.length;
+          
+          if (newEvents > 0 || pendingTests > 0) {
+            dashboard += `## ⚠️ Needs Attention\n\n`;
+            if (newEvents > 0) {
+              dashboard += `- **${newEvents} new production errors** need tests\n`;
+            }
+            if (pendingTests > 0) {
+              dashboard += `- **${pendingTests} tests pending review**\n`;
+            }
+            dashboard += "\n";
+          }
+
+          // High Risk Areas
+          if (risks.length > 0) {
+            dashboard += `## 🎯 High Risk Areas\n\n`;
+            risks.forEach(r => {
+              const emoji = r.overall_score > 70 ? "🔴" : r.overall_score > 40 ? "🟡" : "🟢";
+              dashboard += `- ${emoji} **${r.entity_identifier}**: ${r.overall_score}/100 risk\n`;
+            });
+            dashboard += "\n";
+          }
+
+          // Recent Events
+          if (events.length > 0) {
+            dashboard += `## 📋 Recent Events\n\n`;
+            events.slice(0, 3).forEach(e => {
+              const icon = e.severity === "fatal" ? "🔴" : e.severity === "error" ? "🟠" : "🟡";
+              dashboard += `- ${icon} ${e.title}\n`;
+            });
+            dashboard += "\n";
+          }
+
+          // Quick Actions
+          dashboard += `## ⚡ Quick Actions\n\n`;
+          dashboard += `\`\`\`\n`;
+          dashboard += `argus_events("${project_id}")           # View all events\n`;
+          dashboard += `argus_what_to_test("${project_id}")     # Get recommendations\n`;
+          dashboard += `argus_batch_generate("${project_id}")   # Generate tests\n`;
+          dashboard += `argus_tests("${project_id}")            # Review tests\n`;
+          dashboard += `\`\`\``;
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: dashboard,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Error loading dashboard: ${error instanceof Error ? error.message : "Unknown error"}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
   }
 }
 
@@ -1722,8 +3078,8 @@ export default {
     if (url.pathname === "/") {
       return Response.json({
         name: "Argus MCP Server",
-        version: "2.0.0",
-        description: "Model Context Protocol server for Argus E2E Testing Agent - Full IDE Integration",
+        version: "3.0.0",
+        description: "Model Context Protocol server for Argus E2E Testing Agent - Full IDE Integration with Next-Gen AI Testing Intelligence",
         endpoint: "/sse",
         tools: {
           core: [
@@ -1735,10 +3091,35 @@ export default {
             "argus_agent",
             "argus_generate_test",
           ],
-          quality: [
+          quality_intelligence: [
             "argus_quality_score",
             "argus_quality_stats",
             "argus_risk_scores",
+          ],
+          production_events: [
+            "argus_events",
+            "argus_event_triage",
+            "argus_test_from_event",
+            "argus_batch_generate",
+          ],
+          test_management: [
+            "argus_tests",
+            "argus_test_review",
+          ],
+          self_healing: [
+            "argus_healing_config",
+            "argus_healing_patterns",
+            "argus_healing_stats",
+            "argus_healing_review",
+          ],
+          smart_insights: [
+            "argus_what_to_test",
+            "argus_coverage_gaps",
+            "argus_dashboard",
+            "argus_ask",
+          ],
+          projects: [
+            "argus_projects",
           ],
           sync: [
             "argus_sync_push",
@@ -1759,7 +3140,7 @@ export default {
             "argus_comments",
           ],
         },
-        total_tools: 19,
+        total_tools: 32,
         documentation: "https://github.com/raphaenterprises-ai/argus-e2e-testing-agent",
       });
     }

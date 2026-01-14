@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "argus": {
+      "type": "remote",
+      "url": "https://argus-mcp.samuelvinay-kumar.workers.dev/sse",
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

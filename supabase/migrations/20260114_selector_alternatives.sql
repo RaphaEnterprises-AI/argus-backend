@@ -73,7 +73,7 @@ CREATE POLICY "Users can view selector alternatives for their org projects"
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON p.organization_id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -85,7 +85,7 @@ CREATE POLICY "Users can insert selector alternatives for their org projects"
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON p.organization_id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -97,7 +97,7 @@ CREATE POLICY "Users can update selector alternatives for their org projects"
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON p.organization_id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
