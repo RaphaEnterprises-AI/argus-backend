@@ -10,7 +10,15 @@ on:
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
 
-  # Allow manual trigger for bot-created PRs (release-please, dependabot, etc.)
+  # Called by other workflows (release-please, dependabot, etc.)
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+
+  # Allow manual trigger for any PR
   workflow_dispatch:
     inputs:
       pr_number:
@@ -20,9 +28,9 @@ on:
 
 jobs:
   claude-review:
-    # Skip automated release PRs (they don't need code review)
-    # Release PRs are auto-merged via release.yml workflow
+    # Run for: workflow_call, workflow_dispatch, or human-created PRs
     if: |
+      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.user.login != 'github-actions[bot]')
