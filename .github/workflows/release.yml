@@ -38,6 +38,16 @@ jobs:
           echo "Version: ${VERSION:-none}"
           echo "PR: ${PR_NUMBER:-none}"
 
+      # Auto-merge release PRs (no review required for automated releases)
+      - name: Enable auto-merge for release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.release.outputs.pr }}
+        run: |
+          echo "Enabling auto-merge for PR #${PR_NUMBER}"
+          gh pr merge ${PR_NUMBER} --auto --squash --repo ${{ github.repository }} || echo "Auto-merge may already be enabled or PR is not mergeable yet"
+
   # Build and test on release
   build-on-release:
     needs: release-please
