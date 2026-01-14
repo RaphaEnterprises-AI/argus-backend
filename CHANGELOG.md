@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.4.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.3.0...v2.4.0) (2026-01-14)
+## [2.5.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.4.0...v2.5.0) (2026-01-14)
 
 
 ### Features
@@ -11,7 +11,6 @@
 ### Bug Fixes
 
 * add comprehensive debug logging to JWT verification ([ee64c67](https://github.com/RaphaEnterprises-AI/argus-backend/commit/ee64c674baa0921ca10d589c03e29e8d4d1c475c))
-* backend chat improvements - artifacts API, cancel, tool serialization ([972cdce](https://github.com/RaphaEnterprises-AI/argus-backend/commit/972cdce1358620fe62c959c883507315f8a8e1b4))
 * make organization slug optional and auto-generate from name ([0030492](https://github.com/RaphaEnterprises-AI/argus-backend/commit/003049235b387d81e22f6e17f511ee4fdbdb8563))
 * sync Clerk organizations to Supabase on first access ([07cb876](https://github.com/RaphaEnterprises-AI/argus-backend/commit/07cb8768d2e2fd29999d5af7842119d5d77286d7))
 * translate Clerk org IDs to Supabase UUIDs in API keys endpoints ([2ad9aaf](https://github.com/RaphaEnterprises-AI/argus-backend/commit/2ad9aaff3a9382556ab13a2e962128e485b619be))
