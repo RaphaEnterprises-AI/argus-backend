@@ -10,30 +10,13 @@ on:
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
 
-  # Called by other workflows (release-please, dependabot, etc.)
-  workflow_call:
-    inputs:
-      pr_number:
-        description: 'PR number to review'
-        required: true
-        type: string
-
-  # Allow manual trigger for any PR
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to review'
-        required: true
-        type: number
-
 jobs:
   claude-review:
-    # Run for: workflow_call, workflow_dispatch, or human-created PRs
-    if: |
-      github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.user.login != 'github-actions[bot]')
+    # Optional: Filter by PR author
+    # if: |
+    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.user.login == 'new-developer' ||
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
     runs-on: ubuntu-latest
     permissions:
@@ -48,28 +31,14 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Determine PR number
-        id: pr-number
-        env:
-          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
-        run: |
-          if [ -n "$INPUT_PR_NUMBER" ]; then
-            echo "pr_number=$INPUT_PR_NUMBER" >> $GITHUB_OUTPUT
-          else
-            echo "pr_number=$EVENT_PR_NUMBER" >> $GITHUB_OUTPUT
-          fi
-
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
-        env:
-          PR_NUMBER: ${{ steps.pr-number.outputs.pr_number }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ steps.pr-number.outputs.pr_number }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
 
             Please review this pull request and provide feedback on:
             - Code quality and best practices
@@ -85,4 +54,3 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
           claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
-
