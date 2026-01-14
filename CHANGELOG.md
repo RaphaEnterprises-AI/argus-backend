@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.6.1...v2.6.2) (2026-01-14)
+
+
+### Bug Fixes
+
+* **tests:** use dynamic API_VERSION instead of hardcoded version ([a228b40](https://github.com/RaphaEnterprises-AI/argus-backend/commit/a228b408f994f99ee2b4be846004052eb5c4aef2))
+
 ## [2.6.1](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.6.0...v2.6.1) (2026-01-14)
 
 
