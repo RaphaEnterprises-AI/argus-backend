@@ -1,7 +1,13 @@
 """Orchestrator package for LangGraph-based test execution.
 
 This package provides:
-- TestingOrchestrator: Main orchestrator for E2E testing
+- TestingOrchestrator: Main orchestrator for E2E testing (backward compatible)
+- EnhancedTestingOrchestrator: Advanced orchestrator with LangGraph 1.0 patterns
+  - Parallel test execution via Send API (map-reduce pattern)
+  - Human-in-the-loop via interrupt() function
+  - Resume with human input via Command(resume=...)
+  - Multi-mode streaming (values, updates, messages)
+  - Time-travel debugging via checkpoint history
 - ChatGraph: Chat-enabled graph for conversational testing
 - SupervisorGraph: Multi-agent supervisor pattern
 - PostgresSaver: Durable execution with PostgreSQL
@@ -10,10 +16,18 @@ This package provides:
 """
 
 from .graph import (
+    # Original orchestrator (backward compatible)
     TestingOrchestrator,
     create_testing_graph,
     create_testing_graph_with_interrupts,
     get_interrupt_nodes,
+    # Enhanced orchestrator (LangGraph 1.0 patterns)
+    EnhancedTestingOrchestrator,
+    create_enhanced_testing_graph,
+    create_quality_subgraph,
+    # Data classes for parallel execution
+    ParallelTestBatch,
+    HumanApprovalRequest,
 )
 from .state import TestingState, create_initial_state
 from .checkpointer import (
@@ -54,11 +68,17 @@ def get_memory_store():
 
 
 __all__ = [
-    # Core orchestrator
+    # Core orchestrator (backward compatible)
     "TestingOrchestrator",
     "create_testing_graph",
     "create_testing_graph_with_interrupts",
     "get_interrupt_nodes",
+    # Enhanced orchestrator (LangGraph 1.0 patterns)
+    "EnhancedTestingOrchestrator",
+    "create_enhanced_testing_graph",
+    "create_quality_subgraph",
+    "ParallelTestBatch",
+    "HumanApprovalRequest",
     # State
     "TestingState",
     "create_initial_state",

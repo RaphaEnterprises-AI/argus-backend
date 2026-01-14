@@ -24,13 +24,41 @@ import structlog
 from src.services.supabase_client import get_supabase_client
 from src.agents.auto_discovery import AutoDiscovery, DiscoveryResult
 from src.services.crawlee_client import get_crawlee_client, CrawleeServiceUnavailable
+from src.discovery.engine import DiscoveryEngine, create_discovery_engine
+from src.discovery.repository import DiscoveryRepository
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/discovery", tags=["Discovery"])
 
 
 # =============================================================================
-# In-memory Storage (use database in production)
+# Singleton Discovery Engine (uses Supabase for persistence)
+# =============================================================================
+
+_discovery_engine: Optional[DiscoveryEngine] = None
+_discovery_repository: Optional[DiscoveryRepository] = None
+
+
+def get_discovery_engine() -> DiscoveryEngine:
+    """Get or create the singleton DiscoveryEngine."""
+    global _discovery_engine
+    if _discovery_engine is None:
+        supabase = get_supabase_client()
+        _discovery_engine = create_discovery_engine(supabase_client=supabase)
+    return _discovery_engine
+
+
+def get_discovery_repository() -> DiscoveryRepository:
+    """Get or create the singleton DiscoveryRepository."""
+    global _discovery_repository
+    if _discovery_repository is None:
+        supabase = get_supabase_client()
+        _discovery_repository = DiscoveryRepository(supabase_client=supabase)
+    return _discovery_repository
+
+
+# =============================================================================
+# Legacy In-memory Storage (kept for backward compatibility during transition)
 # =============================================================================
 
 _discovery_sessions: dict[str, dict] = {}
@@ -310,27 +338,85 @@ async def list_discovery_sessions(
     List all discovery sessions.
 
     Optionally filter by project_id or status.
+    Uses Supabase for persistence with in-memory cache fallback.
     """
-    sessions = list(_discovery_sessions.values())
+    try:
+        # Use repository for database-first access
+        repository = get_discovery_repository()
+        db_sessions = await repository.list_sessions(
+            project_id=project_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
 
-    # Apply filters
-    if project_id:
-        sessions = [s for s in sessions if s.get("project_id") == project_id]
-    if status:
-        sessions = [s for s in sessions if s.get("status") == status]
+        # Convert dataclass sessions to dict format for response builder
+        sessions = []
+        for session in db_sessions:
+            session_dict = {
+                "id": session.id,
+                "project_id": session.project_id,
+                "name": session.name,
+                "status": session.status.value if hasattr(session.status, 'value') else session.status,
+                "start_url": session.start_url,
+                "mode": session.mode.value if hasattr(session.mode, 'value') else session.mode,
+                "strategy": session.strategy.value if hasattr(session.strategy, 'value') else session.strategy,
+                "config": session.config,
+                "max_pages": session.max_pages,
+                "max_depth": session.max_depth,
+                "progress_percentage": session.progress_percentage,
+                "pages_discovered": session.pages_discovered,
+                "pages_analyzed": session.pages_analyzed,
+                "quality_score": session.quality_score,
+                "insights": session.insights,
+                "patterns_detected": session.patterns_detected,
+                "recommendations": session.recommendations,
+                "error_message": session.error_message,
+                "started_at": session.started_at.isoformat() if session.started_at else None,
+                "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+                "pages": [],
+                "flows": [],
+            }
+            sessions.append(session_dict)
 
-    # Sort by started_at descending
-    sessions.sort(key=lambda s: s.get("started_at", ""), reverse=True)
+        # Also check in-memory for active sessions not yet persisted
+        for session_id, in_mem_session in _discovery_sessions.items():
+            if not any(s["id"] == session_id for s in sessions):
+                # Apply filters
+                if project_id and in_mem_session.get("project_id") != project_id:
+                    continue
+                if status and in_mem_session.get("status") != status:
+                    continue
+                sessions.append(in_mem_session)
 
-    total = len(sessions)
+        # Sort by started_at descending
+        sessions.sort(key=lambda s: s.get("started_at") or s.get("created_at") or "", reverse=True)
 
-    # Apply pagination
-    sessions = sessions[offset:offset + limit]
+        total = len(sessions)
+        paginated_sessions = sessions[offset:offset + limit]
 
-    return DiscoverySessionListResponse(
-        sessions=[build_session_response(s) for s in sessions],
-        total=total,
-    )
+        return DiscoverySessionListResponse(
+            sessions=[build_session_response(s) for s in paginated_sessions],
+            total=total,
+        )
+
+    except Exception as e:
+        logger.warning("Failed to list sessions from database, using in-memory", error=str(e))
+        # Fallback to in-memory only
+        sessions = list(_discovery_sessions.values())
+        if project_id:
+            sessions = [s for s in sessions if s.get("project_id") == project_id]
+        if status:
+            sessions = [s for s in sessions if s.get("status") == status]
+        sessions.sort(key=lambda s: s.get("started_at", ""), reverse=True)
+        total = len(sessions)
+        sessions = sessions[offset:offset + limit]
+        return DiscoverySessionListResponse(
+            sessions=[build_session_response(s) for s in sessions],
+            total=total,
+        )
 
 
 @router.get("/patterns", response_model=DiscoveryPatternListResponse)
@@ -1379,3 +1465,571 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             })
+
+
+# =============================================================================
+# Pattern Learning API Endpoints
+# =============================================================================
+
+
+class PatternSearchRequest(BaseModel):
+    """Request for similarity search on patterns."""
+    pattern_type: Optional[str] = Field(None, description="Filter by pattern type")
+    pattern_name: str = Field(..., description="Pattern name to search for")
+    pattern_data: dict = Field(default_factory=dict, description="Pattern data for embedding")
+    threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum similarity")
+    limit: int = Field(default=5, ge=1, le=50, description="Maximum results")
+
+
+class PatternInsightsRequest(BaseModel):
+    """Request for pattern insights."""
+    pattern_type: Optional[str] = Field(None, description="Filter by pattern type")
+
+
+class PatternSuccessUpdateRequest(BaseModel):
+    """Update pattern success rates after test execution."""
+    pattern_id: str = Field(..., description="Pattern ID to update")
+    test_passed: bool = Field(..., description="Whether test passed")
+    self_healed: bool = Field(default=False, description="Whether self-healing was used")
+
+
+class PatternCreateRequest(BaseModel):
+    """Request to create a new discovery pattern."""
+    pattern_type: str = Field(..., description="Type of pattern (e.g., login, navigation, form)")
+    pattern_name: str = Field(..., description="Human-readable pattern name")
+    pattern_signature: str = Field(..., description="Unique signature for deduplication")
+    pattern_data: dict = Field(default_factory=dict, description="Pattern configuration data")
+    project_id: Optional[str] = Field(None, description="Optional project ID to associate")
+
+
+@router.get("/sessions/{session_id}/patterns", response_model=DiscoveryPatternListResponse)
+async def get_session_patterns(
+    session_id: str,
+    limit: int = 50,
+):
+    """Get patterns associated with a specific discovery session.
+
+    Returns patterns that were discovered or matched during the session.
+    This enables tracing which patterns came from which exploration.
+    """
+    from src.discovery.pattern_service import get_pattern_service
+
+    try:
+        pattern_service = get_pattern_service()
+
+        # Get patterns associated with this session
+        patterns = await pattern_service.get_patterns_for_session(session_id, limit=limit)
+
+        return DiscoveryPatternListResponse(
+            patterns=[
+                DiscoveryPatternResponse(
+                    id=str(p.get("id", "")),
+                    pattern_type=p.get("pattern_type", ""),
+                    pattern_name=p.get("pattern_name", ""),
+                    pattern_signature=p.get("pattern_signature", ""),
+                    pattern_data=p.get("pattern_data", {}),
+                    times_seen=p.get("times_seen", 1),
+                    test_success_rate=p.get("test_success_rate"),
+                    self_heal_success_rate=p.get("self_heal_success_rate"),
+                    created_at=str(p.get("created_at", "")),
+                )
+                for p in patterns
+            ],
+            total=len(patterns),
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting session patterns: {e}")
+        # Return empty list on error (frontend has fallback)
+        return DiscoveryPatternListResponse(patterns=[], total=0)
+
+
+@router.post("/patterns", response_model=DiscoveryPatternResponse)
+async def create_pattern(request: PatternCreateRequest):
+    """Create a new discovery pattern.
+
+    Patterns are used for cross-project learning and self-healing.
+    They capture common UI patterns that can be matched in future discoveries.
+    """
+    from src.discovery.pattern_service import get_pattern_service
+    import uuid
+    from datetime import datetime, timezone
+
+    try:
+        pattern_service = get_pattern_service()
+
+        # Create the pattern
+        pattern_data = {
+            "id": str(uuid.uuid4()),
+            "pattern_type": request.pattern_type,
+            "pattern_name": request.pattern_name,
+            "pattern_signature": request.pattern_signature,
+            "pattern_data": request.pattern_data,
+            "times_seen": 1,
+            "test_success_rate": None,
+            "self_heal_success_rate": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        if request.project_id:
+            pattern_data["projects_seen"] = [request.project_id]
+
+        # Store the pattern
+        created = await pattern_service.store_pattern(pattern_data)
+
+        return DiscoveryPatternResponse(
+            id=str(created.get("id", pattern_data["id"])),
+            pattern_type=created.get("pattern_type", request.pattern_type),
+            pattern_name=created.get("pattern_name", request.pattern_name),
+            pattern_signature=created.get("pattern_signature", request.pattern_signature),
+            pattern_data=created.get("pattern_data", request.pattern_data),
+            times_seen=created.get("times_seen", 1),
+            test_success_rate=created.get("test_success_rate"),
+            self_heal_success_rate=created.get("self_heal_success_rate"),
+            created_at=str(created.get("created_at", pattern_data["created_at"])),
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating pattern: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create pattern: {str(e)}")
+
+
+@router.post("/patterns/extract")
+async def extract_patterns_from_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """Extract and store patterns from a completed discovery session.
+
+    This enables cross-project learning by storing patterns that can be
+    matched against future discoveries.
+    """
+    from src.discovery.pattern_service import get_pattern_service
+
+    session = _discovery_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.get("status") != SessionStatus.COMPLETED.value:
+        raise HTTPException(status_code=400, detail="Session must be completed to extract patterns")
+
+    pattern_service = get_pattern_service()
+
+    # Extract patterns in background
+    async def extract_task():
+        try:
+            result = await pattern_service.extract_and_store_patterns(
+                session_id=session_id,
+                project_id=session.get("project_id", "unknown"),
+                pages=session.get("pages", []),
+                flows=session.get("flows", []),
+                elements=[],  # Elements are embedded in pages currently
+            )
+            logger.info(
+                "Pattern extraction completed",
+                session_id=session_id,
+                stored=result.get("stored", 0),
+                updated=result.get("updated", 0),
+            )
+        except Exception as e:
+            logger.exception("Pattern extraction failed", session_id=session_id, error=str(e))
+
+    background_tasks.add_task(extract_task)
+
+    return {
+        "status": "extraction_started",
+        "session_id": session_id,
+        "message": "Pattern extraction started in background",
+    }
+
+
+@router.post("/patterns/search")
+async def search_similar_patterns(request: PatternSearchRequest):
+    """Search for patterns similar to the given pattern.
+
+    Uses pgvector similarity search to find patterns that match
+    across all projects. This enables:
+    - Learning from past discoveries
+    - Suggesting selectors that worked before
+    - Identifying common UI patterns
+    """
+    from src.discovery.pattern_service import get_pattern_service, DiscoveryPattern, PatternType
+
+    pattern_service = get_pattern_service()
+
+    # Create a query pattern
+    try:
+        pattern_type = PatternType(request.pattern_type) if request.pattern_type else PatternType.CUSTOM
+    except ValueError:
+        pattern_type = PatternType.CUSTOM
+
+    query_pattern = DiscoveryPattern(
+        pattern_type=pattern_type,
+        pattern_name=request.pattern_name,
+        pattern_signature="",  # Not needed for search
+        pattern_data=request.pattern_data,
+    )
+
+    matches = await pattern_service.find_similar_patterns(
+        query_pattern=query_pattern,
+        pattern_type=pattern_type if request.pattern_type else None,
+        threshold=request.threshold,
+        limit=request.limit,
+    )
+
+    return {
+        "matches": [
+            {
+                "id": m.id,
+                "pattern_type": m.pattern_type,
+                "pattern_name": m.pattern_name,
+                "pattern_data": m.pattern_data,
+                "times_seen": m.times_seen,
+                "test_success_rate": m.test_success_rate,
+                "similarity": round(m.similarity, 3),
+            }
+            for m in matches
+        ],
+        "total": len(matches),
+    }
+
+
+@router.get("/patterns/insights")
+async def get_pattern_insights(pattern_type: Optional[str] = None):
+    """Get insights about stored patterns.
+
+    Returns statistics about pattern distribution, success rates,
+    and cross-project learning metrics.
+    """
+    from src.discovery.pattern_service import get_pattern_service, PatternType
+
+    pattern_service = get_pattern_service()
+
+    ptype = None
+    if pattern_type:
+        try:
+            ptype = PatternType(pattern_type)
+        except ValueError:
+            pass
+
+    insights = await pattern_service.get_pattern_insights(pattern_type=ptype)
+
+    return insights
+
+
+@router.post("/patterns/update-success")
+async def update_pattern_success_rate(request: PatternSuccessUpdateRequest):
+    """Update pattern success rate after test execution.
+
+    This enables learning: patterns with higher success rates
+    are prioritized in future discoveries and self-healing.
+    """
+    from src.discovery.pattern_service import get_pattern_service
+
+    pattern_service = get_pattern_service()
+
+    success = await pattern_service.update_pattern_success_rate(
+        pattern_id=request.pattern_id,
+        test_passed=request.test_passed,
+        self_healed=request.self_healed,
+    )
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Pattern not found or update failed")
+
+    return {"status": "updated", "pattern_id": request.pattern_id}
+
+
+@router.get("/patterns/types")
+async def get_pattern_types():
+    """Get available pattern types for filtering."""
+    from src.discovery.pattern_service import PatternType
+
+    return {
+        "types": [
+            {"value": pt.value, "label": pt.value.replace("_", " ").title()}
+            for pt in PatternType
+        ]
+    }
+
+
+# =============================================================================
+# Feature Mesh Integration Endpoints
+# =============================================================================
+
+class FeatureMeshRequest(BaseModel):
+    """Request for processing feature mesh integrations."""
+    session_id: str = Field(..., description="Discovery session ID")
+    project_id: str = Field(..., description="Project ID")
+    create_baselines: bool = Field(default=True, description="Auto-create visual baselines")
+    share_selectors: bool = Field(default=True, description="Share selectors with self-healer")
+
+
+class HealingFeedbackRequest(BaseModel):
+    """Request for recording self-healing feedback."""
+    primary_selector: str = Field(..., description="Original broken selector")
+    used_alternative: str = Field(..., description="Alternative selector that was tried")
+    success: bool = Field(..., description="Whether the alternative worked")
+    project_id: str = Field(..., description="Project ID")
+
+
+@router.post("/feature-mesh/process")
+async def process_feature_mesh(
+    request: FeatureMeshRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Process a completed discovery session for feature mesh integrations.
+
+    This triggers:
+    1. Auto-creation of visual baselines from discovered pages
+    2. Sharing of selector alternatives with the self-healer
+
+    These integrations create a feedback loop where discovery insights
+    flow to other Argus systems automatically.
+    """
+    from src.discovery.feature_mesh import get_feature_mesh, FeatureMeshConfig
+
+    try:
+        # Get session data
+        session = await get_session_with_pages(request.session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session not found: {request.session_id}"
+            )
+
+        pages = session.get("pages", [])
+        elements = []
+
+        # Extract elements from pages
+        for page in pages:
+            page_elements = page.get("actions", page.get("elements", []))
+            for elem in page_elements:
+                elem["page_url"] = page.get("url")
+            elements.extend(page_elements)
+
+        # Configure feature mesh
+        config = FeatureMeshConfig(
+            auto_create_baselines=request.create_baselines,
+            share_selectors=request.share_selectors,
+        )
+
+        feature_mesh = get_feature_mesh(config)
+
+        # Process integrations
+        result = await feature_mesh.process_discovery_completion(
+            session_id=request.session_id,
+            project_id=request.project_id,
+            pages=pages,
+            elements=elements,
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Feature mesh processing failed", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Feature mesh processing failed: {str(e)}"
+        )
+
+
+@router.post("/feature-mesh/create-baselines")
+async def create_visual_baselines(
+    session_id: str,
+    project_id: str,
+):
+    """Create visual baselines from a discovery session's pages.
+
+    Each discovered page becomes a visual baseline that can be monitored
+    for regressions. This provides proactive visual monitoring coverage.
+    """
+    from src.discovery.feature_mesh import get_feature_mesh
+
+    try:
+        # Get session data
+        session = await get_session_with_pages(session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session not found: {session_id}"
+            )
+
+        pages = session.get("pages", [])
+
+        if not pages:
+            return {
+                "success": True,
+                "message": "No pages found in session",
+                "baselines_created": 0,
+            }
+
+        feature_mesh = get_feature_mesh()
+        result = await feature_mesh.create_baselines_from_discovery(
+            session_id=session_id,
+            project_id=project_id,
+            pages=pages,
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to create baselines", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create baselines: {str(e)}"
+        )
+
+
+@router.post("/feature-mesh/share-selectors")
+async def share_selectors(
+    session_id: str,
+    project_id: str,
+):
+    """Share discovered selector alternatives with the self-healer.
+
+    When discovery finds elements, it identifies multiple ways to select them.
+    These alternatives are invaluable for self-healing when primary selectors break.
+    """
+    from src.discovery.feature_mesh import get_feature_mesh
+
+    try:
+        # Get session data
+        session = await get_session_with_pages(session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session not found: {session_id}"
+            )
+
+        pages = session.get("pages", [])
+        elements = []
+
+        # Extract elements from pages
+        for page in pages:
+            page_elements = page.get("actions", page.get("elements", []))
+            for elem in page_elements:
+                elem["page_url"] = page.get("url")
+            elements.extend(page_elements)
+
+        if not elements:
+            return {
+                "success": True,
+                "message": "No elements found in session",
+                "selectors_shared": 0,
+            }
+
+        feature_mesh = get_feature_mesh()
+        result = await feature_mesh.share_selectors_with_self_healer(
+            session_id=session_id,
+            project_id=project_id,
+            elements=elements,
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to share selectors", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to share selectors: {str(e)}"
+        )
+
+
+@router.post("/feature-mesh/healing-feedback")
+async def record_healing_feedback(request: HealingFeedbackRequest):
+    """Record feedback from self-healing to improve selector quality scores.
+
+    When self-healing uses an alternative selector and it works/fails,
+    that feedback is recorded to improve future recommendations.
+    """
+    from src.discovery.feature_mesh import get_feature_mesh
+
+    try:
+        feature_mesh = get_feature_mesh()
+        success = await feature_mesh.record_healing_feedback(
+            primary_selector=request.primary_selector,
+            used_alternative=request.used_alternative,
+            success=request.success,
+            project_id=request.project_id,
+        )
+
+        return {
+            "success": success,
+            "message": "Feedback recorded" if success else "No matching selector found",
+        }
+
+    except Exception as e:
+        logger.exception("Failed to record healing feedback", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to record feedback: {str(e)}"
+        )
+
+
+@router.get("/feature-mesh/selector-alternatives")
+async def get_selector_alternatives(
+    project_id: str,
+    selector: str,
+    limit: int = Query(default=5, le=20),
+):
+    """Get best alternative selectors for a potentially broken selector.
+
+    Returns alternatives ordered by confidence and historical success rate.
+    """
+    supabase = get_supabase_client()
+
+    try:
+        # Query using the database function
+        result = await supabase.request(
+            f"/rpc/get_best_alternatives",
+            method="POST",
+            data={
+                "p_project_id": project_id,
+                "p_selector": selector,
+                "p_limit": limit,
+            }
+        )
+
+        if result.get("error"):
+            # Fallback to direct query
+            alt_result = await supabase.select(
+                "selector_alternatives",
+                filters={
+                    "project_id": f"eq.{project_id}",
+                    "primary_selector": f"eq.{selector}",
+                }
+            )
+
+            if alt_result.get("data"):
+                alternatives = alt_result["data"][0].get("alternatives", [])
+                return {
+                    "selector": selector,
+                    "alternatives": alternatives[:limit],
+                    "source": "direct_query",
+                }
+
+            return {
+                "selector": selector,
+                "alternatives": [],
+                "message": "No alternatives found",
+            }
+
+        return {
+            "selector": selector,
+            "alternatives": result.get("data", []),
+            "source": "function",
+        }
+
+    except Exception as e:
+        logger.exception("Failed to get alternatives", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get alternatives: {str(e)}"
+        )

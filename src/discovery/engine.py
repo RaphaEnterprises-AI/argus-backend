@@ -34,6 +34,7 @@ from src.discovery.models import (
     PageCategory,
 )
 from src.discovery.crawlers.crawlee_bridge import CrawleeBridge, CrawlProgress
+from src.discovery.repository import DiscoveryRepository
 
 logger = structlog.get_logger()
 
@@ -50,6 +51,12 @@ class DiscoveryEngine:
     Orchestrates the autonomous discovery process including crawling,
     element extraction, flow inference, and result persistence.
 
+    Uses DiscoveryRepository for all database operations, providing:
+    - Database-first persistence (Supabase as source of truth)
+    - Write-through caching for performance
+    - Automatic retry logic for transient failures
+    - Graceful degradation to cache when DB unavailable
+
     Example:
         engine = DiscoveryEngine(supabase_client=supabase)
 
@@ -64,7 +71,7 @@ class DiscoveryEngine:
 
     Attributes:
         bridge: CrawleeBridge for crawling operations
-        supabase: Optional Supabase client for persistence
+        repository: DiscoveryRepository for data persistence
         current_session: Currently active discovery session
     """
 
@@ -72,23 +79,27 @@ class DiscoveryEngine:
         self,
         supabase_client=None,
         use_crawlee: bool = False,
+        repository: Optional[DiscoveryRepository] = None,
     ):
         """Initialize the Discovery Engine.
 
         Args:
             supabase_client: Optional Supabase client for database persistence.
-                            If not provided, uses in-memory storage.
+                            If not provided, uses in-memory storage only.
             use_crawlee: Whether to use Crawlee for crawling (requires Node.js)
+            repository: Optional DiscoveryRepository instance. If not provided,
+                       one will be created using the supabase_client.
         """
         self.bridge = CrawleeBridge(use_crawlee=use_crawlee)
-        self.supabase = supabase_client
         self.current_session: Optional[DiscoverySession] = None
         self.log = logger.bind(component="discovery_engine")
 
-        # In-memory storage fallback
-        self._sessions: Dict[str, DiscoverySession] = {}
-        self._pages: Dict[str, List[DiscoveredPage]] = {}  # session_id -> pages
-        self._flows: Dict[str, List[DiscoveredFlow]] = {}  # session_id -> flows
+        # Initialize repository for persistence
+        # Can be injected for testing or use the default with supabase_client
+        self.repository = repository or DiscoveryRepository(supabase_client=supabase_client)
+
+        # Keep supabase reference for backward compatibility with other operations
+        self.supabase = supabase_client
 
         # Event streaming
         self._event_subscribers: Dict[str, List[asyncio.Queue]] = {}
@@ -150,8 +161,8 @@ class DiscoveryEngine:
             started_at=datetime.now(timezone.utc),
         )
 
-        # Store session
-        await self._save_session(session)
+        # Store session using repository (database-first)
+        await self.repository.save_session(session)
         self.current_session = session
         self._cancellation_flags[session_id] = False
 
@@ -197,7 +208,7 @@ class DiscoveryEngine:
             )
             session.status = DiscoveryStatus.failed
             session.completed_at = datetime.now(timezone.utc)
-            await self._save_session(session)
+            await self.repository.save_session(session)
             await self._emit_event(
                 session.id,
                 "error",
@@ -248,16 +259,30 @@ class DiscoveryEngine:
             self.log.info("Discovery cancelled", session_id=session.id)
             session.status = DiscoveryStatus.cancelled
             session.completed_at = datetime.now(timezone.utc)
-            await self._save_session(session)
+            await self.repository.save_session(session)
             await self._emit_event(session.id, "cancelled", {})
             return result
 
-        # Save discovered pages
+        # Save discovered pages using repository
         pages = list(result.pages.values())
-        await self._save_pages(session.id, session.project_id, pages)
+        await self.repository.save_pages(session.id, session.project_id, pages)
 
         session.pages_found = len(pages)
         session.elements_found = sum(len(p.elements) for p in pages)
+
+        # Emit individual page discovery events
+        for page in pages:
+            await self._emit_event(
+                session.id,
+                "page_discovered",
+                {
+                    "page_id": page.id,
+                    "url": page.url,
+                    "title": page.title,
+                    "category": page.category.value,
+                    "elements_count": len(page.elements),
+                },
+            )
 
         await self._emit_event(
             session.id,
@@ -270,7 +295,7 @@ class DiscoveryEngine:
 
         # Infer user flows using AI
         flows = await self._infer_flows(pages)
-        await self._save_flows(session.id, session.project_id, flows)
+        await self.repository.save_flows(session.id, session.project_id, flows)
 
         session.flows_found = len(flows)
 
@@ -294,7 +319,7 @@ class DiscoveryEngine:
         session.status = DiscoveryStatus.completed
         session.progress_percentage = 100.0
         session.completed_at = datetime.now(timezone.utc)
-        await self._save_session(session)
+        await self.repository.save_session(session)
 
         await self._emit_event(
             session.id,
@@ -337,7 +362,7 @@ class DiscoveryEngine:
         self._cancellation_flags[session_id] = True
 
         session.status = DiscoveryStatus.paused
-        await self._save_session(session)
+        await self.repository.save_session(session)
 
         await self._emit_event(
             session_id,
@@ -371,7 +396,7 @@ class DiscoveryEngine:
         self._cancellation_flags[session_id] = False
 
         session.status = DiscoveryStatus.running
-        await self._save_session(session)
+        await self.repository.save_session(session)
 
         await self._emit_event(
             session_id,
@@ -407,7 +432,7 @@ class DiscoveryEngine:
 
         session.status = DiscoveryStatus.cancelled
         session.completed_at = datetime.now(timezone.utc)
-        await self._save_session(session)
+        await self.repository.save_session(session)
 
         await self._emit_event(
             session_id,
@@ -421,33 +446,15 @@ class DiscoveryEngine:
     async def get_session_status(self, session_id: str) -> Optional[DiscoverySession]:
         """Get current session status.
 
+        Uses the repository for database-first access with caching.
+
         Args:
             session_id: ID of the session
 
         Returns:
             DiscoverySession or None if not found
         """
-        # Try Supabase first
-        if self.supabase:
-            try:
-                response = (
-                    self.supabase.table("discovery_sessions")
-                    .select("*")
-                    .eq("id", session_id)
-                    .single()
-                    .execute()
-                )
-                if response.data:
-                    return DiscoverySession.from_dict(response.data)
-            except Exception as e:
-                self.log.warning(
-                    "Failed to get session from Supabase",
-                    session_id=session_id,
-                    error=str(e),
-                )
-
-        # Fall back to in-memory
-        return self._sessions.get(session_id)
+        return await self.repository.get_session(session_id)
 
     async def get_session_pages(
         self,
@@ -455,32 +462,15 @@ class DiscoveryEngine:
     ) -> List[DiscoveredPage]:
         """Get pages discovered in a session.
 
+        Uses the repository for database-first access with caching.
+
         Args:
             session_id: ID of the session
 
         Returns:
             List of DiscoveredPage objects
         """
-        # Try Supabase first
-        if self.supabase:
-            try:
-                response = (
-                    self.supabase.table("discovered_pages")
-                    .select("*")
-                    .eq("session_id", session_id)
-                    .execute()
-                )
-                if response.data:
-                    return [DiscoveredPage.from_dict(p) for p in response.data]
-            except Exception as e:
-                self.log.warning(
-                    "Failed to get pages from Supabase",
-                    session_id=session_id,
-                    error=str(e),
-                )
-
-        # Fall back to in-memory
-        return self._pages.get(session_id, [])
+        return await self.repository.get_pages(session_id)
 
     async def get_session_flows(
         self,
@@ -488,150 +478,19 @@ class DiscoveryEngine:
     ) -> List[DiscoveredFlow]:
         """Get flows discovered in a session.
 
+        Uses the repository for database-first access with caching.
+
         Args:
             session_id: ID of the session
 
         Returns:
             List of DiscoveredFlow objects
         """
-        # Try Supabase first
-        if self.supabase:
-            try:
-                response = (
-                    self.supabase.table("discovered_flows")
-                    .select("*")
-                    .eq("session_id", session_id)
-                    .execute()
-                )
-                if response.data:
-                    return [DiscoveredFlow.from_dict(f) for f in response.data]
-            except Exception as e:
-                self.log.warning(
-                    "Failed to get flows from Supabase",
-                    session_id=session_id,
-                    error=str(e),
-                )
+        return await self.repository.get_flows(session_id)
 
-        # Fall back to in-memory
-        return self._flows.get(session_id, [])
-
-    async def _save_session(self, session: DiscoverySession) -> None:
-        """Save session to database.
-
-        Args:
-            session: Session to save
-        """
-        # Always save to in-memory
-        self._sessions[session.id] = session
-
-        # Try Supabase
-        if self.supabase:
-            try:
-                data = session.to_dict()
-                # Convert datetime objects to ISO strings for JSON serialization
-                if data.get("started_at") and hasattr(data["started_at"], "isoformat"):
-                    data["started_at"] = data["started_at"].isoformat()
-                if data.get("completed_at") and hasattr(data["completed_at"], "isoformat"):
-                    data["completed_at"] = data["completed_at"].isoformat()
-
-                self.supabase.table("discovery_sessions").upsert(data).execute()
-            except Exception as e:
-                self.log.warning(
-                    "Failed to save session to Supabase",
-                    session_id=session.id,
-                    error=str(e),
-                )
-
-    async def _save_pages(
-        self,
-        session_id: str,
-        project_id: str,
-        pages: List[DiscoveredPage],
-    ) -> None:
-        """Save discovered pages to database.
-
-        Args:
-            session_id: Session ID
-            project_id: Project ID
-            pages: List of pages to save
-        """
-        # Always save to in-memory
-        self._pages[session_id] = pages
-
-        # Try Supabase
-        if self.supabase and pages:
-            try:
-                records = []
-                for page in pages:
-                    record = page.to_dict()
-                    record["session_id"] = session_id
-                    record["project_id"] = project_id
-                    # Convert sets to lists for JSON serialization
-                    if "outgoing_links" in record:
-                        record["outgoing_links"] = list(record.get("outgoing_links", []))
-                    if "incoming_links" in record:
-                        record["incoming_links"] = list(record.get("incoming_links", []))
-                    # Remove screenshot_base64 from DB storage (too large)
-                    record.pop("screenshot_base64", None)
-                    records.append(record)
-
-                self.supabase.table("discovered_pages").upsert(records).execute()
-            except Exception as e:
-                self.log.warning(
-                    "Failed to save pages to Supabase",
-                    session_id=session_id,
-                    count=len(pages),
-                    error=str(e),
-                )
-
-        # Emit page discovery events
-        for page in pages:
-            await self._emit_event(
-                session_id,
-                "page_discovered",
-                {
-                    "page_id": page.id,
-                    "url": page.url,
-                    "title": page.title,
-                    "category": page.category.value,
-                    "elements_count": len(page.elements),
-                },
-            )
-
-    async def _save_flows(
-        self,
-        session_id: str,
-        project_id: str,
-        flows: List[DiscoveredFlow],
-    ) -> None:
-        """Save discovered flows to database.
-
-        Args:
-            session_id: Session ID
-            project_id: Project ID
-            flows: List of flows to save
-        """
-        # Always save to in-memory
-        self._flows[session_id] = flows
-
-        # Try Supabase
-        if self.supabase and flows:
-            try:
-                records = []
-                for flow in flows:
-                    record = flow.to_dict()
-                    record["session_id"] = session_id
-                    record["project_id"] = project_id
-                    records.append(record)
-
-                self.supabase.table("discovered_flows").upsert(records).execute()
-            except Exception as e:
-                self.log.warning(
-                    "Failed to save flows to Supabase",
-                    session_id=session_id,
-                    count=len(flows),
-                    error=str(e),
-                )
+    # Note: _save_session, _save_pages, _save_flows methods removed.
+    # All persistence is now handled by self.repository (DiscoveryRepository)
+    # which provides database-first storage with write-through caching.
 
     async def _infer_flows(
         self,
@@ -949,11 +808,16 @@ Prioritize:
             progress: Progress percentage (0-100)
             current_page: URL of current page being processed
         """
-        session = self._sessions.get(session_id)
+        # Use current_session for efficiency (avoid DB round-trip for progress updates)
+        # Fall back to repository lookup if needed
+        session = self.current_session if self.current_session and self.current_session.id == session_id else None
+        if not session:
+            session = await self.repository.get_session(session_id)
+
         if session:
             session.progress_percentage = progress
             session.current_page = current_page
-            await self._save_session(session)
+            await self.repository.save_session(session)
 
         await self._emit_event(
             session_id,
@@ -1094,6 +958,8 @@ Prioritize:
     ) -> List[DiscoverySession]:
         """List discovery sessions with optional filtering.
 
+        Uses the repository for database-first access with caching.
+
         Args:
             project_id: Filter by project ID
             status: Filter by status
@@ -1102,34 +968,11 @@ Prioritize:
         Returns:
             List of DiscoverySession objects
         """
-        # Try Supabase first
-        if self.supabase:
-            try:
-                query = self.supabase.table("discovery_sessions").select("*")
-
-                if project_id:
-                    query = query.eq("project_id", project_id)
-                if status:
-                    query = query.eq("status", status.value)
-
-                query = query.order("started_at", desc=True).limit(limit)
-                response = query.execute()
-
-                if response.data:
-                    return [DiscoverySession.from_dict(s) for s in response.data]
-            except Exception as e:
-                self.log.warning("Failed to list sessions from Supabase", error=str(e))
-
-        # Fall back to in-memory
-        sessions = list(self._sessions.values())
-
-        if project_id:
-            sessions = [s for s in sessions if s.project_id == project_id]
-        if status:
-            sessions = [s for s in sessions if s.status == status]
-
-        sessions.sort(key=lambda s: s.started_at or datetime.min, reverse=True)
-        return sessions[:limit]
+        return await self.repository.list_sessions(
+            project_id=project_id,
+            status=status.value if status else None,
+            limit=limit,
+        )
 
 
 # Factory function for convenience
