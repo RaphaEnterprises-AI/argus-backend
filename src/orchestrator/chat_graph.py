@@ -212,7 +212,7 @@ async def chat_node(state: ChatState, config) -> dict:
         },
         {
             "name": "createTest",
-            "description": "Create a test from natural language description",
+            "description": "Create a test from natural language description. Returns a test plan with steps for user to review before execution.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -303,7 +303,30 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                 from src.agents.nlp_test_creator import NLPTestCreator
                 creator = NLPTestCreator(app_url=tool_args["app_url"])
                 test = await creator.create(tool_args["description"])
-                result = {"success": True, "test": test.to_dict()}
+
+                # Return test plan with structured data for frontend preview
+                # Frontend will show this as an interactive card with Run/Edit buttons
+                result = {
+                    "success": True,
+                    "_type": "test_preview",  # Frontend uses this to render special UI
+                    "test": test.to_dict(),
+                    "summary": {
+                        "name": test.name,
+                        "steps_count": len(test.steps),
+                        "assertions_count": len(test.assertions),
+                        "estimated_duration": test.estimated_duration_seconds,
+                    },
+                    "steps_preview": [
+                        {
+                            "number": i + 1,
+                            "action": step.action,
+                            "description": step.description or f"{step.action} {step.target or ''}",
+                        }
+                        for i, step in enumerate(test.steps[:10])  # Show first 10 steps
+                    ],
+                    "app_url": tool_args["app_url"],
+                    "_actions": ["run_test", "edit_test", "save_test"],  # Available actions
+                }
 
             elif tool_name == "checkStatus":
                 result = {
