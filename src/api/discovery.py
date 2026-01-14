@@ -16,7 +16,7 @@ from typing import Optional, AsyncGenerator
 from uuid import uuid4
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 import structlog
