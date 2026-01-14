@@ -216,18 +216,18 @@ class BaselineResponse(BaseModel):
 # =============================================================================
 
 def _generate_snapshot_id() -> str:
-    """Generate unique snapshot ID."""
-    return f"snap_{uuid.uuid4().hex[:12]}"
+    """Generate unique snapshot ID (UUID format for database compatibility)."""
+    return str(uuid.uuid4())
 
 
 def _generate_comparison_id() -> str:
-    """Generate unique comparison ID."""
-    return f"cmp_{uuid.uuid4().hex[:12]}"
+    """Generate unique comparison ID (UUID format for database compatibility)."""
+    return str(uuid.uuid4())
 
 
 def _generate_baseline_id() -> str:
-    """Generate unique baseline ID."""
-    return f"bl_{uuid.uuid4().hex[:12]}"
+    """Generate unique baseline ID (UUID format for database compatibility)."""
+    return str(uuid.uuid4())
 
 
 async def _capture_screenshot(
@@ -300,7 +300,7 @@ async def _store_screenshot(
 
     # Return base64 data URL for now (in production, return actual URL)
     b64_data = base64.standard_b64encode(screenshot_bytes).decode("utf-8")
-    return f"data:image/png;base64,{b64_data[:100]}..."  # Truncated for response
+    return f"data:image/png;base64,{b64_data}"
 
 
 async def _save_snapshot_to_db(
@@ -319,7 +319,9 @@ async def _save_snapshot_to_db(
     record = {
         "id": snapshot_id,
         "url": url,
+        "page_url": url,  # Database column
         "screenshot_path": screenshot_path,
+        "screenshot_url": screenshot_path,  # Database column (same as screenshot_path)
         "viewport_width": viewport.get("width", 1440),
         "viewport_height": viewport.get("height", 900),
         "browser": browser,
@@ -1108,7 +1110,9 @@ async def create_baseline(
         "name": name,
         "project_id": project_id,
         "url": url,
+        "page_url": url,  # Database uses page_url column
         "screenshot_path": screenshot_url,
+        "screenshot_url": screenshot_url,  # Database also uses screenshot_url column
         "viewport_width": vp.width,
         "viewport_height": vp.height,
         "browser": browser,
