@@ -22,7 +22,9 @@ jobs:
         uses: googleapis/release-please-action@v4
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Use PAT to allow triggering other workflows (like Claude Code Review)
+          # Falls back to GITHUB_TOKEN if RELEASE_PAT is not set
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
@@ -47,15 +49,6 @@ jobs:
         run: |
           echo "Enabling auto-merge for PR #${PR_NUMBER}"
           gh pr merge ${PR_NUMBER} --auto --squash --repo ${{ github.repository }} || echo "Auto-merge may already be enabled or PR is not mergeable yet"
-
-  # Claude Code Review for release PRs
-  claude-review:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.pr }}
-    uses: ./.github/workflows/claude-code-review.yml
-    with:
-      pr_number: ${{ needs.release-please.outputs.pr }}
-    secrets: inherit
 
   # Build and test on release
   build-on-release:
