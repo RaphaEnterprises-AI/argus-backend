@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.6.1](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.6.0...v2.6.1) (2026-01-14)
+
+
+### Bug Fixes
+
+* **ci:** enable auto-merge for release PRs and improve Claude Code Review ([60e51fa](https://github.com/RaphaEnterprises-AI/argus-backend/commit/60e51fa072f8f2fa99fa5768376c73c41990ec80))
+* **ci:** enable auto-trigger for Claude Code Review on release PRs ([4e5dd89](https://github.com/RaphaEnterprises-AI/argus-backend/commit/4e5dd8919df9698ed2f39b61445d62f15cf23f46))
+* **ci:** simplify Claude Code Review to match argus dashboard pattern ([b4433d6](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b4433d6451954d894746e181fe8b30ed0323564a))
+
 ## [2.6.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.5.0...v2.6.0) (2026-01-14)
 
 
