@@ -62,6 +62,9 @@ out/
 # Dashboard (separate git repo)
 dashboard/
 
+# Argus MCP Server (separate git repo: github.com/RaphaEnterprises-AI/argus-mcp-server)
+argus-mcp-server/
+
 # MkDocs
 site/
 
