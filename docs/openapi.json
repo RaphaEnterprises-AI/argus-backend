@@ -3,7 +3,7 @@
   "info": {
     "title": "Argus E2E Testing Agent API",
     "description": "\nAutonomous E2E testing powered by Claude AI.\n\n## Security Features (SOC2 Compliant)\n- **Authentication**: API Key and JWT Bearer token support\n- **Authorization**: Role-Based Access Control (RBAC)\n- **Rate Limiting**: Configurable per-endpoint limits\n- **Audit Logging**: Comprehensive security event logging\n- **Input Validation**: XSS, SQL injection, and path traversal protection\n- **Security Headers**: OWASP-compliant headers\n\n## API Versioning\n- Current Version: v1\n- Version Header: X-API-Version\n    ",
-    "version": "2.3.0",
+    "version": "2.4.0",
     "contact": {
       "name": "Argus Security Team",
       "email": "security@heyargus.com"
