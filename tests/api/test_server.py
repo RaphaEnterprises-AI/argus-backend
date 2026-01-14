@@ -142,8 +142,9 @@ class TestHealthEndpoints:
 
         response = await health_check()
 
+        from src.api.server import API_VERSION
         assert response.status == "healthy"
-        assert response.version == "2.2.0"
+        assert response.version == API_VERSION
         assert response.timestamp is not None
 
     @pytest.mark.asyncio
@@ -715,10 +716,10 @@ class TestAppConfiguration:
 
     def test_app_metadata(self, mock_env_vars):
         """Test FastAPI app metadata."""
-        from src.api.server import app
+        from src.api.server import app, API_VERSION
 
         assert app.title == "Argus E2E Testing Agent API"
-        assert app.version == "2.2.0"
+        assert app.version == API_VERSION
         assert app.docs_url == "/docs"
         assert app.redoc_url == "/redoc"
 
