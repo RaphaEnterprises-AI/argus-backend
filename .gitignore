@@ -76,3 +76,9 @@ yarn-error.log*
 
 # Playwright MCP
 .playwright-mcp/
+
+# Serena MCP
+.serena/
+
+# Supabase CLI temp files
+supabase/.temp/
