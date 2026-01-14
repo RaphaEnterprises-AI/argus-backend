@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.6.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.5.0...v2.6.0) (2026-01-14)
+
+
+### Features
+
+* **orchestrator:** upgrade to LangGraph 1.0 patterns and align frontend-backend ([63ada81](https://github.com/RaphaEnterprises-AI/argus-backend/commit/63ada812cd9361289824a5bd9e3d71226608967b))
+
+
+### Bug Fixes
+
+* add missing Query import in discovery.py ([c2c4019](https://github.com/RaphaEnterprises-AI/argus-backend/commit/c2c40199e07a272a39b806bf4d0dcad46f0cc16c))
+* resolve E2E API bugs and infrastructure issues ([4e2fcba](https://github.com/RaphaEnterprises-AI/argus-backend/commit/4e2fcba39a6a404d0c335b5bb30acdb9cb0dacae))
+* resolve supabase migration schema drift issues ([5799493](https://github.com/RaphaEnterprises-AI/argus-backend/commit/57994931c712be73f061430ec9d239999ff87b2a))
+* **visual-ai:** resolve screenshot capture and database compatibility issues ([7a9bc23](https://github.com/RaphaEnterprises-AI/argus-backend/commit/7a9bc233e73c5f286a2e2812d0a1933269499600))
+
 ## [2.5.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.4.0...v2.5.0) (2026-01-14)
 
 
