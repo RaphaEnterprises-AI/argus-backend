@@ -59,6 +59,7 @@ from src.api.projects import router as projects_router
 from src.api.visual_ai import router as visual_ai_router
 from src.api.discovery import router as discovery_router
 from src.api.artifacts import router as artifacts_router
+from src.api.mcp_sessions import router as mcp_sessions_router
 
 # Security Module
 from src.api.security.middleware import (
@@ -226,6 +227,7 @@ app.include_router(device_auth_router)
 app.include_router(visual_ai_router)
 app.include_router(discovery_router)
 app.include_router(artifacts_router)
+app.include_router(mcp_sessions_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
