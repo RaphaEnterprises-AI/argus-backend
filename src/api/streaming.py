@@ -11,7 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field
 import structlog
 
-from src.orchestrator.graph import TestingOrchestrator
+from src.orchestrator.graph import EnhancedTestingOrchestrator, create_enhanced_testing_graph
 from src.orchestrator.state import create_initial_state
 from src.orchestrator.checkpointer import get_checkpointer
 
@@ -52,8 +52,8 @@ async def stream_test_execution(request: StreamTestRequest):
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
-            # Initialize orchestrator
-            orchestrator = TestingOrchestrator(
+            # Initialize enhanced orchestrator (LangGraph 1.0 patterns)
+            orchestrator = EnhancedTestingOrchestrator(
                 codebase_path=request.codebase_path,
                 app_url=request.app_url,
                 pr_number=request.pr_number,
@@ -418,7 +418,6 @@ async def get_stream_status(thread_id: str):
 
     Returns the latest state snapshot for the given thread.
     """
-    from src.orchestrator.graph import create_testing_graph
     from src.config import get_settings
 
     checkpointer = get_checkpointer()
@@ -427,7 +426,7 @@ async def get_stream_status(thread_id: str):
         config = {"configurable": {"thread_id": thread_id}}
 
         settings = get_settings()
-        graph = create_testing_graph(settings)
+        graph = create_enhanced_testing_graph(settings)
         app = graph.compile(checkpointer=checkpointer)
 
         state = await app.aget_state(config)
@@ -490,7 +489,6 @@ async def resume_stream(thread_id: str):
 
     Continues from the last checkpoint for the given thread.
     """
-    from src.orchestrator.graph import create_testing_graph
     from src.config import get_settings
 
     async def event_generator() -> AsyncGenerator[dict, None]:
@@ -500,7 +498,7 @@ async def resume_stream(thread_id: str):
 
             config = {"configurable": {"thread_id": thread_id}}
 
-            graph = create_testing_graph(settings)
+            graph = create_enhanced_testing_graph(settings)
             app = graph.compile(checkpointer=checkpointer)
 
             # Get current state
@@ -604,7 +602,6 @@ async def cancel_stream(thread_id: str):
     Note: This marks the execution as cancelled but may not immediately
     stop in-progress operations.
     """
-    from src.orchestrator.graph import create_testing_graph
     from src.config import get_settings
 
     try:
@@ -613,7 +610,7 @@ async def cancel_stream(thread_id: str):
 
         config = {"configurable": {"thread_id": thread_id}}
 
-        graph = create_testing_graph(settings)
+        graph = create_enhanced_testing_graph(settings)
         app = graph.compile(checkpointer=checkpointer)
 
         # Get current state
