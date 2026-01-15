@@ -224,7 +224,7 @@ async def list_mcp_connections(
     viewed in the dashboard.
     """
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
     # Build query
     query = "/mcp_connections?select=*&order=last_activity_at.desc"
@@ -243,9 +243,9 @@ async def list_mcp_connections(
 
     query += f"&limit={limit}&offset={offset}"
 
-    result = await supabase.select(query)
+    result = await supabase.request(query)
 
-    if not result.get("success"):
+    if result.get("error"):
         raise HTTPException(status_code=500, detail="Failed to fetch connections")
 
     connections = [format_connection(row) for row in result.get("data", [])]
@@ -265,11 +265,11 @@ async def get_mcp_connection(
 ):
     """Get details for a specific MCP connection."""
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
-    result = await supabase.select(f"/mcp_connections?id=eq.{connection_id}&select=*")
+    result = await supabase.request(f"/mcp_connections?id=eq.{connection_id}&select=*")
 
-    if not result.get("success") or not result.get("data"):
+    if result.get("error") or not result.get("data"):
         raise HTTPException(status_code=404, detail="Connection not found")
 
     connection = result["data"][0]
@@ -296,12 +296,12 @@ async def revoke_mcp_connection(
     from this connection. The client will need to re-authenticate.
     """
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
     # Get the connection first
-    result = await supabase.select(f"/mcp_connections?id=eq.{connection_id}&select=*")
+    result = await supabase.request(f"/mcp_connections?id=eq.{connection_id}&select=*")
 
-    if not result.get("success") or not result.get("data"):
+    if result.get("error") or not result.get("data"):
         raise HTTPException(status_code=404, detail="Connection not found")
 
     connection = result["data"][0]
@@ -329,7 +329,7 @@ async def revoke_mcp_connection(
         f"id=eq.{connection_id}",
     )
 
-    if not update_result.get("success"):
+    if update_result.get("error"):
         raise HTTPException(status_code=500, detail="Failed to revoke connection")
 
     # Log activity
@@ -372,14 +372,14 @@ async def get_connection_activity(
 ):
     """Get activity log for a specific MCP connection."""
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
     # Verify access to the connection
-    conn_result = await supabase.select(
+    conn_result = await supabase.request(
         f"/mcp_connections?id=eq.{connection_id}&select=user_id,organization_id"
     )
 
-    if not conn_result.get("success") or not conn_result.get("data"):
+    if conn_result.get("error") or not conn_result.get("data"):
         raise HTTPException(status_code=404, detail="Connection not found")
 
     connection = conn_result["data"][0]
@@ -399,7 +399,7 @@ async def get_connection_activity(
 
     query += f"&limit={limit}&offset={offset}"
 
-    result = await supabase.select(query)
+    result = await supabase.request(query)
 
     activities = [
         MCPActivityResponse(
@@ -433,7 +433,7 @@ async def get_mcp_stats(
     active connections, tool usage, and trends.
     """
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
     # Build base query
     if org_id:
@@ -444,7 +444,7 @@ async def get_mcp_stats(
         filter_clause = f"user_id=eq.{user["user_id"]}"
 
     # Get all connections for this user/org
-    result = await supabase.select(f"/mcp_connections?{filter_clause}&select=*")
+    result = await supabase.request(f"/mcp_connections?{filter_clause}&select=*")
 
     connections = result.get("data", [])
 
@@ -542,10 +542,10 @@ async def register_mcp_connection(
     This creates or updates the connection record.
     """
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
     # Check for existing connection with same session
-    existing = await supabase.select(
+    existing = await supabase.request(
         f"/mcp_connections?session_id=eq.{body.session_id}&status=eq.active&select=id"
     )
 
@@ -584,7 +584,7 @@ async def register_mcp_connection(
             },
         )
 
-        if not result.get("success"):
+        if result.get("error"):
             raise HTTPException(status_code=500, detail="Failed to register connection")
 
         connection_id = result["data"][0]["id"]
@@ -622,10 +622,10 @@ async def record_mcp_activity(
     Called by the MCP server after each tool invocation.
     """
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
     # Verify connection belongs to user
-    conn_result = await supabase.select(
+    conn_result = await supabase.request(
         f"/mcp_connections?id=eq.{body.connection_id}&user_id=eq.{user["user_id"]}&select=id"
     )
 
@@ -662,9 +662,9 @@ async def get_pending_auth_sessions(
     Shows sessions that are waiting for approval.
     """
     user = await get_current_user(request)
-    supabase = await get_supabase_client()
+    supabase = get_supabase_client()
 
-    result = await supabase.select(
+    result = await supabase.request(
         f"/device_auth_sessions?user_id=eq.{user["user_id"]}&status=eq.pending&select=*&order=created_at.desc"
     )
 
