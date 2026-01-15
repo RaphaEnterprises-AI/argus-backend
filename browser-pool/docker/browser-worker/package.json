@@ -1,0 +1,24 @@
+{
+  "name": "argus-browser-worker",
+  "version": "1.0.0",
+  "description": "Browser worker for Argus E2E testing",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "express": "^4.18.2",
+    "prom-client": "^15.1.0",
+    "uuid": "^9.0.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

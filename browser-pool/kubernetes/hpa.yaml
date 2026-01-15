@@ -1,0 +1,76 @@
+# Horizontal Pod Autoscaler for Browser Workers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: browser-worker-hpa
+  namespace: browser-pool
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: browser-worker
+  minReplicas: 2       # Minimum pods (dev: 2 nodes)
+  maxReplicas: 8       # Maximum pods (dev: 4 per node)
+  metrics:
+    # Scale based on CPU usage
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Scale based on memory usage
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30  # Fast scale up
+      policies:
+        - type: Pods
+          value: 10
+          periodSeconds: 30
+        - type: Percent
+          value: 100  # Double capacity every 30s if needed
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+      policies:
+        - type: Pods
+          value: 5
+          periodSeconds: 60
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min  # Scale down slowly
+---
+# Pod Disruption Budget (ensure availability during updates)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: browser-worker-pdb
+  namespace: browser-pool
+spec:
+  minAvailable: 1  # Always keep at least 1 pod running (dev)
+  selector:
+    matchLabels:
+      app: browser-worker
+---
+# Pod Disruption Budget for Manager
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: browser-manager-pdb
+  namespace: browser-pool
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: browser-manager
+# Note: VPA (VerticalPodAutoscaler) is optional and requires the VPA CRD to be installed.
+# Vultr VKE does not include VPA by default. To enable, install the VPA CRD first:
+# kubectl apply -f https://github.com/kubernetes/autoscaler/releases/download/vertical-pod-autoscaler-0.14.0/vpa-v1-crd-gen.yaml
