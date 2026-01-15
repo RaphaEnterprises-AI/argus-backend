@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "argus": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://argus-mcp.samuelvinay-kumar.workers.dev/sse"]
+    }
+  }
+}
