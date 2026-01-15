@@ -158,7 +158,14 @@ def generate_jwt_token(
     from src.config import get_settings
     settings = get_settings()
 
-    secret = secret_key or settings.jwt_secret_key
+    # Handle SecretStr from pydantic-settings
+    if secret_key:
+        secret = secret_key
+    elif settings.jwt_secret_key:
+        secret = settings.jwt_secret_key.get_secret_value()
+    else:
+        secret = None
+
     if not secret:
         raise ValueError("JWT_SECRET_KEY not configured")
 
@@ -190,7 +197,14 @@ def verify_jwt_token(token: str, secret_key: str = None) -> Optional[TokenPayloa
     from src.config import get_settings
     settings = get_settings()
 
-    secret = secret_key or settings.jwt_secret_key
+    # Handle SecretStr from pydantic-settings
+    if secret_key:
+        secret = secret_key
+    elif settings.jwt_secret_key:
+        secret = settings.jwt_secret_key.get_secret_value()
+    else:
+        secret = None
+
     if not secret:
         return None
 
