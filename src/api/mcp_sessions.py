@@ -224,6 +224,7 @@ async def list_mcp_connections(
     viewed in the dashboard.
     """
     user = await get_current_user(request)
+    user_id = user["user_id"]
     supabase = get_supabase_client()
 
     # Build query
@@ -232,11 +233,11 @@ async def list_mcp_connections(
     if org_id:
         # Get org connections (requires org access)
         supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user["user_id"])
+        await verify_org_access(org_id, user_id)
         query += f"&organization_id=eq.{supabase_org_id}"
     else:
         # Get user's own connections
-        query += f"&user_id=eq.{user["user_id"]}"
+        query += f"&user_id=eq.{user_id}"
 
     if status:
         query += f"&status=eq.{status.value}"
@@ -436,15 +437,16 @@ async def get_mcp_stats(
     active connections, tool usage, and trends.
     """
     user = await get_current_user(request)
+    user_id = user["user_id"]
     supabase = get_supabase_client()
 
     # Build base query
     if org_id:
         supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user["user_id"])
+        await verify_org_access(org_id, user_id)
         filter_clause = f"organization_id=eq.{supabase_org_id}"
     else:
-        filter_clause = f"user_id=eq.{user["user_id"]}"
+        filter_clause = f"user_id=eq.{user_id}"
 
     # Get all connections for this user/org
     result = await supabase.request(f"/mcp_connections?{filter_clause}&select=*")
@@ -625,11 +627,12 @@ async def record_mcp_activity(
     Called by the MCP server after each tool invocation.
     """
     user = await get_current_user(request)
+    user_id = user["user_id"]
     supabase = get_supabase_client()
 
     # Verify connection belongs to user
     conn_result = await supabase.request(
-        f"/mcp_connections?id=eq.{body.connection_id}&user_id=eq.{user["user_id"]}&select=id"
+        f"/mcp_connections?id=eq.{body.connection_id}&user_id=eq.{user_id}&select=id"
     )
 
     if not conn_result.get("data"):
@@ -665,10 +668,11 @@ async def get_pending_auth_sessions(
     Shows sessions that are waiting for approval.
     """
     user = await get_current_user(request)
+    user_id = user["user_id"]
     supabase = get_supabase_client()
 
     result = await supabase.request(
-        f"/device_auth_sessions?user_id=eq.{user["user_id"]}&status=eq.pending&select=*&order=created_at.desc"
+        f"/device_auth_sessions?user_id=eq.{user_id}&status=eq.pending&select=*&order=created_at.desc"
     )
 
     return {
