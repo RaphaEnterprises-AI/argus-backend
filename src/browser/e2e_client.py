@@ -1,6 +1,23 @@
 """
 E2E Browser Client - AI-Powered Browser Automation via Cloudflare Worker
 
+.. deprecated::
+    This client is maintained for backward compatibility.
+    Use `BrowserPoolClient` instead for better scalability and reliability.
+
+    Migration guide: docs/BROWSER_POOL_MIGRATION.md
+
+    Before:
+        from src.browser import E2EBrowserClient
+        async with E2EBrowserClient() as client:
+            page = await client.new_page(url)
+            await page.act("Click Sign In")
+
+    After:
+        from src.browser import BrowserPoolClient
+        async with BrowserPoolClient() as client:
+            await client.act(url, "Click Sign In")
+
 Connects to our custom Cloudflare Worker that provides:
 - Multi-backend support: Cloudflare Browser (free) + TestingBot (cross-browser)
 - Cross-browser testing: Chrome, Firefox, Safari, Edge
