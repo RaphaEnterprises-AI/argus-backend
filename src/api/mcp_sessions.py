@@ -320,13 +320,13 @@ async def revoke_mcp_connection(
     reason = body.reason if body else "User revoked"
     update_result = await supabase.update(
         "mcp_connections",
+        {"id": f"eq.{connection_id}"},
         {
             "status": "revoked",
             "revoked_at": datetime.now(timezone.utc).isoformat(),
             "revoked_by": user["user_id"],
             "revoke_reason": reason,
         },
-        f"id=eq.{connection_id}",
     )
 
     if update_result.get("error"):
@@ -342,15 +342,18 @@ async def revoke_mcp_connection(
         },
     )
 
-    # Audit log
-    await log_audit(
-        supabase=supabase,
-        user_id=user["user_id"],
-        action="mcp.connection.revoked",
-        resource_type="mcp_connection",
-        resource_id=connection_id,
-        details={"reason": reason, "client_name": connection.get("client_name")},
-    )
+    # Audit log (skip if no organization - audit logs are org-scoped)
+    if connection.get("organization_id"):
+        await log_audit(
+            organization_id=str(connection["organization_id"]),
+            user_id=user["user_id"],
+            user_email=user.get("email", ""),
+            action="mcp.connection.revoked",
+            resource_type="mcp_connection",
+            resource_id=connection_id,
+            description=f"Revoked MCP connection: {connection.get('client_name', 'Unknown')}",
+            metadata={"reason": reason},
+        )
 
     logger.info(
         "MCP connection revoked",
@@ -554,12 +557,12 @@ async def register_mcp_connection(
         connection_id = existing["data"][0]["id"]
         await supabase.update(
             "mcp_connections",
+            {"id": f"eq.{connection_id}"},
             {
                 "last_activity_at": datetime.now(timezone.utc).isoformat(),
                 "ip_address": body.ip_address,
                 "user_agent": body.user_agent,
             },
-            f"id=eq.{connection_id}",
         )
     else:
         # Get organization ID for user

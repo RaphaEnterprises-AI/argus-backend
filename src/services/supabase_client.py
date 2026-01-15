@@ -124,6 +124,18 @@ class SupabaseClient:
         path += "&".join(f"{k}={v}" for k, v in filters.items())
         return await self.request(path, method="PATCH", body=data)
 
+    async def rpc(self, function_name: str, params: dict) -> dict[str, Any]:
+        """Call a PostgreSQL function via PostgREST RPC.
+
+        Args:
+            function_name: Name of the PostgreSQL function to call
+            params: Parameters to pass to the function
+
+        Returns:
+            {"data": ..., "error": ...}
+        """
+        return await self.request(f"/rpc/{function_name}", method="POST", body=params)
+
 
 # Global instance
 _supabase_client: Optional[SupabaseClient] = None
