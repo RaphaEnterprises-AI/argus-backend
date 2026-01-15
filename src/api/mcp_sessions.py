@@ -232,11 +232,11 @@ async def list_mcp_connections(
     if org_id:
         # Get org connections (requires org access)
         supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user.user_id)
+        await verify_org_access(org_id, user["user_id"])
         query += f"&organization_id=eq.{supabase_org_id}"
     else:
         # Get user's own connections
-        query += f"&user_id=eq.{user.user_id}"
+        query += f"&user_id=eq.{user["user_id"]}"
 
     if status:
         query += f"&status=eq.{status.value}"
@@ -275,9 +275,9 @@ async def get_mcp_connection(
     connection = result["data"][0]
 
     # Verify access
-    if connection["user_id"] != user.user_id:
+    if connection["user_id"] != user["user_id"]:
         if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user.user_id)
+            await verify_org_access(str(connection["organization_id"]), user["user_id"])
         else:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -307,9 +307,9 @@ async def revoke_mcp_connection(
     connection = result["data"][0]
 
     # Verify access
-    if connection["user_id"] != user.user_id:
+    if connection["user_id"] != user["user_id"]:
         if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user.user_id)
+            await verify_org_access(str(connection["organization_id"]), user["user_id"])
         else:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -323,7 +323,7 @@ async def revoke_mcp_connection(
         {
             "status": "revoked",
             "revoked_at": datetime.now(timezone.utc).isoformat(),
-            "revoked_by": user.user_id,
+            "revoked_by": user["user_id"],
             "revoke_reason": reason,
         },
         f"id=eq.{connection_id}",
@@ -338,14 +338,14 @@ async def revoke_mcp_connection(
         {
             "connection_id": connection_id,
             "activity_type": "disconnect",
-            "metadata": {"reason": reason, "revoked_by": user.user_id},
+            "metadata": {"reason": reason, "revoked_by": user["user_id"]},
         },
     )
 
     # Audit log
     await log_audit(
         supabase=supabase,
-        user_id=user.user_id,
+        user_id=user["user_id"],
         action="mcp.connection.revoked",
         resource_type="mcp_connection",
         resource_id=connection_id,
@@ -355,7 +355,7 @@ async def revoke_mcp_connection(
     logger.info(
         "MCP connection revoked",
         connection_id=connection_id,
-        revoked_by=user.user_id,
+        revoked_by=user["user_id"],
         reason=reason,
     )
 
@@ -383,9 +383,9 @@ async def get_connection_activity(
         raise HTTPException(status_code=404, detail="Connection not found")
 
     connection = conn_result["data"][0]
-    if connection["user_id"] != user.user_id:
+    if connection["user_id"] != user["user_id"]:
         if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user.user_id)
+            await verify_org_access(str(connection["organization_id"]), user["user_id"])
         else:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -438,10 +438,10 @@ async def get_mcp_stats(
     # Build base query
     if org_id:
         supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user.user_id)
+        await verify_org_access(org_id, user["user_id"])
         filter_clause = f"organization_id=eq.{supabase_org_id}"
     else:
-        filter_clause = f"user_id=eq.{user.user_id}"
+        filter_clause = f"user_id=eq.{user["user_id"]}"
 
     # Get all connections for this user/org
     result = await supabase.select(f"/mcp_connections?{filter_clause}&select=*")
@@ -564,14 +564,14 @@ async def register_mcp_connection(
     else:
         # Get organization ID for user
         org_id = None
-        if hasattr(user, "organization_id") and user.organization_id:
-            org_id = user.organization_id
+        if user.get("organization_id"):
+            org_id = user.get("organization_id")
 
         # Create new connection
         result = await supabase.insert(
             "mcp_connections",
             {
-                "user_id": user.user_id,
+                "user_id": user["user_id"],
                 "organization_id": org_id,
                 "session_id": body.session_id,
                 "client_id": body.client_id,
@@ -605,7 +605,7 @@ async def register_mcp_connection(
     logger.info(
         "MCP connection registered",
         session_id=body.session_id,
-        user_id=user.user_id,
+        user_id=user["user_id"],
         client_name=body.client_name,
     )
 
@@ -626,7 +626,7 @@ async def record_mcp_activity(
 
     # Verify connection belongs to user
     conn_result = await supabase.select(
-        f"/mcp_connections?id=eq.{body.connection_id}&user_id=eq.{user.user_id}&select=id"
+        f"/mcp_connections?id=eq.{body.connection_id}&user_id=eq.{user["user_id"]}&select=id"
     )
 
     if not conn_result.get("data"):
@@ -665,7 +665,7 @@ async def get_pending_auth_sessions(
     supabase = await get_supabase_client()
 
     result = await supabase.select(
-        f"/device_auth_sessions?user_id=eq.{user.user_id}&status=eq.pending&select=*&order=created_at.desc"
+        f"/device_auth_sessions?user_id=eq.{user["user_id"]}&status=eq.pending&select=*&order=created_at.desc"
     )
 
     return {
