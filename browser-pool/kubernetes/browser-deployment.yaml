@@ -1,0 +1,302 @@
+# Browser Pool - Playwright Browser Pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: browser-worker
+  namespace: browser-pool
+  labels:
+    app: browser-worker
+    app.kubernetes.io/name: browser-worker
+    app.kubernetes.io/component: browser
+spec:
+  replicas: 2  # Starting replicas, HPA will scale
+  selector:
+    matchLabels:
+      app: browser-worker
+  template:
+    metadata:
+      labels:
+        app: browser-worker
+        app.kubernetes.io/name: browser-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Spread pods across nodes
+      topologySpreadConstraints:
+        - maxSkew: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: browser-worker
+
+      initContainers:
+        - name: init-copy-code
+          image: mcr.microsoft.com/playwright:v1.57.0-jammy
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cp /config/* /app/ && cd /app && npm install
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: app
+              mountPath: /app
+            - name: dshm
+              mountPath: /dev/shm
+
+      containers:
+        - name: browser
+          image: mcr.microsoft.com/playwright:v1.57.0-jammy
+          imagePullPolicy: IfNotPresent
+
+          command: ["node", "/app/server.js"]
+
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: METRICS_PORT
+              value: "9090"
+            - name: BROWSER_POOL_SIZE
+              value: "2"  # Browsers per pod
+            - name: MAX_CONCURRENT_SESSIONS
+              value: "4"
+            - name: SESSION_TIMEOUT_MS
+              value: "300000"  # 5 minutes
+            - name: HEADLESS
+              value: "true"
+            # Pod identity for session routing
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+
+          # Shared memory for Chrome (required)
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: app
+              mountPath: /app
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false  # Playwright needs write access
+
+      volumes:
+        # Shared memory for Chrome (prevents crashes)
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        # Config from ConfigMap (read-only source)
+        - name: config
+          configMap:
+            name: browser-worker-code
+        # App code (writable for npm install)
+        - name: app
+          emptyDir: {}
+
+      # Graceful shutdown
+      terminationGracePeriodSeconds: 60
+
+      # Restart policy
+      restartPolicy: Always
+---
+# Browser Pool Manager - Orchestrates sessions
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: browser-manager
+  namespace: browser-pool
+  labels:
+    app: browser-manager
+    app.kubernetes.io/name: browser-manager
+    app.kubernetes.io/component: manager
+spec:
+  replicas: 2  # HA manager
+  selector:
+    matchLabels:
+      app: browser-manager
+  template:
+    metadata:
+      labels:
+        app: browser-manager
+        app.kubernetes.io/name: browser-manager
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: browser-manager
+
+      initContainers:
+        - name: init-copy-code
+          image: node:20-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cp /config/* /app/ && cd /app && npm install
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: app
+              mountPath: /app
+
+      containers:
+        - name: manager
+          image: node:20-slim
+          imagePullPolicy: IfNotPresent
+
+          command: ["node", "/app/manager.js"]
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8080"
+            - name: METRICS_PORT
+              value: "9090"
+            - name: BROWSER_SERVICE
+              value: "browser-worker.browser-pool.svc.cluster.local"
+            - name: BROWSER_PORT
+              value: "3000"
+            # JWT Secret for production auth (recommended)
+            - name: BROWSER_POOL_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: browser-pool-auth
+                  key: jwt-secret
+                  optional: true
+            # Legacy API Key for backward compatibility (deprecated)
+            - name: BROWSER_POOL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: browser-pool-auth
+                  key: api-key
+                  optional: true
+            # For Kubernetes API access
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          volumeMounts:
+            - name: app
+              mountPath: /app
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+      volumes:
+        - name: config
+          configMap:
+            name: browser-manager-code
+        - name: app
+          emptyDir: {}
+---
+# Service Account for manager (K8s API access)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: browser-manager
+  namespace: browser-pool
+---
+# Role for reading pods
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: browser-manager-role
+  namespace: browser-pool
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+# RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: browser-manager-binding
+  namespace: browser-pool
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: browser-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: browser-manager
+    namespace: browser-pool

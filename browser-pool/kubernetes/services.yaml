@@ -1,0 +1,119 @@
+# Browser Worker Service (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: browser-worker
+  namespace: browser-pool
+  labels:
+    app: browser-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: browser-worker
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+# Browser Worker Headless Service (for direct pod access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: browser-worker-headless
+  namespace: browser-pool
+  labels:
+    app: browser-worker
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless
+  selector:
+    app: browser-worker
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+# Browser Manager Service (external facing via LoadBalancer)
+# Works with Vultr VKE, DigitalOcean DOKS, and other managed K8s
+apiVersion: v1
+kind: Service
+metadata:
+  name: browser-manager
+  namespace: browser-pool
+  labels:
+    app: browser-manager
+  annotations:
+    # Vultr LB: Use TCP protocol to preserve Authorization headers
+    # (HTTP protocol can modify/strip auth headers in some cases)
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+spec:
+  type: LoadBalancer  # Changed from ClusterIP for cloud providers
+  selector:
+    app: browser-manager
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: browser-pool-ingress
+  namespace: browser-pool
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: browser-manager
+                port:
+                  number: 80
+---
+# IngressRoute for Traefik (alternative)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: browser-pool-route
+  namespace: browser-pool
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: browser-manager
+          port: 80
+      middlewares:
+        - name: ratelimit
+---
+# Rate limiting middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ratelimit
+  namespace: browser-pool
+spec:
+  rateLimit:
+    average: 100     # 100 requests per second average
+    burst: 200       # Allow bursts up to 200
+    period: 1s

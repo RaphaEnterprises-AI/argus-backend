@@ -1,0 +1,16 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Kubernetes
+kubeconfig*.yaml
+
+# Node
+node_modules/
+
+# Environment
+.env
+.env.*

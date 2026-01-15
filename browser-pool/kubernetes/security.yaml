@@ -1,0 +1,130 @@
+# Browser Pool Security Configuration
+# Apply with: kubectl apply -f security.yaml
+
+---
+# Secret for API authentication
+# Generate a secure key: openssl rand -hex 32
+apiVersion: v1
+kind: Secret
+metadata:
+  name: browser-pool-auth
+  namespace: browser-pool
+type: Opaque
+stringData:
+  # CHANGE THIS before deploying!
+  api-key: "CHANGE_ME_GENERATE_WITH_openssl_rand_hex_32"
+
+---
+# Network Policy - Restrict ingress to manager only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: browser-worker-isolation
+  namespace: browser-pool
+spec:
+  podSelector:
+    matchLabels:
+      app: browser-worker
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only allow traffic from browser-manager
+    - from:
+        - podSelector:
+            matchLabels:
+              app: browser-manager
+      ports:
+        - protocol: TCP
+          port: 3000
+
+---
+# Network Policy - Manager accepts external traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: browser-manager-ingress
+  namespace: browser-pool
+spec:
+  podSelector:
+    matchLabels:
+      app: browser-manager
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from Traefik ingress
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# Traefik Middleware - API Key Authentication
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-auth
+  namespace: browser-pool
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Auth: "true"
+
+---
+# Traefik Middleware - Security Headers
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: browser-pool
+spec:
+  headers:
+    frameDeny: true
+    contentTypeNosniff: true
+    browserXssFilter: true
+    referrerPolicy: "strict-origin-when-cross-origin"
+    customResponseHeaders:
+      X-Robots-Tag: "noindex,nofollow"
+
+---
+# cert-manager Certificate for HTTPS (requires cert-manager installed)
+# Install: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@yourdomain.com  # CHANGE THIS
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+
+---
+# Secure IngressRoute with TLS and Auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: browser-pool-secure
+  namespace: browser-pool
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: browser-manager
+          port: 80
+      middlewares:
+        - name: api-auth
+        - name: security-headers
+        - name: ratelimit
+  tls:
+    certResolver: letsencrypt-prod

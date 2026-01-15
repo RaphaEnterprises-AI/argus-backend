@@ -1,0 +1,52 @@
+# Argus Browser Pool - Terraform Configuration
+# Copy this file to terraform.tfvars and fill in your values
+
+# Required: Hetzner Cloud API Token
+# Get from: https://console.hetzner.cloud/projects/<project>/security/tokens
+hcloud_token = "your-hetzner-api-token"
+
+# Cluster name (used for resource naming)
+cluster_name = "argus-browser-pool"
+
+# Location (choose closest to your users)
+# Options: nbg1 (Nuremberg), fsn1 (Falkenstein), hel1 (Helsinki), ash (Ashburn), hil (Hillsboro)
+location = "nbg1"
+
+# =============================================================================
+# OPTION 1: Use a preset (recommended for getting started)
+# =============================================================================
+
+# Choose a scaling preset:
+# - dev        : 6 browsers,   ~€25/mo   (3 workers)
+# - small      : 20 browsers,  ~€55/mo   (5 workers)
+# - medium     : 120 browsers, ~€280/mo  (15 workers)
+# - large      : 800 browsers, ~€1,600/mo (50 workers)
+# - enterprise : 3200 browsers, ~€6,000/mo (100 workers)
+
+scale_preset = "dev"
+
+# =============================================================================
+# OPTION 2: Custom configuration (uncomment and set scale_preset = "")
+# =============================================================================
+
+# scale_preset = ""
+
+# Control plane nodes (1 for dev, 3 for HA production)
+# control_plane_count = 1
+# control_plane_type  = "cx21"  # 2 vCPU, 4GB RAM
+
+# Worker nodes (where browsers run)
+# worker_count = 5
+# worker_type  = "cx31"  # 2 vCPU, 8GB RAM (~4 browsers each)
+
+# Server types reference:
+# cx21  - 2 vCPU,  4GB RAM - €4.85/mo  - ~2 browsers/node
+# cx31  - 2 vCPU,  8GB RAM - €8.98/mo  - ~4 browsers/node
+# cx41  - 4 vCPU, 16GB RAM - €15.59/mo - ~8 browsers/node
+# cx51  - 8 vCPU, 32GB RAM - €29.59/mo - ~16 browsers/node
+# ccx13 - 2 vCPU,  8GB RAM - €12.99/mo - Dedicated CPU (production)
+# ccx23 - 4 vCPU, 16GB RAM - €24.99/mo - Dedicated CPU (production)
+# ccx33 - 8 vCPU, 32GB RAM - €47.99/mo - Dedicated CPU (production)
+
+# Load balancer type
+# load_balancer_type = "lb11"  # 25 targets, €5.39/mo

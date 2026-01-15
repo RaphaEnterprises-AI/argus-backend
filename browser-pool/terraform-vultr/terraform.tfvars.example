@@ -1,0 +1,45 @@
+# Vultr Browser Pool - Configuration
+# Copy this file to terraform.tfvars and fill in your values
+
+# Your Vultr API key (get from https://my.vultr.com/settings/#settingsapi)
+vultr_api_key = "YOUR_VULTR_API_KEY_HERE"
+
+# Cluster name
+cluster_name = "argus-browser-pool"
+
+# Region (Mumbai is fastest for India)
+# Options: bom (Mumbai), del (Delhi), sgp (Singapore), blr (Bangalore - if available)
+region = "bom"
+
+# Node configuration
+# Plans: https://www.vultr.com/pricing/
+#   vc2-1c-2gb  = 1 vCPU, 2GB  (~$10/mo) - minimum
+#   vc2-2c-4gb  = 2 vCPU, 4GB  (~$20/mo) - recommended
+#   vc2-4c-8gb  = 4 vCPU, 8GB  (~$40/mo) - high capacity
+node_pool_plan  = "vc2-2c-4gb"
+node_pool_count = 2
+
+# Autoscaling
+enable_autoscaling = true
+node_pool_min      = 1
+node_pool_max      = 5
+
+# ──────────────────────────────────────────────────────────────
+# COST ESTIMATES (Mumbai region)
+# ──────────────────────────────────────────────────────────────
+#
+# Dev (2 nodes, vc2-2c-4gb):
+#   Nodes: 2 × $20 = $40/mo
+#   LB:    ~$10/mo
+#   Total: ~$50/mo → Your $300 = 6 months free!
+#
+# Small (3 nodes, vc2-2c-4gb):
+#   Nodes: 3 × $20 = $60/mo
+#   LB:    ~$10/mo
+#   Total: ~$70/mo
+#
+# Medium (5 nodes, vc2-4c-8gb):
+#   Nodes: 5 × $40 = $200/mo
+#   LB:    ~$10/mo
+#   Total: ~$210/mo
+# ──────────────────────────────────────────────────────────────

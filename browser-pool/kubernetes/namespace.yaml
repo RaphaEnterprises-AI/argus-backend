@@ -1,0 +1,51 @@
+# Browser Pool Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: browser-pool
+  labels:
+    app.kubernetes.io/name: argus-browser-pool
+    app.kubernetes.io/component: browser-automation
+---
+# Resource Quota for the namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: browser-pool-quota
+  namespace: browser-pool
+spec:
+  hard:
+    requests.cpu: "100"        # Max 100 CPUs requested
+    requests.memory: "200Gi"   # Max 200GB memory requested
+    limits.cpu: "200"          # Max 200 CPUs limit
+    limits.memory: "400Gi"     # Max 400GB memory limit
+    pods: "1000"               # Max 1000 pods
+---
+# Limit Range for individual pods
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: browser-pool-limits
+  namespace: browser-pool
+spec:
+  limits:
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      min:
+        cpu: "100m"
+        memory: "256Mi"
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "250m"
+        memory: "512Mi"
+      max:
+        cpu: "2"
+        memory: "4Gi"
+      min:
+        cpu: "100m"
+        memory: "256Mi"
