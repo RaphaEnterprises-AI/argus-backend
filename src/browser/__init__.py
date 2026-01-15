@@ -1,33 +1,73 @@
 """
-Browser automation module using Cloudflare Worker + TestingBot.
+Browser automation module - Unified Hetzner Browser Pool.
 
-This module provides AI-powered browser automation via our custom
-Cloudflare Worker that supports multiple browser backends.
+This module provides scalable browser automation via a Kubernetes-based
+browser pool on Hetzner Cloud, with automatic fallback to Cloudflare.
+
+Architecture:
+┌─────────────────────────────────────────────────────────────────────┐
+│                     BrowserPoolClient (Primary)                      │
+│           Hetzner K8s cluster with HPA (5-500 pods)                 │
+└─────────────────────────────────────────────────────────────────────┘
+                              │ fallback
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                E2EBrowserClient (Legacy/Fallback)                    │
+│         Cloudflare Browser Rendering + TestingBot                   │
+└─────────────────────────────────────────────────────────────────────┘
 
 Key Features:
-- Natural language actions: page.act("Click the login button")
-- Built-in self-healing: Auto-fixes broken selectors
-- Multi-backend: Cloudflare Browser (free) + TestingBot (cross-browser)
-- Cross-browser: Chrome, Firefox, Safari, Edge
-- Real devices: iOS and Android testing
-- AI-powered: Workers AI for intelligent automation
+- Scalable: 5-500 browser pods via Kubernetes HPA
+- Self-healing: Vision fallback via Claude Computer Use
+- MCP-compatible: /observe, /act, /test endpoints
+- Cost-effective: ~70% cheaper than cloud providers
+- Natural language: client.act("Click the login button")
 
-Usage:
+Usage (New - Recommended):
+    from src.browser import BrowserPoolClient
+
+    async with BrowserPoolClient() as client:
+        # Discover elements
+        result = await client.observe("https://example.com")
+
+        # Execute action with self-healing
+        result = await client.act("https://example.com", "Click Sign In")
+
+        # Run multi-step test
+        result = await client.test(
+            url="https://example.com",
+            steps=["Click Login", "Type email", "Submit"],
+        )
+
+Usage (Legacy - Still Supported):
     from src.browser import E2EBrowserClient, run_test_with_e2e_client
 
-    # Full control
     async with E2EBrowserClient() as client:
         page = await client.new_page("https://example.com")
         await page.act("Click Sign In")
-        data = await page.extract({"username": "string"})
-
-    # Quick test
-    result = await run_test_with_e2e_client(
-        url="https://example.com",
-        steps=["Click Login", "Type email", "Submit"],
-    )
 """
 
+# New unified browser pool client (Primary)
+from .pool_client import BrowserPoolClient
+from .pool_models import (
+    # Enums
+    ActionType,
+    BrowserType,
+    ExecutionMode,
+    # Data classes
+    ElementInfo,
+    ActionResult as PoolActionResult,
+    ObserveResult,
+    ActResult,
+    StepResult as PoolStepResult,
+    TestResult,
+    ExtractResult,
+    SessionInfo,
+    PoolHealth,
+    BrowserPoolConfig,
+)
+
+# Legacy client (Fallback)
 from .e2e_client import (
     E2EBrowserClient,
     BrowserPage,
@@ -39,6 +79,22 @@ from .e2e_client import (
 )
 
 __all__ = [
+    # Primary (New)
+    "BrowserPoolClient",
+    "ActionType",
+    "BrowserType",
+    "ExecutionMode",
+    "ElementInfo",
+    "PoolActionResult",
+    "ObserveResult",
+    "ActResult",
+    "PoolStepResult",
+    "TestResult",
+    "ExtractResult",
+    "SessionInfo",
+    "PoolHealth",
+    "BrowserPoolConfig",
+    # Legacy (Fallback)
     "E2EBrowserClient",
     "BrowserPage",
     "BrowserAction",

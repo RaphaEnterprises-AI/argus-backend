@@ -18,7 +18,10 @@ Competitive Features:
 from .base import BaseAgent, AgentResult
 from .code_analyzer import CodeAnalyzerAgent
 from .test_planner import TestPlannerAgent
-from .ui_tester import UITesterAgent
+# UI Tester V2 - Uses unified BrowserPoolClient (Hetzner K8s)
+from .ui_tester_v2 import UITesterAgentV2, UITesterAgent, UITestResult, StepResult, AssertionResult
+# Legacy UI Tester - Available as UITesterAgentLegacy for migration
+from .ui_tester import UITesterAgent as UITesterAgentLegacy
 from .api_tester import APITesterAgent
 from .db_tester import DBTesterAgent
 from .self_healer import SelfHealerAgent
@@ -71,7 +74,12 @@ __all__ = [
     # Specialized Agents
     "CodeAnalyzerAgent",
     "TestPlannerAgent",
-    "UITesterAgent",
+    "UITesterAgent",  # V2 (uses BrowserPoolClient)
+    "UITesterAgentV2",  # Explicit V2 reference
+    "UITesterAgentLegacy",  # Legacy (uses E2EBrowserClient)
+    "UITestResult",
+    "StepResult",
+    "AssertionResult",
     "APITesterAgent",
     "DBTesterAgent",
     "SelfHealerAgent",
