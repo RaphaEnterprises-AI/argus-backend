@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.7.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.6.2...v2.7.0) (2026-01-16)
+
+
+### Features
+
+* add secret migration script and database migrations ([dd4533f](https://github.com/RaphaEnterprises-AI/argus-backend/commit/dd4533fb5f4e8122904f3eaa96a9c1484dd681c6))
+* **api:** register MCP sessions router in FastAPI app ([89557c0](https://github.com/RaphaEnterprises-AI/argus-backend/commit/89557c0bea37ce23600f7597f3baa42de25ef91e))
+* **browser-pool:** add Kubernetes browser pool with production-grade JWT auth ([8e5169c](https://github.com/RaphaEnterprises-AI/argus-backend/commit/8e5169c774095dc4c8182fe2cca9b45429842189))
+* **browser:** add Python client for browser pool with JWT auth ([39c24df](https://github.com/RaphaEnterprises-AI/argus-backend/commit/39c24df189e95e39dfe51fa556e8fc5ccae67538))
+* **mcp:** add MCP session management API and dashboard visibility ([8fda84e](https://github.com/RaphaEnterprises-AI/argus-backend/commit/8fda84e6334b91e891c8d6ac77659521a4c437dc))
+
+
+### Bug Fixes
+
+* **api:** additional mcp_sessions fixes and add rpc method ([77bf06d](https://github.com/RaphaEnterprises-AI/argus-backend/commit/77bf06daf4c9f11e9ce883960ba0b3c35b9d4fd8))
+* **api:** fix remaining bugs in mcp_sessions.py ([a83d4d7](https://github.com/RaphaEnterprises-AI/argus-backend/commit/a83d4d7e71130b6bd72c880fbb2e09f8d1789812))
+* **api:** use dict access for user object in mcp_sessions ([bffe347](https://github.com/RaphaEnterprises-AI/argus-backend/commit/bffe347fd047280e64cf92e6164468570a0208c0))
+* **auth:** handle SecretStr in JWT token generation ([58074f6](https://github.com/RaphaEnterprises-AI/argus-backend/commit/58074f699c3cccc0fbf003d4a8a691425b7b7115))
+* **security:** comprehensive SOC2 security audit fixes ([99b3484](https://github.com/RaphaEnterprises-AI/argus-backend/commit/99b34842439487df506fbfc6a8e2cdb5a7da8c71))
+* update deployment workflow for new docs structure ([742aaf3](https://github.com/RaphaEnterprises-AI/argus-backend/commit/742aaf31871855160baba196535b429fdf744a57))
+
 ## [2.6.2](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.6.1...v2.6.2) (2026-01-14)
 
 

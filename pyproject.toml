@@ -1,6 +1,6 @@
 [project]
 name = "e2e-testing-agent"
-version = "2.6.2"
+version = "2.7.0"
 description = "Autonomous E2E Full-Stack Testing Agent powered by Claude"
 readme = "README.md"
 requires-python = ">=3.11"
