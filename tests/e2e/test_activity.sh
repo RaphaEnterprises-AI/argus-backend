@@ -1,8 +1,9 @@
 #!/bin/bash
 
-SUPABASE_URL="https://REDACTED_PROJECT_REF.supabase.co"
-SUPABASE_KEY="REDACTED_SUPABASE_KEY"
-PROJECT_ID="2ff65bb6-957e-4c14-972c-d1c6e13d5dd4"
+# Load from environment variables (required)
+SUPABASE_URL="${SUPABASE_URL:?SUPABASE_URL environment variable required}"
+SUPABASE_KEY="${SUPABASE_SERVICE_KEY:?SUPABASE_SERVICE_KEY environment variable required}"
+PROJECT_ID="${TEST_PROJECT_ID:-2ff65bb6-957e-4c14-972c-d1c6e13d5dd4}"
 
 echo "=== Fetching activity logs ==="
 curl -s "${SUPABASE_URL}/rest/v1/activity_logs?project_id=eq.${PROJECT_ID}&select=event_type,title,description,created_at&order=created_at.desc&limit=5" \

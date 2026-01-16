@@ -100,22 +100,36 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
             return await call_next(request)
 
-        # Skip auth enforcement if disabled (development mode)
-        # But still respect headers if provided (for testing)
+        # Skip auth enforcement if disabled (development mode only)
+        # SECURITY: This should NEVER be used in production
         if not self.enforce_auth:
-            # Allow headers to override defaults for testing
-            dev_user_id = request.headers.get("x-user-id", "dev-user")
-            dev_org_id = request.headers.get("x-organization-id")
-
-            request.state.user = UserContext(
-                user_id=dev_user_id,
-                organization_id=dev_org_id,  # Can be None if not provided
-                roles=["admin"],
-                scopes=["read", "write", "admin", "execute"],
-                auth_method=AuthMethod.ANONYMOUS,
-                ip_address=get_client_ip(request),
-            )
-            return await call_next(request)
+            import os
+            env = os.getenv("ENVIRONMENT", "development")
+            if env not in ("development", "test", "local"):
+                logger.error(
+                    "SECURITY: enforce_auth=False in non-development environment!",
+                    environment=env,
+                    path=request.url.path,
+                )
+                # Force authentication in non-dev environments
+                pass  # Continue to actual auth flow below
+            else:
+                # Development mode: use fixed dev user, NOT from headers
+                # SECURITY: Don't accept x-user-id from headers - that's an auth bypass
+                request.state.user = UserContext(
+                    user_id="dev-user",
+                    organization_id=None,  # No default org - must be specified per-request
+                    roles=["developer"],  # Limited role, not admin
+                    scopes=["read", "write", "execute"],  # No admin scope
+                    auth_method=AuthMethod.ANONYMOUS,
+                    ip_address=get_client_ip(request),
+                )
+                logger.warning(
+                    "Development mode: auth bypassed",
+                    user_id="dev-user",
+                    path=request.url.path,
+                )
+                return await call_next(request)
 
         # Try to authenticate
         user = None

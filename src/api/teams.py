@@ -108,14 +108,9 @@ async def get_current_user(request: Request) -> dict:
                 "roles": user.get("roles", []),
             }
 
-    # Fallback to headers (legacy support)
-    user_id = request.headers.get("x-user-id")
-    user_email = request.headers.get("x-user-email")
-
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    return {"user_id": user_id, "email": user_email}
+    # SECURITY: No header fallback - authentication must come from middleware
+    # The old "legacy support" for x-user-id headers was an auth bypass vulnerability
+    raise HTTPException(status_code=401, detail="Authentication required")
 
 
 def is_clerk_org_id(org_id: str) -> bool:

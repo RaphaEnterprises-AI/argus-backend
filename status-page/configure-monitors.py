@@ -17,9 +17,13 @@ except ImportError:
     os.system("pip install uptime-kuma-api")
     from uptime_kuma_api import UptimeKumaApi, MonitorType
 
-# Configuration
+# Configuration - Load from environment (required)
 UPTIME_KUMA_URL = os.environ.get("UPTIME_KUMA_URL", "https://status.heyargus.ai")
-API_KEY = os.environ.get("UPTIME_KUMA_API_KEY", "REDACTED_UPTIME_KUMA_KEY")
+API_KEY = os.environ.get("UPTIME_KUMA_API_KEY")
+if not API_KEY:
+    print("ERROR: UPTIME_KUMA_API_KEY environment variable required")
+    sys.exit(1)
+SUPABASE_PROJECT_REF = os.environ.get("SUPABASE_PROJECT_REF", "your-project-ref")
 
 # Monitors to create
 MONITORS = {
@@ -64,7 +68,7 @@ MONITORS = {
         {
             "name": "Supabase API",
             "type": MonitorType.HTTP,
-            "url": "https://REDACTED_PROJECT_REF.supabase.co/rest/v1/",
+            "url": f"https://{SUPABASE_PROJECT_REF}.supabase.co/rest/v1/",
             "interval": 120,
             "maxretries": 3,
         },

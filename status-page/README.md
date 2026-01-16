@@ -67,7 +67,7 @@ railway domain
 ### Database & Infrastructure
 | Name | Type | URL/Host |
 |------|------|----------|
-| Supabase | HTTP(s) | https://REDACTED_PROJECT_REF.supabase.co/rest/v1/ |
+| Supabase | HTTP(s) | https://<project-ref>.supabase.co/rest/v1/ |
 
 ### External Dependencies (Status Pages)
 | Name | Type | URL/Host |
