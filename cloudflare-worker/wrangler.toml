@@ -101,13 +101,21 @@ ENVIRONMENT = "production"
 DEFAULT_MODEL_PROVIDER = "anthropic"  # "workers-ai", "openai", "anthropic"
 ENABLE_CACHING = "true"
 ENABLE_SELF_HEALING = "true"
-DEFAULT_BACKEND = "auto"  # "auto", "cloudflare", "testingbot"
+DEFAULT_BACKEND = "vultr"  # "vultr", "cloudflare", "testingbot", "auto"
+
+# Vultr VKE Browser Pool (Primary - Mumbai cluster)
+# Deployed via: ./browser-pool/deploy-vultr.sh
+# Note: Using nip.io domain because Cloudflare Workers can't fetch raw IPs
+BROWSER_POOL_URL = "http://65.20.72.251.nip.io"
 
 # Module aliasing for Playwright compatibility
 [alias]
 playwright = "@cloudflare/playwright"
 
 # Secrets (set via `wrangler secret put <NAME>`):
+#
+# Required for Vultr Browser Pool (primary):
+# - BROWSER_POOL_JWT_SECRET (JWT secret for browser pool auth)
 #
 # Required for TestingBot (cross-browser + real devices):
 # - TESTINGBOT_KEY (your TestingBot API key)

@@ -67,6 +67,10 @@ interface Env {
   // Railway Brain URL
   BRAIN_URL?: string;
 
+  // Vultr Browser Pool (Primary backend)
+  BROWSER_POOL_URL?: string;
+  BROWSER_POOL_JWT_SECRET?: string;
+
   // Configuration
   DEFAULT_MODEL_PROVIDER: string;
   DEFAULT_BACKEND: string;
@@ -74,7 +78,7 @@ interface Env {
   ENABLE_SELF_HEALING: string;
 }
 
-type Backend = "cloudflare" | "testingbot" | "auto";
+type Backend = "cloudflare" | "testingbot" | "vultr" | "auto";
 type BrowserType = "chrome" | "firefox" | "safari" | "edge" | "webkit";
 type Platform = "windows" | "macos" | "linux";
 
@@ -170,10 +174,141 @@ interface BrowserResult {
 }
 
 // ============================================================================
+// JWT TOKEN SIGNING FOR VULTR BROWSER POOL
+// ============================================================================
+
+interface PoolTokenPayload {
+  iss: string;      // Issuer: 'argus-api'
+  sub: string;      // User/session ID
+  aud: string;      // Audience: 'browser-pool'
+  exp: number;      // Expiration
+  iat: number;      // Issued at
+  jti: string;      // Unique token ID
+  action?: string;  // Action being performed
+}
+
+function base64UrlEncode(data: string | ArrayBuffer): string {
+  const bytes = typeof data === 'string'
+    ? new TextEncoder().encode(data)
+    : new Uint8Array(data);
+  const base64 = btoa(String.fromCharCode(...bytes));
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function signPoolToken(
+  payload: Omit<PoolTokenPayload, 'iat' | 'exp' | 'jti'>,
+  secret: string,
+  expiresInSeconds: number = 300
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const fullPayload: PoolTokenPayload = {
+    ...payload,
+    iat: now,
+    exp: now + expiresInSeconds,
+    jti: crypto.randomUUID(),
+  };
+
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const headerB64 = base64UrlEncode(JSON.stringify(header));
+  const payloadB64 = base64UrlEncode(JSON.stringify(fullPayload));
+
+  // Sign using Web Crypto API (Cloudflare Workers compatible)
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(`${headerB64}.${payloadB64}`)
+  );
+
+  const signatureB64 = base64UrlEncode(signature);
+  return `${headerB64}.${payloadB64}.${signatureB64}`;
+}
+
+// ============================================================================
+// VULTR BROWSER POOL PROXY
+// ============================================================================
+
+/**
+ * Proxy a request to the Vultr browser pool.
+ * Used when backend="vultr" to leverage the VKE browser infrastructure.
+ */
+async function callVultrPool<T>(
+  endpoint: string,
+  body: Record<string, unknown>,
+  env: Env
+): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const poolUrl = env.BROWSER_POOL_URL;
+
+  if (!poolUrl) {
+    return { success: false, error: "BROWSER_POOL_URL not configured" };
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  // Sign JWT if secret is configured
+  if (env.BROWSER_POOL_JWT_SECRET) {
+    const token = await signPoolToken(
+      {
+        iss: "argus-api",
+        sub: "worker",
+        aud: "browser-pool",
+        action: endpoint.replace("/", ""),
+      },
+      env.BROWSER_POOL_JWT_SECRET
+    );
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`${poolUrl}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Pool error (${response.status}): ${errorText}` };
+    }
+
+    const data = await response.json() as T;
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: `Pool connection failed: ${error}` };
+  }
+}
+
+/**
+ * Determine if we should use Vultr browser pool based on configuration.
+ */
+function shouldUseVultrPool(backend: Backend, env: Env): boolean {
+  // Explicit vultr backend
+  if (backend === "vultr") return true;
+
+  // Auto mode with vultr as default
+  if (backend === "auto" && env.DEFAULT_BACKEND === "vultr" && env.BROWSER_POOL_URL) {
+    return true;
+  }
+
+  return false;
+}
+
+// ============================================================================
 // REQUEST SCHEMAS
 // ============================================================================
 
-const BackendSchema = z.enum(["cloudflare", "testingbot", "auto"]).optional().default("auto");
+const BackendSchema = z.enum(["cloudflare", "testingbot", "vultr", "auto"]).optional().default("auto");
 const BrowserSchema = z.enum(["chrome", "firefox", "safari", "edge", "webkit"]).optional().default("chrome");
 const DeviceSchema = z.enum([
   "desktop", "desktop-hd", "desktop-mac",
@@ -1526,6 +1661,20 @@ async function handleAct(request: Request, env: Env, corsHeaders: Record<string,
     return Response.json({ error: "Either 'instruction' or 'action' required" }, { status: 400, headers: corsHeaders });
   }
 
+  // Use Vultr browser pool if configured
+  if (shouldUseVultrPool(backend as Backend, env)) {
+    const poolResult = await callVultrPool<ActResult>("/act", {
+      url, instruction, action, variables, timeout, backend: "vultr", browser: browserType, device, platform, selfHeal, screenshot
+    }, env);
+
+    if (poolResult.success) {
+      return Response.json({ ...poolResult.data, backend: "vultr" }, { headers: corsHeaders });
+    } else {
+      // Fall through to local execution if pool fails
+      console.warn(`Vultr pool failed: ${poolResult.error}, falling back to local execution`);
+    }
+  }
+
   let session: BrowserSession | null = null;
 
   const executeWithTimeout = async (): Promise<Response> => {
@@ -1606,6 +1755,20 @@ async function handleExtract(request: Request, env: Env, corsHeaders: Record<str
   }
 
   const { url, instruction, schema, selector, timeout, backend, browser: browserType, device } = parsed.data;
+
+  // Use Vultr browser pool if configured
+  if (shouldUseVultrPool(backend as Backend, env)) {
+    const poolResult = await callVultrPool<Record<string, unknown>>("/extract", {
+      url, instruction, schema, selector, timeout, backend: "vultr", browser: browserType, device
+    }, env);
+
+    if (poolResult.success) {
+      return Response.json({ ...poolResult.data, _backend: "vultr" }, { headers: corsHeaders });
+    } else {
+      console.warn(`Vultr pool failed: ${poolResult.error}, falling back to local execution`);
+    }
+  }
+
   let session: BrowserSession | null = null;
 
   const executeWithTimeout = async (): Promise<Response> => {
@@ -1662,6 +1825,20 @@ async function handleObserve(request: Request, env: Env, corsHeaders: Record<str
   }
 
   const { url, instruction, timeout, backend, browser: browserType, device, projectId, activityType } = parsed.data;
+
+  // Use Vultr browser pool if configured
+  if (shouldUseVultrPool(backend as Backend, env)) {
+    const poolResult = await callVultrPool<{ actions: Action[]; elements: unknown[] }>("/observe", {
+      url, instruction, timeout, backend: "vultr", browser: browserType, device, projectId, activityType
+    }, env);
+
+    if (poolResult.success) {
+      return Response.json({ ...poolResult.data, _backend: "vultr" }, { headers: corsHeaders });
+    } else {
+      console.warn(`Vultr pool failed: ${poolResult.error}, falling back to local execution`);
+    }
+  }
+
   let session: BrowserSession | null = null;
 
   // Create activity logger if projectId is provided
@@ -1732,6 +1909,20 @@ async function handleAgent(request: Request, env: Env, corsHeaders: Record<strin
   }
 
   const { url, instruction, systemPrompt, maxSteps, timeout, backend, browser: browserType, device, captureScreenshots } = parsed.data;
+
+  // Use Vultr browser pool if configured
+  if (shouldUseVultrPool(backend as Backend, env)) {
+    const poolResult = await callVultrPool<AgentResult>("/agent", {
+      url, instruction, systemPrompt, maxSteps, timeout, backend: "vultr", browser: browserType, device, captureScreenshots
+    }, env);
+
+    if (poolResult.success) {
+      return Response.json({ ...poolResult.data, backend: "vultr" }, { headers: corsHeaders });
+    } else {
+      console.warn(`Vultr pool failed: ${poolResult.error}, falling back to local execution`);
+    }
+  }
+
   let session: BrowserSession | null = null;
 
   const executeWithTimeout = async (): Promise<Response> => {
@@ -1822,6 +2013,19 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
   }
 
   const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices, projectId, activityType } = parsed.data;
+
+  // Use Vultr browser pool if configured
+  if (shouldUseVultrPool(backend as Backend, env)) {
+    const poolResult = await callVultrPool<TestResult>("/test", {
+      url, steps, screenshot, captureScreenshots, timeout, backend: "vultr", browsers, device, devices, projectId, activityType
+    }, env);
+
+    if (poolResult.success) {
+      return Response.json({ ...poolResult.data, backend: "vultr" }, { headers: corsHeaders });
+    } else {
+      console.warn(`Vultr pool failed: ${poolResult.error}, falling back to local execution`);
+    }
+  }
 
   const browserList = browsers || ["chrome"];
   const deviceList = devices || [device];
