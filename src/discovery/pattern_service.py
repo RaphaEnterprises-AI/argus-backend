@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class PatternType(str, Enum):
     """Types of discoverable patterns."""
+
     PAGE_LAYOUT = "page_layout"
     NAVIGATION = "navigation"
     FORM = "form"
@@ -44,6 +45,7 @@ class PatternType(str, Enum):
 @dataclass
 class PatternMatch:
     """Result of pattern similarity search."""
+
     id: str
     pattern_type: str
     pattern_name: str
@@ -56,6 +58,7 @@ class PatternMatch:
 @dataclass
 class DiscoveryPattern:
     """A discovered UI pattern."""
+
     pattern_type: PatternType
     pattern_name: str
     pattern_signature: str  # Hash for deduplication
@@ -68,17 +71,12 @@ class DiscoveryPattern:
         # Extract key features for pattern matching
         features = {
             "category": page_data.get("category", "other"),
-            "element_types": list(set(
-                e.get("category", "unknown")
-                for e in page_data.get("elements", [])
-            )),
-            "has_forms": any(
-                e.get("category") == "form"
-                for e in page_data.get("elements", [])
+            "element_types": list(
+                set(e.get("category", "unknown") for e in page_data.get("elements", []))
             ),
+            "has_forms": any(e.get("category") == "form" for e in page_data.get("elements", [])),
             "has_auth": any(
-                e.get("category") == "authentication"
-                for e in page_data.get("elements", [])
+                e.get("category") == "authentication" for e in page_data.get("elements", [])
             ),
             "element_count": len(page_data.get("elements", [])),
             "title_pattern": _normalize_title(page_data.get("title", "")),
@@ -100,7 +98,7 @@ class DiscoveryPattern:
                 "source_url": page_data.get("url"),
                 "source_title": page_data.get("title"),
                 "elements_summary": page_data.get("elements_summary", []),
-            }
+            },
         )
 
     @classmethod
@@ -114,8 +112,8 @@ class DiscoveryPattern:
                 for s in flow_data.get("steps", [])[:5]  # First 5 steps
             ],
             "has_auth_steps": any(
-                "login" in s.get("instruction", "").lower() or
-                "sign" in s.get("instruction", "").lower()
+                "login" in s.get("instruction", "").lower()
+                or "sign" in s.get("instruction", "").lower()
                 for s in flow_data.get("steps", [])
             ),
             "priority": flow_data.get("priority", "medium"),
@@ -133,7 +131,7 @@ class DiscoveryPattern:
                 "features": features,
                 "steps": flow_data.get("steps", [])[:5],  # First 5 steps only
                 "success_criteria": flow_data.get("success_criteria"),
-            }
+            },
         )
 
     @classmethod
@@ -144,7 +142,8 @@ class DiscoveryPattern:
             "tag_name": element_data.get("tag_name", ""),
             "role": element_data.get("role", ""),
             "has_label": bool(element_data.get("label")),
-            "is_interactive": element_data.get("is_visible", True) and element_data.get("is_enabled", True),
+            "is_interactive": element_data.get("is_visible", True)
+            and element_data.get("is_enabled", True),
             "selector_pattern": _normalize_selector(element_data.get("selector", "")),
         }
 
@@ -161,7 +160,7 @@ class DiscoveryPattern:
                 "selector": element_data.get("selector"),
                 "alternative_selectors": element_data.get("alternative_selectors", []),
                 "aria_label": element_data.get("aria_label"),
-            }
+            },
         )
 
     def to_embedding_text(self) -> str:
@@ -242,8 +241,7 @@ class PatternService:
 
         # Extract patterns from key elements (limit to avoid too many)
         key_elements = [
-            e for e in elements
-            if e.get("category") in ["authentication", "form", "navigation"]
+            e for e in elements if e.get("category") in ["authentication", "form", "navigation"]
         ][:50]  # Limit to 50 key elements
 
         for element in key_elements:
@@ -294,7 +292,7 @@ class PatternService:
                 "embedding": embedding,
                 "times_seen": 1,
                 "projects_seen": 1,
-            }
+            },
         )
 
         if result.get("error"):
@@ -314,32 +312,21 @@ class PatternService:
         return None
 
     async def _update_existing_pattern(self, pattern_id: str, project_id: str) -> dict:
-        """Increment times_seen for existing pattern."""
-        # Use RPC call to atomically increment
+        """Increment times_seen for existing pattern using atomic RPC function."""
+        # Use PostgreSQL RPC function for atomic increment to prevent race conditions
         result = await self.supabase.request(
-            f"/discovery_patterns?id=eq.{pattern_id}",
-            method="PATCH",
-            body={
-                "times_seen": "times_seen + 1",  # This won't work as-is with REST API
-            }
+            "/rpc/increment_pattern_times_seen", method="POST", body={"pattern_id": pattern_id}
         )
 
-        # Workaround: fetch and update
-        fetch = await self.supabase.request(f"/discovery_patterns?id=eq.{pattern_id}")
-        if fetch.get("data") and len(fetch["data"]) > 0:
-            current = fetch["data"][0]
-            update_result = await self.supabase.request(
-                f"/discovery_patterns?id=eq.{pattern_id}",
-                method="PATCH",
-                body={
-                    "times_seen": current.get("times_seen", 0) + 1,
-                    "updated_at": "now()",
-                }
-            )
-            if not update_result.get("error"):
-                return {"updated": True}
+        if result.get("data"):
+            return {
+                "updated": True,
+                "times_seen": result["data"][0].get("times_seen") if result["data"] else None,
+            }
 
-        return {"error": "Failed to update pattern"}
+        # Log error but don't fail - the pattern still exists
+        logger.warning(f"Failed to atomically increment pattern times_seen: {result.get('error')}")
+        return {"error": "Failed to update pattern", "details": result.get("error")}
 
     async def _generate_embedding(self, pattern: DiscoveryPattern) -> Optional[list[float]]:
         """Generate embedding for pattern using available services."""
@@ -358,6 +345,7 @@ class PatternService:
         # Fallback to local embedder
         try:
             from src.indexer.local_embedder import get_embedder
+
             embedder = get_embedder()
             if embedder.is_available:
                 result = embedder.embed(text)
@@ -418,15 +406,17 @@ class PatternService:
 
         matches = []
         for row in result.get("data", []):
-            matches.append(PatternMatch(
-                id=row["id"],
-                pattern_type=row["pattern_type"],
-                pattern_name=row["pattern_name"],
-                pattern_data=row["pattern_data"],
-                times_seen=row["times_seen"],
-                test_success_rate=float(row.get("test_success_rate", 0)),
-                similarity=row["similarity"],
-            ))
+            matches.append(
+                PatternMatch(
+                    id=row["id"],
+                    pattern_type=row["pattern_type"],
+                    pattern_name=row["pattern_name"],
+                    pattern_data=row["pattern_data"],
+                    times_seen=row["times_seen"],
+                    test_success_rate=float(row.get("test_success_rate", 0)),
+                    similarity=row["similarity"],
+                )
+            )
 
         return matches
 
@@ -435,9 +425,7 @@ class PatternService:
         # Note: This requires the project_id to be stored with patterns
         # Currently we track projects_seen count, not individual project IDs
         # This is a simplified implementation
-        result = await self.supabase.request(
-            "/discovery_patterns?order=times_seen.desc&limit=100"
-        )
+        result = await self.supabase.request("/discovery_patterns?order=times_seen.desc&limit=100")
         return result.get("data", [])
 
     async def get_patterns_for_session(self, session_id: str, limit: int = 50) -> list[dict]:
@@ -618,7 +606,9 @@ class PatternService:
         current_heal_rate = float(current.get("self_heal_success_rate", 0) or 0)
 
         # Calculate new rolling average
-        new_test_rate = ((current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)) / times_seen
+        new_test_rate = (
+            (current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)
+        ) / times_seen
         new_heal_rate = current_heal_rate
 
         if self_healed:
@@ -631,7 +621,7 @@ class PatternService:
                 "test_success_rate": round(new_test_rate, 2),
                 "self_heal_success_rate": round(new_heal_rate, 2),
                 "updated_at": "now()",
-            }
+            },
         )
 
         return not result.get("error")
@@ -639,14 +629,18 @@ class PatternService:
 
 # Utility functions
 
+
 def _normalize_title(title: str) -> str:
     """Normalize page title to pattern form."""
     # Remove specific words/values, keep structure
     import re
+
     # Remove numbers
-    title = re.sub(r'\d+', '#', title)
+    title = re.sub(r"\d+", "#", title)
     # Remove UUIDs
-    title = re.sub(r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', 'UUID', title, flags=re.I)
+    title = re.sub(
+        r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", "UUID", title, flags=re.I
+    )
     return title.lower().strip()
 
 
@@ -659,9 +653,14 @@ def _extract_url_pattern(url: str) -> str:
     path = parsed.path
 
     # Replace numeric IDs with placeholder
-    path = re.sub(r'/\d+(?=/|$)', '/:id', path)
+    path = re.sub(r"/\d+(?=/|$)", "/:id", path)
     # Replace UUIDs
-    path = re.sub(r'/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?=/|$)', '/:uuid', path, flags=re.I)
+    path = re.sub(
+        r"/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?=/|$)",
+        "/:uuid",
+        path,
+        flags=re.I,
+    )
 
     return path
 
@@ -671,11 +670,11 @@ def _normalize_selector(selector: str) -> str:
     import re
 
     # Remove specific IDs
-    selector = re.sub(r'#[a-zA-Z0-9_-]+', '#ID', selector)
+    selector = re.sub(r"#[a-zA-Z0-9_-]+", "#ID", selector)
     # Remove specific classes but keep count
-    classes = re.findall(r'\.[a-zA-Z0-9_-]+', selector)
+    classes = re.findall(r"\.[a-zA-Z0-9_-]+", selector)
     if classes:
-        selector = re.sub(r'(\.[a-zA-Z0-9_-]+)+', f'.CLASS[{len(classes)}]', selector)
+        selector = re.sub(r"(\.[a-zA-Z0-9_-]+)+", f".CLASS[{len(classes)}]", selector)
 
     return selector
 

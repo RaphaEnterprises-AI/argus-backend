@@ -70,7 +70,15 @@ class SupabaseClient:
             logger.debug("Inserted records into Supabase", table=table, count=len(records))
             return True
         except Exception as e:
-            logger.error("Failed to insert into Supabase", table=table, error=str(e))
+            # Log the first record's keys for debugging schema mismatches
+            record_keys = list(records[0].keys()) if records else []
+            logger.error(
+                "Failed to insert into Supabase",
+                table=table,
+                error=str(e),
+                record_keys=record_keys,
+                error_type=type(e).__name__,
+            )
             return False
 
     async def select(

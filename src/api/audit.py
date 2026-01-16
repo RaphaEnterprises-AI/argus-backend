@@ -84,7 +84,7 @@ async def get_audit_logs(
 ):
     """Get audit logs for an organization with filtering."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -157,7 +157,7 @@ async def get_audit_logs(
 async def get_audit_summary(org_id: str, request: Request):
     """Get audit log summary statistics for the organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -262,7 +262,7 @@ async def export_audit_logs(
 ):
     """Export audit logs for compliance (JSON or CSV)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -343,7 +343,7 @@ async def export_audit_logs(
 async def get_available_actions(org_id: str, request: Request):
     """Get list of all available audit actions for filtering."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     # Return all possible actions categorized
     return {

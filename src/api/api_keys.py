@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import structlog
 
 from src.services.supabase_client import get_supabase_client
@@ -40,6 +40,14 @@ class CreateAPIKeyRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     scopes: list[str] = Field(default=["read", "write"])
     expires_in_days: Optional[int] = Field(None, ge=1, le=365)
+
+    @field_validator("scopes")
+    @classmethod
+    def scopes_must_not_be_empty(cls, v: list[str]) -> list[str]:
+        """SECURITY: Ensure scopes is not empty - empty scopes means no API access."""
+        if not v:
+            raise ValueError("At least one scope is required. Empty scopes would result in no API access.")
+        return v
 
 
 class APIKeyResponse(BaseModel):
@@ -218,6 +226,13 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
     supabase = get_supabase_client()
 
     # Validate scopes
+    # SECURITY: Require at least one scope - empty scopes means no access
+    if not body.scopes:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one scope is required. Empty scopes would result in no API access."
+        )
+
     valid_scopes = {"read", "write", "admin", "webhooks", "tests"}
     for scope in body.scopes:
         if scope not in valid_scopes:
@@ -315,6 +330,18 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
     if old_key.get("revoked_at"):
         raise HTTPException(status_code=400, detail="Cannot rotate a revoked key")
 
+    # SECURITY: Validate old key scopes before rotation
+    # If old key has empty/missing scopes, default to ["read", "write"]
+    # to ensure the rotated key is usable
+    old_scopes = old_key.get("scopes")
+    if not old_scopes or not isinstance(old_scopes, list) or len(old_scopes) == 0:
+        logger.warning(
+            "Rotating key with empty/invalid scopes, using default scopes",
+            key_id=key_id,
+            old_scopes=old_scopes
+        )
+        old_scopes = ["read", "write"]
+
     # Generate new key with same settings
     plaintext_key, key_hash = generate_api_key()
     key_prefix = plaintext_key[:16]
@@ -325,7 +352,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
         "name": f"{old_key['name']} (rotated)",
         "key_hash": key_hash,
         "key_prefix": key_prefix,
-        "scopes": old_key.get("scopes", ["read", "write"]),
+        "scopes": old_scopes,
         "expires_at": old_key.get("expires_at"),
         "created_by": member["id"],
     })

@@ -286,7 +286,7 @@ async def list_mcp_connections(
         org_id = validate_org_id(org_id)
         # Get org connections (requires org access)
         supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user_id)
+        await verify_org_access(org_id, user_id, user_email=user.get("email"), request=request)
         query += f"&organization_id=eq.{supabase_org_id}"
     else:
         # Get user's own connections
@@ -334,7 +334,7 @@ async def get_mcp_connection(
     # Verify access
     if connection["user_id"] != user["user_id"]:
         if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user["user_id"])
+            await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
         else:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -369,7 +369,7 @@ async def revoke_mcp_connection(
     # Verify access
     if connection["user_id"] != user["user_id"]:
         if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user["user_id"])
+            await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
         else:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -451,7 +451,7 @@ async def get_connection_activity(
     connection = conn_result["data"][0]
     if connection["user_id"] != user["user_id"]:
         if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user["user_id"])
+            await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
         else:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -505,7 +505,7 @@ async def get_mcp_stats(
     # Build base query
     if org_id:
         supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user_id)
+        await verify_org_access(org_id, user_id, user_email=user.get("email"), request=request)
         filter_clause = f"organization_id=eq.{supabase_org_id}"
     else:
         filter_clause = f"user_id=eq.{user_id}"

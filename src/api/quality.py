@@ -344,93 +344,106 @@ async def batch_generate_tests(request: BatchGenerationRequest):
     """
     supabase = get_supabase_client()
 
-    # Get production events that need tests
-    result = await supabase.request(
-        f"/production_events?project_id=eq.{request.project_id}&status=eq.{request.status}"
-        f"&order=severity.desc,occurrence_count.desc&limit={request.limit}"
-    )
+    try:
+        # Get production events that need tests
+        result = await supabase.request(
+            f"/production_events?project_id=eq.{request.project_id}&status=eq.{request.status}"
+            f"&order=severity.desc,occurrence_count.desc&limit={request.limit}"
+        )
 
-    if result.get("error"):
-        raise HTTPException(status_code=500, detail="Failed to fetch events")
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            # Handle missing table gracefully
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("production_events table not found")
+                return {"success": True, "message": "Run migrations to enable event tracking", "generated": 0, "results": []}
+            raise HTTPException(status_code=500, detail="Failed to fetch events")
 
-    events = result.get("data", [])
+        events = result.get("data") or []
 
-    if not events:
-        return {"success": True, "message": "No events to process", "generated": 0}
+        if not events:
+            return {"success": True, "message": "No events to process", "generated": 0, "results": []}
 
-    # Create batch job
-    job_id = str(uuid.uuid4())
-    job_start = datetime.now(timezone.utc)
+        # Create batch job
+        job_id = str(uuid.uuid4())
+        job_start = datetime.now(timezone.utc)
 
-    await supabase.insert("test_generation_jobs", {
-        "id": job_id,
-        "project_id": request.project_id,
-        "status": "running",
-        "job_type": "pattern_batch",
-        "started_at": job_start.isoformat(),
-        "metadata": {"event_count": len(events)},
-    })
+        await supabase.insert("test_generation_jobs", {
+            "id": job_id,
+            "project_id": request.project_id,
+            "status": "running",
+            "job_type": "pattern_batch",
+            "started_at": job_start.isoformat(),
+            "metadata": {"event_count": len(events)},
+        })
 
-    results = []
+        results = []
 
-    for event in events:
-        try:
-            generated = await generate_test_from_error(event)
-            timestamp = int(datetime.now().timestamp())
-            file_path = get_file_path(event.get("component"), request.framework, timestamp)
+        for event in events:
+            try:
+                generated = await generate_test_from_error(event)
+                timestamp = int(datetime.now().timestamp())
+                file_path = get_file_path(event.get("component"), request.framework, timestamp)
 
-            test_result = await supabase.insert("generated_tests", {
-                "project_id": request.project_id,
-                "production_event_id": event["id"],
-                "name": generated["test_name"],
-                "description": f"Auto-generated test to prevent: {event.get('title')}",
-                "test_type": "e2e",
-                "framework": request.framework,
-                "test_code": generated["test_code"],
-                "test_file_path": file_path,
-                "confidence_score": generated["confidence"],
-                "status": "pending",
-            })
+                test_result = await supabase.insert("generated_tests", {
+                    "project_id": request.project_id,
+                    "production_event_id": event["id"],
+                    "name": generated["test_name"],
+                    "description": f"Auto-generated test to prevent: {event.get('title')}",
+                    "test_type": "e2e",
+                    "framework": request.framework,
+                    "test_code": generated["test_code"],
+                    "test_file_path": file_path,
+                    "confidence_score": generated["confidence"],
+                    "status": "pending",
+                })
 
-            test_id = test_result["data"][0]["id"] if test_result.get("data") else None
+                test_data = test_result.get("data") or []
+                test_id = test_data[0]["id"] if test_data else None
 
-            await supabase.update(
-                "production_events",
-                {"id": f"eq.{event['id']}"},
-                {
-                    "status": "test_pending_review",
-                    "ai_analysis": {
-                        "generated_test_id": test_id,
-                        "confidence_score": generated["confidence"],
+                await supabase.update(
+                    "production_events",
+                    {"id": f"eq.{event['id']}"},
+                    {
+                        "status": "test_pending_review",
+                        "ai_analysis": {
+                            "generated_test_id": test_id,
+                            "confidence_score": generated["confidence"],
+                        },
                     },
-                },
-            )
+                )
 
-            results.append({"event_id": event["id"], "success": True, "test_id": test_id})
+                results.append({"event_id": event["id"], "success": True, "test_id": test_id})
 
-        except Exception as e:
-            results.append({"event_id": event["id"], "success": False, "error": str(e)})
+            except Exception as e:
+                results.append({"event_id": event["id"], "success": False, "error": str(e)})
 
-    success_count = sum(1 for r in results if r["success"])
+        success_count = sum(1 for r in results if r["success"])
 
-    # Update job
-    await supabase.update(
-        "test_generation_jobs",
-        {"id": f"eq.{job_id}"},
-        {
-            "status": "completed",
-            "tests_generated": success_count,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "metadata": {"results": results},
-        },
-    )
+        # Update job
+        await supabase.update(
+            "test_generation_jobs",
+            {"id": f"eq.{job_id}"},
+            {
+                "status": "completed",
+                "tests_generated": success_count,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "metadata": {"results": results},
+            },
+        )
 
-    return {
-        "success": True,
-        "message": f"Generated {success_count}/{len(events)} tests",
-        "job_id": job_id,
-        "results": results,
-    }
+        return {
+            "success": True,
+            "message": f"Generated {success_count}/{len(events)} tests",
+            "job_id": job_id,
+            "results": results,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to batch generate tests", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to batch generate tests: {str(e)}")
 
 
 @router.post("/update-test")
@@ -503,140 +516,152 @@ async def calculate_risk_scores(request: RiskScoreRequest):
     """
     supabase = get_supabase_client()
 
-    # Get aggregated error data by component/page/flow
-    events_result = await supabase.request(
-        f"/production_events?project_id=eq.{request.project_id}&select=*"
-    )
+    try:
+        # Get aggregated error data by component/page/flow
+        events_result = await supabase.request(
+            f"/production_events?project_id=eq.{request.project_id}&select=*"
+        )
 
-    if events_result.get("error"):
-        raise HTTPException(status_code=500, detail="Failed to fetch events")
+        if events_result.get("error"):
+            error_msg = str(events_result.get("error", ""))
+            # Handle missing table gracefully
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("production_events table not found - returning empty risk scores")
+                return {"success": True, "risk_scores": [], "message": "Run migrations to enable event tracking", "total_entities": 0}
+            raise HTTPException(status_code=500, detail="Failed to fetch events")
 
-    events = events_result.get("data", [])
+        events = events_result.get("data") or []
 
-    if not events:
-        return {"success": True, "risk_scores": [], "message": "No events found"}
+        if not events:
+            return {"success": True, "risk_scores": [], "message": "No events found", "total_entities": 0}
 
-    # Aggregate by component/URL
-    entity_data: dict[str, dict] = {}
+        # Aggregate by component/URL
+        entity_data: dict[str, dict] = {}
 
-    for event in events:
-        # Use component or URL as entity identifier
-        entity_key = event.get("component") or event.get("url") or "unknown"
+        for event in events:
+            # Use component or URL as entity identifier
+            entity_key = event.get("component") or event.get("url") or "unknown"
 
-        if entity_key not in entity_data:
-            entity_data[entity_key] = {
-                "entity_type": "component" if event.get("component") else "page",
-                "entity_identifier": entity_key,
-                "error_count": 0,
-                "fatal_count": 0,
-                "error_count_severity": 0,
-                "warning_count": 0,
-                "affected_users": 0,
-                "last_error_at": event.get("last_seen_at") or event.get("created_at"),
-                "first_error_at": event.get("first_seen_at") or event.get("created_at"),
+            if entity_key not in entity_data:
+                entity_data[entity_key] = {
+                    "entity_type": "component" if event.get("component") else "page",
+                    "entity_identifier": entity_key,
+                    "error_count": 0,
+                    "fatal_count": 0,
+                    "error_count_severity": 0,
+                    "warning_count": 0,
+                    "affected_users": 0,
+                    "last_error_at": event.get("last_seen_at") or event.get("created_at"),
+                    "first_error_at": event.get("first_seen_at") or event.get("created_at"),
+                }
+
+            data = entity_data[entity_key]
+            data["error_count"] += event.get("occurrence_count", 1)
+            data["affected_users"] += event.get("affected_users", 1)
+
+            severity = event.get("severity", "error")
+            if severity == "fatal":
+                data["fatal_count"] += 1
+            elif severity == "error":
+                data["error_count_severity"] += 1
+            else:
+                data["warning_count"] += 1
+
+            # Update timestamps
+            if event.get("last_seen_at") and event["last_seen_at"] > data["last_error_at"]:
+                data["last_error_at"] = event["last_seen_at"]
+
+        # Calculate risk scores
+        max_error_count = max((d["error_count"] for d in entity_data.values()), default=1)
+        max_affected_users = max((d["affected_users"] for d in entity_data.values()), default=1)
+
+        risk_scores = []
+        now = datetime.now(timezone.utc)
+
+        for entity_key, data in entity_data.items():
+            # Calculate individual factors
+            error_frequency = min(100, round((data["error_count"] / max_error_count) * 100)) if max_error_count > 0 else 0
+
+            # Severity weighted score
+            total_errors = max(1, data["error_count"])
+            error_severity = min(100, round(
+                ((data["fatal_count"] * 100) + (data["error_count_severity"] * 70) + (data["warning_count"] * 30)) / total_errors
+            ))
+
+            # Test coverage (default to 0, meaning 100 risk from no coverage)
+            test_coverage = 100  # No tests = high risk
+
+            # User impact
+            user_impact = min(100, round((data["affected_users"] / max_affected_users) * 100)) if max_affected_users > 0 else 0
+
+            # Recency
+            try:
+                last_error = datetime.fromisoformat(data["last_error_at"].replace("Z", "+00:00"))
+                days_since = (now - last_error.replace(tzinfo=None)).days
+                recency = max(0, round(100 - (days_since / 30) * 100))
+            except Exception:
+                recency = 50
+
+            factors = {
+                "error_frequency": error_frequency,
+                "error_severity": error_severity,
+                "test_coverage": test_coverage,
+                "user_impact": user_impact,
+                "recency": recency,
             }
 
-        data = entity_data[entity_key]
-        data["error_count"] += event.get("occurrence_count", 1)
-        data["affected_users"] += event.get("affected_users", 1)
+            # Calculate overall weighted score
+            overall = round(
+                (factors["error_frequency"] * RISK_WEIGHTS["error_frequency"]) +
+                (factors["error_severity"] * RISK_WEIGHTS["error_severity"]) +
+                (factors["test_coverage"] * RISK_WEIGHTS["test_coverage"]) +
+                (factors["user_impact"] * RISK_WEIGHTS["user_impact"]) +
+                (factors["recency"] * RISK_WEIGHTS["recency"])
+            )
 
-        severity = event.get("severity", "error")
-        if severity == "fatal":
-            data["fatal_count"] += 1
-        elif severity == "error":
-            data["error_count_severity"] += 1
-        else:
-            data["warning_count"] += 1
+            risk_scores.append({
+                "entity_type": data["entity_type"],
+                "entity_identifier": entity_key,
+                "overall_risk_score": min(100, overall),
+                "factors": factors,
+                "error_count": data["error_count"],
+                "affected_users": data["affected_users"],
+                "trend": "stable",  # Would need historical data to calculate
+            })
 
-        # Update timestamps
-        if event.get("last_seen_at") and event["last_seen_at"] > data["last_error_at"]:
-            data["last_error_at"] = event["last_seen_at"]
+        # Sort by overall score (highest risk first)
+        risk_scores.sort(key=lambda x: x["overall_risk_score"], reverse=True)
 
-    # Calculate risk scores
-    max_error_count = max((d["error_count"] for d in entity_data.values()), default=1)
-    max_affected_users = max((d["affected_users"] for d in entity_data.values()), default=1)
+        # Store risk scores in database
+        for score in risk_scores[:50]:  # Limit to top 50
+            await supabase.request(
+                "/risk_scores",
+                method="POST",
+                body={
+                    "project_id": request.project_id,
+                    "entity_type": score["entity_type"],
+                    "entity_identifier": score["entity_identifier"],
+                    "overall_risk_score": score["overall_risk_score"],
+                    "factors": score["factors"],
+                    "error_count": score["error_count"],
+                    "affected_users": score["affected_users"],
+                    "trend": score["trend"],
+                    "calculated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                headers={"Prefer": "resolution=merge-duplicates"},
+            )
 
-    risk_scores = []
-    now = datetime.now(timezone.utc)
-
-    for entity_key, data in entity_data.items():
-        # Calculate individual factors
-        error_frequency = min(100, round((data["error_count"] / max_error_count) * 100)) if max_error_count > 0 else 0
-
-        # Severity weighted score
-        total_errors = max(1, data["error_count"])
-        error_severity = min(100, round(
-            ((data["fatal_count"] * 100) + (data["error_count_severity"] * 70) + (data["warning_count"] * 30)) / total_errors
-        ))
-
-        # Test coverage (default to 0, meaning 100 risk from no coverage)
-        test_coverage = 100  # No tests = high risk
-
-        # User impact
-        user_impact = min(100, round((data["affected_users"] / max_affected_users) * 100)) if max_affected_users > 0 else 0
-
-        # Recency
-        try:
-            last_error = datetime.fromisoformat(data["last_error_at"].replace("Z", "+00:00"))
-            days_since = (now - last_error.replace(tzinfo=None)).days
-            recency = max(0, round(100 - (days_since / 30) * 100))
-        except Exception:
-            recency = 50
-
-        factors = {
-            "error_frequency": error_frequency,
-            "error_severity": error_severity,
-            "test_coverage": test_coverage,
-            "user_impact": user_impact,
-            "recency": recency,
+        return {
+            "success": True,
+            "risk_scores": risk_scores[:20],  # Return top 20
+            "total_entities": len(risk_scores),
         }
 
-        # Calculate overall weighted score
-        overall = round(
-            (factors["error_frequency"] * RISK_WEIGHTS["error_frequency"]) +
-            (factors["error_severity"] * RISK_WEIGHTS["error_severity"]) +
-            (factors["test_coverage"] * RISK_WEIGHTS["test_coverage"]) +
-            (factors["user_impact"] * RISK_WEIGHTS["user_impact"]) +
-            (factors["recency"] * RISK_WEIGHTS["recency"])
-        )
-
-        risk_scores.append({
-            "entity_type": data["entity_type"],
-            "entity_identifier": entity_key,
-            "overall_risk_score": min(100, overall),
-            "factors": factors,
-            "error_count": data["error_count"],
-            "affected_users": data["affected_users"],
-            "trend": "stable",  # Would need historical data to calculate
-        })
-
-    # Sort by overall score (highest risk first)
-    risk_scores.sort(key=lambda x: x["overall_risk_score"], reverse=True)
-
-    # Store risk scores in database
-    for score in risk_scores[:50]:  # Limit to top 50
-        await supabase.request(
-            "/risk_scores",
-            method="POST",
-            body={
-                "project_id": request.project_id,
-                "entity_type": score["entity_type"],
-                "entity_identifier": score["entity_identifier"],
-                "overall_risk_score": score["overall_risk_score"],
-                "factors": score["factors"],
-                "error_count": score["error_count"],
-                "affected_users": score["affected_users"],
-                "trend": score["trend"],
-                "calculated_at": datetime.now(timezone.utc).isoformat(),
-            },
-            headers={"Prefer": "resolution=merge-duplicates"},
-        )
-
-    return {
-        "success": True,
-        "risk_scores": risk_scores[:20],  # Return top 20
-        "total_entities": len(risk_scores),
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to calculate risk scores", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to calculate risk scores: {str(e)}")
 
 
 # =============================================================================
@@ -655,21 +680,33 @@ async def get_production_events(
     """Get production events with optional filtering."""
     supabase = get_supabase_client()
 
-    query_path = f"/production_events?project_id=eq.{project_id}"
-    if status:
-        query_path += f"&status=eq.{status}"
-    if severity:
-        query_path += f"&severity=eq.{severity}"
-    if source:
-        query_path += f"&source=eq.{source}"
-    query_path += f"&order=created_at.desc&limit={limit}&offset={offset}"
+    try:
+        query_path = f"/production_events?project_id=eq.{project_id}"
+        if status:
+            query_path += f"&status=eq.{status}"
+        if severity:
+            query_path += f"&severity=eq.{severity}"
+        if source:
+            query_path += f"&source=eq.{source}"
+        query_path += f"&order=created_at.desc&limit={limit}&offset={offset}"
 
-    result = await supabase.request(query_path)
+        result = await supabase.request(query_path)
 
-    if result.get("error"):
-        raise HTTPException(status_code=500, detail="Failed to fetch events")
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            # Handle missing table gracefully
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("production_events table not found - returning empty list")
+                return {"events": [], "message": "Run migrations to enable event tracking"}
+            raise HTTPException(status_code=500, detail="Failed to fetch events")
 
-    return {"events": result.get("data", [])}
+        return {"events": result.get("data") or []}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to fetch events", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch events: {str(e)}")
 
 
 @router.get("/stats")
@@ -679,45 +716,50 @@ async def get_quality_stats(
     """Get quality intelligence statistics for a project."""
     supabase = get_supabase_client()
 
-    # Get event counts by status
-    events_result = await supabase.request(
-        f"/production_events?project_id=eq.{project_id}&select=id,status,severity"
-    )
+    try:
+        # Get event counts by status - handle None data properly
+        events_result = await supabase.request(
+            f"/production_events?project_id=eq.{project_id}&select=id,status,severity"
+        )
 
-    events = events_result.get("data", [])
+        events = events_result.get("data") or []
 
-    # Get generated tests count
-    tests_result = await supabase.request(
-        f"/generated_tests?project_id=eq.{project_id}&select=id,status"
-    )
+        # Get generated tests count - handle None data properly
+        tests_result = await supabase.request(
+            f"/generated_tests?project_id=eq.{project_id}&select=id,status"
+        )
 
-    tests = tests_result.get("data", [])
+        tests = tests_result.get("data") or []
 
-    # Calculate statistics
-    stats = {
-        "total_events": len(events),
-        "events_by_status": {},
-        "events_by_severity": {},
-        "total_generated_tests": len(tests),
-        "tests_by_status": {},
-        "coverage_rate": 0,
-    }
+        # Calculate statistics
+        stats = {
+            "total_events": len(events),
+            "events_by_status": {},
+            "events_by_severity": {},
+            "total_generated_tests": len(tests),
+            "tests_by_status": {},
+            "coverage_rate": 0,
+        }
 
-    for event in events:
-        status = event.get("status", "unknown")
-        severity = event.get("severity", "unknown")
-        stats["events_by_status"][status] = stats["events_by_status"].get(status, 0) + 1
-        stats["events_by_severity"][severity] = stats["events_by_severity"].get(severity, 0) + 1
+        for event in events:
+            status = event.get("status", "unknown")
+            severity = event.get("severity", "unknown")
+            stats["events_by_status"][status] = stats["events_by_status"].get(status, 0) + 1
+            stats["events_by_severity"][severity] = stats["events_by_severity"].get(severity, 0) + 1
 
-    for test in tests:
-        status = test.get("status", "unknown")
-        stats["tests_by_status"][status] = stats["tests_by_status"].get(status, 0) + 1
+        for test in tests:
+            status = test.get("status", "unknown")
+            stats["tests_by_status"][status] = stats["tests_by_status"].get(status, 0) + 1
 
-    # Calculate coverage (events with tests / total events)
-    events_with_tests = sum(1 for e in events if e.get("status") in ("test_pending_review", "test_generated"))
-    stats["coverage_rate"] = round((events_with_tests / len(events) * 100) if events else 0, 1)
+        # Calculate coverage (events with tests / total events)
+        events_with_tests = sum(1 for e in events if e.get("status") in ("test_pending_review", "test_generated"))
+        stats["coverage_rate"] = round((events_with_tests / len(events) * 100) if events else 0, 1)
 
-    return {"stats": stats}
+        return {"stats": stats}
+
+    except Exception as e:
+        logger.exception("Failed to get quality stats", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get quality stats: {str(e)}")
 
 
 @router.get("/risk-scores")
@@ -729,22 +771,29 @@ async def get_risk_scores(
     """Get risk scores for a project."""
     supabase = get_supabase_client()
 
-    query_path = f"/risk_scores?project_id=eq.{project_id}"
-    if entity_type:
-        query_path += f"&entity_type=eq.{entity_type}"
-    query_path += f"&order=overall_risk_score.desc&limit={limit}"
+    try:
+        query_path = f"/risk_scores?project_id=eq.{project_id}"
+        if entity_type:
+            query_path += f"&entity_type=eq.{entity_type}"
+        query_path += f"&order=overall_risk_score.desc&limit={limit}"
 
-    result = await supabase.request(query_path)
+        result = await supabase.request(query_path)
 
-    # Handle missing table gracefully
-    if result.get("error"):
-        error_msg = str(result.get("error", ""))
-        if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
-            logger.warning("risk_scores table not found - returning empty list")
-            return {"risk_scores": [], "message": "Run migrations to enable risk scoring"}
-        raise HTTPException(status_code=500, detail="Failed to fetch risk scores")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("risk_scores table not found - returning empty list")
+                return {"risk_scores": [], "message": "Run migrations to enable risk scoring"}
+            raise HTTPException(status_code=500, detail="Failed to fetch risk scores")
 
-    return {"risk_scores": result.get("data", [])}
+        return {"risk_scores": result.get("data") or []}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to fetch risk scores", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch risk scores: {str(e)}")
 
 
 @router.get("/generated-tests")
@@ -756,22 +805,29 @@ async def get_generated_tests(
     """Get generated tests for a project."""
     supabase = get_supabase_client()
 
-    query_path = f"/generated_tests?project_id=eq.{project_id}"
-    if status:
-        query_path += f"&status=eq.{status}"
-    query_path += f"&order=created_at.desc&limit={limit}"
+    try:
+        query_path = f"/generated_tests?project_id=eq.{project_id}"
+        if status:
+            query_path += f"&status=eq.{status}"
+        query_path += f"&order=created_at.desc&limit={limit}"
 
-    result = await supabase.request(query_path)
+        result = await supabase.request(query_path)
 
-    # Handle missing table gracefully
-    if result.get("error"):
-        error_msg = str(result.get("error", ""))
-        if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
-            logger.warning("generated_tests table not found - returning empty list")
-            return {"tests": [], "message": "Run migrations to enable test storage"}
-        raise HTTPException(status_code=500, detail="Failed to fetch tests")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("generated_tests table not found - returning empty list")
+                return {"tests": [], "message": "Run migrations to enable test storage"}
+            raise HTTPException(status_code=500, detail="Failed to fetch tests")
 
-    return {"tests": result.get("data", [])}
+        return {"tests": result.get("data") or []}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to fetch generated tests", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tests: {str(e)}")
 
 
 @cache_quality_score(key_prefix="project_score")
@@ -779,23 +835,23 @@ async def _calculate_quality_score(project_id: str) -> dict:
     """Calculate quality score for a project (cached)."""
     supabase = get_supabase_client()
 
-    # Get events
+    # Get events - handle None data properly
     events_result = await supabase.request(
         f"/production_events?project_id=eq.{project_id}&select=id,status,severity"
     )
-    events = events_result.get("data", [])
+    events = events_result.get("data") or []
 
-    # Get generated tests (handle missing table)
+    # Get generated tests (handle missing table and None data)
     tests_result = await supabase.request(
         f"/generated_tests?project_id=eq.{project_id}&select=id,status"
     )
-    tests = tests_result.get("data", []) if not tests_result.get("error") else []
+    tests = (tests_result.get("data") or []) if not tests_result.get("error") else []
 
-    # Get risk scores (handle missing table)
+    # Get risk scores (handle missing table and None data)
     risk_result = await supabase.request(
         f"/risk_scores?project_id=eq.{project_id}&select=overall_risk_score"
     )
-    risk_scores = risk_result.get("data", []) if not risk_result.get("error") else []
+    risk_scores = (risk_result.get("data") or []) if not risk_result.get("error") else []
 
     # Calculate quality score (inverse of risk)
     avg_risk = sum(r.get("overall_risk_score", 50) for r in risk_scores) / len(risk_scores) if risk_scores else 50
@@ -839,13 +895,25 @@ async def find_similar_errors(
     Uses Cloudflare Vectorize to find errors with similar meaning,
     not just exact text matches.
     """
-    results = await semantic_search_errors(error_text, limit=limit, min_score=min_score)
+    try:
+        results = await semantic_search_errors(error_text, limit=limit, min_score=min_score)
+        # Handle None return from semantic_search_errors
+        results = results or []
 
-    return {
-        "query": error_text[:100],
-        "matches": results,
-        "total": len(results),
-    }
+        return {
+            "query": error_text[:100],
+            "matches": results,
+            "total": len(results),
+        }
+    except Exception as e:
+        logger.exception("Failed to search similar errors", error=str(e))
+        # Return empty results rather than failing completely
+        return {
+            "query": error_text[:100],
+            "matches": [],
+            "total": 0,
+            "error": str(e),
+        }
 
 
 @router.post("/backfill-index")
@@ -862,55 +930,72 @@ async def backfill_vectorize_index(
     """
     supabase = get_supabase_client()
 
-    # Build query
-    query_path = "/production_events?select=id,title,message,component,stack_trace,severity,source,url,fingerprint,project_id"
-    if project_id:
-        query_path += f"&project_id=eq.{project_id}"
-    query_path += f"&order=created_at.desc&limit={limit}&offset={offset}"
+    try:
+        # Build query
+        query_path = "/production_events?select=id,title,message,component,stack_trace,severity,source,url,fingerprint,project_id"
+        if project_id:
+            query_path += f"&project_id=eq.{project_id}"
+        query_path += f"&order=created_at.desc&limit={limit}&offset={offset}"
 
-    result = await supabase.request(query_path)
+        result = await supabase.request(query_path)
 
-    if result.get("error"):
-        raise HTTPException(status_code=500, detail="Failed to fetch events")
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            # Handle missing table gracefully
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("production_events table not found")
+                return {
+                    "success": True,
+                    "message": "Run migrations to enable event tracking",
+                    "indexed": 0,
+                    "total": 0,
+                }
+            raise HTTPException(status_code=500, detail="Failed to fetch events")
 
-    events = result.get("data", [])
+        events = result.get("data") or []
 
-    if not events:
+        if not events:
+            return {
+                "success": True,
+                "message": "No events to index",
+                "indexed": 0,
+                "total": 0,
+            }
+
+        # Index each event
+        indexed = 0
+        failed = 0
+
+        for event in events:
+            try:
+                success = await index_production_event(event)
+                if success:
+                    indexed += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.warning(f"Failed to index event {event.get('id')}: {e}")
+                failed += 1
+
+        logger.info(
+            "Backfill completed",
+            indexed=indexed,
+            failed=failed,
+            total=len(events),
+            offset=offset,
+        )
+
         return {
             "success": True,
-            "message": "No events to index",
-            "indexed": 0,
-            "total": 0,
+            "message": f"Indexed {indexed}/{len(events)} events",
+            "indexed": indexed,
+            "failed": failed,
+            "total": len(events),
+            "next_offset": offset + limit if len(events) == limit else None,
         }
 
-    # Index each event
-    indexed = 0
-    failed = 0
-
-    for event in events:
-        try:
-            success = await index_production_event(event)
-            if success:
-                indexed += 1
-            else:
-                failed += 1
-        except Exception as e:
-            logger.warning(f"Failed to index event {event.get('id')}: {e}")
-            failed += 1
-
-    logger.info(
-        "Backfill completed",
-        indexed=indexed,
-        failed=failed,
-        total=len(events),
-        offset=offset,
-    )
-
-    return {
-        "success": True,
-        "message": f"Indexed {indexed}/{len(events)} events",
-        "indexed": indexed,
-        "failed": failed,
-        "total": len(events),
-        "next_offset": offset + limit if len(events) == limit else None,
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to backfill vectorize index", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to backfill index: {str(e)}")

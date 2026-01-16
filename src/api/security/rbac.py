@@ -217,9 +217,25 @@ class RBACManager:
         required_permission: Permission,
         scopes: List[str] = None,
     ) -> bool:
-        """Check if roles have a required permission."""
-        # Check scopes first (API key scopes)
-        if scopes:
+        """Check if roles have a required permission.
+
+        SECURITY: Scope validation is critical for API key access control.
+        - If scopes is None: No scope restriction, fall through to role-based check
+        - If scopes is an empty list []: DENY access (no permissions granted)
+        - If scopes has values: Only allow permissions mapped from those scopes
+        """
+        # SECURITY: Check scopes first (API key scopes)
+        # An empty scopes list means NO permissions - this is intentional security behavior
+        if scopes is not None:
+            # Empty scopes list = no permissions granted = deny all
+            if len(scopes) == 0:
+                logger.warning(
+                    "Permission denied: empty scopes list",
+                    required_permission=required_permission.value,
+                    roles=roles,
+                )
+                return False
+
             scope_map = {
                 "read": {Permission.TEST_READ, Permission.RESULTS_READ, Permission.PROJECT_READ},
                 "write": {Permission.TEST_WRITE, Permission.PROJECT_WRITE},
@@ -230,6 +246,12 @@ class RBACManager:
             for scope in scopes:
                 allowed.update(scope_map.get(scope, set()))
             if required_permission not in allowed:
+                logger.debug(
+                    "Permission denied by scope restriction",
+                    required_permission=required_permission.value,
+                    scopes=scopes,
+                    allowed_permissions=[p.value for p in allowed],
+                )
                 return False
 
         # Check role permissions

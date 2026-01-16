@@ -5,9 +5,11 @@ from typing import Optional
 from uuid import uuid4
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 import structlog
+
+from src.api.teams import get_current_user
 
 logger = structlog.get_logger()
 
@@ -28,6 +30,7 @@ _recordings: dict[str, dict] = {}
 
 class RRWebEventType(int, Enum):
     """rrweb event types."""
+
     DOM_CONTENT_LOADED = 0
     LOAD = 1
     FULL_SNAPSHOT = 2
@@ -39,6 +42,7 @@ class RRWebEventType(int, Enum):
 
 class IncrementalSource(int, Enum):
     """rrweb incremental snapshot sources."""
+
     MUTATION = 0
     MOUSE_MOVE = 1
     MOUSE_INTERACTION = 2
@@ -59,6 +63,7 @@ class IncrementalSource(int, Enum):
 
 class MouseInteraction(int, Enum):
     """rrweb mouse interaction types."""
+
     MOUSE_UP = 0
     MOUSE_DOWN = 1
     CLICK = 2
@@ -79,6 +84,7 @@ class MouseInteraction(int, Enum):
 
 class RRWebEvent(BaseModel):
     """Single rrweb event."""
+
     type: int
     data: dict
     timestamp: int
@@ -86,6 +92,7 @@ class RRWebEvent(BaseModel):
 
 class RecordingMetadata(BaseModel):
     """Metadata about the recording."""
+
     duration: int = Field(..., description="Recording duration in milliseconds")
     start_time: str = Field(..., description="ISO timestamp when recording started")
     url: Optional[str] = Field(None, description="URL where recording was made")
@@ -95,6 +102,7 @@ class RecordingMetadata(BaseModel):
 
 class RecordingUploadRequest(BaseModel):
     """Request to upload a browser recording."""
+
     events: list[RRWebEvent] = Field(..., description="List of rrweb events")
     metadata: RecordingMetadata = Field(..., description="Recording metadata")
     project_id: Optional[str] = Field(None, description="Project to associate recording with")
@@ -103,6 +111,7 @@ class RecordingUploadRequest(BaseModel):
 
 class RecordingUploadResponse(BaseModel):
     """Response from recording upload."""
+
     success: bool
     recording_id: str
     events_count: int
@@ -114,6 +123,7 @@ class RecordingUploadResponse(BaseModel):
 
 class TestStepModel(BaseModel):
     """Generated test step."""
+
     action: str
     target: Optional[str] = None
     value: Optional[str] = None
@@ -123,6 +133,7 @@ class TestStepModel(BaseModel):
 
 class TestAssertionModel(BaseModel):
     """Generated test assertion."""
+
     type: str
     target: Optional[str] = None
     expected: Optional[str] = None
@@ -130,6 +141,7 @@ class TestAssertionModel(BaseModel):
 
 class ConvertRequest(BaseModel):
     """Request to convert recording to test."""
+
     recording_id: str = Field(..., description="ID of uploaded recording")
     test_name: Optional[str] = Field(None, description="Name for generated test")
     include_waits: bool = Field(True, description="Include wait steps for timing")
@@ -140,6 +152,7 @@ class ConvertRequest(BaseModel):
 
 class ConvertResponse(BaseModel):
     """Response from recording conversion."""
+
     success: bool
     test: Optional[dict] = None
     recording_id: str
@@ -152,6 +165,7 @@ class ConvertResponse(BaseModel):
 
 class RecordingReplayResponse(BaseModel):
     """Response for replay data request."""
+
     success: bool
     recording_id: str
     events: list[dict] = []
@@ -161,6 +175,7 @@ class RecordingReplayResponse(BaseModel):
 
 class RecorderSnippetRequest(BaseModel):
     """Request to generate recorder JavaScript snippet."""
+
     project_id: Optional[str] = Field(None, description="Project ID to associate recordings")
     upload_url: Optional[str] = Field(None, description="URL to upload recordings to")
     options: Optional[dict] = Field(None, description="rrweb recorder options")
@@ -168,6 +183,7 @@ class RecorderSnippetRequest(BaseModel):
 
 class RecorderSnippetResponse(BaseModel):
     """Response with recorder snippet."""
+
     success: bool
     snippet: str
     cdn_script: str
@@ -180,43 +196,52 @@ class RecorderSnippetResponse(BaseModel):
 
 
 @router.post("/upload", response_model=RecordingUploadResponse)
-async def upload_recording(request: RecordingUploadRequest):
+async def upload_recording(request: Request, body: RecordingUploadRequest):
     """
     Upload a browser recording (rrweb format).
 
     Stores the recording for later conversion to test specification.
+    Requires authentication.
     """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     try:
         recording_id = str(uuid4())
 
         # Analyze events to estimate test steps
-        interaction_events = _count_interaction_events(request.events)
+        interaction_events = _count_interaction_events(body.events)
 
-        # Store recording
+        # Store recording with user context
         _recordings[recording_id] = {
             "id": recording_id,
-            "events": [e.model_dump() for e in request.events],
-            "metadata": request.metadata.model_dump(),
-            "project_id": request.project_id,
-            "name": request.name or f"Recording {recording_id[:8]}",
+            "events": [e.model_dump() for e in body.events],
+            "metadata": body.metadata.model_dump(),
+            "project_id": body.project_id,
+            "name": body.name or f"Recording {recording_id[:8]}",
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "events_count": len(request.events),
+            "events_count": len(body.events),
             "interaction_count": interaction_events,
+            "user_id": user.get("user_id"),
+            "organization_id": user.get("organization_id"),
         }
 
         logger.info(
             "Recording uploaded",
             recording_id=recording_id,
-            events=len(request.events),
-            duration=request.metadata.duration,
+            events=len(body.events),
+            duration=body.metadata.duration,
             interactions=interaction_events,
+            user_id=user.get("user_id"),
         )
 
         return RecordingUploadResponse(
             success=True,
             recording_id=recording_id,
-            events_count=len(request.events),
-            duration_ms=request.metadata.duration,
+            events_count=len(body.events),
+            duration_ms=body.metadata.duration,
             estimated_steps=interaction_events,
             message=f"Recording uploaded successfully. {interaction_events} user interactions detected.",
         )
@@ -235,15 +260,21 @@ async def upload_recording(request: RecordingUploadRequest):
 
 
 @router.post("/convert", response_model=ConvertResponse)
-async def convert_recording(request: ConvertRequest):
+async def convert_recording(request: Request, body: ConvertRequest):
     """
     Convert a browser recording to a test specification.
 
     Analyzes rrweb events and generates executable test steps.
+    Requires authentication.
     """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     try:
         # Get recording
-        recording = _recordings.get(request.recording_id)
+        recording = _recordings.get(body.recording_id)
         if not recording:
             raise HTTPException(status_code=404, detail="Recording not found")
 
@@ -253,14 +284,16 @@ async def convert_recording(request: ConvertRequest):
         # Parse events into test steps
         steps, assertions, warnings = _parse_rrweb_events(
             events,
-            include_waits=request.include_waits,
-            include_scrolls=request.include_scrolls,
-            min_wait_threshold=request.min_wait_threshold,
-            generalize_data=request.generalize_data,
+            include_waits=body.include_waits,
+            include_scrolls=body.include_scrolls,
+            min_wait_threshold=body.min_wait_threshold,
+            generalize_data=body.generalize_data,
         )
 
         # Generate test name
-        test_name = request.test_name or recording.get("name", f"Test from recording {request.recording_id[:8]}")
+        test_name = body.test_name or recording.get(
+            "name", f"Test from recording {body.recording_id[:8]}"
+        )
 
         # Build test specification
         test_spec = {
@@ -268,7 +301,7 @@ async def convert_recording(request: ConvertRequest):
             "name": test_name,
             "description": f"Auto-generated from browser recording",
             "source": "rrweb_recording",
-            "recording_id": request.recording_id,
+            "recording_id": body.recording_id,
             "steps": [s.model_dump() for s in steps],
             "assertions": [a.model_dump() for a in assertions],
             "metadata": {
@@ -281,16 +314,17 @@ async def convert_recording(request: ConvertRequest):
 
         logger.info(
             "Recording converted to test",
-            recording_id=request.recording_id,
+            recording_id=body.recording_id,
             steps=len(steps),
             assertions=len(assertions),
             warnings=len(warnings),
+            user_id=user.get("user_id"),
         )
 
         return ConvertResponse(
             success=True,
             test=test_spec,
-            recording_id=request.recording_id,
+            recording_id=body.recording_id,
             duration_ms=metadata.get("duration", 0),
             steps_generated=len(steps),
             assertions_generated=len(assertions),
@@ -303,7 +337,7 @@ async def convert_recording(request: ConvertRequest):
         logger.exception("Recording conversion failed", error=str(e))
         return ConvertResponse(
             success=False,
-            recording_id=request.recording_id,
+            recording_id=body.recording_id,
             duration_ms=0,
             steps_generated=0,
             assertions_generated=0,
@@ -312,16 +346,32 @@ async def convert_recording(request: ConvertRequest):
 
 
 @router.get("/replay/{recording_id}", response_model=RecordingReplayResponse)
-async def get_replay_data(recording_id: str):
+async def get_replay_data(request: Request, recording_id: str):
     """
     Get recording data for replay.
 
     Returns the rrweb events for client-side replay.
+    Requires authentication.
     """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     try:
         recording = _recordings.get(recording_id)
         if not recording:
             raise HTTPException(status_code=404, detail="Recording not found")
+
+        # Verify user has access to this recording (same org or owner)
+        recording_org = recording.get("organization_id")
+        user_org = user.get("organization_id")
+        recording_user = recording.get("user_id")
+        current_user = user.get("user_id")
+
+        if recording_org and user_org and recording_org != user_org:
+            if recording_user != current_user:
+                raise HTTPException(status_code=403, detail="Access denied to this recording")
 
         return RecordingReplayResponse(
             success=True,
@@ -342,17 +392,23 @@ async def get_replay_data(recording_id: str):
 
 
 @router.post("/snippet", response_model=RecorderSnippetResponse)
-async def generate_recorder_snippet(request: RecorderSnippetRequest):
+async def generate_recorder_snippet(request: Request, body: RecorderSnippetRequest):
     """
     Generate JavaScript snippet for browser recording.
 
     Returns code to embed in websites for recording user sessions.
+    Requires authentication.
     """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     try:
-        upload_url = request.upload_url or "/api/v1/recording/upload"
+        upload_url = body.upload_url or "/api/v1/recording/upload"
 
         # Default rrweb options
-        options = request.options or {}
+        options = body.options or {}
         options.setdefault("checkoutEveryNms", 10000)  # Checkpoint every 10s
         options.setdefault("blockClass", "rr-block")
         options.setdefault("maskAllInputs", False)  # Don't mask for test generation
@@ -373,9 +429,9 @@ async def generate_recorder_snippet(request: RecorderSnippetRequest):
       emit(event) {{
         events.push(event);
       }},
-      checkoutEveryNms: {options.get('checkoutEveryNms', 10000)},
-      blockClass: '{options.get('blockClass', 'rr-block')}',
-      maskAllInputs: {str(options.get('maskAllInputs', False)).lower()},
+      checkoutEveryNms: {options.get("checkoutEveryNms", 10000)},
+      blockClass: '{options.get("blockClass", "rr-block")}',
+      maskAllInputs: {str(options.get("maskAllInputs", False)).lower()},
       maskInputOptions: {{ password: true }},
     }});
 
@@ -401,7 +457,7 @@ async def generate_recorder_snippet(request: RecorderSnippetRequest):
               height: window.innerHeight,
             }},
           }},
-          project_id: '{request.project_id or ""}' || undefined,
+          project_id: '{body.project_id or ""}' || undefined,
         }}),
       }})
       .then(r => r.json())
@@ -468,13 +524,32 @@ argusStopRecording().then(result => {
 
 @router.get("/list")
 async def list_recordings(
+    request: Request,
     project_id: Optional[str] = None,
     limit: int = 20,
 ):
     """
     List uploaded recordings.
+    Requires authentication. Only shows recordings from user's organization.
     """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_org = user.get("organization_id")
+    current_user = user.get("user_id")
+
     recordings = list(_recordings.values())
+
+    # Filter by organization - only show recordings from same org or owned by user
+    recordings = [
+        r
+        for r in recordings
+        if r.get("organization_id") == user_org
+        or r.get("user_id") == current_user
+        or not r.get("organization_id")  # Legacy recordings without org
+    ]
 
     if project_id:
         recordings = [r for r in recordings if r.get("project_id") == project_id]
@@ -502,14 +577,38 @@ async def list_recordings(
 
 
 @router.delete("/{recording_id}")
-async def delete_recording(recording_id: str):
+async def delete_recording(request: Request, recording_id: str):
     """
     Delete a recording.
+    Requires authentication. User must have access to the recording.
     """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     if recording_id not in _recordings:
         raise HTTPException(status_code=404, detail="Recording not found")
 
+    recording = _recordings[recording_id]
+
+    # Verify user has access to delete this recording
+    recording_org = recording.get("organization_id")
+    user_org = user.get("organization_id")
+    recording_user = recording.get("user_id")
+    current_user = user.get("user_id")
+
+    if recording_org and user_org and recording_org != user_org:
+        if recording_user != current_user:
+            raise HTTPException(status_code=403, detail="Access denied to this recording")
+
     del _recordings[recording_id]
+
+    logger.info(
+        "Recording deleted",
+        recording_id=recording_id,
+        user_id=current_user,
+    )
 
     return {
         "success": True,
@@ -578,11 +677,13 @@ def _parse_rrweb_events(
             if new_url and new_url != current_url:
                 if current_url is not None:
                     # Navigation detected
-                    steps.append(TestStepModel(
-                        action="goto",
-                        target=new_url,
-                        timestamp=timestamp,
-                    ))
+                    steps.append(
+                        TestStepModel(
+                            action="goto",
+                            target=new_url,
+                            timestamp=timestamp,
+                        )
+                    )
                 current_url = new_url
 
         # Handle incremental snapshot - user actions
@@ -593,11 +694,13 @@ def _parse_rrweb_events(
             if include_waits and last_timestamp:
                 pause = timestamp - last_timestamp
                 if pause >= min_wait_threshold:
-                    steps.append(TestStepModel(
-                        action="wait",
-                        value=str(pause),
-                        timestamp=timestamp,
-                    ))
+                    steps.append(
+                        TestStepModel(
+                            action="wait",
+                            value=str(pause),
+                            timestamp=timestamp,
+                        )
+                    )
 
             # Mouse interactions
             if source == IncrementalSource.MOUSE_INTERACTION.value:
@@ -606,17 +709,21 @@ def _parse_rrweb_events(
                 selector = node_map.get(node_id, f"[data-rrweb-id='{node_id}']")
 
                 if interaction_type == MouseInteraction.CLICK.value:
-                    steps.append(TestStepModel(
-                        action="click",
-                        target=selector,
-                        timestamp=timestamp,
-                    ))
+                    steps.append(
+                        TestStepModel(
+                            action="click",
+                            target=selector,
+                            timestamp=timestamp,
+                        )
+                    )
                 elif interaction_type == MouseInteraction.DBL_CLICK.value:
-                    steps.append(TestStepModel(
-                        action="dblclick",
-                        target=selector,
-                        timestamp=timestamp,
-                    ))
+                    steps.append(
+                        TestStepModel(
+                            action="dblclick",
+                            target=selector,
+                            timestamp=timestamp,
+                        )
+                    )
 
             # Input events (typing)
             elif source == IncrementalSource.INPUT.value:
@@ -631,12 +738,14 @@ def _parse_rrweb_events(
                     elif len(text) > 20:
                         text = "{{test_text}}"
 
-                steps.append(TestStepModel(
-                    action="fill",
-                    target=selector,
-                    value=text,
-                    timestamp=timestamp,
-                ))
+                steps.append(
+                    TestStepModel(
+                        action="fill",
+                        target=selector,
+                        value=text,
+                        timestamp=timestamp,
+                    )
+                )
 
             # Scroll events
             elif source == IncrementalSource.SCROLL.value and include_scrolls:
@@ -645,22 +754,26 @@ def _parse_rrweb_events(
                 y = data.get("y", 0)
                 selector = node_map.get(node_id, "window")
 
-                steps.append(TestStepModel(
-                    action="scroll",
-                    target=selector,
-                    value=f"{x},{y}",
-                    timestamp=timestamp,
-                ))
+                steps.append(
+                    TestStepModel(
+                        action="scroll",
+                        target=selector,
+                        value=f"{x},{y}",
+                        timestamp=timestamp,
+                    )
+                )
 
             last_timestamp = timestamp
 
     # Generate basic assertions
     if current_url:
         # Assert we ended up at expected URL
-        assertions.append(TestAssertionModel(
-            type="url_contains",
-            expected=current_url.split("/")[-1] if "/" in current_url else current_url,
-        ))
+        assertions.append(
+            TestAssertionModel(
+                type="url_contains",
+                expected=current_url.split("/")[-1] if "/" in current_url else current_url,
+            )
+        )
 
     # Add warning if few interactions detected
     if len([s for s in steps if s.action in ["click", "fill"]]) < 2:
@@ -703,8 +816,7 @@ def _build_node_map(node: dict, node_map: dict[int, str], parent_path: str = "")
         if classes:
             # Use first meaningful class
             meaningful_class = next(
-                (c for c in classes if not c.startswith("css-") and len(c) > 2),
-                classes[0]
+                (c for c in classes if not c.startswith("css-") and len(c) > 2), classes[0]
             )
             selector = f"{tag_name}.{meaningful_class}"
 

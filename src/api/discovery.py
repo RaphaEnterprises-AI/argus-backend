@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 import structlog
 
-from src.services.supabase_client import get_supabase_client
+from src.services.supabase_client import get_supabase_client, get_raw_supabase_client
 from src.agents.auto_discovery import AutoDiscovery, DiscoveryResult
 from src.services.crawlee_client import get_crawlee_client, CrawleeServiceUnavailable
 from src.discovery.engine import DiscoveryEngine, create_discovery_engine
@@ -43,7 +43,9 @@ def get_discovery_engine() -> DiscoveryEngine:
     """Get or create the singleton DiscoveryEngine."""
     global _discovery_engine
     if _discovery_engine is None:
-        supabase = get_supabase_client()
+        # Use raw supabase-py client for DiscoveryEngine/Repository
+        # which use the .table() query builder
+        supabase = get_raw_supabase_client()
         _discovery_engine = create_discovery_engine(supabase_client=supabase)
     return _discovery_engine
 
@@ -52,7 +54,8 @@ def get_discovery_repository() -> DiscoveryRepository:
     """Get or create the singleton DiscoveryRepository."""
     global _discovery_repository
     if _discovery_repository is None:
-        supabase = get_supabase_client()
+        # Use raw supabase-py client which has .table() method
+        supabase = get_raw_supabase_client()
         _discovery_repository = DiscoveryRepository(supabase_client=supabase)
     return _discovery_repository
 

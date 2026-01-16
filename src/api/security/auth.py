@@ -280,6 +280,28 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
                 logger.warning("Expired API key", key_id=key_data["id"])
                 return None
 
+        # SECURITY: Validate scopes - empty or None scopes means NO access
+        key_scopes = key_data.get("scopes")
+        if key_scopes is None:
+            logger.warning(
+                "API key denied: scopes is None (no permissions configured)",
+                key_id=key_data["id"]
+            )
+            return None
+        if not isinstance(key_scopes, list):
+            logger.warning(
+                "API key denied: scopes is not a list",
+                key_id=key_data["id"],
+                scopes_type=type(key_scopes).__name__
+            )
+            return None
+        if len(key_scopes) == 0:
+            logger.warning(
+                "API key denied: scopes is empty array (no permissions granted)",
+                key_id=key_data["id"]
+            )
+            return None
+
         # Update last used
         await supabase.update(
             "api_keys",
@@ -294,7 +316,7 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
             user_id=key_data.get("created_by") or "system",  # Handle NULL values
             organization_id=key_data["organization_id"],
             roles=["api_user"],
-            scopes=key_data.get("scopes", ["read"]),
+            scopes=key_scopes,  # Use validated scopes (already checked non-empty)
             auth_method=AuthMethod.API_KEY,
             api_key_id=key_data["id"],
             ip_address=get_client_ip(request),

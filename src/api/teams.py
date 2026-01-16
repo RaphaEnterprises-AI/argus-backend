@@ -302,15 +302,15 @@ async def verify_org_access(
             logger.error("Failed to sync Clerk org", org_id=organization_id, error=str(e))
             # Continue with verification - might still work if already synced
 
-    # Try by user_id first
+    # Try by user_id first (only active members)
     result = await supabase.request(
-        f"/organization_members?organization_id=eq.{organization_id}&user_id=eq.{user_id}&select=*"
+        f"/organization_members?organization_id=eq.{organization_id}&user_id=eq.{user_id}&status=eq.active&select=*"
     )
 
-    # If not found by user_id, try by email
+    # If not found by user_id, try by email (only active members)
     if (not result.get("data") or result.get("error")) and user_email:
         result = await supabase.request(
-            f"/organization_members?organization_id=eq.{organization_id}&email=eq.{user_email}&select=*"
+            f"/organization_members?organization_id=eq.{organization_id}&email=eq.{user_email}&status=eq.active&select=*"
         )
 
     if result.get("error") or not result.get("data"):
@@ -502,7 +502,7 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], request=request)
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -537,7 +537,7 @@ async def get_organization(org_id: str, request: Request):
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -581,7 +581,7 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
 async def list_members(org_id: str, request: Request):
     """List all members of an organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], request=request)
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -611,7 +611,7 @@ async def list_members(org_id: str, request: Request):
 async def invite_member(org_id: str, body: InviteMemberRequest, request: Request):
     """Invite a new member to the organization (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -687,7 +687,7 @@ async def update_member_role(
 ):
     """Update a member's role (owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -736,7 +736,7 @@ async def update_member_role(
 async def remove_member(org_id: str, member_id: str, request: Request):
     """Remove a member from the organization (admin/owner only)."""
     user = await get_current_user(request)
-    current_member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    current_member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 

@@ -62,6 +62,7 @@ from src.api.artifacts import router as artifacts_router
 from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.infra_optimizer import router as infra_optimizer_router
+from src.api.tests import router as tests_router
 
 # Security Module
 from src.api.security.middleware import (
@@ -80,8 +81,10 @@ logger = structlog.get_logger()
 # Frontend Alias Models
 # =============================================================================
 
+
 class SemanticSearchRequest(BaseModel):
     """Request for semantic search."""
+
     error_text: str = Field(..., description="Error text to search for similar patterns")
     limit: int = Field(5, le=20, description="Maximum results to return")
     min_score: float = Field(0.7, ge=0.0, le=1.0, description="Minimum similarity score")
@@ -89,15 +92,16 @@ class SemanticSearchRequest(BaseModel):
 
 class AutonomousLoopRequest(BaseModel):
     """Request for autonomous quality loop."""
+
     project_id: str = Field(..., description="Project ID")
     url: str = Field(..., description="Application URL to test")
     stages: list[str] = Field(
-        default=["discovery", "visual", "generation", "verification"],
-        description="Stages to run"
+        default=["discovery", "visual", "generation", "verification"], description="Stages to run"
     )
     discovery_depth: int = Field(2, ge=1, le=5, description="Crawl depth")
     auto_create_pr: bool = Field(False, description="Auto-create GitHub PR")
     github_config: Optional[dict] = Field(None, description="GitHub config for PR")
+
 
 # ============================================================================
 # App Configuration
@@ -138,8 +142,14 @@ Autonomous E2E testing powered by Claude AI.
         {"name": "Streaming", "description": "Server-Sent Events for real-time updates"},
         {"name": "Time Travel", "description": "State inspection and replay"},
         {"name": "Security", "description": "Security and audit endpoints"},
-        {"name": "Visual AI", "description": "Visual regression testing with AI-powered comparison"},
-        {"name": "Discovery", "description": "Intelligent application discovery and flow detection"},
+        {
+            "name": "Visual AI",
+            "description": "Visual regression testing with AI-powered comparison",
+        },
+        {
+            "name": "Discovery",
+            "description": "Intelligent application discovery and flow detection",
+        },
     ],
 )
 
@@ -232,6 +242,7 @@ app.include_router(artifacts_router)
 app.include_router(mcp_sessions_router)
 app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
+app.include_router(tests_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -241,8 +252,10 @@ jobs: dict[str, dict] = {}
 # Request/Response Models
 # ============================================================================
 
+
 class TestRunRequest(BaseModel):
     """Request to start a test run."""
+
     codebase_path: str = Field(..., description="Path to codebase to analyze")
     app_url: str = Field(..., description="URL of the application to test")
     pr_number: Optional[int] = Field(None, description="PR number for GitHub integration")
@@ -253,6 +266,7 @@ class TestRunRequest(BaseModel):
 
 class TestRunResponse(BaseModel):
     """Response after starting a test run."""
+
     job_id: str
     status: str
     message: str
@@ -261,6 +275,7 @@ class TestRunResponse(BaseModel):
 
 class JobStatusResponse(BaseModel):
     """Response for job status query."""
+
     job_id: str
     status: str  # pending, running, completed, failed
     progress: Optional[dict] = None
@@ -272,6 +287,7 @@ class JobStatusResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str
     version: str
     timestamp: str
@@ -280,6 +296,7 @@ class HealthResponse(BaseModel):
 
 class SecurityInfoResponse(BaseModel):
     """Security configuration info response."""
+
     authentication_enabled: bool
     rate_limiting_enabled: bool
     audit_logging_enabled: bool
@@ -290,6 +307,7 @@ class SecurityInfoResponse(BaseModel):
 
 class NLPTestRequest(BaseModel):
     """Request to create test from natural language."""
+
     description: str = Field(..., description="Plain English test description")
     app_url: str = Field("http://localhost:3000", description="Application URL to test")
     context: Optional[str] = Field(None, description="Additional context about the app")
@@ -297,6 +315,7 @@ class NLPTestRequest(BaseModel):
 
 class VisualCompareRequest(BaseModel):
     """Request to compare screenshots."""
+
     baseline_b64: str = Field(..., description="Base64 encoded baseline screenshot")
     current_b64: str = Field(..., description="Base64 encoded current screenshot")
     context: Optional[str] = Field(None, description="Context about what's being compared")
@@ -304,6 +323,7 @@ class VisualCompareRequest(BaseModel):
 
 class WebhookPayload(BaseModel):
     """Webhook payload for CI/CD integration."""
+
     action: str  # pr_opened, pr_updated, push
     repository: dict
     pull_request: Optional[dict] = None
@@ -313,6 +333,7 @@ class WebhookPayload(BaseModel):
 # ============================================================================
 # Health & Status Endpoints
 # ============================================================================
+
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
@@ -346,6 +367,7 @@ async def security_info():
 # Authentication Endpoints
 # ============================================================================
 
+
 @app.get("/api/v1/auth/me", tags=["Authentication"])
 async def get_current_user_info(request: Request):
     """Get current authenticated user information.
@@ -367,7 +389,9 @@ async def get_current_user_info(request: Request):
             "auth_method": user.auth_method,
             "session_id": user.session_id,
             "ip_address": user.ip_address,
-            "authenticated_at": user.authenticated_at.isoformat() if user.authenticated_at else None,
+            "authenticated_at": user.authenticated_at.isoformat()
+            if user.authenticated_at
+            else None,
         }
     except HTTPException as e:
         raise e
@@ -381,7 +405,18 @@ async def debug_jwt_token(request: Request):
     """Debug endpoint to show raw JWT claims (for development only).
 
     Shows all claims in the JWT token to help with session token customization.
+
+    SECURITY: This endpoint is only available in development/test environments.
     """
+    import os
+
+    # SECURITY: Only allow in development environments
+    environment = os.getenv("ENVIRONMENT", "development")
+    if environment not in ("development", "test", "local"):
+        raise HTTPException(
+            status_code=403, detail="Debug endpoint is only available in development environments"
+        )
+
     from src.api.security.auth import verify_clerk_jwt
     from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -395,22 +430,38 @@ async def debug_jwt_token(request: Request):
     # Try to decode as Clerk JWT
     clerk_payload = await verify_clerk_jwt(token)
     if clerk_payload:
+        # Redact sensitive claims in non-local environments
+        redacted_claims = {
+            k: (
+                v
+                if k in ("sub", "iss", "aud", "exp", "iat", "azp")
+                else "[REDACTED]"
+                if isinstance(v, str) and len(str(v)) > 20
+                else v
+            )
+            for k, v in clerk_payload.items()
+        }
         return {
             "token_type": "clerk_jwt",
-            "claims": clerk_payload,
+            "claims": redacted_claims,
             "available_keys": list(clerk_payload.keys()),
             "hint": "To add email/name, go to Clerk Dashboard → Sessions → Customize session token",
+            "note": "Some values redacted for security",
         }
 
     # Try to decode without verification to see claims
     try:
         import jwt
+
         unverified = jwt.decode(token, options={"verify_signature": False})
         return {
             "token_type": "unknown_jwt",
-            "claims": unverified,
+            "claims": {
+                k: "[REDACTED]" if k not in ("sub", "iss", "aud", "exp", "iat") else v
+                for k, v in unverified.items()
+            },
             "available_keys": list(unverified.keys()),
-            "warning": "Token signature not verified",
+            "warning": "Token signature not verified - values redacted",
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JWT: {str(e)}")
@@ -422,8 +473,11 @@ async def readiness_check():
     settings = get_settings()
 
     checks = {
-        "anthropic_api": settings.anthropic_api_key is not None and bool(
-            settings.anthropic_api_key.get_secret_value() if hasattr(settings.anthropic_api_key, 'get_secret_value') else settings.anthropic_api_key
+        "anthropic_api": settings.anthropic_api_key is not None
+        and bool(
+            settings.anthropic_api_key.get_secret_value()
+            if hasattr(settings.anthropic_api_key, "get_secret_value")
+            else settings.anthropic_api_key
         ),
         "output_dir": os.path.exists(settings.output_dir),
     }
@@ -436,13 +490,14 @@ async def readiness_check():
             "ready": all_ready,
             "checks": checks,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        },
     )
 
 
 # ============================================================================
 # Test Run Endpoints
 # ============================================================================
+
 
 @app.post("/api/v1/tests/run", response_model=TestRunResponse, tags=["Testing"])
 async def start_test_run(request: TestRunRequest, background_tasks: BackgroundTasks):
@@ -584,6 +639,7 @@ async def list_jobs(limit: int = 20, status: Optional[str] = None):
 # NLP Test Creation Endpoints
 # ============================================================================
 
+
 @app.post("/api/v1/tests/create", tags=["NLP Testing"])
 async def create_test_from_nlp(request: NLPTestRequest):
     """
@@ -610,6 +666,7 @@ async def create_test_from_nlp(request: NLPTestRequest):
 # ============================================================================
 # Visual AI Endpoints
 # ============================================================================
+
 
 @app.post("/api/v1/visual/compare", tags=["Visual AI"])
 async def compare_screenshots(request: VisualCompareRequest):
@@ -641,6 +698,7 @@ async def compare_screenshots(request: VisualCompareRequest):
 # Auto-Discovery Endpoints
 # ============================================================================
 
+
 @app.post("/api/v1/discover", tags=["Auto-Discovery"])
 async def discover_tests(
     app_url: str,
@@ -671,6 +729,7 @@ async def discover_tests(
 # ============================================================================
 # Webhook Endpoints (CI/CD Integration)
 # ============================================================================
+
 
 @app.post("/api/v1/webhooks/github", tags=["Webhooks"])
 async def github_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -720,6 +779,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 # Reports Endpoints
 # ============================================================================
 
+
 @app.get("/api/v1/reports/{job_id}", tags=["Reports"])
 async def get_report(job_id: str, format: str = "json"):
     """
@@ -764,6 +824,7 @@ async def get_report(job_id: str, format: str = "json"):
 # Frontend API Aliases (Match dashboard expectations)
 # ============================================================================
 
+
 @app.get("/api/quality-score", tags=["Frontend Aliases"])
 async def frontend_quality_score(project_id: str):
     """Alias for /api/v1/quality/score - matches frontend expectations."""
@@ -775,18 +836,58 @@ async def frontend_quality_score(project_id: str):
             "success": True,
             "project_id": project_id,
             "overall_score": result.get("quality_score", 50),
-            "grade": "A" if result.get("quality_score", 0) >= 90 else "B" if result.get("quality_score", 0) >= 80 else "C" if result.get("quality_score", 0) >= 70 else "D" if result.get("quality_score", 0) >= 60 else "F",
-            "grade_color": "green" if result.get("quality_score", 0) >= 80 else "yellow" if result.get("quality_score", 0) >= 60 else "red",
+            "grade": "A"
+            if result.get("quality_score", 0) >= 90
+            else "B"
+            if result.get("quality_score", 0) >= 80
+            else "C"
+            if result.get("quality_score", 0) >= 70
+            else "D"
+            if result.get("quality_score", 0) >= 60
+            else "F",
+            "grade_color": "green"
+            if result.get("quality_score", 0) >= 80
+            else "yellow"
+            if result.get("quality_score", 0) >= 60
+            else "red",
             "component_scores": {
-                "error_management": {"score": 100 - (result.get("total_events", 0) * 2), "label": "Error Management", "description": "How well errors are tracked and resolved"},
-                "test_coverage": {"score": result.get("test_coverage", 0), "label": "Test Coverage", "description": "Percentage of errors covered by tests"},
-                "risk_mitigation": {"score": 100 - (50 if result.get("risk_level") == "high" else 25 if result.get("risk_level") == "medium" else 0), "label": "Risk Mitigation", "description": "How well high-risk areas are addressed"},
-                "automation": {"score": min(100, result.get("approved_tests", 0) * 10), "label": "Automation", "description": "Level of test automation"},
-                "prevention": {"score": result.get("quality_score", 50), "label": "Prevention", "description": "Proactive error prevention"},
+                "error_management": {
+                    "score": 100 - (result.get("total_events", 0) * 2),
+                    "label": "Error Management",
+                    "description": "How well errors are tracked and resolved",
+                },
+                "test_coverage": {
+                    "score": result.get("test_coverage", 0),
+                    "label": "Test Coverage",
+                    "description": "Percentage of errors covered by tests",
+                },
+                "risk_mitigation": {
+                    "score": 100
+                    - (
+                        50
+                        if result.get("risk_level") == "high"
+                        else 25
+                        if result.get("risk_level") == "medium"
+                        else 0
+                    ),
+                    "label": "Risk Mitigation",
+                    "description": "How well high-risk areas are addressed",
+                },
+                "automation": {
+                    "score": min(100, result.get("approved_tests", 0) * 10),
+                    "label": "Automation",
+                    "description": "Level of test automation",
+                },
+                "prevention": {
+                    "score": result.get("quality_score", 50),
+                    "label": "Prevention",
+                    "description": "Proactive error prevention",
+                },
             },
             "metrics": {
                 "total_events": result.get("total_events", 0),
-                "unresolved_events": result.get("total_events", 0) - result.get("approved_tests", 0),
+                "unresolved_events": result.get("total_events", 0)
+                - result.get("approved_tests", 0),
                 "tests_generated": result.get("total_tests", 0),
                 "tests_approved": result.get("approved_tests", 0),
                 "avg_confidence": 0.85,
@@ -854,20 +955,20 @@ async def semantic_search(request: SemanticSearchRequest):
     # Try Cloudflare Vectorize first (semantic search)
     try:
         vectorize_results = await semantic_search_errors(
-            error_text=request.error_text,
-            limit=request.limit,
-            min_score=request.min_score
+            error_text=request.error_text, limit=request.limit, min_score=request.min_score
         )
 
         for result in vectorize_results:
-            similar_patterns.append({
-                "id": result.get("id"),
-                "score": round(result.get("score", 0), 3),
-                "pattern_hash": result.get("metadata", {}).get("fingerprint", ""),
-                "category": result.get("metadata", {}).get("severity", "error"),
-                "example_message": result.get("metadata", {}).get("message", "")[:200],
-                "known_solutions": result.get("metadata", {}).get("solutions", []),
-            })
+            similar_patterns.append(
+                {
+                    "id": result.get("id"),
+                    "score": round(result.get("score", 0), 3),
+                    "pattern_hash": result.get("metadata", {}).get("fingerprint", ""),
+                    "category": result.get("metadata", {}).get("severity", "error"),
+                    "example_message": result.get("metadata", {}).get("message", "")[:200],
+                    "known_solutions": result.get("metadata", {}).get("solutions", []),
+                }
+            )
     except Exception as e:
         logger.warning(f"Vectorize search failed, using fallback: {e}")
 
@@ -893,17 +994,19 @@ async def semantic_search(request: SemanticSearchRequest):
             score = intersection / union if union > 0 else 0
 
             if score >= request.min_score:
-                similar_patterns.append({
-                    "id": event.get("id"),
-                    "score": round(score, 3),
-                    "pattern_hash": hashlib.md5(event_text[:100].encode()).hexdigest()[:12],
-                    "category": event.get("severity", "error"),
-                    "example_message": event.get("message", "")[:200],
-                    "known_solutions": [],
-                })
+                similar_patterns.append(
+                    {
+                        "id": event.get("id"),
+                        "score": round(score, 3),
+                        "pattern_hash": hashlib.md5(event_text[:100].encode()).hexdigest()[:12],
+                        "category": event.get("severity", "error"),
+                        "example_message": event.get("message", "")[:200],
+                        "known_solutions": [],
+                    }
+                )
 
         similar_patterns.sort(key=lambda x: x["score"], reverse=True)
-        similar_patterns = similar_patterns[:request.limit]
+        similar_patterns = similar_patterns[: request.limit]
 
     return {
         "success": True,
@@ -911,7 +1014,9 @@ async def semantic_search(request: SemanticSearchRequest):
         "patterns": similar_patterns,
         "count": len(similar_patterns),
         "has_solutions": any(p.get("known_solutions") for p in similar_patterns),
-        "search_method": "vectorize" if similar_patterns and len(similar_patterns) > 0 else "jaccard"
+        "search_method": "vectorize"
+        if similar_patterns and len(similar_patterns) > 0
+        else "jaccard",
     }
 
 
@@ -934,18 +1039,21 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
 
     # Create job record
     supabase = get_supabase_client()
-    await supabase.insert("test_generation_jobs", {
-        "id": job_id,
-        "project_id": request.project_id,
-        "status": "running",
-        "job_type": "autonomous_loop",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "metadata": {
-            "stages": request.stages,
-            "url": request.url,
-            "discovery_depth": request.discovery_depth,
+    await supabase.insert(
+        "test_generation_jobs",
+        {
+            "id": job_id,
+            "project_id": request.project_id,
+            "status": "running",
+            "job_type": "autonomous_loop",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "metadata": {
+                "stages": request.stages,
+                "url": request.url,
+                "discovery_depth": request.discovery_depth,
+            },
         },
-    })
+    )
 
     # Run stages in background
     async def run_autonomous_loop():
@@ -1039,25 +1147,35 @@ async def predictive_quality(
     # Analyze high-risk entities
     for risk in risk_scores[:10]:
         if risk.get("overall_risk_score", 0) >= 60:
-            predictions.append({
-                "entity": risk.get("entity_identifier", "Unknown"),
-                "entity_type": risk.get("entity_type", "component"),
-                "prediction_score": min(100, risk.get("overall_risk_score", 0) + 10),
-                "predicted_timeframe": timeframe,
-                "risk_factors": [
-                    "High error frequency" if risk.get("factors", {}).get("error_frequency", 0) > 50 else None,
-                    "Critical severity errors" if risk.get("factors", {}).get("error_severity", 0) > 70 else None,
-                    "Low test coverage" if risk.get("factors", {}).get("test_coverage", 100) > 80 else None,
-                    "High user impact" if risk.get("factors", {}).get("user_impact", 0) > 50 else None,
-                ],
-                "recommendations": [
-                    "Add more test coverage for this component",
-                    "Investigate recent error patterns",
-                    "Consider adding monitoring alerts",
-                ],
-                "similar_past_failures": risk.get("error_count", 0),
-                "confidence": 0.75,
-            })
+            predictions.append(
+                {
+                    "entity": risk.get("entity_identifier", "Unknown"),
+                    "entity_type": risk.get("entity_type", "component"),
+                    "prediction_score": min(100, risk.get("overall_risk_score", 0) + 10),
+                    "predicted_timeframe": timeframe,
+                    "risk_factors": [
+                        "High error frequency"
+                        if risk.get("factors", {}).get("error_frequency", 0) > 50
+                        else None,
+                        "Critical severity errors"
+                        if risk.get("factors", {}).get("error_severity", 0) > 70
+                        else None,
+                        "Low test coverage"
+                        if risk.get("factors", {}).get("test_coverage", 100) > 80
+                        else None,
+                        "High user impact"
+                        if risk.get("factors", {}).get("user_impact", 0) > 50
+                        else None,
+                    ],
+                    "recommendations": [
+                        "Add more test coverage for this component",
+                        "Investigate recent error patterns",
+                        "Consider adding monitoring alerts",
+                    ],
+                    "similar_past_failures": risk.get("error_count", 0),
+                    "confidence": 0.75,
+                }
+            )
             # Filter None values from risk_factors
             predictions[-1]["risk_factors"] = [f for f in predictions[-1]["risk_factors"] if f]
 
@@ -1066,8 +1184,10 @@ async def predictive_quality(
     medium_risk = sum(1 for p in predictions if 60 <= p["prediction_score"] < 80)
 
     # Generate AI summary based on analysis
-    ai_summary = f"Based on {len(events)} recent events and {len(risk_scores)} risk assessments, " \
-                f"we predict {high_risk} high-risk and {medium_risk} medium-risk components may experience issues."
+    ai_summary = (
+        f"Based on {len(events)} recent events and {len(risk_scores)} risk assessments, "
+        f"we predict {high_risk} high-risk and {medium_risk} medium-risk components may experience issues."
+    )
 
     return {
         "success": True,
@@ -1095,17 +1215,22 @@ async def predictive_quality(
 # Supervisor Orchestrator Endpoints
 # ============================================================================
 
+
 class SupervisorStartRequest(BaseModel):
     """Request to start a supervised test run."""
+
     codebase_path: str = Field(..., description="Path to codebase to analyze")
     app_url: str = Field(..., description="URL of the application to test")
     pr_number: Optional[int] = Field(None, description="PR number for GitHub integration")
     changed_files: Optional[list[str]] = Field(None, description="Specific files to focus on")
-    initial_message: Optional[str] = Field(None, description="Custom initial message to the supervisor")
+    initial_message: Optional[str] = Field(
+        None, description="Custom initial message to the supervisor"
+    )
 
 
 class SupervisorStartResponse(BaseModel):
     """Response after starting a supervised test run."""
+
     thread_id: str
     status: str
     message: str
@@ -1116,6 +1241,7 @@ class SupervisorStartResponse(BaseModel):
 
 class SupervisorStatusResponse(BaseModel):
     """Response for supervisor status query."""
+
     thread_id: str
     status: str  # running, paused, completed, failed
     current_phase: str
@@ -1132,8 +1258,14 @@ class SupervisorStatusResponse(BaseModel):
 supervisor_jobs: dict[str, dict] = {}
 
 
-@app.post("/api/v1/orchestrator/supervisor/start", response_model=SupervisorStartResponse, tags=["Supervisor"])
-async def start_supervised_test_run(request: SupervisorStartRequest, background_tasks: BackgroundTasks):
+@app.post(
+    "/api/v1/orchestrator/supervisor/start",
+    response_model=SupervisorStartResponse,
+    tags=["Supervisor"],
+)
+async def start_supervised_test_run(
+    request: SupervisorStartRequest, background_tasks: BackgroundTasks
+):
     """
     Start a new supervised test run using the multi-agent supervisor pattern.
 
@@ -1193,20 +1325,23 @@ async def start_supervised_test_run(request: SupervisorStartRequest, background_
             summary = orchestrator.get_summary(final_state)
 
             # Update job with results
-            supervisor_jobs[thread_id].update({
-                "status": "completed",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "current_phase": final_state.get("current_phase", "complete"),
-                "iteration": final_state.get("iteration", 0),
-                "is_complete": True,
-                "result": summary,
-                "progress": {
-                    "phase": "completed",
-                    "tests_completed": final_state.get("passed_count", 0) + final_state.get("failed_count", 0),
-                    "passed": final_state.get("passed_count", 0),
-                    "failed": final_state.get("failed_count", 0),
-                },
-            })
+            supervisor_jobs[thread_id].update(
+                {
+                    "status": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "current_phase": final_state.get("current_phase", "complete"),
+                    "iteration": final_state.get("iteration", 0),
+                    "is_complete": True,
+                    "result": summary,
+                    "progress": {
+                        "phase": "completed",
+                        "tests_completed": final_state.get("passed_count", 0)
+                        + final_state.get("failed_count", 0),
+                        "passed": final_state.get("passed_count", 0),
+                        "failed": final_state.get("failed_count", 0),
+                    },
+                }
+            )
 
             logger.info(
                 "Supervised test run completed",
@@ -1218,11 +1353,13 @@ async def start_supervised_test_run(request: SupervisorStartRequest, background_
 
         except Exception as e:
             logger.exception("Supervised test run failed", thread_id=thread_id, error=str(e))
-            supervisor_jobs[thread_id].update({
-                "status": "failed",
-                "error": str(e),
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            })
+            supervisor_jobs[thread_id].update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
     background_tasks.add_task(run_supervised_tests)
 
@@ -1242,7 +1379,11 @@ async def start_supervised_test_run(request: SupervisorStartRequest, background_
     )
 
 
-@app.get("/api/v1/orchestrator/supervisor/status/{thread_id}", response_model=SupervisorStatusResponse, tags=["Supervisor"])
+@app.get(
+    "/api/v1/orchestrator/supervisor/status/{thread_id}",
+    response_model=SupervisorStatusResponse,
+    tags=["Supervisor"],
+)
 async def get_supervisor_status(thread_id: str):
     """
     Get the status of a supervised test run.
@@ -1273,7 +1414,10 @@ async def list_supervisor_agents():
     """
     List available supervisor agents and their descriptions.
     """
-    from src.orchestrator.supervisor import AGENTS as SUPERVISOR_AGENTS, AGENT_DESCRIPTIONS as SUPERVISOR_AGENT_DESCRIPTIONS
+    from src.orchestrator.supervisor import (
+        AGENTS as SUPERVISOR_AGENTS,
+        AGENT_DESCRIPTIONS as SUPERVISOR_AGENT_DESCRIPTIONS,
+    )
 
     return {
         "agents": [
@@ -1337,7 +1481,7 @@ async def resume_supervisor_run(thread_id: str, background_tasks: BackgroundTask
     if job.get("status") not in ["paused", "pending"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot resume job with status '{job.get('status')}'. Only paused or pending jobs can be resumed."
+            detail=f"Cannot resume job with status '{job.get('status')}'. Only paused or pending jobs can be resumed.",
         )
 
     # Get original request
@@ -1361,24 +1505,28 @@ async def resume_supervisor_run(thread_id: str, background_tasks: BackgroundTask
             # Update job with results
             summary = orchestrator.get_summary(final_state)
 
-            supervisor_jobs[thread_id].update({
-                "status": "completed",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "current_phase": final_state.get("current_phase", "complete"),
-                "iteration": final_state.get("iteration", 0),
-                "is_complete": True,
-                "result": summary,
-            })
+            supervisor_jobs[thread_id].update(
+                {
+                    "status": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "current_phase": final_state.get("current_phase", "complete"),
+                    "iteration": final_state.get("iteration", 0),
+                    "is_complete": True,
+                    "result": summary,
+                }
+            )
 
             logger.info("Supervised test run resumed and completed", thread_id=thread_id)
 
         except Exception as e:
             logger.exception("Supervised test run resume failed", thread_id=thread_id, error=str(e))
-            supervisor_jobs[thread_id].update({
-                "status": "failed",
-                "error": str(e),
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            })
+            supervisor_jobs[thread_id].update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
     background_tasks.add_task(resume_supervised_run)
 
@@ -1404,15 +1552,17 @@ async def abort_supervisor_run(thread_id: str, reason: str = "Aborted by user"):
     if job.get("status") in ["completed", "failed"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot abort job with status '{job.get('status')}'. Job is already finished."
+            detail=f"Cannot abort job with status '{job.get('status')}'. Job is already finished.",
         )
 
     # Update job status
-    supervisor_jobs[thread_id].update({
-        "status": "failed",
-        "error": reason,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-    })
+    supervisor_jobs[thread_id].update(
+        {
+            "status": "failed",
+            "error": reason,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
     logger.info("Supervised test run aborted", thread_id=thread_id, reason=reason)
 
@@ -1426,6 +1576,7 @@ async def abort_supervisor_run(thread_id: str, reason: str = "Aborted by user"):
 # ============================================================================
 # Error Handlers
 # ============================================================================
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -1443,6 +1594,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ============================================================================
 # Custom OpenAPI Schema with Security
 # ============================================================================
+
 
 def custom_openapi():
     """Generate custom OpenAPI schema with security schemes."""
@@ -1518,6 +1670,7 @@ app.openapi = custom_openapi
 # ============================================================================
 # Startup/Shutdown Events
 # ============================================================================
+
 
 @app.on_event("startup")
 async def startup():

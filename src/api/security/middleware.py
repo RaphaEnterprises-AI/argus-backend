@@ -39,19 +39,21 @@ logger = structlog.get_logger()
 # Rate Limiting Configuration
 # =============================================================================
 
+
 class RateLimitConfig:
     """Rate limiting configuration."""
 
     # Default limits (requests per minute)
-    DEFAULT_LIMIT = 60
+    # Increased from 60 to 120 for better E2E testing support
+    DEFAULT_LIMIT = 120
     DEFAULT_WINDOW = 60  # seconds
 
-    # Tier-based limits
+    # Tier-based limits (increased across the board)
     TIER_LIMITS = {
-        "free": {"requests": 30, "window": 60},
-        "starter": {"requests": 60, "window": 60},
-        "pro": {"requests": 300, "window": 60},
-        "enterprise": {"requests": 1000, "window": 60},
+        "free": {"requests": 60, "window": 60},  # Increased from 30
+        "starter": {"requests": 120, "window": 60},  # Increased from 60
+        "pro": {"requests": 600, "window": 60},  # Increased from 300
+        "enterprise": {"requests": 2000, "window": 60},  # Increased from 1000
         "unlimited": {"requests": float("inf"), "window": 60},
     }
 
@@ -75,6 +77,7 @@ class RateLimitConfig:
 # =============================================================================
 # Authentication Middleware
 # =============================================================================
+
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """Global authentication middleware.
@@ -104,15 +107,17 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         # SECURITY: This should NEVER be used in production
         if not self.enforce_auth:
             import os
+
             env = os.getenv("ENVIRONMENT", "development")
             if env not in ("development", "test", "local"):
+                # CRITICAL: Do NOT bypass auth in production!
+                # Log error and continue to actual auth flow
                 logger.error(
-                    "SECURITY: enforce_auth=False in non-development environment!",
+                    "SECURITY: enforce_auth=False in non-development environment! Auth will be enforced.",
                     environment=env,
                     path=request.url.path,
                 )
-                # Force authentication in non-dev environments
-                pass  # Continue to actual auth flow below
+                # Fall through to normal auth flow below (do not bypass)
             else:
                 # Development mode: use fixed dev user, NOT from headers
                 # SECURITY: Don't accept x-user-id from headers - that's an auth bypass
@@ -136,7 +141,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Check API key header
         api_key = request.headers.get("x-api-key")
-        logger.debug("Auth check", has_api_key=bool(api_key), api_key_prefix=api_key[:16] if api_key else None)
+        logger.debug(
+            "Auth check",
+            has_api_key=bool(api_key),
+            api_key_prefix=api_key[:16] if api_key else None,
+        )
         if api_key:
             user = await authenticate_api_key(api_key, request)
             logger.debug("API key auth result", authenticated=bool(user))
@@ -187,6 +196,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # Rate Limiting Middleware
 # =============================================================================
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting middleware with per-user and per-IP limits."""
@@ -247,8 +257,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         async with self._lock:
             # Clean old requests
             self._request_counts[key] = [
-                ts for ts in self._request_counts[key]
-                if ts > now - window
+                ts for ts in self._request_counts[key] if ts > now - window
             ]
 
             # Check if over limit
@@ -296,6 +305,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 # Audit Logging Middleware
 # =============================================================================
 
+
 class AuditLogMiddleware(BaseHTTPMiddleware):
     """Comprehensive audit logging for SOC2 compliance.
 
@@ -329,9 +339,19 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
             return data
 
         sensitive_fields = fields or {
-            "password", "secret", "token", "api_key", "apikey",
-            "authorization", "credential", "private_key", "access_token",
-            "refresh_token", "ssn", "credit_card", "card_number",
+            "password",
+            "secret",
+            "token",
+            "api_key",
+            "apikey",
+            "authorization",
+            "credential",
+            "private_key",
+            "access_token",
+            "refresh_token",
+            "ssn",
+            "credit_card",
+            "card_number",
         }
 
         masked = {}
@@ -343,8 +363,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 masked[key] = self._mask_sensitive_data(value, sensitive_fields)
             elif isinstance(value, list):
                 masked[key] = [
-                    self._mask_sensitive_data(v, sensitive_fields)
-                    if isinstance(v, dict) else v
+                    self._mask_sensitive_data(v, sensitive_fields) if isinstance(v, dict) else v
                     for v in value
                 ]
             else:
@@ -401,11 +420,13 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
             duration_ms = (time.time() - start_time) * 1000
 
             # Complete audit entry
-            audit_entry.update({
-                "duration_ms": round(duration_ms, 2),
-                "status_code": response.status_code if response else 500,
-                "error": error,
-            })
+            audit_entry.update(
+                {
+                    "duration_ms": round(duration_ms, 2),
+                    "status_code": response.status_code if response else 500,
+                    "error": error,
+                }
+            )
 
             # Log based on sensitivity and status
             if response and response.status_code >= 400:
@@ -465,27 +486,30 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 if not self._is_valid_uuid(org_id):
                     org_id = None
 
-                await supabase.insert("security_audit_logs", {
-                    "event_type": entry["event_type"],
-                    "severity": severity,
-                    "user_id": entry["user_id"],
-                    "organization_id": org_id,
-                    "request_id": entry["request_id"],
-                    "ip_address": entry["client_ip"],
-                    "user_agent": entry.get("user_agent"),
-                    "method": entry["method"],
-                    "path": entry["path"],
-                    "resource_type": "api_request",
-                    "action": f"{entry['method']} {entry['path']}",
-                    "description": f"API {entry['method']} request to {entry['path']}",
-                    "outcome": outcome,
-                    "status_code": status_code,
-                    "duration_ms": duration_int,
-                    "metadata": {
-                        "query_params": entry.get("query_params"),
-                        "error": entry.get("error"),
+                await supabase.insert(
+                    "security_audit_logs",
+                    {
+                        "event_type": entry["event_type"],
+                        "severity": severity,
+                        "user_id": entry["user_id"],
+                        "organization_id": org_id,
+                        "request_id": entry["request_id"],
+                        "ip_address": entry["client_ip"],
+                        "user_agent": entry.get("user_agent"),
+                        "method": entry["method"],
+                        "path": entry["path"],
+                        "resource_type": "api_request",
+                        "action": f"{entry['method']} {entry['path']}",
+                        "description": f"API {entry['method']} request to {entry['path']}",
+                        "outcome": outcome,
+                        "status_code": status_code,
+                        "duration_ms": duration_int,
+                        "metadata": {
+                            "query_params": entry.get("query_params"),
+                            "error": entry.get("error"),
+                        },
                     },
-                })
+                )
         except Exception as e:
             logger.error("Failed to store audit log", error=str(e))
 
@@ -493,6 +517,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # Combined Security Middleware
 # =============================================================================
+
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Combined security middleware for SOC2 compliance.

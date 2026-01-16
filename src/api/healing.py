@@ -24,8 +24,10 @@ router = APIRouter(prefix="/api/v1/healing", tags=["Self-Healing"])
 # Request/Response Models
 # ============================================================================
 
+
 class HealingConfigRequest(BaseModel):
     """Request to update healing configuration."""
+
     enabled: Optional[bool] = None
     auto_apply: Optional[bool] = None
     min_confidence_auto: Optional[float] = Field(None, ge=0.5, le=1.0)
@@ -52,6 +54,7 @@ class HealingConfigRequest(BaseModel):
 
 class HealingConfigResponse(BaseModel):
     """Healing configuration response."""
+
     id: str
     organization_id: str
     project_id: Optional[str]
@@ -83,6 +86,7 @@ class HealingConfigResponse(BaseModel):
 
 class HealingPatternResponse(BaseModel):
     """Healing pattern response."""
+
     id: str
     fingerprint: str
     original_selector: str
@@ -97,6 +101,7 @@ class HealingPatternResponse(BaseModel):
 
 class HealingStatsResponse(BaseModel):
     """Healing statistics response."""
+
     total_patterns: int
     total_heals_applied: int
     total_heals_suggested: int
@@ -114,15 +119,12 @@ class HealingStatsResponse(BaseModel):
 # Configuration Endpoints
 # ============================================================================
 
+
 @router.get("/organizations/{org_id}/config", response_model=HealingConfigResponse)
-async def get_healing_config(
-    org_id: str,
-    request: Request,
-    project_id: Optional[str] = None
-):
+async def get_healing_config(org_id: str, request: Request, project_id: Optional[str] = None):
     """Get healing configuration for organization (optionally project-specific)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], request=request)
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -141,9 +143,12 @@ async def get_healing_config(
 
     if not result.get("data"):
         # Create default config
-        default = await supabase.insert("self_healing_config", {
-            "organization_id": org_id,
-        })
+        default = await supabase.insert(
+            "self_healing_config",
+            {
+                "organization_id": org_id,
+            },
+        )
         if default.get("data"):
             return _config_to_response(default["data"][0])
         raise HTTPException(status_code=500, detail="Failed to create default config")
@@ -153,14 +158,11 @@ async def get_healing_config(
 
 @router.put("/organizations/{org_id}/config", response_model=HealingConfigResponse)
 async def update_healing_config(
-    org_id: str,
-    body: HealingConfigRequest,
-    request: Request,
-    project_id: Optional[str] = None
+    org_id: str, body: HealingConfigRequest, request: Request, project_id: Optional[str] = None
 ):
     """Update healing configuration."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -184,11 +186,7 @@ async def update_healing_config(
     if existing.get("data"):
         # Update existing
         config_id = existing["data"][0]["id"]
-        await supabase.update(
-            "self_healing_config",
-            {"id": f"eq.{config_id}"},
-            update_data
-        )
+        await supabase.update("self_healing_config", {"id": f"eq.{config_id}"}, update_data)
     else:
         # Create new
         update_data["organization_id"] = org_id
@@ -227,7 +225,9 @@ def _config_to_response(config: dict) -> HealingConfigResponse:
         min_confidence_suggest=float(config.get("min_confidence_suggest", 0.70)),
         heal_selectors=config.get("heal_selectors", True),
         max_selector_variations=config.get("max_selector_variations", 9),
-        preferred_selector_strategies=config.get("preferred_selector_strategies", ["id", "data-testid", "role", "text", "css"]),
+        preferred_selector_strategies=config.get(
+            "preferred_selector_strategies", ["id", "data-testid", "role", "text", "css"]
+        ),
         heal_timeouts=config.get("heal_timeouts", True),
         max_wait_time_ms=config.get("max_wait_time_ms", 30000),
         heal_text_content=config.get("heal_text_content", True),
@@ -252,6 +252,7 @@ def _config_to_response(config: dict) -> HealingConfigResponse:
 # Patterns Endpoints
 # ============================================================================
 
+
 @router.get("/organizations/{org_id}/patterns", response_model=list[HealingPatternResponse])
 async def list_healing_patterns(
     org_id: str,
@@ -263,14 +264,12 @@ async def list_healing_patterns(
 ):
     """List learned healing patterns."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], request=request)
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get projects for this org
-    projects = await supabase.request(
-        f"/projects?organization_id=eq.{org_id}&select=id"
-    )
+    projects = await supabase.request(f"/projects?organization_id=eq.{org_id}&select=id")
     project_ids = [p["id"] for p in projects.get("data", [])]
 
     if not project_ids:
@@ -310,7 +309,7 @@ async def list_healing_patterns(
 async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request):
     """Delete a healing pattern."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -344,6 +343,7 @@ async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request)
 # Statistics Endpoints
 # ============================================================================
 
+
 @router.get("/organizations/{org_id}/stats", response_model=HealingStatsResponse)
 async def get_healing_stats(
     org_id: str,
@@ -352,7 +352,7 @@ async def get_healing_stats(
 ):
     """Get healing statistics for the organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], request=request)
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -362,9 +362,7 @@ async def get_healing_stats(
     month_ago = (now - timedelta(days=30)).isoformat()
 
     # Get projects for this org
-    projects = await supabase.request(
-        f"/projects?organization_id=eq.{org_id}&select=id,name"
-    )
+    projects = await supabase.request(f"/projects?organization_id=eq.{org_id}&select=id,name")
     project_data = {p["id"]: p["name"] for p in projects.get("data", [])}
     project_ids = list(project_data.keys())
 
@@ -390,9 +388,7 @@ async def get_healing_stats(
         project_filter = f"project_id=in.({','.join(project_ids)})"
 
     # Get all patterns
-    patterns = await supabase.request(
-        f"/healing_patterns?{project_filter}&select=*"
-    )
+    patterns = await supabase.request(f"/healing_patterns?{project_filter}&select=*")
     patterns_data = patterns.get("data", [])
 
     # Calculate stats
@@ -451,6 +447,7 @@ async def get_healing_stats(
 # Approval Endpoints
 # ============================================================================
 
+
 @router.get("/organizations/{org_id}/pending-approvals")
 async def get_pending_approvals(
     org_id: str,
@@ -459,7 +456,7 @@ async def get_pending_approvals(
 ):
     """Get healing suggestions pending approval."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], request=request)
+    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     # For now, return empty list - would be populated by actual healing suggestions
     # This would query a healing_suggestions table in production
@@ -474,16 +471,19 @@ async def get_pending_approvals(
 async def approve_healing(org_id: str, pattern_id: str, request: Request):
     """Approve a healing suggestion."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
-    # Update pattern as approved (increment success count)
-    await supabase.request(
-        f"/healing_patterns?id=eq.{pattern_id}",
-        method="PATCH",
-        json={"success_count": "success_count + 1"}
+    # Use atomic RPC function to increment success count (prevents race conditions)
+    result = await supabase.request(
+        "/rpc/increment_healing_success", method="POST", json={"pattern_id": pattern_id}
     )
+
+    if result.get("error"):
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update healing pattern: {result.get('error')}"
+        )
 
     # Audit log
     await log_audit(
@@ -504,16 +504,19 @@ async def approve_healing(org_id: str, pattern_id: str, request: Request):
 async def reject_healing(org_id: str, pattern_id: str, request: Request):
     """Reject a healing suggestion."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], request=request)
+    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
-    # Update pattern as rejected (increment failure count)
-    await supabase.request(
-        f"/healing_patterns?id=eq.{pattern_id}",
-        method="PATCH",
-        json={"failure_count": "failure_count + 1"}
+    # Use atomic RPC function to increment failure count (prevents race conditions)
+    result = await supabase.request(
+        "/rpc/increment_healing_failure", method="POST", json={"pattern_id": pattern_id}
     )
+
+    if result.get("error"):
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update healing pattern: {result.get('error')}"
+        )
 
     # Audit log
     await log_audit(

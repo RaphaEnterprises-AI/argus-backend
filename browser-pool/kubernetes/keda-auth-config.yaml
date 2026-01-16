@@ -36,8 +36,10 @@ stringData:
   authModes: "basic"
   # Basic auth username
   username: "selenium"
-  # Basic auth password (generate with: openssl rand -base64 32)
-  password: "changeme"
+  # SECURITY: Generate a strong password before deployment!
+  # Run: openssl rand -base64 32
+  # Then set via: kubectl create secret generic selenium-credentials --from-literal=password=$(openssl rand -base64 32) -n selenium-grid
+  password: "${SELENIUM_AUTH_PASSWORD:-CHANGE_ME_GENERATE_STRONG_PASSWORD}"
 
 ---
 # TLS Certificate for secure Selenium Hub communication
@@ -90,10 +92,13 @@ metadata:
 type: Opaque
 stringData:
   authModes: "bearer"
-  # Bearer token for Prometheus API
-  bearerToken: "your-bearer-token-here"
+  # SECURITY: Generate a strong bearer token before deployment!
+  # Run: openssl rand -hex 32
+  # Then set via: kubectl create secret generic prometheus-credentials --from-literal=bearerToken=$(openssl rand -hex 32) -n selenium-grid
+  bearerToken: "${PROMETHEUS_BEARER_TOKEN:-CHANGE_ME_GENERATE_STRONG_TOKEN}"
   username: "prometheus"
-  password: "prometheus"
+  # SECURITY: Generate a strong password before deployment!
+  password: "${PROMETHEUS_AUTH_PASSWORD:-CHANGE_ME_GENERATE_STRONG_PASSWORD}"
 
 ---
 # Prometheus TLS certificates

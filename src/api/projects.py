@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import structlog
 
 from src.services.supabase_client import get_supabase_client
@@ -22,6 +22,19 @@ from src.api.context import get_current_organization_id, require_organization_id
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Projects"])
+
+
+# ============================================================================
+# Validation Helpers
+# ============================================================================
+
+def validate_url(url: str | None, field_name: str) -> str | None:
+    """Validate that a URL starts with http:// or https://."""
+    if url is None:
+        return None
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"{field_name} must start with http:// or https://")
+    return url
 
 
 # ============================================================================
@@ -37,6 +50,16 @@ class CreateProjectRequest(BaseModel):
     repository_url: Optional[str] = Field(None, max_length=500)
     settings: Optional[dict] = None
 
+    @field_validator("app_url")
+    @classmethod
+    def validate_app_url(cls, v: str | None) -> str | None:
+        return validate_url(v, "app_url")
+
+    @field_validator("repository_url")
+    @classmethod
+    def validate_repository_url(cls, v: str | None) -> str | None:
+        return validate_url(v, "repository_url")
+
 
 class UpdateProjectRequest(BaseModel):
     """Request to update a project."""
@@ -47,6 +70,16 @@ class UpdateProjectRequest(BaseModel):
     repository_url: Optional[str] = Field(None, max_length=500)
     settings: Optional[dict] = None
     is_active: Optional[bool] = None
+
+    @field_validator("app_url")
+    @classmethod
+    def validate_app_url(cls, v: str | None) -> str | None:
+        return validate_url(v, "app_url")
+
+    @field_validator("repository_url")
+    @classmethod
+    def validate_repository_url(cls, v: str | None) -> str | None:
+        return validate_url(v, "repository_url")
 
 
 class ProjectResponse(BaseModel):
@@ -352,9 +385,14 @@ async def get_project(project_id: str, request: Request):
 
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
+@router.patch("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(project_id: str, body: UpdateProjectRequest, request: Request):
     """Update a project.
 
+    PUT: Full update (all fields can be provided)
+    PATCH: Partial update (only provided fields are updated)
+
+    Both methods support partial updates since all fields are optional.
     Requires admin or owner role in the project's organization.
     """
     user = await get_current_user(request)

@@ -83,7 +83,23 @@ async def _save_schedule_to_db(schedule: dict) -> bool:
         schedules[schedule["id"]] = schedule
         return True
 
-    return await supabase.insert("test_schedules", [schedule])
+    try:
+        success = await supabase.insert("test_schedules", [schedule])
+        if not success:
+            logger.error(
+                "Failed to save schedule to database",
+                schedule_id=schedule.get("id"),
+                schedule_name=schedule.get("name"),
+            )
+        return success
+    except Exception as e:
+        logger.exception(
+            "Exception while saving schedule to database",
+            schedule_id=schedule.get("id"),
+            schedule_name=schedule.get("name"),
+            error=str(e),
+        )
+        return False
 
 
 async def _update_schedule_in_db(schedule_id: str, updates: dict) -> bool:
@@ -95,7 +111,23 @@ async def _update_schedule_in_db(schedule_id: str, updates: dict) -> bool:
             return True
         return False
 
-    return await supabase.update("test_schedules", updates, {"id": schedule_id})
+    try:
+        success = await supabase.update("test_schedules", updates, {"id": schedule_id})
+        if not success:
+            logger.error(
+                "Failed to update schedule in database",
+                schedule_id=schedule_id,
+                update_keys=list(updates.keys()),
+            )
+        return success
+    except Exception as e:
+        logger.exception(
+            "Exception while updating schedule in database",
+            schedule_id=schedule_id,
+            update_keys=list(updates.keys()),
+            error=str(e),
+        )
+        return False
 
 
 async def _delete_schedule_from_db(schedule_id: str) -> bool:
@@ -107,7 +139,21 @@ async def _delete_schedule_from_db(schedule_id: str) -> bool:
             return True
         return False
 
-    return await supabase.delete("test_schedules", {"id": schedule_id})
+    try:
+        success = await supabase.delete("test_schedules", {"id": schedule_id})
+        if not success:
+            logger.error(
+                "Failed to delete schedule from database",
+                schedule_id=schedule_id,
+            )
+        return success
+    except Exception as e:
+        logger.exception(
+            "Exception while deleting schedule from database",
+            schedule_id=schedule_id,
+            error=str(e),
+        )
+        return False
 
 
 async def _save_schedule_run_to_db(run: dict) -> bool:
@@ -118,7 +164,23 @@ async def _save_schedule_run_to_db(run: dict) -> bool:
         runs.append(run)
         return True
 
-    return await supabase.insert("schedule_runs", [run])
+    try:
+        success = await supabase.insert("schedule_runs", [run])
+        if not success:
+            logger.error(
+                "Failed to save schedule run to database",
+                run_id=run.get("id"),
+                schedule_id=run.get("schedule_id"),
+            )
+        return success
+    except Exception as e:
+        logger.exception(
+            "Exception while saving schedule run to database",
+            run_id=run.get("id"),
+            schedule_id=run.get("schedule_id"),
+            error=str(e),
+        )
+        return False
 
 
 async def _update_schedule_run_in_db(run_id: str, updates: dict) -> bool:
@@ -132,7 +194,23 @@ async def _update_schedule_run_in_db(run_id: str, updates: dict) -> bool:
                     return True
         return False
 
-    return await supabase.update("schedule_runs", updates, {"id": run_id})
+    try:
+        success = await supabase.update("schedule_runs", updates, {"id": run_id})
+        if not success:
+            logger.error(
+                "Failed to update schedule run in database",
+                run_id=run_id,
+                update_keys=list(updates.keys()),
+            )
+        return success
+    except Exception as e:
+        logger.exception(
+            "Exception while updating schedule run in database",
+            run_id=run_id,
+            update_keys=list(updates.keys()),
+            error=str(e),
+        )
+        return False
 
 
 # ============================================================================
@@ -723,7 +801,18 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request):
     }
 
     # Save to database
-    await _save_schedule_to_db(schedule)
+    success = await _save_schedule_to_db(schedule)
+    if not success:
+        logger.error(
+            "Failed to persist schedule to database",
+            schedule_id=schedule_id,
+            name=body.name,
+            project_id=body.project_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save schedule to database. Please try again or contact support."
+        )
 
     logger.info(
         "Schedule created",
@@ -855,7 +944,17 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateRequest):
         update_data["next_run_at"] = next_run.isoformat() if next_run else None
 
     # Update in database
-    await _update_schedule_in_db(schedule_id, update_data)
+    success = await _update_schedule_in_db(schedule_id, update_data)
+    if not success:
+        logger.error(
+            "Failed to update schedule in database",
+            schedule_id=schedule_id,
+            updates=list(update_data.keys()),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update schedule in database. Please try again or contact support."
+        )
 
     # Merge updates for response
     schedule.update(update_data)

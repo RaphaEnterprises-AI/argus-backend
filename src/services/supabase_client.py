@@ -139,6 +139,7 @@ class SupabaseClient:
 
 # Global instance
 _supabase_client: Optional[SupabaseClient] = None
+_raw_supabase_client: Optional[Any] = None
 
 
 def get_supabase_client() -> SupabaseClient:
@@ -147,3 +148,44 @@ def get_supabase_client() -> SupabaseClient:
     if _supabase_client is None:
         _supabase_client = SupabaseClient()
     return _supabase_client
+
+
+def get_raw_supabase_client():
+    """Get the raw supabase-py Client for code that needs .table() method.
+
+    This returns the underlying supabase-py Client which supports the
+    chained query syntax like: client.table("users").select("*").eq("id", 1).execute()
+
+    Use this for complex queries or when migrating existing code that uses
+    the supabase-py API directly.
+
+    Returns:
+        supabase.Client or None if not configured/available
+    """
+    global _raw_supabase_client
+    if _raw_supabase_client is not None:
+        return _raw_supabase_client
+
+    settings = get_settings()
+    url = settings.supabase_url
+    service_key = (
+        settings.supabase_service_key.get_secret_value()
+        if settings.supabase_service_key
+        else None
+    )
+
+    if not url or not service_key:
+        logger.debug("Supabase not configured, raw client unavailable")
+        return None
+
+    try:
+        from supabase import create_client
+        _raw_supabase_client = create_client(url, service_key)
+        logger.info("Raw supabase-py client initialized")
+        return _raw_supabase_client
+    except ImportError:
+        logger.warning("supabase-py not installed, raw client unavailable")
+        return None
+    except Exception as e:
+        logger.error("Failed to create raw Supabase client", error=str(e))
+        return None

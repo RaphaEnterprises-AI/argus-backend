@@ -154,6 +154,15 @@ class OrganizationSummary(BaseModel):
     is_personal: bool = False
 
 
+class UserPreferencesResponse(BaseModel):
+    """User preferences response."""
+    notification_preferences: NotificationPreferences
+    test_defaults: TestDefaults
+    theme: Optional[str]
+    timezone: Optional[str]
+    language: Optional[str]
+
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -299,7 +308,7 @@ async def get_my_profile(request: Request):
 
 @router.put("/me", response_model=UserProfileResponse)
 async def update_my_profile(body: UpdateProfileRequest, request: Request):
-    """Update the current user's profile."""
+    """Update the current user's profile (full update)."""
     user = await get_current_user(request)
 
     # Ensure profile exists
@@ -338,7 +347,75 @@ async def update_my_profile(body: UpdateProfileRequest, request: Request):
     return await get_my_profile(request)
 
 
-@router.put("/me/preferences", response_model=UserProfileResponse)
+@router.patch("/me", response_model=UserProfileResponse)
+async def patch_my_profile(body: UpdateProfileRequest, request: Request):
+    """Update the current user's profile (partial update).
+
+    This endpoint allows partial updates - only the fields provided will be updated.
+    Omitted fields will remain unchanged.
+    """
+    user = await get_current_user(request)
+
+    # Ensure profile exists
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Build update data - only include fields that were explicitly provided
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+
+    if body.display_name is not None:
+        update_data["display_name"] = body.display_name
+    if body.avatar_url is not None:
+        update_data["avatar_url"] = body.avatar_url
+    if body.bio is not None:
+        update_data["bio"] = body.bio
+    if body.timezone is not None:
+        update_data["timezone"] = body.timezone
+    if body.language is not None:
+        update_data["language"] = body.language
+    if body.theme is not None:
+        update_data["theme"] = body.theme
+
+    result = await supabase.update(
+        "user_profiles",
+        {"id": f"eq.{profile['id']}"},
+        update_data
+    )
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to update profile")
+
+    logger.info("User profile patched", user_id=user["user_id"])
+
+    # Return updated profile
+    return await get_my_profile(request)
+
+
+@router.get("/me/preferences", response_model=UserPreferencesResponse)
+async def get_my_preferences(request: Request):
+    """Get the current user's preferences.
+
+    Returns notification preferences, test defaults, theme, timezone, and language.
+    """
+    user = await get_current_user(request)
+
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    # Parse notification preferences and test defaults
+    notification_prefs = profile.get("notification_preferences") or get_default_notification_preferences()
+    test_defaults = profile.get("test_defaults") or get_default_test_defaults()
+
+    return UserPreferencesResponse(
+        notification_preferences=NotificationPreferences(**notification_prefs),
+        test_defaults=TestDefaults(**test_defaults),
+        theme=profile.get("theme"),
+        timezone=profile.get("timezone"),
+        language=profile.get("language"),
+    )
+
+
+@router.put("/me/preferences", response_model=UserPreferencesResponse)
 async def update_notification_preferences(
     body: UpdateNotificationPreferencesRequest,
     request: Request
@@ -406,8 +483,8 @@ async def update_notification_preferences(
 
     logger.info("User notification preferences updated", user_id=user["user_id"])
 
-    # Return updated profile
-    return await get_my_profile(request)
+    # Return updated preferences
+    return await get_my_preferences(request)
 
 
 @router.put("/me/test-defaults", response_model=UserProfileResponse)

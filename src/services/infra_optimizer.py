@@ -361,7 +361,7 @@ Return ONLY the JSON array, no other text."""
     async def _store_recommendation(self, rec: InfraRecommendation) -> None:
         """Store recommendation in database."""
         try:
-            self.supabase.table("infra_recommendations").insert({
+            await self.supabase.insert("infra_recommendations", {
                 "id": rec.id,
                 "org_id": rec.org_id,
                 "type": rec.type.value,
@@ -375,7 +375,7 @@ Return ONLY the JSON array, no other text."""
                 "status": rec.status.value,
                 "created_at": rec.created_at.isoformat(),
                 "expires_at": rec.expires_at.isoformat(),
-            }).execute()
+            })
         except Exception as e:
             logger.warning("store_recommendation_failed", error=str(e))
 
@@ -623,14 +623,14 @@ Return ONLY the JSON array, no other text."""
             Result of the application
         """
         # Fetch recommendation from database
-        result = self.supabase.table("infra_recommendations").select("*").eq(
-            "id", recommendation_id
-        ).execute()
+        result = await self.supabase.request(
+            f"/infra_recommendations?id=eq.{recommendation_id}&select=*"
+        )
 
-        if not result.data:
+        if result.get("error") or not result.get("data"):
             return {"success": False, "error": "Recommendation not found"}
 
-        rec_data = result.data[0]
+        rec_data = result["data"][0]
 
         # Check if already applied
         if rec_data["status"] in ["approved", "auto_applied"]:
@@ -647,10 +647,14 @@ Return ONLY the JSON array, no other text."""
 
         # Update status
         new_status = ApprovalStatus.AUTO_APPLIED if auto else ApprovalStatus.APPROVED
-        self.supabase.table("infra_recommendations").update({
-            "status": new_status.value,
-            "applied_at": datetime.now().isoformat(),
-        }).eq("id", recommendation_id).execute()
+        await self.supabase.update(
+            "infra_recommendations",
+            {"id": f"eq.{recommendation_id}"},
+            {
+                "status": new_status.value,
+                "applied_at": datetime.now().isoformat(),
+            }
+        )
 
         return {
             "success": True,
@@ -668,14 +672,16 @@ Return ONLY the JSON array, no other text."""
             Savings summary
         """
         # Get applied recommendations
-        result = self.supabase.table("infra_recommendations").select("*").eq(
-            "org_id", org_id
-        ).in_("status", ["approved", "auto_applied"]).execute()
+        result = await self.supabase.request(
+            f"/infra_recommendations?org_id=eq.{org_id}"
+            f"&status=in.(approved,auto_applied)&select=*"
+        )
 
         total_savings = Decimal("0")
         recommendations_applied = 0
 
-        for rec in result.data:
+        data = result.get("data") or []
+        for rec in data:
             total_savings += Decimal(str(rec["estimated_savings_monthly"]))
             recommendations_applied += 1
 
