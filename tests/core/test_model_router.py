@@ -71,10 +71,10 @@ class TestTaskModelMapping:
     def test_trivial_tasks_use_cheap_models(self, mock_env_vars):
         """Test that trivial tasks prefer cheaper models."""
         from src.core.model_router import TASK_MODEL_MAPPING, TaskType
-        
-        # Trivial tasks should start with cheap models
-        cheap_models = ["llama-3.1-8b", "gemini-flash", "gpt-4o-mini"]
-        
+
+        # Trivial tasks should start with cheap models (OpenRouter naming)
+        cheap_models = ["flash-lite", "qwen-fast", "llama-small", "gpt-4o-mini"]
+
         for model in TASK_MODEL_MAPPING[TaskType.ELEMENT_CLASSIFICATION]:
             if model in cheap_models:
                 break

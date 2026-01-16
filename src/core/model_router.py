@@ -44,14 +44,29 @@ class BudgetExceededError(Exception):
 
 
 class ModelProvider(str, Enum):
-    """Supported model providers."""
-    ANTHROPIC = "anthropic"
-    VERTEX_AI = "vertex_ai"  # Claude via Google Cloud Vertex AI
-    OPENAI = "openai"
-    GOOGLE = "google"
-    GROQ = "groq"  # Fast inference for open models (100ms latency!)
-    TOGETHER = "together"  # Open model hosting
-    LOCAL = "local"  # Ollama, vLLM, etc.
+    """
+    Supported model providers.
+
+    RECOMMENDATION FOR STARTUPS:
+    Use OPENROUTER as your single provider. Benefits:
+    - 300+ models via ONE API key
+    - No markup (just 5.5% platform fee)
+    - Automatic failover
+    - Gets latest models first (DeepSeek, Claude, etc.)
+    - OpenAI-compatible API
+
+    Other providers kept for enterprise/specific use cases.
+    """
+    OPENROUTER = "openrouter"  # RECOMMENDED: Single API for all models
+    ANTHROPIC = "anthropic"    # Direct Claude (for Computer Use)
+    OPENAI = "openai"          # Direct OpenAI
+    GOOGLE = "google"          # Direct Gemini
+    GROQ = "groq"              # Ultra-fast Llama (if needed)
+    TOGETHER = "together"      # Open model hosting
+    VERTEX_AI = "vertex_ai"    # Claude via GCP (enterprise)
+    CEREBRAS = "cerebras"      # Ultra-fast inference
+    DEEPSEEK = "deepseek"      # DeepSeek direct API
+    LOCAL = "local"            # Ollama, vLLM, etc.
 
 
 class InferenceGateway(str, Enum):
@@ -129,141 +144,106 @@ class ModelConfig:
         return (self.input_cost_per_1m * 0.6 + self.output_cost_per_1m * 0.4) / 1000
 
 
-# Model Registry - All available models with pricing (as of Jan 2026)
+# =============================================================================
+# MODEL REGISTRY - OpenRouter as Primary Provider (Jan 2026)
+# =============================================================================
+#
+# WHY OPENROUTER?
+# - Single API key for 300+ models (Claude, GPT, DeepSeek, Llama, Qwen, Gemini)
+# - No markup on provider pricing (just 5.5% platform fee)
+# - Automatic failover between providers
+# - Gets latest models first
+# - OpenAI-compatible API = easy integration
+#
+# STARTUP RECOMMENDATION:
+# Set OPENROUTER_API_KEY and you're done. One key, all models.
+#
+# Model IDs use OpenRouter format: "provider/model-name"
+# Full list: https://openrouter.ai/models
+# =============================================================================
+
 MODELS = {
-    # ===========================================
-    # GEMINI 3.0 SERIES (Preview - Latest)
-    # Most advanced Gemini models
-    # ===========================================
+    # =============================================================================
+    # RECOMMENDED MODELS (via OpenRouter) - Use these for 90% of tasks
+    # =============================================================================
 
-    "gemini-3-pro": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-3-pro-preview",
-        input_cost_per_1m=2.00,  # $4.00 for >200k context
-        output_cost_per_1m=12.00,  # $18.00 for >200k context
-        max_tokens=65536,
-        context_window=1048576,  # 1M tokens
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        supports_thinking=True,
-        latency_ms=1500,
-    ),
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TIER 1: CHEAPEST ($0.10-0.30/1M) - For trivial tasks
+    # ─────────────────────────────────────────────────────────────────────────────
 
-    "gemini-3-flash": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-3-flash-preview",
-        input_cost_per_1m=0.50,  # Free tier available
-        output_cost_per_1m=3.00,
-        max_tokens=65536,
-        context_window=1048576,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        supports_thinking=True,
-        latency_ms=400,
-    ),
-
-    # ===========================================
-    # GEMINI 2.5 SERIES (Stable)
-    # Production-ready with thinking support
-    # ===========================================
-
-    "gemini-2.5-pro": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-pro",
-        input_cost_per_1m=1.25,  # $2.50 for >200k context
-        output_cost_per_1m=10.00,  # $15.00 for >200k context
-        max_tokens=65536,
-        context_window=1048576,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        supports_thinking=True,
-        latency_ms=800,
-    ),
-
-    "gemini-2.5-flash": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-flash",
-        input_cost_per_1m=0.30,  # Free tier available
-        output_cost_per_1m=2.50,
-        max_tokens=65536,
-        context_window=1048576,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        supports_thinking=True,
-        latency_ms=300,
-    ),
-
-    "gemini-2.5-flash-lite": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-flash-lite",
-        input_cost_per_1m=0.10,  # Cheapest Gemini - Free tier available
+    "flash-lite": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="google/gemini-2.5-flash-lite",
+        input_cost_per_1m=0.10,
         output_cost_per_1m=0.40,
         max_tokens=65536,
         context_window=1048576,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=True,
-        supports_thinking=True,
         latency_ms=200,
     ),
 
-    # ===========================================
-    # GEMINI COMPUTER USE (Browser Automation)
-    # Specialized for UI automation tasks
-    # ===========================================
-
-    "gemini-computer-use": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-computer-use-preview-10-2025",
-        input_cost_per_1m=1.25,  # Based on 2.5 Pro pricing
-        output_cost_per_1m=5.00,
-        max_tokens=64000,
-        context_window=128000,
-        supports_vision=True,
+    "qwen-fast": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="qwen/qwq-32b",
+        input_cost_per_1m=0.12,
+        output_cost_per_1m=0.18,
+        max_tokens=16384,
+        context_window=131072,
+        supports_vision=False,
         supports_tools=True,
         supports_json_mode=True,
-        supports_computer_use=True,
-        latency_ms=500,
+        latency_ms=100,
     ),
 
-    # ===========================================
-    # GEMINI 2.0 SERIES (Legacy but stable)
-    # ===========================================
-
-    "gemini-2.0-flash": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.0-flash",
-        input_cost_per_1m=0.10,
-        output_cost_per_1m=0.40,
+    "llama-small": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="meta-llama/llama-3.1-8b-instruct",
+        input_cost_per_1m=0.05,
+        output_cost_per_1m=0.08,
         max_tokens=8192,
-        context_window=1048576,
-        supports_vision=True,
+        context_window=131072,
+        supports_vision=False,
         supports_tools=True,
         supports_json_mode=True,
-        latency_ms=250,
+        latency_ms=80,
     ),
 
-    "gemini-2.0-flash-lite": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.0-flash-lite",
-        input_cost_per_1m=0.075,
-        output_cost_per_1m=0.30,
-        max_tokens=8192,
-        context_window=1048576,
-        supports_vision=True,
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TIER 2: VALUE ($0.14-0.50/1M) - For code analysis, test generation
+    # DeepSeek V3.2 = 90% cheaper than Claude for similar quality
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    "deepseek": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="deepseek/deepseek-chat-v3-0324",
+        input_cost_per_1m=0.14,
+        output_cost_per_1m=0.28,
+        max_tokens=16384,
+        context_window=163840,
+        supports_vision=False,
         supports_tools=True,
         supports_json_mode=True,
-        latency_ms=150,
+        latency_ms=300,
     ),
 
-    # Legacy alias for backward compatibility
+    "qwen-large": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="qwen/qwen3-235b-a22b",
+        input_cost_per_1m=0.14,
+        output_cost_per_1m=0.14,
+        max_tokens=40960,
+        context_window=40960,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=400,
+    ),
+
     "gemini-flash": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-flash",  # Updated to 2.5
+        provider=ModelProvider.OPENROUTER,
+        model_id="google/gemini-2.5-flash",
         input_cost_per_1m=0.30,
         output_cost_per_1m=2.50,
         max_tokens=65536,
@@ -275,9 +255,41 @@ MODELS = {
         latency_ms=300,
     ),
 
+    "llama-large": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="meta-llama/llama-3.3-70b-instruct",
+        input_cost_per_1m=0.30,
+        output_cost_per_1m=0.40,
+        max_tokens=32768,
+        context_window=131072,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=150,
+    ),
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TIER 3: REASONING ($0.55-2.00/1M) - For self-healing, debugging
+    # DeepSeek R1 = 10% cost of o1 for similar reasoning
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    "deepseek-reasoning": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="deepseek/deepseek-r1",
+        input_cost_per_1m=0.55,
+        output_cost_per_1m=2.19,
+        max_tokens=65536,
+        context_window=65536,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=2000,
+    ),
+
     "gemini-pro": ModelConfig(
-        provider=ModelProvider.GOOGLE,
-        model_id="gemini-2.5-pro",  # Updated to 2.5
+        provider=ModelProvider.OPENROUTER,
+        model_id="google/gemini-2.5-pro",
         input_cost_per_1m=1.25,
         output_cost_per_1m=10.00,
         max_tokens=65536,
@@ -289,58 +301,28 @@ MODELS = {
         latency_ms=800,
     ),
 
-    # ===========================================
-    # TIER 1: FLASH (< $0.50/1M tokens)
-    # For: Classification, extraction, simple parsing
-    # ===========================================
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TIER 4: PREMIUM ($3-15/1M) - For Computer Use, complex tasks
+    # Claude Sonnet still best for browser automation
+    # ─────────────────────────────────────────────────────────────────────────────
 
-    "gpt-4o-mini": ModelConfig(
-        provider=ModelProvider.OPENAI,
-        model_id="gpt-4o-mini",
-        input_cost_per_1m=0.15,
-        output_cost_per_1m=0.60,
-        max_tokens=16384,
-        context_window=128000,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=400,
-    ),
-
-    "haiku": ModelConfig(
-        provider=ModelProvider.ANTHROPIC,
-        model_id="claude-haiku-4-5",
-        input_cost_per_1m=0.80,
-        output_cost_per_1m=4.00,
+    "sonnet": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="anthropic/claude-sonnet-4",
+        input_cost_per_1m=3.00,
+        output_cost_per_1m=15.00,
         max_tokens=8192,
         context_window=200000,
         supports_vision=True,
         supports_tools=True,
         supports_json_mode=False,
-        latency_ms=500,
+        supports_computer_use=True,
+        latency_ms=1000,
     ),
-
-    "llama-3.1-8b": ModelConfig(
-        provider=ModelProvider.GROQ,
-        model_id="llama-3.1-8b-instant",
-        input_cost_per_1m=0.05,
-        output_cost_per_1m=0.08,
-        max_tokens=8192,
-        context_window=131072,
-        supports_vision=False,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=100,  # Groq is very fast
-    ),
-
-    # ===========================================
-    # TIER 2: STANDARD ($0.50 - $5/1M tokens)
-    # For: Code analysis, test generation
-    # ===========================================
 
     "gpt-4o": ModelConfig(
-        provider=ModelProvider.OPENAI,
-        model_id="gpt-4o",
+        provider=ModelProvider.OPENROUTER,
+        model_id="openai/gpt-4o",
         input_cost_per_1m=2.50,
         output_cost_per_1m=10.00,
         max_tokens=16384,
@@ -351,72 +333,13 @@ MODELS = {
         latency_ms=800,
     ),
 
-    # ===========================================
-    # CLAUDE MODELS (Anthropic)
-    # ===========================================
-
-    "claude-computer-use": ModelConfig(
-        provider=ModelProvider.ANTHROPIC,
-        model_id="claude-sonnet-4-5",
-        input_cost_per_1m=3.00,
-        output_cost_per_1m=15.00,
-        max_tokens=8192,
-        context_window=200000,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=False,
-        supports_computer_use=True,
-        latency_ms=1000,
-    ),
-
-    "sonnet": ModelConfig(
-        provider=ModelProvider.ANTHROPIC,
-        model_id="claude-sonnet-4-5",
-        input_cost_per_1m=3.00,
-        output_cost_per_1m=15.00,
-        max_tokens=8192,
-        context_window=200000,
-        supports_vision=True,
-        supports_tools=True,
-        supports_json_mode=False,
-        supports_computer_use=True,
-        latency_ms=1000,
-    ),
-
-    "llama-3.1-70b": ModelConfig(
-        provider=ModelProvider.GROQ,
-        model_id="llama-3.1-70b-versatile",
-        input_cost_per_1m=0.59,
-        output_cost_per_1m=0.79,
-        max_tokens=8192,
-        context_window=131072,
-        supports_vision=False,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=200,
-    ),
-
-    "deepseek-v3": ModelConfig(
-        provider=ModelProvider.TOGETHER,
-        model_id="deepseek-ai/DeepSeek-V3",
-        input_cost_per_1m=0.27,
-        output_cost_per_1m=1.10,
-        max_tokens=8192,
-        context_window=128000,
-        supports_vision=False,
-        supports_tools=True,
-        supports_json_mode=True,
-        latency_ms=500,
-    ),
-
-    # ===========================================
-    # TIER 3: PREMIUM ($5 - $20/1M tokens)
-    # For: Complex reasoning, visual analysis
-    # ===========================================
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TIER 5: EXPERT ($15+/1M) - For most complex reasoning
+    # ─────────────────────────────────────────────────────────────────────────────
 
     "opus": ModelConfig(
-        provider=ModelProvider.ANTHROPIC,
-        model_id="claude-opus-4-5",
+        provider=ModelProvider.OPENROUTER,
+        model_id="anthropic/claude-opus-4",
         input_cost_per_1m=15.00,
         output_cost_per_1m=75.00,
         max_tokens=8192,
@@ -430,55 +353,93 @@ MODELS = {
     ),
 
     "o1": ModelConfig(
-        provider=ModelProvider.OPENAI,
-        model_id="o1",
+        provider=ModelProvider.OPENROUTER,
+        model_id="openai/o1",
         input_cost_per_1m=15.00,
         output_cost_per_1m=60.00,
         max_tokens=100000,
         context_window=200000,
         supports_vision=True,
-        supports_tools=False,  # o1 doesn't support tools yet
+        supports_tools=False,
         supports_json_mode=False,
         supports_thinking=True,
-        latency_ms=5000,  # Reasoning takes time
+        latency_ms=5000,
     ),
 
-    # ===========================================
-    # VERTEX AI - Claude via Google Cloud
-    # Same pricing, unified GCP billing, Computer Use supported
-    # ===========================================
+    # =============================================================================
+    # LEGACY ALIASES (for backward compatibility)
+    # These map to the recommended models above
+    # =============================================================================
 
-    "vertex-sonnet": ModelConfig(
-        provider=ModelProvider.VERTEX_AI,
-        model_id="claude-sonnet-4-5",
-        input_cost_per_1m=3.00,
-        output_cost_per_1m=15.00,
-        max_tokens=8192,
-        context_window=200000,
+    "gemini-2.5-flash-lite": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="google/gemini-2.5-flash-lite",
+        input_cost_per_1m=0.10,
+        output_cost_per_1m=0.40,
+        max_tokens=65536,
+        context_window=1048576,
         supports_vision=True,
         supports_tools=True,
-        supports_json_mode=False,
-        supports_computer_use=True,
-        latency_ms=1000,
+        supports_json_mode=True,
+        latency_ms=200,
     ),
 
-    "vertex-opus": ModelConfig(
-        provider=ModelProvider.VERTEX_AI,
-        model_id="claude-opus-4-5",
-        input_cost_per_1m=15.00,
-        output_cost_per_1m=75.00,
-        max_tokens=8192,
-        context_window=200000,
-        supports_vision=True,
+    "deepseek-v3.2": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="deepseek/deepseek-chat-v3-0324",
+        input_cost_per_1m=0.14,
+        output_cost_per_1m=0.28,
+        max_tokens=16384,
+        context_window=163840,
+        supports_vision=False,
         supports_tools=True,
-        supports_json_mode=False,
-        supports_computer_use=True,
+        supports_json_mode=True,
+        latency_ms=300,
+    ),
+
+    "deepseek-r1": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="deepseek/deepseek-r1",
+        input_cost_per_1m=0.55,
+        output_cost_per_1m=2.19,
+        max_tokens=65536,
+        context_window=65536,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
         latency_ms=2000,
     ),
 
-    "vertex-haiku": ModelConfig(
-        provider=ModelProvider.VERTEX_AI,
-        model_id="claude-haiku-4-5",
+    "qwen3-32b-groq": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="qwen/qwq-32b",
+        input_cost_per_1m=0.12,
+        output_cost_per_1m=0.18,
+        max_tokens=16384,
+        context_window=131072,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=100,
+    ),
+
+    "llama-3.3-70b": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="meta-llama/llama-3.3-70b-instruct",
+        input_cost_per_1m=0.30,
+        output_cost_per_1m=0.40,
+        max_tokens=32768,
+        context_window=131072,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=150,
+    ),
+
+    "haiku": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="anthropic/claude-haiku-4",
         input_cost_per_1m=0.80,
         output_cost_per_1m=4.00,
         max_tokens=8192,
@@ -489,9 +450,26 @@ MODELS = {
         latency_ms=500,
     ),
 
-    "vertex-computer-use": ModelConfig(
-        provider=ModelProvider.VERTEX_AI,
-        model_id="claude-sonnet-4-5",
+    "gpt-4o-mini": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="openai/gpt-4o-mini",
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=0.60,
+        max_tokens=16384,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=400,
+    ),
+
+    # =============================================================================
+    # COMPUTER USE - Claude via OpenRouter (browser automation)
+    # =============================================================================
+
+    "claude-computer-use": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="anthropic/claude-sonnet-4",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
@@ -502,71 +480,84 @@ MODELS = {
         supports_computer_use=True,
         latency_ms=1000,
     ),
+
+    "gemini-computer-use": ModelConfig(
+        provider=ModelProvider.OPENROUTER,
+        model_id="google/gemini-2.5-pro",
+        input_cost_per_1m=1.25,
+        output_cost_per_1m=10.00,
+        max_tokens=65536,
+        context_window=1048576,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=True,
+        latency_ms=800,
+    ),
 }
 
 
-# Task to Model Mapping - Optimized for Cost and Quality (Jan 2026)
+# =============================================================================
+# TASK TO MODEL MAPPING - Simplified for OpenRouter (Jan 2026)
+# =============================================================================
+#
+# STRATEGY (via OpenRouter - single provider):
+# - TRIVIAL: flash-lite ($0.10) or qwen-fast ($0.12) - cheapest
+# - MODERATE: deepseek ($0.14) - 90% cheaper than Claude, excellent quality
+# - COMPLEX: deepseek-reasoning ($0.55) - 10% cost of o1
+# - COMPUTER USE: sonnet ($3.00) - Claude is still best for browser automation
+#
+# All models accessed via ONE OpenRouter API key.
+# =============================================================================
+
 TASK_MODEL_MAPPING: dict[TaskType, list[str]] = {
-    # ===========================================
-    # TRIVIAL TASKS - Use cheapest models
-    # Gemini 2.5 Flash-Lite is 75% cheaper than GPT-4o-mini
-    # ===========================================
-    TaskType.ELEMENT_CLASSIFICATION: ["gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "llama-3.1-8b", "gpt-4o-mini"],
-    TaskType.ACTION_EXTRACTION: ["gemini-2.5-flash-lite", "llama-3.1-8b", "gemini-2.0-flash", "gpt-4o-mini"],
-    TaskType.SELECTOR_VALIDATION: ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gpt-4o-mini", "haiku"],
-    TaskType.TEXT_EXTRACTION: ["gemini-2.5-flash-lite", "llama-3.1-8b", "gemini-2.0-flash-lite", "gpt-4o-mini"],
-    TaskType.JSON_PARSING: ["gemini-2.5-flash-lite", "llama-3.1-8b", "gemini-2.0-flash", "gpt-4o-mini"],
+    # ─────────────────────────────────────────────────────────────────────────────
+    # TRIVIAL TASKS - Use cheapest models ($0.05-0.15/1M)
+    # ─────────────────────────────────────────────────────────────────────────────
+    TaskType.ELEMENT_CLASSIFICATION: ["flash-lite", "qwen-fast", "llama-small"],
+    TaskType.ACTION_EXTRACTION: ["qwen-fast", "flash-lite", "llama-small"],
+    TaskType.SELECTOR_VALIDATION: ["flash-lite", "qwen-fast", "gpt-4o-mini"],
+    TaskType.TEXT_EXTRACTION: ["qwen-fast", "flash-lite", "llama-small"],
+    TaskType.JSON_PARSING: ["qwen-fast", "flash-lite", "deepseek"],
 
-    # ===========================================
-    # MODERATE TASKS - Balanced cost/quality
-    # Gemini 2.5 Flash has thinking capability at low cost
-    # ===========================================
-    TaskType.CODE_ANALYSIS: ["gemini-2.5-flash", "deepseek-v3", "gemini-2.5-pro", "gpt-4o", "sonnet"],
-    TaskType.TEST_GENERATION: ["gemini-2.5-flash", "deepseek-v3", "gemini-2.5-pro", "sonnet"],
-    TaskType.ASSERTION_GENERATION: ["gemini-2.5-flash", "gemini-2.5-pro", "gpt-4o", "sonnet"],
-    TaskType.ERROR_CLASSIFICATION: ["gemini-2.5-flash", "llama-3.1-70b", "gpt-4o", "haiku"],
+    # ─────────────────────────────────────────────────────────────────────────────
+    # MODERATE TASKS - DeepSeek for value ($0.14-0.30/1M)
+    # 90% cheaper than Claude for similar quality
+    # ─────────────────────────────────────────────────────────────────────────────
+    TaskType.CODE_ANALYSIS: ["deepseek", "qwen-large", "gemini-flash", "sonnet"],
+    TaskType.TEST_GENERATION: ["deepseek", "gemini-flash", "llama-large", "sonnet"],
+    TaskType.ASSERTION_GENERATION: ["deepseek", "qwen-large", "gemini-flash", "gpt-4o"],
+    TaskType.ERROR_CLASSIFICATION: ["qwen-fast", "deepseek", "llama-large", "haiku"],
 
-    # ===========================================
-    # COMPLEX TASKS - Need vision or strong reasoning
-    # Gemini 2.5 Pro has 1M context and thinking
-    # ===========================================
-    TaskType.VISUAL_COMPARISON: ["gemini-2.5-pro", "gemini-3-flash", "gpt-4o", "sonnet"],
-    TaskType.SEMANTIC_UNDERSTANDING: ["gemini-2.5-pro", "gpt-4o", "sonnet", "gemini-3-pro"],
-    TaskType.FLOW_DISCOVERY: ["gemini-2.5-pro", "gpt-4o", "sonnet"],
-    TaskType.ROOT_CAUSE_ANALYSIS: ["gemini-3-pro", "sonnet", "gemini-2.5-pro", "opus"],
+    # ─────────────────────────────────────────────────────────────────────────────
+    # COMPLEX TASKS - Vision or Strong Reasoning ($0.55-2.00/1M)
+    # ─────────────────────────────────────────────────────────────────────────────
+    TaskType.VISUAL_COMPARISON: ["gemini-pro", "gpt-4o", "sonnet"],
+    TaskType.SEMANTIC_UNDERSTANDING: ["deepseek", "qwen-large", "gemini-pro", "sonnet"],
+    TaskType.FLOW_DISCOVERY: ["gemini-pro", "deepseek", "gpt-4o", "sonnet"],
+    TaskType.ROOT_CAUSE_ANALYSIS: ["deepseek-reasoning", "gemini-pro", "sonnet", "opus"],
 
-    # ===========================================
-    # EXPERT TASKS - Use best available
-    # Gemini 3 Pro or Claude Opus for complex reasoning
-    # ===========================================
-    TaskType.SELF_HEALING: ["gemini-3-pro", "sonnet", "opus", "o1"],
-    TaskType.FAILURE_PREDICTION: ["gemini-2.5-pro", "sonnet", "opus"],
-    TaskType.COGNITIVE_MODELING: ["gemini-3-pro", "opus", "o1", "sonnet"],
-    TaskType.COMPLEX_DEBUGGING: ["gemini-3-pro", "opus", "o1"],
+    # ─────────────────────────────────────────────────────────────────────────────
+    # EXPERT TASKS - Deep Reasoning ($0.55-15/1M)
+    # DeepSeek R1 = 10% cost of o1 for similar reasoning
+    # ─────────────────────────────────────────────────────────────────────────────
+    TaskType.SELF_HEALING: ["deepseek-reasoning", "sonnet", "gemini-pro", "opus"],
+    TaskType.FAILURE_PREDICTION: ["deepseek-reasoning", "gemini-pro", "sonnet", "opus"],
+    TaskType.COGNITIVE_MODELING: ["deepseek-reasoning", "opus", "o1", "sonnet"],
+    TaskType.COMPLEX_DEBUGGING: ["deepseek-reasoning", "sonnet", "opus", "o1"],
 
-    # ===========================================
-    # COMPUTER USE TASKS - Specialized models
-    # Gemini Computer Use is ~60% cheaper than Claude
-    # Claude has more mature browser automation
-    # ===========================================
-    TaskType.COMPUTER_USE_SIMPLE: [
-        "gemini-computer-use",  # Cheapest, good for simple forms
-        "vertex-computer-use",  # Claude via GCP
-        "claude-computer-use",  # Direct Claude
-    ],
-    TaskType.COMPUTER_USE_COMPLEX: [
-        "claude-computer-use",  # More mature for complex flows
-        "vertex-computer-use",
-        "gemini-computer-use",
-    ],
-    TaskType.COMPUTER_USE_MOBILE: [
-        "gemini-computer-use",  # Gemini excels at mobile UI
-    ],
+    # ─────────────────────────────────────────────────────────────────────────────
+    # COMPUTER USE - Browser Automation ($1.25-3.00/1M)
+    # Claude Sonnet still best for browser automation
+    # ─────────────────────────────────────────────────────────────────────────────
+    TaskType.COMPUTER_USE_SIMPLE: ["gemini-computer-use", "claude-computer-use"],
+    TaskType.COMPUTER_USE_COMPLEX: ["claude-computer-use", "sonnet", "gemini-computer-use"],
+    TaskType.COMPUTER_USE_MOBILE: ["gemini-computer-use", "claude-computer-use"],
 
-    # ===========================================
+    # ─────────────────────────────────────────────────────────────────────────────
     # GENERAL FALLBACK
-    # ===========================================
-    TaskType.GENERAL: ["gemini-2.5-flash", "sonnet", "gpt-4o", "gemini-2.5-pro"],
+    # ─────────────────────────────────────────────────────────────────────────────
+    TaskType.GENERAL: ["deepseek", "gemini-flash", "qwen-large", "sonnet"],
 }
 
 
@@ -1152,6 +1143,256 @@ class GroqClient(BaseModelClient):
         raise NotImplementedError("Groq doesn't support vision models")
 
 
+class CerebrasClient(BaseModelClient):
+    """
+    Client for Cerebras (ultra-fast inference).
+
+    Cerebras offers the fastest inference speeds available:
+    - Qwen3 32B: ~2,400 tokens/sec
+    - Llama models: ~1,800 tokens/sec
+
+    Perfect for latency-sensitive, real-time tasks.
+    """
+
+    def __init__(self):
+        self._client = None
+
+    @property
+    def client(self):
+        """Lazy load Cerebras client."""
+        if self._client is None:
+            from cerebras.cloud.sdk import AsyncCerebras
+            self._client = AsyncCerebras(
+                api_key=os.environ.get("CEREBRAS_API_KEY")
+            )
+        return self._client
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: Optional[list] = None,
+    ) -> dict:
+        kwargs = {
+            "model": model_config.model_id,
+            "max_tokens": max_tokens,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = await self.client.chat.completions.create(**kwargs)
+
+        return {
+            "content": response.choices[0].message.content or "",
+            "input_tokens": response.usage.prompt_tokens,
+            "output_tokens": response.usage.completion_tokens,
+            "model": model_config.model_id,
+        }
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        raise NotImplementedError("Cerebras doesn't support vision models yet")
+
+
+class DeepSeekClient(BaseModelClient):
+    """
+    Client for DeepSeek direct API.
+
+    DeepSeek offers exceptional value:
+    - V3.2: $0.14 input / $0.28 output (90% cheaper than Claude)
+    - R1: Reasoning model that competes with o1 at 10% cost
+
+    Uses OpenAI-compatible API format.
+    """
+
+    def __init__(self):
+        self._client = None
+
+    @property
+    def client(self):
+        """Lazy load DeepSeek client (OpenAI-compatible)."""
+        if self._client is None:
+            from openai import AsyncOpenAI
+            self._client = AsyncOpenAI(
+                api_key=os.environ.get("DEEPSEEK_API_KEY"),
+                base_url="https://api.deepseek.com/v1"
+            )
+        return self._client
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: Optional[list] = None,
+    ) -> dict:
+        kwargs = {
+            "model": model_config.model_id,
+            "max_tokens": max_tokens,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            # DeepSeek supports OpenAI tool format
+            kwargs["tools"] = self._convert_tools(tools)
+
+        response = await self.client.chat.completions.create(**kwargs)
+
+        return {
+            "content": response.choices[0].message.content or "",
+            "input_tokens": response.usage.prompt_tokens,
+            "output_tokens": response.usage.completion_tokens,
+            "model": model_config.model_id,
+        }
+
+    def _convert_tools(self, tools: list) -> list:
+        """Convert Anthropic tool format to OpenAI format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.get("name"),
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", {}),
+                }
+            }
+            for t in tools
+        ]
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        raise NotImplementedError("DeepSeek doesn't support vision models yet")
+
+
+class OpenRouterClient(BaseModelClient):
+    """
+    Client for OpenRouter (model aggregator).
+
+    OpenRouter provides access to many models through a single API:
+    - DeepSeek V3.2, R1
+    - Qwen3 models
+    - GLM-4
+    - And 100+ other models
+
+    Benefits:
+    - Single API key for multiple providers
+    - Automatic failover
+    - Usage tracking
+    - Credit pooling
+    """
+
+    def __init__(self):
+        self._client = None
+
+    @property
+    def client(self):
+        """Lazy load OpenRouter client (OpenAI-compatible)."""
+        if self._client is None:
+            from openai import AsyncOpenAI
+            self._client = AsyncOpenAI(
+                api_key=os.environ.get("OPENROUTER_API_KEY"),
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": os.environ.get("OPENROUTER_REFERER", "https://argus.dev"),
+                    "X-Title": "Argus E2E Testing Agent",
+                }
+            )
+        return self._client
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: Optional[list] = None,
+    ) -> dict:
+        kwargs = {
+            "model": model_config.model_id,
+            "max_tokens": max_tokens,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+
+        response = await self.client.chat.completions.create(**kwargs)
+
+        return {
+            "content": response.choices[0].message.content or "",
+            "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+            "output_tokens": response.usage.completion_tokens if response.usage else 0,
+            "model": model_config.model_id,
+        }
+
+    def _convert_tools(self, tools: list) -> list:
+        """Convert Anthropic tool format to OpenAI format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.get("name"),
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", {}),
+                }
+            }
+            for t in tools
+        ]
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        import base64
+
+        # Add images to messages (OpenAI format)
+        image_content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{base64.b64encode(img).decode()}"
+                }
+            }
+            for img in images
+        ]
+
+        enhanced_messages = messages.copy()
+        if enhanced_messages and enhanced_messages[-1]["role"] == "user":
+            content = enhanced_messages[-1]["content"]
+            if isinstance(content, str):
+                enhanced_messages[-1]["content"] = [
+                    {"type": "text", "text": content},
+                    *image_content
+                ]
+
+        return await self.complete(enhanced_messages, model_config, max_tokens)
+
+
 class VertexAIClient(BaseModelClient):
     """
     Client for Claude models via Google Cloud Vertex AI.
@@ -1383,20 +1624,40 @@ class ModelRouter:
         }
 
     def _get_client(self, provider: ModelProvider) -> BaseModelClient:
-        """Get or create a client for the given provider."""
+        """
+        Get or create a client for the given provider.
+
+        RECOMMENDED: Use OpenRouter for everything (single API key for 300+ models).
+        Other providers kept for specific use cases (e.g., direct Anthropic for
+        lower latency on Computer Use).
+        """
         if provider not in self._clients:
-            if provider == ModelProvider.ANTHROPIC:
+            # OpenRouter is the recommended default - handles all models
+            if provider == ModelProvider.OPENROUTER:
+                self._clients[provider] = OpenRouterClient()
+
+            # Direct provider clients (for specific use cases)
+            elif provider == ModelProvider.ANTHROPIC:
                 self._clients[provider] = AnthropicClient()
-            elif provider == ModelProvider.VERTEX_AI:
-                self._clients[provider] = VertexAIClient()
             elif provider == ModelProvider.OPENAI:
                 self._clients[provider] = OpenAIClient()
             elif provider == ModelProvider.GOOGLE:
                 self._clients[provider] = GoogleClient()
             elif provider == ModelProvider.GROQ:
                 self._clients[provider] = GroqClient()
+
+            # Less common providers - fallback to OpenRouter if not configured
+            elif provider in (ModelProvider.CEREBRAS, ModelProvider.DEEPSEEK,
+                              ModelProvider.TOGETHER, ModelProvider.VERTEX_AI):
+                # These can be accessed via OpenRouter, so fallback if no direct API key
+                logger.info(
+                    f"Provider {provider.value} requested, using OpenRouter as gateway",
+                    provider=provider.value,
+                )
+                self._clients[provider] = OpenRouterClient()
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
+
         return self._clients[provider]
 
     def select_model(

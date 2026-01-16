@@ -27,18 +27,12 @@ npm install
 npx wrangler login
 ```
 
-### Step 3: (Optional) Configure API Keys
-
-If you want to use OpenAI or Anthropic instead of free Workers AI:
+### Step 3: Configure API Keys
 
 ```bash
-# For OpenAI
-npx wrangler secret put OPENAI_API_KEY
-# Enter your OpenAI API key when prompted
-
-# For Anthropic
-npx wrangler secret put ANTHROPIC_API_KEY
-# Enter your Anthropic API key when prompted
+# OpenRouter - ONE key for 300+ models (DeepSeek, Claude, GPT, Llama, etc.)
+# Get your key at: https://openrouter.ai/keys
+npx wrangler secret put OPENROUTER_API_KEY
 
 # For API authentication (recommended for production)
 npx wrangler secret put API_TOKEN
@@ -136,38 +130,29 @@ curl https://e2e-testing-agent.your-subdomain.workers.dev/health
 
 ## Model Providers
 
-### Workers AI (Default - FREE!)
+### OpenRouter (Recommended - 300+ Models)
 
-Uses Cloudflare's built-in Workers AI with Llama models. No API key required!
+One API key for DeepSeek, Claude, GPT, Llama, Qwen, Gemini, and more. No markup on provider pricing.
+
+```toml
+# wrangler.toml
+[vars]
+DEFAULT_MODEL_PROVIDER = "openrouter"
+```
+
+```bash
+npx wrangler secret put OPENROUTER_API_KEY
+# Get your key at: https://openrouter.ai/keys
+```
+
+### Workers AI (FREE - Limited)
+
+Uses Cloudflare's built-in Workers AI with Llama models. No API key required, but limited capabilities.
 
 ```toml
 # wrangler.toml
 [vars]
 DEFAULT_MODEL_PROVIDER = "workers-ai"
-```
-
-### OpenAI
-
-```toml
-# wrangler.toml
-[vars]
-DEFAULT_MODEL_PROVIDER = "openai"
-```
-
-```bash
-npx wrangler secret put OPENAI_API_KEY
-```
-
-### Anthropic (Claude)
-
-```toml
-# wrangler.toml
-[vars]
-DEFAULT_MODEL_PROVIDER = "anthropic"
-```
-
-```bash
-npx wrangler secret put ANTHROPIC_API_KEY
 ```
 
 ## Observability with AI Gateway
