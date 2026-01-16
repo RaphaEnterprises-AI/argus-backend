@@ -225,14 +225,30 @@ def cleanup():
 # ==============================================================================
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_environment():
-    """Setup test environment variables for the entire test session."""
-    with patch.dict(os.environ, {
-        "ANTHROPIC_API_KEY": "sk-ant-test-key-12345",
-        "SUPABASE_URL": "https://test.supabase.co",
-        "SUPABASE_SERVICE_KEY": "test-service-key",
-    }):
+def setup_test_environment(request):
+    """Setup test environment variables for the entire test session.
+
+    Note: Integration tests (marked with @pytest.mark.integration) are excluded
+    from the environment patching so they can use real API keys.
+    """
+    # Check if we're running integration tests (they need real API keys)
+    # Integration tests are detected by checking if any collected item has the marker
+    has_integration_tests = any(
+        item.get_closest_marker("integration") is not None
+        for item in request.session.items
+    )
+
+    if has_integration_tests:
+        # Don't patch environment for integration tests - they use real keys
         yield
+    else:
+        # Patch environment for unit tests
+        with patch.dict(os.environ, {
+            "ANTHROPIC_API_KEY": "sk-ant-test-key-12345",
+            "SUPABASE_URL": "https://test.supabase.co",
+            "SUPABASE_SERVICE_KEY": "test-service-key",
+        }):
+            yield
 
 
 # ==============================================================================
