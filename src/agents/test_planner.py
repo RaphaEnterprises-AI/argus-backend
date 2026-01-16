@@ -366,6 +366,178 @@ Output must be valid JSON."""
             metadata=data.get("metadata", {}),
         )
 
+    def estimate_session_config(self, test_spec: TestSpec | dict) -> dict:
+        """Estimate optimal session configuration based on test complexity.
+
+        The AI analyzes test characteristics to determine:
+        - maxDuration: Total time budget for the test
+        - idleTimeout: Max time between browser commands
+        - memoryClass: Resource allocation (low/standard/high)
+        - priority: Queue priority for scheduling
+
+        Args:
+            test_spec: Test specification (TestSpec or dict)
+
+        Returns:
+            SessionConfig dict with AI-determined values
+        """
+        # Convert to dict if needed
+        if isinstance(test_spec, TestSpec):
+            spec = test_spec.to_dict()
+        else:
+            spec = test_spec
+
+        # Extract test characteristics
+        steps = spec.get("steps", [])
+        assertions = spec.get("assertions", [])
+        action_count = len(steps)
+        assertion_count = len(assertions)
+        test_type = spec.get("type", "ui")
+        tags = spec.get("tags", [])
+
+        # Analyze step types for complexity
+        has_file_upload = any(
+            s.get("action") in ("upload", "file_upload") for s in steps
+        )
+        has_visual_check = any(
+            a.get("type") in ("visual_assert", "screenshot_match", "visual_regression")
+            for a in assertions
+        )
+        has_wait_steps = sum(1 for s in steps if s.get("action") == "wait")
+        has_navigation = sum(1 for s in steps if s.get("action") == "goto")
+
+        # Count unique URLs for page load estimation
+        unique_urls = set()
+        for step in steps:
+            if step.get("action") == "goto" and step.get("target"):
+                unique_urls.add(step.get("target"))
+
+        page_count = len(unique_urls) or 1
+
+        # Base duration estimation (in seconds)
+        # - Base overhead: 30s (browser startup, initial load)
+        # - Per action: 3s average
+        # - Per page navigation: 10s (page load time)
+        # - Per assertion: 2s
+        # - Per wait step: step timeout or 5s
+        base_duration = 30
+        duration_per_action = 3
+        duration_per_page = 10
+        duration_per_assertion = 2
+
+        # Calculate total wait time from explicit waits
+        total_wait_time = 0
+        for step in steps:
+            if step.get("action") == "wait":
+                timeout_ms = step.get("timeout", 5000)
+                total_wait_time += timeout_ms / 1000  # Convert to seconds
+
+        estimated_duration = (
+            base_duration
+            + (action_count * duration_per_action)
+            + (page_count * duration_per_page)
+            + (assertion_count * duration_per_assertion)
+            + total_wait_time
+        )
+
+        # Add complexity multipliers
+        if has_file_upload:
+            estimated_duration *= 1.3  # File uploads are slower
+        if has_visual_check:
+            estimated_duration *= 1.5  # Visual checks need processing time
+
+        # Add buffer for reliability (50% buffer)
+        max_duration = int(estimated_duration * 1.5)
+
+        # Clamp to reasonable bounds
+        max_duration = max(60, min(max_duration, 1800))  # 1 min to 30 min
+
+        # Determine idle timeout based on test complexity
+        # Complex tests with many waits may have longer gaps between commands
+        if has_wait_steps > 3 or total_wait_time > 30:
+            idle_timeout = 120  # 2 minutes for tests with many waits
+        elif action_count > 20:
+            idle_timeout = 90  # 1.5 minutes for complex tests
+        else:
+            idle_timeout = 60  # 1 minute default
+
+        # Determine memory class based on test requirements
+        if has_visual_check or has_file_upload:
+            memory_class = "high"  # Visual/file tests need more memory
+        elif action_count > 30 or page_count > 5:
+            memory_class = "high"  # Complex tests need more resources
+        elif action_count < 10 and page_count <= 2:
+            memory_class = "low"  # Simple tests can use less
+        else:
+            memory_class = "standard"
+
+        # Determine priority based on test priority and tags
+        test_priority = spec.get("priority", "medium")
+        if test_priority == "critical" or "critical-path" in tags:
+            priority = "urgent"
+        elif test_priority == "high":
+            priority = "normal"
+        elif test_priority == "low":
+            priority = "low"
+        else:
+            priority = "normal"
+
+        session_config = {
+            "maxDuration": max_duration,
+            "idleTimeout": idle_timeout,
+            "memoryClass": memory_class,
+            "priority": priority,
+        }
+
+        self.log.info(
+            "Estimated session config",
+            test_id=spec.get("id", "unknown"),
+            action_count=action_count,
+            page_count=page_count,
+            estimated_duration=estimated_duration,
+            session_config=session_config,
+        )
+
+        return session_config
+
+    def estimate_session_config_for_plan(self, test_plan: TestPlan) -> dict:
+        """Estimate session config for an entire test plan.
+
+        Returns config suitable for running all tests in the plan sequentially.
+
+        Args:
+            test_plan: Complete test plan
+
+        Returns:
+            SessionConfig dict with aggregated values
+        """
+        if not test_plan.tests:
+            return {
+                "maxDuration": 300,
+                "idleTimeout": 60,
+                "memoryClass": "standard",
+                "priority": "normal",
+            }
+
+        # Get config for each test
+        configs = [self.estimate_session_config(test) for test in test_plan.tests]
+
+        # Aggregate: use max of all durations, max idle timeout, highest memory class
+        memory_order = {"low": 0, "standard": 1, "high": 2}
+        priority_order = {"low": 0, "normal": 1, "urgent": 2}
+
+        total_duration = sum(c["maxDuration"] for c in configs)
+        max_idle = max(c["idleTimeout"] for c in configs)
+        highest_memory = max(configs, key=lambda c: memory_order[c["memoryClass"]])["memoryClass"]
+        highest_priority = max(configs, key=lambda c: priority_order[c["priority"]])["priority"]
+
+        return {
+            "maxDuration": min(total_duration, 1800),  # Cap at 30 min
+            "idleTimeout": max_idle,
+            "memoryClass": highest_memory,
+            "priority": highest_priority,
+        }
+
     async def generate_api_tests(
         self,
         endpoints: list[dict],

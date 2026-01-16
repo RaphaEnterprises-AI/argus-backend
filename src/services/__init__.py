@@ -21,6 +21,23 @@ from src.services.email_service import (
     SMTPEmailProvider,
     get_email_service,
 )
+from src.services.prometheus_collector import (
+    PrometheusCollector,
+    create_prometheus_collector,
+    InfrastructureSnapshot,
+    SeleniumMetrics,
+    BrowserNodeMetrics,
+)
+from src.services.infra_optimizer import (
+    AIInfraOptimizer,
+    create_infra_optimizer,
+    InfraRecommendation,
+    CostReport,
+    DemandForecast,
+    Anomaly,
+    RecommendationType,
+    RecommendationPriority,
+)
 
 __all__ = [
     # Supabase
@@ -44,4 +61,19 @@ __all__ = [
     "SendGridEmailProvider",
     "SMTPEmailProvider",
     "get_email_service",
+    # Prometheus Metrics
+    "PrometheusCollector",
+    "create_prometheus_collector",
+    "InfrastructureSnapshot",
+    "SeleniumMetrics",
+    "BrowserNodeMetrics",
+    # Infrastructure Optimizer
+    "AIInfraOptimizer",
+    "create_infra_optimizer",
+    "InfraRecommendation",
+    "CostReport",
+    "DemandForecast",
+    "Anomaly",
+    "RecommendationType",
+    "RecommendationPriority",
 ]

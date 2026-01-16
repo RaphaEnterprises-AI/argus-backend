@@ -61,6 +61,7 @@ from src.api.discovery import router as discovery_router
 from src.api.artifacts import router as artifacts_router
 from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
+from src.api.infra_optimizer import router as infra_optimizer_router
 
 # Security Module
 from src.api.security.middleware import (
@@ -230,6 +231,7 @@ app.include_router(discovery_router)
 app.include_router(artifacts_router)
 app.include_router(mcp_sessions_router)
 app.include_router(mcp_screenshots_router)
+app.include_router(infra_optimizer_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

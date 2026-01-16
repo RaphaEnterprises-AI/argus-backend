@@ -1233,3 +1233,273 @@ Output must be valid JSON."""
             results.append(result)
 
         return results
+
+    # =========================================================================
+    # SESSION CONFIG LEARNING METHODS
+    # =========================================================================
+
+    async def learn_from_execution(
+        self,
+        test_id: str,
+        estimated_config: dict,
+        actual_duration: float,
+        success: bool,
+        error_type: Optional[str] = None,
+    ) -> None:
+        """Learn from test execution to improve future session config estimates.
+
+        This method stores execution data to help the Test Planner agent make
+        better estimates for future tests. It tracks:
+        - Accuracy of duration estimates
+        - Patterns in test failures related to timeouts
+        - Memory class effectiveness
+
+        Args:
+            test_id: Unique identifier for the test
+            estimated_config: The session config estimated by Test Planner
+            actual_duration: Actual execution time in seconds
+            success: Whether the test succeeded
+            error_type: Type of error if failed (e.g., "timeout", "memory")
+        """
+        if not self.memory_store:
+            self.log.debug("Memory store not enabled, skipping learning")
+            return
+
+        try:
+            from datetime import datetime
+
+            # Calculate estimation accuracy
+            estimated_duration = estimated_config.get("maxDuration", 300)
+            accuracy = 1.0 - abs(estimated_duration - actual_duration) / max(estimated_duration, actual_duration)
+
+            # Prepare learning record
+            learning_record = {
+                "test_id": test_id,
+                "estimated": {
+                    "maxDuration": estimated_config.get("maxDuration"),
+                    "idleTimeout": estimated_config.get("idleTimeout"),
+                    "memoryClass": estimated_config.get("memoryClass"),
+                    "priority": estimated_config.get("priority"),
+                },
+                "actual": {
+                    "duration": actual_duration,
+                    "success": success,
+                    "error_type": error_type,
+                },
+                "accuracy": accuracy,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # Store in memory for pattern analysis
+            await self.memory_store.put(
+                namespace=("session_config_learning", test_id),
+                key="execution_history",
+                value=learning_record,
+            )
+
+            # Track timeout-related failures for adjustment
+            if not success and error_type in ["timeout", "session_timeout", "idle_timeout"]:
+                await self._track_timeout_pattern(test_id, estimated_config, actual_duration, error_type)
+
+            # Track memory-related failures
+            if not success and error_type in ["out_of_memory", "memory_exhaustion"]:
+                await self._track_memory_pattern(test_id, estimated_config)
+
+            self.log.info(
+                "Learned from execution",
+                test_id=test_id,
+                estimated_duration=estimated_duration,
+                actual_duration=actual_duration,
+                accuracy=f"{accuracy:.1%}",
+                success=success,
+            )
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to learn from execution",
+                test_id=test_id,
+                error=str(e),
+            )
+
+    async def _track_timeout_pattern(
+        self,
+        test_id: str,
+        estimated_config: dict,
+        actual_duration: float,
+        error_type: str,
+    ) -> None:
+        """Track timeout patterns for adjustment recommendations."""
+        if not self.memory_store:
+            return
+
+        pattern_key = f"timeout_pattern:{test_id}"
+
+        # Get existing pattern count
+        existing = await self.memory_store.get(
+            namespace=("timeout_patterns",),
+            key=pattern_key,
+        )
+
+        count = 1
+        recommended_increase = 1.5  # Default 50% increase
+        if existing:
+            count = existing.get("count", 0) + 1
+            # Increase recommendation for repeated failures
+            recommended_increase = min(2.0, 1.5 + (count * 0.1))
+
+        await self.memory_store.put(
+            namespace=("timeout_patterns",),
+            key=pattern_key,
+            value={
+                "test_id": test_id,
+                "count": count,
+                "last_estimated_duration": estimated_config.get("maxDuration"),
+                "last_actual_duration": actual_duration,
+                "error_type": error_type,
+                "recommended_multiplier": recommended_increase,
+            },
+        )
+
+    async def _track_memory_pattern(
+        self,
+        test_id: str,
+        estimated_config: dict,
+    ) -> None:
+        """Track memory exhaustion patterns for memory class recommendations."""
+        if not self.memory_store:
+            return
+
+        pattern_key = f"memory_pattern:{test_id}"
+        current_class = estimated_config.get("memoryClass", "standard")
+
+        # Recommend upgrading memory class
+        class_upgrades = {
+            "low": "standard",
+            "standard": "high",
+            "high": "high",  # Already at max
+        }
+
+        await self.memory_store.put(
+            namespace=("memory_patterns",),
+            key=pattern_key,
+            value={
+                "test_id": test_id,
+                "failed_memory_class": current_class,
+                "recommended_memory_class": class_upgrades.get(current_class, "high"),
+            },
+        )
+
+    async def get_session_config_recommendation(
+        self,
+        test_id: str,
+        base_estimate: dict,
+    ) -> dict:
+        """Get improved session config recommendation based on historical learning.
+
+        This method adjusts the base estimate from Test Planner based on
+        historical execution data for this specific test.
+
+        Args:
+            test_id: Unique identifier for the test
+            base_estimate: Initial estimate from Test Planner
+
+        Returns:
+            Adjusted session config with learning applied
+        """
+        if not self.memory_store:
+            return base_estimate
+
+        try:
+            # Check for timeout patterns
+            timeout_pattern = await self.memory_store.get(
+                namespace=("timeout_patterns",),
+                key=f"timeout_pattern:{test_id}",
+            )
+
+            # Check for memory patterns
+            memory_pattern = await self.memory_store.get(
+                namespace=("memory_patterns",),
+                key=f"memory_pattern:{test_id}",
+            )
+
+            # Apply adjustments
+            adjusted = base_estimate.copy()
+
+            if timeout_pattern:
+                multiplier = timeout_pattern.get("recommended_multiplier", 1.5)
+                old_duration = adjusted.get("maxDuration", 300)
+                adjusted["maxDuration"] = min(
+                    int(old_duration * multiplier),
+                    1800  # Cap at 30 minutes
+                )
+                self.log.info(
+                    "Adjusted duration based on timeout history",
+                    test_id=test_id,
+                    old_duration=old_duration,
+                    new_duration=adjusted["maxDuration"],
+                    timeout_count=timeout_pattern.get("count", 0),
+                )
+
+            if memory_pattern:
+                recommended_class = memory_pattern.get("recommended_memory_class")
+                if recommended_class:
+                    adjusted["memoryClass"] = recommended_class
+                    self.log.info(
+                        "Adjusted memory class based on history",
+                        test_id=test_id,
+                        recommended_class=recommended_class,
+                    )
+
+            return adjusted
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to get session config recommendation",
+                test_id=test_id,
+                error=str(e),
+            )
+            return base_estimate
+
+    async def get_learning_stats(self, test_id: Optional[str] = None) -> dict:
+        """Get learning statistics for session config optimization.
+
+        Args:
+            test_id: Optional test ID to filter stats
+
+        Returns:
+            Dictionary with learning statistics
+        """
+        if not self.memory_store:
+            return {"enabled": False}
+
+        try:
+            stats = {
+                "enabled": True,
+                "timeout_patterns": 0,
+                "memory_patterns": 0,
+                "avg_accuracy": 0.0,
+            }
+
+            # Count patterns
+            timeout_items = await self.memory_store.search(
+                namespace=("timeout_patterns",),
+                query="",  # Get all
+                limit=1000,
+            )
+            stats["timeout_patterns"] = len(timeout_items) if timeout_items else 0
+
+            memory_items = await self.memory_store.search(
+                namespace=("memory_patterns",),
+                query="",  # Get all
+                limit=1000,
+            )
+            stats["memory_patterns"] = len(memory_items) if memory_items else 0
+
+            return stats
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to get learning stats",
+                error=str(e),
+            )
+            return {"enabled": True, "error": str(e)}
