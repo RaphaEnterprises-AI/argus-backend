@@ -168,7 +168,10 @@ data:
         res.json({ success: true, actions, url });
 
       } catch (error) {
+        // CRITICAL: Release browser on error to prevent leaks
+        if (browser) releaseBrowser(browser);
         end();
+        console.error(`/observe error: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
       }
     });
@@ -252,18 +255,24 @@ data:
         });
 
       } catch (error) {
+        // CRITICAL: Release browser on error to prevent leaks
+        if (browser) releaseBrowser(browser);
         end();
+        console.error(`/act error: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
       }
     });
 
     // TEST endpoint (multi-step test)
     app.post('/test', async (req, res) => {
+      const end = actionDuration.startTimer();
       const { url, steps, browser: browserType = 'chrome', captureScreenshots = true } = req.body;
 
+      let browser = null;
       try {
-        const browser = getBrowser();
+        browser = getBrowser();
         if (!browser) {
+          end();
           return res.status(503).json({ success: false, error: 'No browsers available' });
         }
 
@@ -272,7 +281,7 @@ data:
         });
         const page = await context.newPage();
 
-        await page.goto(url, { waitUntil: 'networkidle' });
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
         const stepResults = [];
         let allPassed = true;
@@ -308,6 +317,7 @@ data:
 
         await context.close();
         releaseBrowser(browser);
+        end();
 
         res.json({
           success: allPassed,
@@ -316,6 +326,10 @@ data:
         });
 
       } catch (error) {
+        // CRITICAL: Release browser on error to prevent leaks
+        if (browser) releaseBrowser(browser);
+        end();
+        console.error(`/test error: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
       }
     });
