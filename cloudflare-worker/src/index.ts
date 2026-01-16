@@ -2673,11 +2673,41 @@ export default {
           "POST /agent": "Run autonomous workflow",
           "POST /test": "Run cross-browser tests",
           "GET /health": "Health check",
+          "GET /storage/*": "Serve screenshots and artifacts from R2",
         },
         backends: ["cloudflare (free, Chromium)", "testingbot (paid, all browsers + devices)"],
         devices: Object.keys(DEVICE_PRESETS),
         note: "For intelligence features (webhooks, test generation, quality scoring), use the Brain service.",
       }, { headers: corsHeaders });
+    }
+
+    // Serve files from R2 storage (screenshots, artifacts)
+    if (path.startsWith("/storage/") && request.method === "GET") {
+      const key = path.replace("/storage/", "");
+      if (!key) {
+        return Response.json({ error: "Missing file key" }, { status: 400, headers: corsHeaders });
+      }
+
+      if (!env.ARTIFACTS) {
+        return Response.json({ error: "Storage not configured" }, { status: 503, headers: corsHeaders });
+      }
+
+      try {
+        const object = await env.ARTIFACTS.get(key);
+        if (!object) {
+          return Response.json({ error: "File not found" }, { status: 404, headers: corsHeaders });
+        }
+
+        const headers = new Headers(corsHeaders);
+        headers.set("Content-Type", object.httpMetadata?.contentType || "application/octet-stream");
+        headers.set("Cache-Control", object.httpMetadata?.cacheControl || "public, max-age=31536000");
+        headers.set("ETag", object.etag);
+
+        return new Response(object.body, { headers });
+      } catch (error) {
+        console.error("Storage fetch error:", error);
+        return Response.json({ error: "Failed to fetch file" }, { status: 500, headers: corsHeaders });
+      }
     }
 
     // Auth for all other endpoints

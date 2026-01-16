@@ -31,6 +31,7 @@ data:
     const METRICS_PORT = process.env.METRICS_PORT || 9090;
     const POOL_SIZE = parseInt(process.env.BROWSER_POOL_SIZE || '2');
     const SESSION_TIMEOUT = parseInt(process.env.SESSION_TIMEOUT_MS || '300000');
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
     // Prometheus metrics
     const register = new promClient.Registry();
@@ -330,6 +331,118 @@ data:
         if (browser) releaseBrowser(browser);
         end();
         console.error(`/test error: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // EXTRACT endpoint - Extract structured data from pages
+    app.post('/extract', async (req, res) => {
+      const end = actionDuration.startTimer();
+      const { url, instruction, schema, selector, timeout = 30000 } = req.body;
+
+      let browser = null;
+      try {
+        browser = getBrowser();
+        if (!browser) {
+          end();
+          return res.status(503).json({ success: false, error: 'No browsers available' });
+        }
+
+        const context = await browser.newContext({
+          viewport: { width: 1920, height: 1080 },
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        });
+        const page = await context.newPage();
+
+        await page.goto(url, { waitUntil: 'networkidle', timeout });
+
+        // Extract page content
+        let content;
+        if (selector) {
+          content = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            return el ? el.innerText : document.body.innerText;
+          }, selector);
+        } else {
+          content = await page.evaluate(() => document.body.innerText || '');
+        }
+
+        await context.close();
+        releaseBrowser(browser);
+        browser = null;
+
+        // Truncate content to avoid token limits
+        content = (content || '').substring(0, 8000);
+
+        // If no API key, return raw content
+        if (!ANTHROPIC_API_KEY) {
+          end();
+          return res.json({
+            success: true,
+            rawContent: content,
+            _note: 'No ANTHROPIC_API_KEY configured, returning raw content'
+          });
+        }
+
+        // Call Anthropic API for extraction
+        const prompt = instruction
+          ? `Extract from the following page content: ${instruction}\n\nPAGE CONTENT:\n${content}\n\nRespond with valid JSON only.`
+          : schema
+            ? `Extract data matching this schema: ${JSON.stringify(schema)}\n\nPAGE CONTENT:\n${content}\n\nRespond with valid JSON only.`
+            : `Extract the key information from:\n${content}\n\nRespond with valid JSON only.`;
+
+        const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-haiku-20241022',
+            max_tokens: 2000,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+
+        if (!aiResponse.ok) {
+          const errText = await aiResponse.text();
+          console.error(`Anthropic API error: ${aiResponse.status} ${errText}`);
+          end();
+          return res.json({
+            success: true,
+            rawContent: content,
+            _note: 'AI extraction failed, returning raw content'
+          });
+        }
+
+        const aiResult = await aiResponse.json();
+        const aiText = aiResult.content?.[0]?.text || '';
+
+        // Parse JSON from response
+        const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+        let extracted = {};
+        if (jsonMatch) {
+          try {
+            extracted = JSON.parse(jsonMatch[0]);
+          } catch (e) {
+            extracted = { extraction: aiText };
+          }
+        } else {
+          extracted = { extraction: aiText };
+        }
+
+        end();
+        res.json({
+          success: true,
+          ...extracted
+        });
+
+      } catch (error) {
+        // CRITICAL: Release browser on error to prevent leaks
+        if (browser) releaseBrowser(browser);
+        end();
+        console.error(`/extract error: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
       }
     });
@@ -752,6 +865,21 @@ data:
         res.json(result);
       } catch (error) {
         requestCounter.inc({ endpoint: 'test', status: 'error' });
+        end();
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // EXTRACT endpoint - Extract structured data from pages
+    app.post('/extract', async (req, res) => {
+      const end = requestDuration.startTimer({ endpoint: 'extract' });
+      try {
+        const result = await forwardToBrowser('/extract', req.body);
+        requestCounter.inc({ endpoint: 'extract', status: 'success' });
+        end();
+        res.json(result);
+      } catch (error) {
+        requestCounter.inc({ endpoint: 'extract', status: 'error' });
         end();
         res.status(500).json({ success: false, error: error.message });
       }

@@ -221,8 +221,10 @@ export class ArgusStorage {
       return {
         success: true,
         key,
-        // Note: Actual public URL would need R2 public access or signed URLs
+        // URL served via /storage/* route in the worker
         url: `/storage/${key}`,
+        // Full URL for external access (caller should prepend worker URL)
+        path: key,
       };
     }
 

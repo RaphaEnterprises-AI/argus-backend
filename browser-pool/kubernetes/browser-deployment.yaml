@@ -86,6 +86,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            # Anthropic API key for /extract endpoint AI processing
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: browser-pool-auth
+                  key: anthropic-api-key
+                  optional: true
 
           resources:
             requests:
