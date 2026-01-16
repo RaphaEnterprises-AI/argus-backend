@@ -196,12 +196,34 @@ def generate_fingerprint(
     return hash_value
 
 
-async def get_default_project_id(supabase) -> Optional[str]:
-    """Get the first available project ID."""
-    result = await supabase.select("projects", columns="id", filters={"limit": "1"})
+async def get_default_project_id(supabase, organization_id: str) -> Optional[str]:
+    """Get the first available project ID for a specific organization.
+
+    SECURITY: Always filter by organization_id to prevent cross-tenant data access.
+    """
+    if not organization_id:
+        return None
+
+    result = await supabase.request(
+        f"/projects?organization_id=eq.{organization_id}&select=id&limit=1"
+    )
     if result.get("data") and len(result["data"]) > 0:
         return result["data"][0]["id"]
     return None
+
+
+async def validate_project_org(supabase, project_id: str, organization_id: str) -> bool:
+    """Validate that a project belongs to the specified organization.
+
+    SECURITY: Prevents IDOR by ensuring users can only access their own org's projects.
+    """
+    if not project_id or not organization_id:
+        return False
+
+    result = await supabase.request(
+        f"/projects?id=eq.{project_id}&organization_id=eq.{organization_id}&select=id"
+    )
+    return bool(result.get("data") and len(result["data"]) > 0)
 
 
 async def log_webhook(
@@ -245,6 +267,7 @@ async def update_webhook_log(
 @router.post("/sentry", response_model=WebhookResponse)
 async def handle_sentry_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
@@ -252,9 +275,19 @@ async def handle_sentry_webhook(
 
     Sentry sends webhooks for new issues, resolved issues, etc.
     We normalize these into production_events for Quality Intelligence.
+
+    SECURITY: organization_id is required to ensure data is stored in the correct tenant.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if project_id is provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
@@ -309,9 +342,9 @@ async def handle_sentry_webhook(
                 else:
                     device_type = "desktop"
 
-            # Get project ID
+            # Get project ID (SECURITY: filtered by organization_id)
             if not project_id:
-                project_id = await get_default_project_id(supabase)
+                project_id = await get_default_project_id(supabase, organization_id)
                 if not project_id:
                     raise HTTPException(
                         status_code=400,
@@ -420,15 +453,26 @@ async def handle_sentry_webhook(
 @router.post("/datadog", response_model=WebhookResponse)
 async def handle_datadog_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Datadog webhook events.
 
     Datadog sends webhooks for alerts, errors, and monitoring events.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
@@ -437,11 +481,11 @@ async def handle_datadog_webhook(
         events = body if isinstance(body, list) else [body]
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         processed_events = []
@@ -536,26 +580,37 @@ async def handle_datadog_webhook(
 @router.post("/fullstory", response_model=WebhookResponse)
 async def handle_fullstory_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle FullStory webhook events.
 
     FullStory sends webhooks for rage clicks, dead clicks, and error events.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "fullstory", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         # FullStory webhook structure varies by event type
@@ -639,26 +694,37 @@ async def handle_fullstory_webhook(
 @router.post("/logrocket", response_model=WebhookResponse)
 async def handle_logrocket_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle LogRocket webhook events.
 
     LogRocket sends webhooks for errors and session events.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "logrocket", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         error = body.get("error", {})
@@ -739,26 +805,37 @@ async def handle_logrocket_webhook(
 @router.post("/newrelic", response_model=WebhookResponse)
 async def handle_newrelic_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle NewRelic webhook events.
 
     NewRelic sends webhooks for APM alerts and errors.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "newrelic", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         # NewRelic can send different payload formats
@@ -843,26 +920,37 @@ async def handle_newrelic_webhook(
 @router.post("/bugsnag", response_model=WebhookResponse)
 async def handle_bugsnag_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Bugsnag webhook events.
 
     Bugsnag sends webhooks for new errors and regressions.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "bugsnag", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         error = body.get("error", {})
@@ -1007,6 +1095,7 @@ class CIEvent(BaseModel):
 @router.post("/github-actions", response_model=WebhookResponse)
 async def handle_github_actions_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
@@ -1015,20 +1104,30 @@ async def handle_github_actions_webhook(
     GitHub sends webhooks for workflow runs and jobs.
     Configure in GitHub: Settings → Webhooks → Add webhook
     Events: workflow_run, workflow_job
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "github_actions", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         payload = GitHubActionsPayload(**body)
@@ -1136,6 +1235,7 @@ async def handle_github_actions_webhook(
 
 class CoverageReport(BaseModel):
     """Coverage report upload."""
+    organization_id: str  # SECURITY: Required for multi-tenant isolation
     project_id: Optional[str] = None
     branch: str = "main"
     commit_sha: str
@@ -1291,19 +1391,29 @@ async def upload_coverage_report(
     Example curl:
         curl -X POST /api/v1/webhooks/coverage \\
             -H "Content-Type: application/json" \\
-            -d '{"commit_sha": "abc123", "format": "lcov", "report_data": "..."}'
+            -d '{"organization_id": "...", "commit_sha": "abc123", "format": "lcov", "report_data": "..."}'
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
+    # SECURITY: Validate project belongs to organization if provided
+    if report.project_id:
+        if not await validate_project_org(supabase, report.project_id, report.organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
+
     try:
         project_id = report.project_id
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, report.organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id.",
+                    detail="No project found in organization. Please specify project_id.",
                 )
 
         # Parse coverage based on format
@@ -1373,26 +1483,37 @@ async def upload_coverage_report(
 @router.post("/rollbar", response_model=WebhookResponse)
 async def handle_rollbar_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Rollbar webhook events.
 
     Rollbar sends webhooks for new errors and reactivated items.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "rollbar", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         event_name = body.get("event_name", "new_item")
@@ -1513,6 +1634,7 @@ class GitLabPipelinePayload(BaseModel):
 @router.post("/gitlab-ci", response_model=WebhookResponse)
 async def handle_gitlab_ci_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
@@ -1521,20 +1643,30 @@ async def handle_gitlab_ci_webhook(
     GitLab sends webhooks for pipeline and job events.
     Configure in GitLab: Settings → Webhooks → Add webhook
     Events: Pipeline events
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "gitlab_ci", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         object_kind = body.get("object_kind")
@@ -1656,6 +1788,7 @@ class CircleCIPayload(BaseModel):
 @router.post("/circleci", response_model=WebhookResponse)
 async def handle_circleci_webhook(
     request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
     project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
 ):
     """
@@ -1663,20 +1796,30 @@ async def handle_circleci_webhook(
 
     CircleCI sends webhooks for workflow and job completions.
     Configure in CircleCI: Project Settings → Webhooks → Add webhook
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
 
     try:
         body = await request.json()
         await log_webhook(supabase, webhook_id, "circleci", request, body)
 
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id query parameter.",
+                    detail="No project found in organization. Please specify project_id query parameter.",
                 )
 
         payload = CircleCIPayload(**body)
@@ -1778,6 +1921,7 @@ async def handle_circleci_webhook(
 
 class TestResultsUpload(BaseModel):
     """Test results upload request."""
+    organization_id: str  # SECURITY: Required for multi-tenant isolation
     project_id: Optional[str] = None
     branch: str = "main"
     commit_sha: str
@@ -1923,19 +2067,29 @@ async def upload_test_results(
     Example curl:
         curl -X POST /api/v1/webhooks/test-results \\
             -H "Content-Type: application/json" \\
-            -d '{"commit_sha": "abc123", "format": "junit", "report_data": "<testsuites>..."}'
+            -d '{"organization_id": "...", "commit_sha": "abc123", "format": "junit", "report_data": "<testsuites>..."}'
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
     """
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
+    # SECURITY: Validate project belongs to organization if provided
+    if results.project_id:
+        if not await validate_project_org(supabase, results.project_id, results.organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
+
     try:
         project_id = results.project_id
         if not project_id:
-            project_id = await get_default_project_id(supabase)
+            project_id = await get_default_project_id(supabase, results.organization_id)
             if not project_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="No project found. Please specify project_id.",
+                    detail="No project found in organization. Please specify project_id.",
                 )
 
         # Parse test results based on format

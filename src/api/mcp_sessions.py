@@ -13,6 +13,8 @@ that are connected to their Argus account.
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from enum import Enum
+from uuid import UUID
+import re
 
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field
@@ -23,6 +25,50 @@ from src.api.teams import get_current_user, verify_org_access, log_audit, transl
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/mcp", tags=["MCP Sessions"])
+
+
+# ============================================================================
+# Input Validation Utilities
+# ============================================================================
+
+def validate_uuid(value: str, field_name: str = "id") -> str:
+    """Validate that a string is a valid UUID.
+
+    Raises HTTPException 400 if invalid, preventing SQL injection
+    and ensuring data integrity.
+    """
+    if not value:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+
+    try:
+        # Attempt to parse as UUID
+        UUID(value)
+        return value
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name} format. Expected UUID."
+        )
+
+
+def validate_org_id(org_id: str) -> str:
+    """Validate organization ID - accepts both UUID and Clerk formats.
+
+    UUID format: 550e8400-e29b-41d4-a716-446655440000
+    Clerk format: org_xxxxx
+    """
+    if not org_id:
+        raise HTTPException(status_code=400, detail="organization_id is required")
+
+    # Clerk org IDs start with "org_"
+    if org_id.startswith("org_"):
+        # Basic validation for Clerk format
+        if not re.match(r'^org_[a-zA-Z0-9]+$', org_id):
+            raise HTTPException(status_code=400, detail="Invalid Clerk organization ID format")
+        return org_id
+
+    # Otherwise, validate as UUID
+    return validate_uuid(org_id, "organization_id")
 
 
 # ============================================================================
@@ -149,6 +195,11 @@ class RecordActivityRequest(BaseModel):
     duration_ms: Optional[int] = None
     success: bool = True
     error_message: Optional[str] = None
+    # Extended fields for richer activity tracking
+    screenshot_key: Optional[str] = None  # R2 key for screenshot
+    input_tokens: Optional[int] = None    # AI cost tracking
+    output_tokens: Optional[int] = None   # AI cost tracking
+    metadata: Optional[dict] = None       # Tool-specific data
 
 
 # ============================================================================
@@ -231,6 +282,8 @@ async def list_mcp_connections(
     query = "/mcp_connections?select=*&order=last_activity_at.desc"
 
     if org_id:
+        # INPUT VALIDATION: Validate org_id format
+        org_id = validate_org_id(org_id)
         # Get org connections (requires org access)
         supabase_org_id = await translate_clerk_org_id(org_id)
         await verify_org_access(org_id, user_id)
@@ -265,6 +318,9 @@ async def get_mcp_connection(
     connection_id: str,
 ):
     """Get details for a specific MCP connection."""
+    # INPUT VALIDATION: Prevent injection attacks
+    connection_id = validate_uuid(connection_id, "connection_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -296,6 +352,9 @@ async def revoke_mcp_connection(
     This will invalidate the session and prevent further API calls
     from this connection. The client will need to re-authenticate.
     """
+    # INPUT VALIDATION: Prevent injection attacks
+    connection_id = validate_uuid(connection_id, "connection_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -375,6 +434,9 @@ async def get_connection_activity(
     offset: int = Query(0, ge=0),
 ):
     """Get activity log for a specific MCP connection."""
+    # INPUT VALIDATION: Prevent injection attacks
+    connection_id = validate_uuid(connection_id, "connection_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -638,6 +700,15 @@ async def record_mcp_activity(
     if not conn_result.get("data"):
         raise HTTPException(status_code=404, detail="Connection not found")
 
+    # Build activity metadata with new fields
+    activity_metadata = body.metadata or {}
+    if body.screenshot_key:
+        activity_metadata["screenshot_key"] = body.screenshot_key
+    if body.input_tokens is not None:
+        activity_metadata["input_tokens"] = body.input_tokens
+    if body.output_tokens is not None:
+        activity_metadata["output_tokens"] = body.output_tokens
+
     # Update connection stats
     await supabase.rpc(
         "record_mcp_tool_usage",
@@ -648,6 +719,7 @@ async def record_mcp_activity(
             "p_duration_ms": body.duration_ms,
             "p_success": body.success,
             "p_error_message": body.error_message,
+            "p_metadata": activity_metadata if activity_metadata else None,
         },
     )
 

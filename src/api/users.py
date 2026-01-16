@@ -9,6 +9,7 @@ Provides endpoints for:
 
 from datetime import datetime, timezone
 from typing import Optional
+import secrets
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, EmailStr
@@ -150,6 +151,7 @@ class OrganizationSummary(BaseModel):
     plan: str
     member_count: int
     is_default: bool
+    is_personal: bool = False
 
 
 # ============================================================================
@@ -529,6 +531,157 @@ async def set_default_organization(
     return await get_my_profile(request)
 
 
+async def _create_personal_organization(
+    user_id: str,
+    user_email: Optional[str] = None
+) -> Optional["OrganizationSummary"]:
+    """Auto-create a personal organization for users without any org membership.
+
+    This ensures every user has at least one organization to work in,
+    providing a seamless experience for individual users.
+
+    IMPORTANT: This function includes race condition protection:
+    1. Application-level check for existing personal org
+    2. Database trigger prevents duplicate inserts
+    3. Unique constraint on slug prevents duplicate orgs
+
+    Args:
+        user_id: The user's ID from Clerk
+        user_email: The user's email address (optional)
+
+    Returns:
+        OrganizationSummary for the new personal org, or None if creation fails
+    """
+    try:
+        supabase = get_supabase_client()
+
+        # RACE CONDITION PROTECTION: Check if user already has a personal org
+        # This is the first line of defense (DB trigger is backup)
+        existing_personal = await supabase.request(
+            f"/organization_members?user_id=eq.{user_id}&status=eq.active"
+            f"&select=organization_id,organizations!inner(id,name,slug,plan,is_personal)"
+        )
+
+        if existing_personal.get("data"):
+            for membership in existing_personal["data"]:
+                org = membership.get("organizations", {})
+                if org.get("is_personal"):
+                    logger.info(
+                        "User already has personal organization, returning existing",
+                        user_id=user_id,
+                        org_id=org["id"]
+                    )
+                    # Return existing personal org instead of creating new one
+                    return OrganizationSummary(
+                        id=org["id"],
+                        name=org["name"],
+                        slug=org["slug"],
+                        role="owner",
+                        plan=org.get("plan", "free"),
+                        member_count=1,
+                        is_default=True,
+                        is_personal=True,
+                    )
+
+        # Generate unique slug
+        slug_base = "personal"
+        if user_email:
+            # Use email prefix for more meaningful slug
+            email_prefix = user_email.split("@")[0][:20]
+            slug_base = f"{email_prefix}-workspace"
+
+        # Ensure slug uniqueness with random suffix
+        slug = f"{slug_base}-{secrets.token_hex(4)}"
+
+        # Determine org name
+        if user_email:
+            org_name = f"{user_email.split('@')[0]}'s Workspace"
+        else:
+            org_name = "Personal Workspace"
+
+        # Create the organization
+        org_result = await supabase.insert("organizations", {
+            "name": org_name,
+            "slug": slug,
+            "plan": "free",
+            "is_personal": True,  # Mark as personal/individual org
+        })
+
+        if org_result.get("error"):
+            logger.error(
+                "Failed to create personal organization",
+                user_id=user_id,
+                error=org_result.get("error")
+            )
+            return None
+
+        org = org_result["data"][0]
+
+        # Add user as owner
+        member_result = await supabase.insert("organization_members", {
+            "organization_id": org["id"],
+            "user_id": user_id,
+            "email": user_email or "",
+            "role": "owner",
+            "status": "active",
+            "accepted_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        if member_result.get("error"):
+            logger.error(
+                "Failed to add user to personal organization",
+                user_id=user_id,
+                org_id=org["id"],
+                error=member_result.get("error")
+            )
+            # Clean up org if member creation failed
+            await supabase.request(
+                f"/organizations?id=eq.{org['id']}",
+                method="DELETE"
+            )
+            return None
+
+        # Create default healing config for the org
+        await supabase.insert("self_healing_config", {
+            "organization_id": org["id"],
+        })
+
+        # Update user profile with default org
+        profile = await get_or_create_profile(user_id, user_email)
+        if profile:
+            await supabase.update(
+                "user_profiles",
+                {"id": f"eq.{profile['id']}"},
+                {"default_organization_id": org["id"]}
+            )
+
+        logger.info(
+            "Personal organization created",
+            user_id=user_id,
+            org_id=org["id"],
+            org_name=org_name
+        )
+
+        return OrganizationSummary(
+            id=org["id"],
+            name=org["name"],
+            slug=org["slug"],
+            role="owner",
+            plan="free",
+            member_count=1,
+            is_default=True,
+            is_personal=True,
+        )
+
+    except Exception as e:
+        logger.error(
+            "Exception creating personal organization",
+            user_id=user_id,
+            error=str(e)
+        )
+        return None
+
+
 @router.get("/me/organizations", response_model=list[OrganizationSummary])
 async def list_my_organizations(request: Request):
     """List all organizations the current user belongs to."""
@@ -562,6 +715,13 @@ async def list_my_organizations(request: Request):
             seen_org_ids.add(m["organization_id"])
 
     if not all_memberships:
+        # Auto-create personal organization for users without any org
+        personal_org = await _create_personal_organization(
+            user_id=user["user_id"],
+            user_email=user.get("email")
+        )
+        if personal_org:
+            return [personal_org]
         return []
 
     # Create role lookup
@@ -594,6 +754,7 @@ async def list_my_organizations(request: Request):
             plan=org.get("plan", "free"),
             member_count=len(members.get("data", [])),
             is_default=(org["id"] == default_org_id),
+            is_personal=org.get("is_personal", False),
         ))
 
     # Sort with default org first, then by name

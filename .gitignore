@@ -85,3 +85,4 @@ yarn-error.log*
 
 # Supabase CLI temp files
 supabase/.temp/
+**/.temp/

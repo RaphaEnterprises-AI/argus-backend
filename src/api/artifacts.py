@@ -11,12 +11,13 @@ receives artifact IDs in tool results.
 import base64
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import structlog
 
 from src.orchestrator.artifact_store import get_artifact_store
+from src.api.security.auth import get_current_user, UserContext
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
 logger = structlog.get_logger()
@@ -39,7 +40,11 @@ class ArtifactListResponse(BaseModel):
 
 
 @router.get("/{artifact_id}", response_model=ArtifactResponse)
-async def get_artifact(artifact_id: str, format: str = "base64"):
+async def get_artifact(
+    artifact_id: str,
+    format: str = "base64",
+    user: UserContext = Depends(get_current_user),
+):
     """
     Get artifact content by ID.
 
@@ -52,6 +57,10 @@ async def get_artifact(artifact_id: str, format: str = "base64"):
 
     The artifact ID format is: {type}_{content_hash}_{timestamp}
     Common types: screenshot, video, html
+
+    SECURITY: Requires authentication. Note: Full org-based isolation requires
+    adding organization_id to artifact storage (TODO: implement proper multi-tenant
+    artifact isolation).
     """
     logger.info("Fetching artifact", artifact_id=artifact_id, format=format)
 
@@ -105,7 +114,10 @@ async def get_artifact(artifact_id: str, format: str = "base64"):
 
 
 @router.get("/{artifact_id}/raw")
-async def get_artifact_raw(artifact_id: str):
+async def get_artifact_raw(
+    artifact_id: str,
+    user: UserContext = Depends(get_current_user),
+):
     """
     Get artifact content as raw image bytes.
 
@@ -117,6 +129,8 @@ async def get_artifact_raw(artifact_id: str):
 
     Returns:
         Raw image bytes with appropriate Content-Type header.
+
+    SECURITY: Requires authentication.
     """
     logger.info("Fetching raw artifact", artifact_id=artifact_id)
 
