@@ -1,0 +1,104 @@
+# Selenium Grid 4 - Lightweight Configuration for Argus (Vultr VKE)
+# Deploy with: helm upgrade --install selenium-grid selenium/selenium-grid -f values.yaml -n selenium-grid --create-namespace
+
+global:
+  seleniumGrid:
+    imageTag: "4.27.0"
+    logLevel: "INFO"
+    # Session timeout - auto-cleanup stuck sessions after 60 seconds
+    sessionTimeout: 60
+
+# Use Hub mode (simpler, less resources than distributed mode)
+hub:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Disable distributed components (using hub instead)
+components:
+  router:
+    enabled: false
+  distributor:
+    enabled: false
+  sessionMap:
+    enabled: false
+  sessionQueue:
+    enabled: false
+  eventBus:
+    enabled: false
+
+# Chrome nodes - lightweight config
+chromeNode:
+  enabled: true
+  replicas: 2
+  maxSessions: 2
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  videoRecording:
+    enabled: false
+
+# Firefox nodes - enabled with KEDA autoscaling
+firefoxNode:
+  enabled: true
+  replicas: 1
+  maxSessions: 1
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1.5Gi"
+      cpu: "750m"
+  videoRecording:
+    enabled: false
+
+# Edge nodes - enabled with KEDA autoscaling
+edgeNode:
+  enabled: true
+  replicas: 1
+  maxSessions: 1
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  videoRecording:
+    enabled: false
+
+# Ingress disabled - using LoadBalancer directly
+ingress:
+  enabled: false
+
+# Service configuration
+hub:
+  serviceType: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+
+# Disable monitoring stack to save resources
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+# Basic auth disabled for now
+basicAuth:
+  enabled: false
+
+# Tracing disabled
+tracing:
+  enabled: false

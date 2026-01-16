@@ -1,0 +1,557 @@
+---
+# KEDA Prometheus Queries Reference and ConfigMap
+# Contains ready-to-use PromQL queries for monitoring Selenium Grid KEDA autoscaling
+# Deploy as: kubectl apply -f keda-prometheus-queries.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keda-prometheus-queries
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: keda
+    type: documentation
+data:
+  # ====================
+  # SESSION QUEUE METRICS
+  # ====================
+  session-queue-queries.md: |
+    # Session Queue Metrics - Monitor test load and queueing
+
+    ## Chrome Session Queue
+    - Query: `ceil(selenium_sessions_queued{node="chrome"})`
+    - Description: Number of Chrome browser sessions waiting in queue
+    - Alert Threshold: > 10 for 5m (indicates scaling needed)
+    - Use Case: Determines when to scale up Chrome nodes
+
+    ## Firefox Session Queue
+    - Query: `ceil(selenium_sessions_queued{node="firefox"})`
+    - Description: Number of Firefox browser sessions waiting in queue
+    - Alert Threshold: > 5 for 5m
+    - Use Case: Determines when to scale up Firefox nodes
+
+    ## Edge Session Queue
+    - Query: `ceil(selenium_sessions_queued{node="edge"})`
+    - Description: Number of Edge browser sessions waiting in queue
+    - Alert Threshold: > 20 for 5m
+    - Use Case: Determines when to scale up Edge nodes
+
+    ## Total Session Queue (all browsers)
+    - Query: `sum(ceil(selenium_sessions_queued))`
+    - Description: Total sessions queued across all browser types
+    - Use Case: Overall system load indicator
+
+    ## Session Queue Rate of Change
+    - Query: `rate(selenium_sessions_queued[5m])`
+    - Description: How fast the queue is growing or shrinking
+    - Use Case: Predict if scaling is keeping up with load
+
+  # ====================
+  # SLOTS AND CAPACITY
+  # ====================
+  slots-capacity-queries.md: |
+    # Browser Slots and Capacity - Monitor available resources
+
+    ## Chrome Available Slots
+    - Query: `selenium_node_slots_available{node="chrome"}`
+    - Description: Number of unused Chrome browser slots
+    - Use Case: Capacity planning and scaling triggers
+
+    ## Chrome Used Slots
+    - Query: `selenium_node_slots_used{node="chrome"}`
+    - Description: Number of Chrome slots actively running sessions
+    - Use Case: Current utilization indicator
+
+    ## Chrome Total Slots
+    - Query: `(selenium_node_slots_available{node="chrome"} + selenium_node_slots_used{node="chrome"})`
+    - Description: Total Chrome slots (available + used)
+    - Use Case: Maximum capacity indicator
+
+    ## Chrome Slot Utilization Ratio
+    - Query: |
+      (
+        selenium_node_slots_used{node="chrome"}
+        /
+        (
+          selenium_node_slots_available{node="chrome"}
+          +
+          selenium_node_slots_used{node="chrome"}
+        )
+      )
+    - Description: Percentage of Chrome slots in use (0.0 to 1.0)
+    - Use Case: Primary scaling metric, scale up at 0.8 (80%)
+    - Alert Threshold: > 0.9 for 5m (at 90% capacity)
+
+    ## Firefox Slot Utilization Ratio
+    - Query: |
+      (
+        selenium_node_slots_used{node="firefox"}
+        /
+        (
+          selenium_node_slots_available{node="firefox"}
+          +
+          selenium_node_slots_used{node="firefox"}
+        )
+      )
+    - Description: Percentage of Firefox slots in use
+    - Use Case: Primary scaling metric for Firefox
+    - Alert Threshold: > 0.85 for 5m
+
+    ## Edge Slot Utilization Ratio
+    - Query: |
+      (
+        selenium_node_slots_used{node="edge"}
+        /
+        (
+          selenium_node_slots_available{node="edge"}
+          +
+          selenium_node_slots_used{node="edge"}
+        )
+      )
+    - Description: Percentage of Edge slots in use
+    - Use Case: Primary scaling metric for Edge
+    - Alert Threshold: > 0.9 for 5m
+
+    ## Capacity Forecast (all browsers)
+    - Query: |
+      # Forecasts capacity availability in 30 minutes
+      predict_linear(
+        (
+          selenium_node_slots_used
+          /
+          (
+            selenium_node_slots_available
+            +
+            selenium_node_slots_used
+          )
+        )[1h:5m], 1800
+      )
+    - Description: Predicted slot utilization in 30 minutes
+    - Use Case: Proactive scaling decisions
+
+  # ====================
+  # SESSION METRICS
+  # ====================
+  session-metrics-queries.md: |
+    # Session Metrics - Monitor individual session performance
+
+    ## Active Sessions by Browser Type
+    - Query: `selenium_sessions_active{node="chrome"}`
+    - Description: Currently running sessions for specified browser
+    - Use Case: Real-time load indicator
+
+    ## Session Count Over Time
+    - Query: `rate(selenium_sessions_total[5m])`
+    - Description: Rate of new sessions being created
+    - Use Case: Load trend analysis
+
+    ## Session Creation Success Rate
+    - Query: |
+      (
+        rate(selenium_sessions_created_success[5m])
+        /
+        rate(selenium_sessions_created_total[5m])
+      )
+    - Description: Percentage of successfully created sessions
+    - Use Case: Health indicator, drop indicates issues
+
+    ## Failed Session Creation Rate
+    - Query: `rate(selenium_sessions_failed[5m])`
+    - Description: Rate of failed session creation attempts
+    - Use Case: Troubleshooting scaling or resource issues
+
+    ## Average Session Duration by Browser
+    - Query: |
+      histogram_quantile(0.5,
+        rate(selenium_session_duration_ms_bucket{node="chrome"}[5m])
+      )
+    - Description: Median session duration in milliseconds
+    - Use Case: Performance baseline and anomaly detection
+
+    ## 95th Percentile Session Duration
+    - Query: |
+      histogram_quantile(0.95,
+        rate(selenium_session_duration_ms_bucket{node="chrome"}[5m])
+      )
+    - Description: 95% of sessions complete within this duration
+    - Use Case: SLA monitoring
+
+    ## 99th Percentile Session Duration
+    - Query: |
+      histogram_quantile(0.99,
+        rate(selenium_session_duration_ms_bucket{node="chrome"}[5m])
+      )
+    - Description: 99% of sessions complete within this duration
+    - Use Case: Worst-case scenario monitoring
+
+  # ====================
+  # NODE REPLICA METRICS
+  # ====================
+  node-replica-queries.md: |
+    # Node Replica Metrics - Monitor KEDA scaling decisions
+
+    ## Current Chrome Replicas
+    - Query: `keda_scaler_active{scaled_object="selenium-chrome-nodes-scaler"}`
+    - Description: Current number of Chrome node replicas
+    - Use Case: Verify scaling is working
+
+    ## Current Firefox Replicas
+    - Query: `keda_scaler_active{scaled_object="selenium-firefox-nodes-scaler"}`
+    - Description: Current number of Firefox node replicas
+    - Use Case: Verify scaling is working
+
+    ## Current Edge Replicas
+    - Query: `keda_scaler_active{scaled_object="selenium-edge-nodes-scaler"}`
+    - Description: Current number of Edge node replicas
+    - Use Case: Verify scaling is working
+
+    ## Total Replicas (all browsers)
+    - Query: `sum(keda_scaler_active)`
+    - Description: Total browser nodes across all types
+    - Use Case: Overall infrastructure load
+
+    ## Chrome Replicas at Limits
+    - Query: |
+      (
+        keda_scaler_active{scaled_object="selenium-chrome-nodes-scaler"}
+        /
+        keda_scaler_max{scaled_object="selenium-chrome-nodes-scaler"}
+      )
+    - Description: Ratio of current to max Chrome replicas
+    - Use Case: Capacity warning (alert at > 0.9)
+
+    ## Replica Change Rate
+    - Query: `rate(keda_scaler_active[5m])`
+    - Description: How fast replicas are being added/removed
+    - Use Case: Detect thrashing (rapid fluctuations)
+
+  # ====================
+  # KEDA SCALER HEALTH
+  # ====================
+  keda-health-queries.md: |
+    # KEDA Scaler Health - Monitor autoscaling system
+
+    ## KEDA Operator Up
+    - Query: `up{job="keda-operator"}`
+    - Description: KEDA operator health (1=up, 0=down)
+    - Alert Threshold: == 0 for 1m
+    - Use Case: Immediate notification if KEDA fails
+
+    ## KEDA Metrics API Up
+    - Query: `up{job="keda-metrics-apiserver"}`
+    - Description: KEDA metrics API server health
+    - Alert Threshold: == 0 for 1m
+    - Use Case: Verify metrics are available
+
+    ## Scaler Errors
+    - Query: `increase(keda_scaler_errors_total[5m])`
+    - Description: Number of errors in scaler in last 5 minutes
+    - Alert Threshold: > 0
+    - Use Case: Detect scaling failures
+
+    ## Failed Scaling Events
+    - Query: `rate(keda_scale_failed_total[5m])`
+    - Description: Rate of failed scaling attempts
+    - Use Case: Troubleshoot scaling issues
+
+    ## Scaler Latency (50th percentile)
+    - Query: |
+      histogram_quantile(0.5,
+        rate(keda_scaler_latency_seconds_bucket[5m])
+      )
+    - Description: Median time to execute scaling decision
+    - Use Case: Performance baseline
+
+    ## Scaler Latency (99th percentile)
+    - Query: |
+      histogram_quantile(0.99,
+        rate(keda_scaler_latency_seconds_bucket[5m])
+      )
+    - Description: 99% of scaling decisions complete within this time
+    - Use Case: Detect latency anomalies
+
+  # ====================
+  # RESOURCE UTILIZATION
+  # ====================
+  resource-utilization-queries.md: |
+    # Resource Utilization - Monitor CPU and Memory
+
+    ## Average CPU Utilization by Browser Type
+    - Query: |
+      avg(rate(container_cpu_usage_seconds_total{pod=~"selenium-grid-selenium-node-chrome.*"}[5m]))
+    - Description: Average CPU used by Chrome nodes
+    - Use Case: Resource planning
+
+    ## Peak CPU Utilization
+    - Query: |
+      max(rate(container_cpu_usage_seconds_total{pod=~"selenium-grid-selenium-node-.*"}[5m]))
+    - Description: Peak CPU across all browser nodes
+    - Use Case: Capacity planning
+
+    ## Average Memory Usage by Browser Type
+    - Query: |
+      avg(container_memory_usage_bytes{pod=~"selenium-grid-selenium-node-chrome.*"})
+    - Description: Average memory used by Chrome nodes
+    - Use Case: Resource planning
+
+    ## Memory Usage as Percentage of Limit
+    - Query: |
+      (
+        container_memory_usage_bytes{pod=~"selenium-grid-selenium-node-.*"}
+        /
+        container_spec_memory_limit_bytes{pod=~"selenium-grid-selenium-node-.*"}
+      ) * 100
+    - Description: Memory usage as percentage of pod limit
+    - Alert Threshold: > 90% for 5m
+    - Use Case: Prevent OOM kills
+
+    ## Network I/O by Browser Type
+    - Query: |
+      rate(container_network_transmit_bytes_total{pod=~"selenium-grid-selenium-node-chrome.*"}[5m])
+    - Description: Network output (bytes/sec) for Chrome nodes
+    - Use Case: Network bottleneck detection
+
+  # ====================
+  # COMBINED DASHBOARDS
+  # ====================
+  dashboard-queries.md: |
+    # Combined Dashboard Queries - For Grafana/Kibana
+
+    ## Chrome Node Status Dashboard
+    ```
+    {
+      "panels": [
+        {
+          "title": "Chrome Replicas",
+          "query": "keda_scaler_active{scaled_object='selenium-chrome-nodes-scaler'}"
+        },
+        {
+          "title": "Session Queue Length",
+          "query": "ceil(selenium_sessions_queued{node='chrome'})"
+        },
+        {
+          "title": "Slot Utilization %",
+          "query": "(selenium_node_slots_used{node='chrome'}/(selenium_node_slots_available{node='chrome'}+selenium_node_slots_used{node='chrome'}))*100"
+        },
+        {
+          "title": "Average CPU",
+          "query": "avg(rate(container_cpu_usage_seconds_total{pod=~'selenium-grid-selenium-node-chrome.*'}[5m]))"
+        }
+      ]
+    }
+    ```
+
+    ## Firefox Node Status Dashboard
+    ```
+    {
+      "panels": [
+        {
+          "title": "Firefox Replicas",
+          "query": "keda_scaler_active{scaled_object='selenium-firefox-nodes-scaler'}"
+        },
+        {
+          "title": "Session Queue Length",
+          "query": "ceil(selenium_sessions_queued{node='firefox'})"
+        },
+        {
+          "title": "Slot Utilization %",
+          "query": "(selenium_node_slots_used{node='firefox'}/(selenium_node_slots_available{node='firefox'}+selenium_node_slots_used{node='firefox'}))*100"
+        }
+      ]
+    }
+    ```
+
+  # ====================
+  # ALERTING RULES
+  # ====================
+  prometheus-alerts.yaml: |
+    # Prometheus AlertManager Rules for KEDA/Selenium Grid Scaling
+
+    groups:
+    - name: selenium-grid-scaling
+      interval: 30s
+      rules:
+      # High Queue Length Alerts
+      - alert: SeleniumGridHighChromeQueueLength
+        expr: ceil(selenium_sessions_queued{node="chrome"}) > 20
+        for: 5m
+        labels:
+          severity: warning
+          component: scaling
+        annotations:
+          summary: "High Chrome session queue length"
+          description: "{{ $value }} Chrome sessions queued (> 20 threshold)"
+
+      - alert: SeleniumGridHighFirefoxQueueLength
+        expr: ceil(selenium_sessions_queued{node="firefox"}) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: scaling
+        annotations:
+          summary: "High Firefox session queue length"
+          description: "{{ $value }} Firefox sessions queued (> 10 threshold)"
+
+      # Capacity Alerts
+      - alert: SeleniumGridHighCapacityUtilization
+        expr: |
+          (
+            selenium_node_slots_used{node="chrome"}
+            /
+            (
+              selenium_node_slots_available{node="chrome"}
+              +
+              selenium_node_slots_used{node="chrome"}
+            )
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: capacity
+        annotations:
+          summary: "Chrome nodes at 90% capacity"
+          description: "Chrome slot utilization at {{ humanizePercentage $value }}"
+
+      # Max Replicas Alerts
+      - alert: SeleniumGridChromeAtMaxReplicas
+        expr: |
+          keda_scaler_active{scaled_object="selenium-chrome-nodes-scaler"}
+          >=
+          keda_scaler_max{scaled_object="selenium-chrome-nodes-scaler"}
+        for: 5m
+        labels:
+          severity: critical
+          component: scaling
+        annotations:
+          summary: "Chrome nodes at maximum replicas"
+          description: "Cannot scale up further - at max limit"
+
+      # Scaling Failures
+      - alert: SELENIUMGridScalingFailures
+        expr: rate(keda_scale_failed_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: keda
+        annotations:
+          summary: "KEDA scaling failures detected"
+          description: "Scaling failures rate: {{ $value }} per second"
+
+      # KEDA Health Alerts
+      - alert: KEDAOperatorDown
+        expr: up{job="keda-operator"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: keda
+        annotations:
+          summary: "KEDA operator is down"
+          description: "KEDA operator has been unavailable for 1 minute"
+
+      - alert: KEDAMetricsAPIDown
+        expr: up{job="keda-metrics-apiserver"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: keda
+        annotations:
+          summary: "KEDA metrics API server is down"
+          description: "Cannot reach KEDA metrics API"
+
+      # Resource Utilization Alerts
+      - alert: SeleniumGridHighMemoryUtilization
+        expr: |
+          (
+            container_memory_usage_bytes{pod=~"selenium-grid-selenium-node-.*"}
+            /
+            container_spec_memory_limit_bytes{pod=~"selenium-grid-selenium-node-.*"}
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: resources
+        annotations:
+          summary: "Browser pod high memory utilization"
+          description: "Pod {{ $labels.pod }} at {{ humanizePercentage $value }} memory"
+
+    # Recording Rules (for performance optimization)
+    - name: selenium-grid-recording
+      interval: 1m
+      rules:
+      - record: instance:selenium_sessions_active:rate
+        expr: rate(selenium_sessions_active[5m])
+
+      - record: instance:selenium_slots_utilization
+        expr: |
+          (
+            selenium_node_slots_used
+            /
+            (
+              selenium_node_slots_available
+              +
+              selenium_node_slots_used
+            )
+          )
+
+      - record: instance:keda_scale_rate
+        expr: rate(keda_scaler_active[5m])
+
+---
+# ServiceMonitor for automatic Prometheus scrape configuration
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: keda-selenium-rules
+  namespace: selenium-grid
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+  - name: keda-selenium-grid
+    interval: 30s
+    rules:
+    # Recording rules for performance
+    - record: selenium:session_queue:by_node
+      expr: ceil(selenium_sessions_queued)
+
+    - record: selenium:slots_utilization:by_node
+      expr: |
+        (
+          selenium_node_slots_used
+          /
+          (
+            selenium_node_slots_available
+            +
+            selenium_node_slots_used
+          )
+        )
+
+    - record: selenium:node_capacity:used_ratio
+      expr: |
+        (
+          sum by (node) (selenium_node_slots_used)
+          /
+          sum by (node) (
+            selenium_node_slots_used + selenium_node_slots_available
+          )
+        )
+
+    # Alerts
+    - alert: SeleniumGridQueueBacklog
+      expr: ceil(selenium_sessions_queued) > 10
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Selenium session queue backlog"
+        description: "{{ $value }} sessions queued for {{ $labels.node }}"
+
+    - alert: SeleniumGridCapacityCritical
+      expr: selenium:slots_utilization:by_node > 0.95
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Selenium grid at critical capacity"
+        description: "{{ $labels.node }} nodes at {{ humanizePercentage $value }} utilization"

@@ -1,0 +1,244 @@
+---
+# KEDA TriggerAuthentication for Selenium Grid
+# If your Selenium Grid requires authentication (Basic Auth, API Key, etc.)
+# Configure these credentials here for use in ScaledObjects
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: selenium-grid-auth
+  namespace: selenium-grid
+spec:
+  secretTargetRef:
+    # Reference credentials stored in Kubernetes secrets
+    - parameter: authModes
+      name: selenium-grid-credentials
+      key: authModes
+    - parameter: username
+      name: selenium-grid-credentials
+      key: username
+    - parameter: password
+      name: selenium-grid-credentials
+      key: password
+    - parameter: tls
+      name: selenium-grid-tls
+      key: ca.crt
+
+---
+# Secret containing Selenium Grid credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: selenium-grid-credentials
+  namespace: selenium-grid
+type: Opaque
+stringData:
+  # Authentication mode: basic, bearer, or custom
+  authModes: "basic"
+  # Basic auth username
+  username: "selenium"
+  # Basic auth password (generate with: openssl rand -base64 32)
+  password: "changeme"
+
+---
+# TLS Certificate for secure Selenium Hub communication
+apiVersion: v1
+kind: Secret
+metadata:
+  name: selenium-grid-tls
+  namespace: selenium-grid
+type: Opaque
+data:
+  # Base64 encoded CA certificate for HTTPS endpoints
+  # Generate with: cat ca.crt | base64 | tr -d '\n'
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCRENDQU9XZ0F3SUJBZ0lVQ1ZOU0NxeVpSbFBRdnVzQVlTa0JEVVp4QkU0d0NnWUlLb1pJamswRUF3TXcKRVRFUE1BMEdBMVVFQXhNR2RYTmxjbWx6TVDrQUZCZ05WQkFzcGQzYzNMemR2Y0dGd2FHZE1PQm8kVVEwc0VURWxJUXk1bGRqTm9jeTVsCkluSmxaMmx2YjNSbGNuWkJkWE5sTG14bGJtUmxjbjA9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+
+---
+# KEDA TriggerAuthentication for Prometheus
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: prometheus-auth
+  namespace: selenium-grid
+spec:
+  secretTargetRef:
+    - parameter: authModes
+      name: prometheus-credentials
+      key: authModes
+    - parameter: username
+      name: prometheus-credentials
+      key: username
+    - parameter: password
+      name: prometheus-credentials
+      key: password
+    - parameter: ca
+      name: prometheus-tls
+      key: ca.crt
+    - parameter: cert
+      name: prometheus-tls
+      key: tls.crt
+    - parameter: key
+      name: prometheus-tls
+      key: tls.key
+
+---
+# Secret for Prometheus authentication
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-credentials
+  namespace: selenium-grid
+type: Opaque
+stringData:
+  authModes: "bearer"
+  # Bearer token for Prometheus API
+  bearerToken: "your-bearer-token-here"
+  username: "prometheus"
+  password: "prometheus"
+
+---
+# Prometheus TLS certificates
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-tls
+  namespace: selenium-grid
+type: kubernetes.io/tls
+data:
+  # Self-signed certificates can be generated with:
+  # openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  #   -keyout tls.key -out tls.crt -subj "/CN=prometheus"
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURERENDQU9XZ0F3SUJBZ0lVQ1ZOU0NxeVpSbFBRdnVzQVlTa0JEVVp4QkU0d0NnWUlLb1pJamswRUF3TXcKRVRFUE1BMEdBMVVFQXhNR2RYTmxjbWx6TVDrQUZCZ05WQkFzcGQzYzNMemR2Y0dGd2FHZE1PQm8kVVEwc0VURWxJUXk1bGRqTm9jeTVsCkluSmxaMmx2YjNSbGNuWkJkWE5sTG14bGJtUmxjbjA9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUVRQU9CZ0ZrcWhraG9nTGw5RFVQMjVMSzBKSEJVZ0l6ZHRnk3dGcFczNzBaUzlXTzA4b2lkSEJrPQotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURBRENDQU9XZ0F3SUJBZ0lVQ1ZOU0NxeVpSbFBRdnVzQVlTa0JEVVp4QkU0d0NnWUlLb1pJamswRUF3TXcKRVRFUE1BMEdBMVVFQXhNR2RYTmxjbWx6TVDrQUZCZ05WQkFzcGQzYzNMemR2Y0dGd2FHZE1PQm8kVVEwc0VURWxJUXk1bGRqTm9jeTVsCkluSmxaMmx2YjNSbGNuWkJkWE5sTG14bGJtUmxjbjA9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+
+---
+# KEDA ScaledObject with authentication
+# Example showing how to use TriggerAuthentication
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-grid-with-auth
+  namespace: selenium-grid
+spec:
+  scaleTargetRef:
+    name: selenium-chrome-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 2
+  maxReplicaCount: 50
+
+  triggers:
+    # Using Prometheus scaler with authentication
+    - type: prometheus
+      metadata:
+        serverAddress: https://prometheus.example.com:9090
+        query: ceil(selenium_sessions_queued{job="selenium-hub"})
+        threshold: "10"
+        unsafeSsl: "false"
+      authenticationRef:
+        name: prometheus-auth
+
+    # Alternative: HTTP endpoint with auth
+    # (requires custom external scaler implementation)
+    - type: external
+      metadata:
+        scalerAddress: "selenium-keda-scaler:6000"
+        metric: session_queue_length
+        threshold: "10"
+      authenticationRef:
+        name: selenium-grid-auth
+
+---
+# Example: How to add basic auth to Selenium Hub deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium-hub-with-auth
+  namespace: selenium-grid
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: selenium-hub
+  template:
+    metadata:
+      labels:
+        app: selenium-hub
+    spec:
+      containers:
+      - name: hub
+        image: selenium/hub:4.27.0
+        ports:
+        - containerPort: 4444
+        env:
+        # Enable authentication
+        - name: SE_NODE_SESSION_TIMEOUT
+          value: "600"
+        - name: SE_VNC_NO_RETRY
+          value: "true"
+        # Basic Auth headers (requires reverse proxy like Nginx)
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: selenium-hub-nginx-auth
+
+---
+# Nginx configuration for basic auth on Selenium Hub
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: selenium-hub-nginx-auth
+  namespace: selenium-grid
+data:
+  selenium-auth.conf: |
+    upstream selenium_hub {
+        server localhost:4444;
+    }
+
+    server {
+        listen 8080;
+        server_name _;
+
+        # Basic authentication
+        auth_basic "Selenium Grid";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        location / {
+            proxy_pass http://selenium_hub;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Health check endpoint (no auth required)
+        location = /health {
+            auth_basic off;
+            proxy_pass http://selenium_hub;
+        }
+
+        # Status endpoint (no auth required for KEDA)
+        location = /status {
+            auth_basic off;
+            proxy_pass http://selenium_hub;
+        }
+    }
+
+---
+# Secret containing .htpasswd file for Nginx basic auth
+# Generate with: htpasswd -c .htpasswd selenium
+# or: echo "selenium:$(openssl passwd -apr1)" > .htpasswd
+apiVersion: v1
+kind: Secret
+metadata:
+  name: selenium-nginx-htpasswd
+  namespace: selenium-grid
+type: Opaque
+stringData:
+  .htpasswd: |
+    selenium:$apr1$r31.....$HqJZimcKQFAMYayBlzkrq/

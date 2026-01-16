@@ -1,0 +1,385 @@
+---
+# Advanced KEDA + Prometheus Configuration for Selenium Grid
+# This file shows multiple Prometheus-based scaling strategies
+
+# ServiceMonitor for Prometheus to scrape Selenium Grid metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: selenium-grid
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+spec:
+  selector:
+    matchLabels:
+      app: selenium-hub
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+# PrometheusRule for alerting on Selenium Grid issues
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: selenium-grid-alerts
+  namespace: selenium-grid
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+  - name: selenium-grid.rules
+    interval: 30s
+    rules:
+    # Alert when queue is backing up
+    - alert: SeleniumGridQueueBackup
+      expr: selenium_sessions_queued > 20
+      for: 5m
+      labels:
+        severity: warning
+        service: selenium-grid
+      annotations:
+        summary: "Selenium Grid queue is backing up ({{ $value }} sessions)"
+        description: "More than 20 sessions have been queued for 5 minutes"
+
+    # Alert when all slots are used
+    - alert: SeleniumGridFullCapacity
+      expr: |
+        (
+          selenium_node_slots_used /
+          (selenium_node_slots_used + selenium_node_slots_available)
+        ) > 0.9
+      for: 5m
+      labels:
+        severity: critical
+        service: selenium-grid
+      annotations:
+        summary: "Selenium Grid at 90%+ capacity"
+        description: "Grid is operating at {{ $value | humanizePercentage }} capacity"
+
+    # Alert when nodes are unhealthy
+    - alert: SeleniumGridNodeDown
+      expr: up{job="selenium-node"} == 0
+      for: 2m
+      labels:
+        severity: warning
+        service: selenium-grid
+      annotations:
+        summary: "Selenium Grid node is down: {{ $labels.instance }}"
+        description: "Node {{ $labels.instance }} has been down for 2 minutes"
+
+---
+# KEDA ScaledObject: Multi-metric scaling strategy
+# This uses multiple Prometheus queries to determine scaling
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-grid-multi-metric
+  namespace: selenium-grid
+spec:
+  scaleTargetRef:
+    name: selenium-chrome-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 2
+  maxReplicaCount: 100
+  pollingInterval: 15
+  cooldownPeriod: 60
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+          - type: Pods
+            value: 10
+            periodSeconds: 30
+          - type: Percent
+            value: 100
+            periodSeconds: 30
+          selectPolicy: Max
+
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          selectPolicy: Min
+
+  triggers:
+    # Trigger 1: Queue Length (highest priority)
+    # Scale up aggressively when queue builds up
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          ceil(
+            max(selenium_sessions_queued{job="selenium-hub"})
+          )
+        threshold: "5"
+        activationThreshold: "0"
+
+    # Trigger 2: Available Slots Ratio
+    # Scale when available slots are low (< 20% free)
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          (
+            max by (job) (
+              selenium_node_slots_available{job="selenium-chrome-node"}
+            ) /
+            max by (job) (
+              selenium_node_slots_available{job="selenium-chrome-node"} +
+              selenium_node_slots_used{job="selenium-chrome-node"}
+            )
+          )
+        threshold: "0.2"
+        activationThreshold: "0.5"
+
+    # Trigger 3: Active Sessions Count
+    # Scale based on number of sessions (not queue, but actual sessions)
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          ceil(
+            max(selenium_sessions_active{job="selenium-hub"})
+          )
+        threshold: "50"
+        activationThreshold: "10"
+
+    # Trigger 4: Error Rate (preventive scaling)
+    # If error rate is high, scale up proactively
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          rate(selenium_errors_total{job="selenium-hub"}[5m])
+        threshold: "0.1"
+        activationThreshold: "0.01"
+
+---
+# KEDA ScaledObject: Time-based scaling (during business hours)
+# Scale up during 9-17 UTC, scale down at night
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-grid-time-based
+  namespace: selenium-grid
+spec:
+  scaleTargetRef:
+    name: selenium-firefox-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 1
+  maxReplicaCount: 50
+  pollingInterval: 60
+
+  triggers:
+    # Time-of-day scaler (if available in your KEDA version)
+    - type: cron
+      metadata:
+        timezone: UTC
+        # Scale up at 9 AM UTC
+        start: 0 9 * * 1-5
+        # Scale down at 5 PM UTC
+        end: 0 17 * * 1-5
+        # Replicas when cron is active (9-17)
+        desiredReplicas: "5"
+        # Replicas when cron is inactive (night)
+        desiredReplicasInactive: "1"
+
+    # Fallback: Regular Prometheus metric
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: ceil(max(selenium_sessions_queued{job="selenium-hub"}))
+        threshold: "3"
+        activationThreshold: "0"
+
+---
+# KEDA ScaledObject: Browser-specific scaling
+# Firefox nodes scale more conservatively than Chrome
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-firefox-conservative
+  namespace: selenium-grid
+spec:
+  scaleTargetRef:
+    name: selenium-firefox-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 1
+  maxReplicaCount: 20
+
+  pollingInterval: 30       # Check less frequently
+  cooldownPeriod: 300       # Wait 5 minutes before scaling down
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 60
+          policies:
+          - type: Pods
+            value: 2        # Add 2 at a time
+            periodSeconds: 60
+          - type: Percent
+            value: 50
+            periodSeconds: 60
+          selectPolicy: Max
+
+        scaleDown:
+          stabilizationWindowSeconds: 600  # Wait 10 minutes
+          policies:
+          - type: Pods
+            value: 1        # Remove 1 at a time
+            periodSeconds: 120
+          - type: Percent
+            value: 5
+            periodSeconds: 120
+          selectPolicy: Min
+
+  triggers:
+    # Only scale Firefox when very needed
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          # Firefox-specific queue (estimated by looking at requested capabilities)
+          ceil(
+            max(
+              increase(
+                selenium_session_create_duration_seconds_bucket{
+                  le="+Inf",
+                  browser="firefox"
+                }[5m]
+              )
+            )
+          )
+        threshold: "10"
+        activationThreshold: "1"
+
+---
+# Advanced: PromQL Queries Reference for Selenium Grid Metrics
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: selenium-prometheus-queries
+  namespace: selenium-grid
+data:
+  queries.txt: |
+    # Common Selenium Grid Prometheus Queries for KEDA
+
+    # 1. Session Queue Length (PRIMARY SCALER)
+    ceil(max(selenium_sessions_queued{job="selenium-hub"}))
+
+    # 2. Available Slots Percentage
+    (
+      selenium_node_slots_available{job="selenium-chrome-node"} /
+      (
+        selenium_node_slots_available{job="selenium-chrome-node"} +
+        selenium_node_slots_used{job="selenium-chrome-node"}
+      )
+    ) * 100
+
+    # 3. Node Capacity Utilization
+    (
+      sum(selenium_node_slots_used{job="selenium-chrome-node"}) /
+      sum(
+        selenium_node_slots_used{job="selenium-chrome-node"} +
+        selenium_node_slots_available{job="selenium-chrome-node"}
+      )
+    ) * 100
+
+    # 4. Active Sessions per Node
+    selenium_sessions_active{job="selenium-hub"} / count(selenium_node_slots_available)
+
+    # 5. Session Duration (average)
+    avg(rate(selenium_session_duration_seconds_sum[5m]) / rate(selenium_session_duration_seconds_count[5m]))
+
+    # 6. Error Rate (errors per second)
+    rate(selenium_errors_total{job="selenium-hub"}[5m])
+
+    # 7. Request Latency (95th percentile)
+    histogram_quantile(0.95, rate(selenium_session_create_duration_seconds_bucket[5m]))
+
+    # 8. Chrome Node Queue (browser-specific)
+    selenium_sessions_queued{browser="chrome"} + selenium_sessions_active{browser="chrome"}
+
+    # 9. Firefox Node Queue (browser-specific)
+    selenium_sessions_queued{browser="firefox"} + selenium_sessions_active{browser="firefox"}
+
+    # 10. Total Nodes Available
+    count(selenium_node_slots_available{job="selenium-chrome-node"})
+
+    # 11. Queue Buildup Rate (derivative)
+    rate(selenium_sessions_queued[5m])
+
+    # 12. Session Success Rate
+    (
+      rate(selenium_session_create_duration_seconds_count[5m]) -
+      rate(selenium_errors_total[5m])
+    ) / rate(selenium_session_create_duration_seconds_count[5m])
+
+---
+# Grafana Dashboard ConfigMap for monitoring KEDA + Selenium Grid
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: selenium-grid-dashboard
+  namespace: selenium-grid
+data:
+  dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Selenium Grid + KEDA Autoscaling",
+        "panels": [
+          {
+            "title": "Session Queue Length",
+            "targets": [
+              {
+                "expr": "max(selenium_sessions_queued{job=\"selenium-hub\"})"
+              }
+            ]
+          },
+          {
+            "title": "Available Slots %",
+            "targets": [
+              {
+                "expr": "(selenium_node_slots_available / (selenium_node_slots_available + selenium_node_slots_used)) * 100"
+              }
+            ]
+          },
+          {
+            "title": "Pod Replica Count",
+            "targets": [
+              {
+                "expr": "count(kube_pod_labels{label_app=\"selenium-chrome-node\",pod=~\"selenium-chrome-node.*\"})"
+              }
+            ]
+          },
+          {
+            "title": "KEDA Metric Values",
+            "targets": [
+              {
+                "expr": "keda_trigger_active"
+              }
+            ]
+          }
+        ]
+      }
+    }

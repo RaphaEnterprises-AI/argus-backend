@@ -1,0 +1,228 @@
+---
+# KEDA ScaledObject for Selenium Grid Chrome Nodes
+# Scales Chrome nodes based on session queue length
+# Deploy with: kubectl apply -f scaledobject-selenium-grid.yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-nodes-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: chrome-nodes
+    scaler: keda
+spec:
+  # Target deployment to scale
+  scaleTargetRef:
+    name: selenium-chrome-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Replica limits
+  minReplicaCount: 2        # Always keep 2 Chrome nodes running
+  maxReplicaCount: 50       # Maximum 50 Chrome nodes
+  fallback:
+    failureThreshold: 3     # Number of failures before activating fallback
+    replicas: 2             # Fallback to 2 replicas if scaler fails
+
+  # Polling interval for metrics
+  pollingInterval: 15       # Check metrics every 15 seconds
+  cooldownPeriod: 60        # Wait 60s before scaling down
+
+  # Scale to Zero configuration
+  advanced:
+    # Prevent scaling to zero - keep at least minReplicaCount
+    restoreToOriginalReplicaCount: false
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+          policies:
+          - type: Pods
+            value: 2                        # Remove max 2 pods at a time
+            periodSeconds: 60               # Every 60 seconds
+          - type: Percent
+            value: 10                       # Or 10% of replicas
+            periodSeconds: 60
+          selectPolicy: Min                 # Use the policy that scales down least
+        scaleUp:
+          stabilizationWindowSeconds: 30   # Fast scale up
+          policies:
+          - type: Pods
+            value: 5                        # Add max 5 pods at a time
+            periodSeconds: 30               # Every 30 seconds
+          - type: Percent
+            value: 50                       # Or 50% increase
+            periodSeconds: 30
+          selectPolicy: Max                 # Use the policy that scales up most
+
+  # Triggers define metrics to watch
+  triggers:
+    # Primary: Session Queue from Selenium Grid HTTP API
+    - type: external
+      metadata:
+        scalerAddress: "selenium-keda-scaler:6000"
+        metric: session_queue_length
+        threshold: "10"
+        unsafeSsl: "false"
+
+---
+# KEDA ScaledObject for Selenium Grid Firefox Nodes
+# Firefox is heavier, more conservative scaling
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-firefox-nodes-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: firefox-nodes
+    scaler: keda
+spec:
+  scaleTargetRef:
+    name: selenium-firefox-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 1        # Start with 1 Firefox node (heavier than Chrome)
+  maxReplicaCount: 20       # Cap at 20 Firefox nodes
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+
+  pollingInterval: 20       # Check less frequently than Chrome
+  cooldownPeriod: 120       # Longer cooldown for Firefox
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600  # Wait 10 min (more conservative)
+          policies:
+          - type: Pods
+            value: 1                        # Remove 1 pod at a time
+            periodSeconds: 120              # Every 2 minutes
+          - type: Percent
+            value: 5                        # Or 5% of replicas
+            periodSeconds: 120
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 45   # Slightly slower
+          policies:
+          - type: Pods
+            value: 2                        # Add 2 pods at a time
+            periodSeconds: 45
+          - type: Percent
+            value: 30                       # Or 30% increase
+            periodSeconds: 45
+          selectPolicy: Max
+
+  triggers:
+    - type: external
+      metadata:
+        scalerAddress: "selenium-keda-scaler:6000"
+        metric: firefox_queue_length
+        threshold: "5"                      # Lower threshold for Firefox
+        unsafeSsl: "false"
+
+---
+# Alternative: KEDA ScaledObject using Prometheus Scaler
+# Uncomment to use instead of external scaler
+# Requires Prometheus to be installed and Selenium Grid to export metrics
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-nodes-prometheus
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    scaler-type: prometheus
+  # Uncomment to enable:
+  # annotations:
+  #   keda.sh/paused: "false"
+spec:
+  scaleTargetRef:
+    name: selenium-chrome-node
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 2
+  maxReplicaCount: 50
+  pollingInterval: 15
+  cooldownPeriod: 60
+
+  triggers:
+    # Trigger 1: Scale based on queue length
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          # Queue Length: number of queued sessions
+          ceil(selenium_sessions_queued{job="selenium-hub"})
+        threshold: "10"
+        activationThreshold: "1"
+
+    # Trigger 2: Scale based on available slots ratio
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated:9090
+        query: |
+          # Available Slots Ratio
+          # When slots_available / total_slots < 0.2 (80% used), scale up
+          (
+            selenium_node_slots_available{job="selenium-chrome-node"} /
+            (
+              selenium_node_slots_available{job="selenium-chrome-node"} +
+              selenium_node_slots_used{job="selenium-chrome-node"}
+            )
+          )
+        threshold: "0.2"
+        activationThreshold: "0"
+
+---
+# Alternative: Kubernetes HPA with KEDA (Hybrid approach)
+# This can work alongside KEDA ScaledObject with different metrics
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: selenium-edge-node-hpa
+  namespace: selenium-grid
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: selenium-edge-node
+
+  minReplicas: 0
+  maxReplicas: 10
+
+  metrics:
+  # CPU-based scaling (fallback if KEDA scaler fails)
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Pods
+        value: 3
+        periodSeconds: 30
+      - type: Percent
+        value: 50
+        periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      selectPolicy: Min

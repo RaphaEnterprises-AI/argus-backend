@@ -70,7 +70,7 @@ spec:
             - name: METRICS_PORT
               value: "9090"
             - name: BROWSER_POOL_SIZE
-              value: "2"  # Browsers per pod
+              value: "3"  # Browsers per pod (increased from 2 for better concurrency)
             - name: MAX_CONCURRENT_SESSIONS
               value: "4"
             - name: SESSION_TIMEOUT_MS

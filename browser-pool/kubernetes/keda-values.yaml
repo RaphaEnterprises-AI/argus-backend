@@ -1,0 +1,73 @@
+# KEDA Helm Configuration
+# Install with: helm upgrade --install keda kedacore/keda -n keda -f keda-values.yaml
+
+# Global settings
+global:
+  rbac:
+    create: true
+  serviceAccount:
+    create: true
+    annotations: {}
+
+# KEDA Operator Deployment
+operator:
+  name: keda-operator
+  replicaCount: 1
+  image:
+    repository: ghcr.io/kedacore/keda-operator
+    tag: "2.15.0"
+    pullPolicy: IfNotPresent
+
+  # Resource limits for KEDA operator
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Enable debug logging
+  logging:
+    level: info
+    format: json
+
+# KEDA Webhook
+webhooks:
+  enabled: true
+  port: 6000
+  # TLS configuration (optional)
+  # caSecretName: ""
+  # certSecretName: ""
+
+# Pod Identity (for cloud-specific authentication)
+podIdentities:
+  # Azure Workload Identity
+  # - provider: azure
+  #   name: keda-identity
+
+# Service Account
+serviceAccount:
+  create: true
+  name: keda-operator
+  annotations: {}
+
+# Service Monitor for Prometheus (if using Prometheus)
+serviceMonitor:
+  enabled: false
+  namespace: keda
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Pod Disruption Budget (prevent KEDA from being evicted)
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Network Policy (optional, for security)
+networkPolicy:
+  enabled: false
+
+# Cluster Admin Role (required for KEDA to manage deployments)
+clusterAdmin:
+  create: true

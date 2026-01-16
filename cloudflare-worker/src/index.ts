@@ -67,9 +67,12 @@ interface Env {
   // Railway Brain URL
   BRAIN_URL?: string;
 
-  // Vultr Browser Pool (Primary backend)
+  // Vultr Browser Pool (Legacy backend)
   BROWSER_POOL_URL?: string;
   BROWSER_POOL_JWT_SECRET?: string;
+
+  // Selenium Grid 4 (Primary backend - W3C WebDriver protocol)
+  SELENIUM_GRID_URL?: string;
 
   // Configuration
   DEFAULT_MODEL_PROVIDER: string;
@@ -78,7 +81,7 @@ interface Env {
   ENABLE_SELF_HEALING: string;
 }
 
-type Backend = "cloudflare" | "testingbot" | "vultr" | "auto";
+type Backend = "cloudflare" | "testingbot" | "vultr" | "selenium" | "auto";
 type BrowserType = "chrome" | "firefox" | "safari" | "edge" | "webkit";
 type Platform = "windows" | "macos" | "linux";
 
@@ -172,6 +175,31 @@ interface BrowserResult {
   error?: string;
   screenshot?: string;
 }
+
+/**
+ * AI-controlled session configuration.
+ * The Argus brain determines optimal settings based on test complexity.
+ */
+interface SessionConfig {
+  // AI-determined timeouts (in seconds)
+  maxDuration: number;      // Max total test duration (default: 300)
+  idleTimeout: number;      // Max time between commands (default: 60)
+
+  // Resource hints for browser allocation
+  memoryClass: 'low' | 'standard' | 'high';  // Maps to node selection
+  priority: 'low' | 'normal' | 'urgent';      // Affects queue position
+
+  // Optional viewport override
+  viewport?: { width: number; height: number };
+}
+
+// Default session config when AI doesn't provide one
+const DEFAULT_SESSION_CONFIG: SessionConfig = {
+  maxDuration: 300,      // 5 minutes
+  idleTimeout: 60,       // 1 minute
+  memoryClass: 'standard',
+  priority: 'normal',
+};
 
 // ============================================================================
 // JWT TOKEN SIGNING FOR VULTR BROWSER POOL
@@ -308,7 +336,7 @@ function shouldUseVultrPool(backend: Backend, env: Env): boolean {
 // REQUEST SCHEMAS
 // ============================================================================
 
-const BackendSchema = z.enum(["cloudflare", "testingbot", "vultr", "auto"]).optional().default("auto");
+const BackendSchema = z.enum(["cloudflare", "testingbot", "vultr", "selenium", "auto"]).optional().default("auto");
 const BrowserSchema = z.enum(["chrome", "firefox", "safari", "edge", "webkit"]).optional().default("chrome");
 const DeviceSchema = z.enum([
   "desktop", "desktop-hd", "desktop-mac",
@@ -371,6 +399,18 @@ const AgentRequestSchema = z.object({
   captureScreenshots: z.boolean().optional().default(false),
 });
 
+// AI-controlled session configuration schema
+const SessionConfigSchema = z.object({
+  maxDuration: z.number().min(30).max(1800).optional().default(300),  // 30s to 30min
+  idleTimeout: z.number().min(10).max(300).optional().default(60),    // 10s to 5min
+  memoryClass: z.enum(['low', 'standard', 'high']).optional().default('standard'),
+  priority: z.enum(['low', 'normal', 'urgent']).optional().default('normal'),
+  viewport: z.object({
+    width: z.number().min(320).max(3840),
+    height: z.number().min(240).max(2160),
+  }).optional(),
+}).optional();
+
 const TestRequestSchema = z.object({
   url: z.string().url(),
   steps: z.array(z.string()),
@@ -383,6 +423,8 @@ const TestRequestSchema = z.object({
   devices: z.array(DeviceSchema).optional(),
   projectId: z.string().uuid().optional(),  // For activity logging
   activityType: z.enum(['discovery', 'visual_test', 'test_run', 'quality_audit', 'global_test']).optional().default('test_run'),
+  // AI-controlled session configuration
+  sessionConfig: SessionConfigSchema,
 });
 
 // ============================================================================
@@ -521,6 +563,236 @@ async function createTestingBotSession(
 }
 
 // ============================================================================
+// SELENIUM GRID WEBDRIVER CLIENT (W3C WebDriver Protocol)
+// ============================================================================
+
+class SeleniumGridSession {
+  private sessionId: string;
+  private baseUrl: string;
+
+  constructor(sessionId: string, gridUrl: string) {
+    this.sessionId = sessionId;
+    // Remove trailing slash and ensure /wd/hub path
+    this.baseUrl = gridUrl.replace(/\/$/, '');
+    if (!this.baseUrl.includes('/wd/hub')) {
+      this.baseUrl = `${this.baseUrl}/wd/hub`;
+    }
+  }
+
+  private async request(method: string, path: string, body?: any): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/session/${this.sessionId}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json();
+    if (data.value?.error) throw new Error(data.value.message || data.value.error);
+    return data.value;
+  }
+
+  async navigate(url: string): Promise<void> {
+    await this.request("POST", "/url", { url });
+  }
+
+  async getUrl(): Promise<string> {
+    return await this.request("GET", "/url");
+  }
+
+  async getPageSource(): Promise<string> {
+    return await this.request("GET", "/source");
+  }
+
+  async findElement(selector: string): Promise<string> {
+    const using = selector.startsWith("#") || selector.startsWith(".") || selector.includes("[")
+      ? "css selector"
+      : (selector.startsWith("//") ? "xpath" : "css selector");
+    const result = await this.request("POST", "/element", { using, value: selector });
+    return Object.values(result)[0] as string;
+  }
+
+  async findElements(selector: string): Promise<string[]> {
+    const using = selector.startsWith("#") || selector.startsWith(".") || selector.includes("[")
+      ? "css selector"
+      : (selector.startsWith("//") ? "xpath" : "css selector");
+    const result = await this.request("POST", "/elements", { using, value: selector });
+    return result.map((r: any) => Object.values(r)[0] as string);
+  }
+
+  async clickElement(elementId: string): Promise<void> {
+    await this.request("POST", `/element/${elementId}/click`, {});
+  }
+
+  async sendKeys(elementId: string, text: string): Promise<void> {
+    await this.request("POST", `/element/${elementId}/value`, { text });
+  }
+
+  async clearElement(elementId: string): Promise<void> {
+    await this.request("POST", `/element/${elementId}/clear`, {});
+  }
+
+  async getElementText(elementId: string): Promise<string> {
+    return await this.request("GET", `/element/${elementId}/text`);
+  }
+
+  async getElementAttribute(elementId: string, name: string): Promise<string> {
+    return await this.request("GET", `/element/${elementId}/attribute/${name}`);
+  }
+
+  async executeScript(script: string, args: any[] = []): Promise<any> {
+    return await this.request("POST", "/execute/sync", { script, args });
+  }
+
+  async screenshot(): Promise<string> {
+    return await this.request("GET", "/screenshot");
+  }
+
+  async close(): Promise<void> {
+    // Delete session from Selenium Grid - retry up to 3 times
+    const deleteUrl = `${this.baseUrl}/session/${this.sessionId}`;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await fetch(deleteUrl, {
+          method: "DELETE",
+          signal: AbortSignal.timeout(5000), // 5 second timeout for cleanup
+        });
+        if (response.ok || response.status === 404) {
+          // 404 means session already closed, which is fine
+          console.log(`Selenium session ${this.sessionId} closed successfully`);
+          return;
+        }
+        console.warn(`Failed to close Selenium session (attempt ${attempt}): ${response.status}`);
+      } catch (error) {
+        console.warn(`Error closing Selenium session (attempt ${attempt}): ${error}`);
+      }
+
+      // Wait before retry (100ms, 200ms, 400ms)
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, 100 * Math.pow(2, attempt - 1)));
+      }
+    }
+
+    console.error(`Failed to close Selenium session ${this.sessionId} after 3 attempts`);
+  }
+}
+
+/**
+ * Create a Selenium Grid session
+ * @param env Environment with SELENIUM_GRID_URL
+ * @param browserType Browser to use (chrome, firefox, etc.)
+ * @param deviceConfig Device viewport configuration
+ * @param sessionConfig AI-determined session configuration (timeouts, memory class)
+ */
+async function createSeleniumGridSession(
+  env: Env,
+  browserType: BrowserType,
+  deviceConfig: any,
+  sessionConfig?: SessionConfig
+): Promise<SeleniumGridSession> {
+  const gridUrl = env.SELENIUM_GRID_URL!;
+  const baseUrl = gridUrl.replace(/\/$/, '');
+  const hubUrl = baseUrl.includes('/wd/hub') ? baseUrl : `${baseUrl}/wd/hub`;
+
+  // Merge with defaults
+  const config = { ...DEFAULT_SESSION_CONFIG, ...sessionConfig };
+
+  // Use viewport from sessionConfig if provided, otherwise use deviceConfig
+  const viewport = config.viewport || deviceConfig.viewport || { width: 1920, height: 1080 };
+
+  // Build capabilities for Selenium Grid (W3C WebDriver format)
+  // Map browser types to Selenium Grid expected names
+  const browserNameMap: Record<string, string> = {
+    chrome: "chrome",
+    firefox: "firefox",
+    edge: "MicrosoftEdge",  // Selenium Grid uses MicrosoftEdge
+    safari: "chrome",       // Safari not available, fallback to Chrome
+    webkit: "chrome",       // WebKit not available, fallback to Chrome
+  };
+
+  const capabilities: Record<string, any> = {
+    browserName: browserNameMap[browserType] || "chrome",
+
+    // AI-controlled timeouts (Selenium Grid 4 capabilities)
+    // se:sessionTimeout - Max total session duration in seconds
+    // se:idleTimeout - Max time between commands in seconds
+    "se:sessionTimeout": config.maxDuration,
+    "se:idleTimeout": config.idleTimeout,
+
+    // Resource hints for Grid routing (custom capabilities)
+    "argus:memoryClass": config.memoryClass,
+    "argus:priority": config.priority,
+
+    "goog:chromeOptions": browserType === "chrome" ? {
+      args: [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        `--window-size=${viewport.width},${viewport.height}`,
+      ],
+    } : undefined,
+    "moz:firefoxOptions": browserType === "firefox" ? {
+      args: ["-headless"],
+      prefs: {
+        "layout.css.devPixelsPerPx": "1.0",
+      },
+    } : undefined,
+    "ms:edgeOptions": browserType === "edge" ? {
+      args: [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        `--window-size=${viewport.width},${viewport.height}`,
+      ],
+    } : undefined,
+  };
+
+  // Log AI-determined config for debugging
+  console.log(`Creating Selenium session with AI config: maxDuration=${config.maxDuration}s, idleTimeout=${config.idleTimeout}s, memoryClass=${config.memoryClass}, priority=${config.priority}`);
+
+  // Remove undefined options
+  Object.keys(capabilities).forEach(key => {
+    if (capabilities[key] === undefined) delete capabilities[key];
+  });
+
+  const response = await fetch(`${hubUrl}/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      capabilities: {
+        alwaysMatch: capabilities,
+        firstMatch: [{}],
+      }
+    }),
+  });
+
+  const data = await response.json() as any;
+  if (!data.value?.sessionId) {
+    throw new Error(`Failed to create Selenium Grid session: ${JSON.stringify(data)}`);
+  }
+
+  return new SeleniumGridSession(data.value.sessionId, gridUrl);
+}
+
+/**
+ * Determine if we should use Selenium Grid based on configuration.
+ */
+function shouldUseSeleniumGrid(backend: Backend, env: Env): boolean {
+  // Explicit selenium backend
+  if (backend === "selenium") return true;
+
+  // Auto mode with selenium as default (if configured)
+  if (backend === "auto" && env.DEFAULT_BACKEND === "selenium" && env.SELENIUM_GRID_URL) {
+    return true;
+  }
+
+  return false;
+}
+
+// ============================================================================
 // UNIFIED BROWSER INTERFACE
 // ============================================================================
 
@@ -631,6 +903,96 @@ class TestingBotBrowserSession implements BrowserSession {
   constructor(session: TestingBotSession, browserType: BrowserType, platform: Platform) {
     this.session = session;
     this.backendUsed = `testingbot:${browserType}:${platform}`;
+  }
+
+  async navigate(url: string): Promise<void> {
+    await this.session.navigate(url);
+  }
+
+  async getUrl(): Promise<string> {
+    return await this.session.getUrl();
+  }
+
+  async getContent(): Promise<string> {
+    return await this.session.getPageSource();
+  }
+
+  async click(selector: string): Promise<void> {
+    const elementId = await this.session.findElement(selector);
+    await this.session.clickElement(elementId);
+  }
+
+  async fill(selector: string, value: string): Promise<void> {
+    const elementId = await this.session.findElement(selector);
+    await this.session.clearElement(elementId);
+    await this.session.sendKeys(elementId, value);
+  }
+
+  async type(selector: string, value: string): Promise<void> {
+    const elementId = await this.session.findElement(selector);
+    await this.session.sendKeys(elementId, value);
+  }
+
+  async hover(selector: string): Promise<void> {
+    await this.session.executeScript(`
+      const el = document.querySelector('${selector}');
+      if (el) el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    `);
+  }
+
+  async screenshot(): Promise<string> {
+    return await this.session.screenshot();
+  }
+
+  async evaluate<T>(fn: string | (() => T)): Promise<T> {
+    const script = typeof fn === "string" ? fn : `return (${fn.toString()})()`;
+    return await this.session.executeScript(script);
+  }
+
+  async getInteractiveElements() {
+    return await this.session.executeScript(`
+      const elements = [];
+      const getSelector = (el) => {
+        if (el.id) return '#' + el.id;
+        if (el.className && typeof el.className === 'string') {
+          const cls = el.className.trim().split(/\\s+/).slice(0, 2).join('.');
+          if (cls) return el.tagName.toLowerCase() + '.' + cls;
+        }
+        return el.tagName.toLowerCase();
+      };
+      const getAttrs = (el) => {
+        const attrs = {};
+        ['href', 'type', 'name', 'placeholder', 'aria-label', 'role'].forEach(a => {
+          const v = el.getAttribute(a);
+          if (v) attrs[a] = v;
+        });
+        return attrs;
+      };
+      document.querySelectorAll('button, a[href], input:not([type="hidden"]), textarea, select, [role="button"], [onclick]').forEach(el => {
+        elements.push({
+          tag: el.tagName.toLowerCase(),
+          text: (el.textContent || el.placeholder || '').trim().substring(0, 80),
+          selector: getSelector(el),
+          attributes: getAttrs(el),
+        });
+      });
+      return elements.slice(0, 80);
+    `) as any;
+  }
+
+  async close(): Promise<void> {
+    await this.session.close();
+  }
+}
+
+// Selenium Grid WebDriver wrapper
+class SeleniumGridBrowserSession implements BrowserSession {
+  private session: SeleniumGridSession;
+  backendUsed: string;
+
+  constructor(session: SeleniumGridSession, browserType: BrowserType) {
+    this.session = session;
+    this.backendUsed = `selenium:${browserType}`;
   }
 
   async navigate(url: string): Promise<void> {
@@ -931,9 +1293,10 @@ async function connectToBrowser(
     device: DeviceType;
     platform: Platform;
     timeout: number;
+    sessionConfig?: SessionConfig;  // AI-controlled session configuration
   }
 ): Promise<BrowserSession> {
-  const { backend, browser: browserType, device, timeout } = options;
+  const { backend, browser: browserType, device, timeout, sessionConfig } = options;
   let { platform } = options;
   const deviceConfig = DEVICE_PRESETS[device] || DEVICE_PRESETS.desktop;
 
@@ -942,7 +1305,21 @@ async function connectToBrowser(
     platform = "macos";
   }
 
-  // Determine which backend to use
+  // Priority 1: Selenium Grid (if explicitly requested or configured as default)
+  if (shouldUseSeleniumGrid(backend, env)) {
+    try {
+      // Selenium Grid supports Chrome and Firefox (not Safari/WebKit)
+      const gridBrowser = browserType === "safari" || browserType === "webkit" ? "chrome" : browserType;
+      // Pass AI-determined sessionConfig to Selenium Grid
+      const session = await createSeleniumGridSession(env, gridBrowser, deviceConfig, sessionConfig);
+      return new SeleniumGridBrowserSession(session, gridBrowser);
+    } catch (error) {
+      console.warn(`Selenium Grid connection failed: ${error}, falling back...`);
+      // Fall through to other backends
+    }
+  }
+
+  // Priority 2: TestingBot (for real devices or Safari/Firefox)
   let useTestingBot = backend === "testingbot";
 
   if (backend === "auto") {
@@ -959,22 +1336,39 @@ async function connectToBrowser(
   if (useTestingBot && env.TESTINGBOT_KEY && env.TESTINGBOT_SECRET) {
     const session = await createTestingBotSession(env, browserType, platform, deviceConfig, device);
     return new TestingBotBrowserSession(session, browserType, platform);
-  } else {
-    // Try Cloudflare first, with automatic failover to TestingBot on rate limit
-    try {
-      return await connectToCloudflare(env, deviceConfig, timeout);
-    } catch (error) {
-      const errorMessage = String(error);
-      const isRateLimited = errorMessage.includes("429") || errorMessage.includes("Rate limit") || errorMessage.includes("rate limit");
+  }
 
-      if (isRateLimited && env.TESTINGBOT_KEY && env.TESTINGBOT_SECRET) {
-        console.log("Cloudflare rate limited, failing over to TestingBot...");
+  // Priority 3: Cloudflare Browser Rendering (free, Chrome only)
+  try {
+    return await connectToCloudflare(env, deviceConfig, timeout);
+  } catch (error) {
+    const errorMessage = String(error);
+    const isRateLimited = errorMessage.includes("429") || errorMessage.includes("Rate limit") || errorMessage.includes("rate limit");
+
+    // Failover chain: Cloudflare -> Selenium Grid -> TestingBot
+    if (isRateLimited) {
+      // Try Selenium Grid as first failover
+      if (env.SELENIUM_GRID_URL) {
+        try {
+          console.log("Cloudflare rate limited, failing over to Selenium Grid...");
+          const gridBrowser = browserType === "safari" || browserType === "webkit" ? "chrome" : browserType;
+          // Pass AI-determined sessionConfig to Selenium Grid failover
+          const session = await createSeleniumGridSession(env, gridBrowser, deviceConfig, sessionConfig);
+          return new SeleniumGridBrowserSession(session, gridBrowser);
+        } catch (gridError) {
+          console.warn(`Selenium Grid failover failed: ${gridError}`);
+        }
+      }
+
+      // Try TestingBot as final failover
+      if (env.TESTINGBOT_KEY && env.TESTINGBOT_SECRET) {
+        console.log("Failing over to TestingBot...");
         const session = await createTestingBotSession(env, browserType, platform, deviceConfig, device);
         return new TestingBotBrowserSession(session, browserType, platform);
       }
-
-      throw error;
     }
+
+    throw error;
   }
 }
 
@@ -2012,12 +2406,26 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
     return Response.json({ error: "Invalid request", details: parsed.error.message }, { status: 400, headers: corsHeaders });
   }
 
-  const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices, projectId, activityType } = parsed.data;
+  const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices, projectId, activityType, sessionConfig } = parsed.data;
+
+  // Convert Zod-parsed sessionConfig to our SessionConfig type
+  const aiSessionConfig: SessionConfig | undefined = sessionConfig ? {
+    maxDuration: sessionConfig.maxDuration ?? DEFAULT_SESSION_CONFIG.maxDuration,
+    idleTimeout: sessionConfig.idleTimeout ?? DEFAULT_SESSION_CONFIG.idleTimeout,
+    memoryClass: sessionConfig.memoryClass ?? DEFAULT_SESSION_CONFIG.memoryClass,
+    priority: sessionConfig.priority ?? DEFAULT_SESSION_CONFIG.priority,
+    viewport: sessionConfig.viewport,
+  } : undefined;
+
+  // Log AI-determined session config if provided
+  if (aiSessionConfig) {
+    console.log(`AI-determined session config: maxDuration=${aiSessionConfig.maxDuration}s, idleTimeout=${aiSessionConfig.idleTimeout}s, memoryClass=${aiSessionConfig.memoryClass}, priority=${aiSessionConfig.priority}`);
+  }
 
   // Use Vultr browser pool if configured
   if (shouldUseVultrPool(backend as Backend, env)) {
     const poolResult = await callVultrPool<TestResult>("/test", {
-      url, steps, screenshot, captureScreenshots, timeout, backend: "vultr", browsers, device, devices, projectId, activityType
+      url, steps, screenshot, captureScreenshots, timeout, backend: "vultr", browsers, device, devices, projectId, activityType, sessionConfig
     }, env);
 
     if (poolResult.success) {
@@ -2057,7 +2465,8 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
             browser: browserType as BrowserType,
             device: deviceType as DeviceType,
             platform: "windows",
-            timeout
+            timeout,
+            sessionConfig: aiSessionConfig,  // Pass AI-controlled session config
           });
 
           if (logger) {

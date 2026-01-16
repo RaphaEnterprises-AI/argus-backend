@@ -787,22 +787,87 @@ data:
       return pods[currentPodIndex];
     }
 
-    // Forward request to browser pod
-    async function forwardToBrowser(endpoint, body) {
-      const pod = await getNextPod();
-      if (!pod) {
-        throw new Error('No browser pods available');
+    // Track pod failures for circuit breaker
+    const podFailures = new Map(); // pod.ip -> { count, lastFailure }
+    const FAILURE_THRESHOLD = 3;
+    const FAILURE_WINDOW_MS = 60000; // 1 minute
+
+    // Check if pod is healthy (circuit breaker)
+    function isPodHealthy(podIp) {
+      const failures = podFailures.get(podIp);
+      if (!failures) return true;
+
+      // Reset if outside failure window
+      if (Date.now() - failures.lastFailure > FAILURE_WINDOW_MS) {
+        podFailures.delete(podIp);
+        return true;
       }
 
-      const url = `http://${pod.ip}:${BROWSER_PORT}${endpoint}`;
-      console.log(`Forwarding to ${pod.name}: ${url}`);
+      return failures.count < FAILURE_THRESHOLD;
+    }
 
-      const response = await axios.post(url, body, {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    // Record pod failure
+    function recordPodFailure(podIp) {
+      const failures = podFailures.get(podIp) || { count: 0, lastFailure: 0 };
+      failures.count++;
+      failures.lastFailure = Date.now();
+      podFailures.set(podIp, failures);
+      console.warn(`Pod ${podIp} failure recorded (${failures.count}/${FAILURE_THRESHOLD})`);
+    }
 
-      return response.data;
+    // Reset pod failures on success
+    function recordPodSuccess(podIp) {
+      podFailures.delete(podIp);
+    }
+
+    // Forward request to browser pod with retry logic
+    async function forwardToBrowser(endpoint, body, maxRetries = 3) {
+      const pods = await getBrowserPods();
+      const healthyPods = pods.filter(p => isPodHealthy(p.ip));
+
+      if (healthyPods.length === 0) {
+        // If all pods are marked unhealthy, try any available pod
+        if (pods.length > 0) {
+          console.warn('All pods marked unhealthy, resetting circuit breaker');
+          podFailures.clear();
+        } else {
+          throw new Error('No browser pods available');
+        }
+      }
+
+      let lastError = null;
+      const availablePods = healthyPods.length > 0 ? healthyPods : pods;
+
+      for (let attempt = 0; attempt < Math.min(maxRetries, availablePods.length); attempt++) {
+        const podIndex = (currentPodIndex + attempt) % availablePods.length;
+        const pod = availablePods[podIndex];
+        const url = `http://${pod.ip}:${BROWSER_PORT}${endpoint}`;
+
+        console.log(`[Attempt ${attempt + 1}/${maxRetries}] Forwarding to ${pod.name}: ${url}`);
+
+        try {
+          const response = await axios.post(url, body, {
+            timeout: 60000,
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          // Success - record and update index
+          recordPodSuccess(pod.ip);
+          currentPodIndex = (podIndex + 1) % availablePods.length;
+          return response.data;
+        } catch (error) {
+          lastError = error;
+          recordPodFailure(pod.ip);
+          console.error(`[Attempt ${attempt + 1}] Failed on ${pod.name}: ${error.message}`);
+
+          // Don't retry on client errors (4xx)
+          if (error.response && error.response.status >= 400 && error.response.status < 500) {
+            throw error;
+          }
+        }
+      }
+
+      throw lastError || new Error('All retry attempts failed');
     }
 
     // Health check
@@ -823,6 +888,43 @@ data:
       } else {
         res.status(503).json({ ready: false, error: 'No browser pods available' });
       }
+    });
+
+    // Detailed status endpoint (no auth required for debugging)
+    app.get('/status', async (req, res) => {
+      const pods = await getBrowserPods();
+      const circuitBreakerState = {};
+
+      for (const [podIp, failures] of podFailures.entries()) {
+        circuitBreakerState[podIp] = {
+          failures: failures.count,
+          lastFailure: new Date(failures.lastFailure).toISOString(),
+          healthy: isPodHealthy(podIp)
+        };
+      }
+
+      res.json({
+        service: 'browser-manager',
+        timestamp: new Date().toISOString(),
+        pods: {
+          total: pods.length,
+          healthy: pods.filter(p => isPodHealthy(p.ip)).length,
+          list: pods.map(p => ({
+            name: p.name,
+            ip: p.ip,
+            healthy: isPodHealthy(p.ip)
+          }))
+        },
+        circuitBreaker: {
+          threshold: FAILURE_THRESHOLD,
+          windowMs: FAILURE_WINDOW_MS,
+          state: circuitBreakerState
+        },
+        config: {
+          browserPort: BROWSER_PORT,
+          namespace: NAMESPACE
+        }
+      });
     });
 
     // OBSERVE endpoint (MCP compatible)

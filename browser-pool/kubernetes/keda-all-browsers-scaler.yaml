@@ -1,0 +1,176 @@
+---
+# KEDA ScaledObject for Selenium Grid 4 - Chrome Nodes
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    browser: chrome
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-chrome
+    apiVersion: apps/v1
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  pollingInterval: 15
+  cooldownPeriod: 60
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+          - type: Pods
+            value: 3
+            periodSeconds: 30
+          selectPolicy: Max
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "80"
+
+---
+# KEDA ScaledObject for Selenium Grid 4 - Firefox Nodes
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-firefox-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    browser: firefox
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-firefox
+    apiVersion: apps/v1
+    kind: Deployment
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  pollingInterval: 20
+  cooldownPeriod: 120
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 120
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 45
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 45
+          selectPolicy: Max
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "75"
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "85"
+
+---
+# KEDA ScaledObject for Selenium Grid 4 - Edge Nodes
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-edge-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    browser: edge
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-edge
+    apiVersion: apps/v1
+    kind: Deployment
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  pollingInterval: 20
+  cooldownPeriod: 90
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 30
+          selectPolicy: Max
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "80"
+
+---
+# PodDisruptionBudget for Chrome
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-chrome-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: selenium-node-chrome
+
+---
+# PodDisruptionBudget for Firefox
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-firefox-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: selenium-node-firefox
+
+---
+# PodDisruptionBudget for Edge
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-edge-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: selenium-node-edge

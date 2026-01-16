@@ -1,0 +1,543 @@
+---
+# KEDA ScaledObject for Selenium Grid 4 - Chrome Nodes
+# Autoscales Chrome browser nodes based on session queue length
+# Deploy with: kubectl apply -f keda-scaledobject.yaml
+# Requires: KEDA installed in cluster, Prometheus for metrics collection
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-nodes-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: chrome-nodes
+    scaler: keda
+    version: "1.0"
+  annotations:
+    description: "KEDA autoscaler for Selenium Grid 4 Chrome nodes"
+    managed-by: "e2e-testing-agent"
+spec:
+  # Target deployment to scale
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-chrome
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Replica scaling boundaries
+  minReplicaCount: 2          # Always keep 2 Chrome nodes running for availability
+  maxReplicaCount: 20         # Maximum 20 Chrome nodes to control costs
+  fallback:
+    failureThreshold: 3       # Number of consecutive scaler failures before fallback
+    replicas: 2               # Fallback to 2 replicas if scaler is unavailable
+
+  # Polling and cooldown configuration
+  pollingInterval: 15         # Check metrics every 15 seconds
+  cooldownPeriod: 60          # Wait 60s before scaling down after metric drops
+
+  # Advanced scaling behavior
+  advanced:
+    # Restore to original replica count if scaler container is removed
+    restoreToOriginalReplicaCount: false
+
+    # Horizontal Pod Autoscaler behavior configuration
+    horizontalPodAutoscalerConfig:
+      behavior:
+        # Scale down behavior - conservative to avoid thrashing
+        scaleDown:
+          stabilizationWindowSeconds: 300  # Wait 5 minutes before downscaling
+          policies:
+          # Policy 1: Remove max 2 pods every 60 seconds
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+          # Policy 2: Remove max 10% of current replicas every 60 seconds
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          # Use the policy that scales down the least pods
+          selectPolicy: Min
+
+        # Scale up behavior - aggressive to handle load spikes
+        scaleUp:
+          stabilizationWindowSeconds: 30   # Allow faster scaling up
+          policies:
+          # Policy 1: Add max 5 pods every 30 seconds
+          - type: Pods
+            value: 5
+            periodSeconds: 30
+          # Policy 2: Add max 50% increase every 30 seconds
+          - type: Percent
+            value: 50
+            periodSeconds: 30
+          # Use the policy that scales up the most pods
+          selectPolicy: Max
+
+  # Scaling triggers - metrics that determine scaling decisions
+  triggers:
+    # Primary Trigger: Prometheus-based session queue length
+    # Queries the Selenium Grid hub for queued sessions
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.browser-pool.svc:9090
+        # PromQL query: Get the number of queued sessions for Chrome nodes
+        # Prometheus endpoint: /metrics on Selenium Hub
+        query: |
+          # Number of sessions waiting in queue
+          ceil(selenium_sessions_queued{node="chrome"}) > 0
+          or
+          on() vector(0)
+        threshold: "1"          # Scale up if queue length >= 1
+        activationThreshold: "1" # Activate this trigger only if queue length >= 1
+
+    # Secondary Trigger: Available slots ratio
+    # Scales based on percentage of available browser slots
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.browser-pool.svc:9090
+        # Calculate percentage of available slots
+        # When slots_available / total_slots < 0.2 (80% used), scale up
+        query: |
+          # Available slots ratio for Chrome nodes
+          (
+            selenium_node_slots_available{node="chrome"}
+            /
+            (
+              selenium_node_slots_available{node="chrome"}
+              +
+              selenium_node_slots_used{node="chrome"}
+            )
+          )
+        threshold: "0.2"        # Scale up when only 20% slots available (80% utilization)
+        activationThreshold: "0" # Always active for tracking utilization
+
+    # Tertiary Trigger: CPU utilization fallback
+    # If Prometheus metrics fail, scale based on CPU
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        type: Utilization
+        value: "70"             # Scale up when average CPU > 70%
+
+---
+# KEDA ScaledObject for Selenium Grid 4 - Firefox Nodes
+# Firefox nodes are heavier (more memory/CPU per browser), use conservative scaling
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-firefox-nodes-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: firefox-nodes
+    scaler: keda
+    version: "1.0"
+  annotations:
+    description: "KEDA autoscaler for Selenium Grid 4 Firefox nodes"
+    managed-by: "e2e-testing-agent"
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-firefox
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Replica scaling boundaries - more conservative for Firefox
+  minReplicaCount: 1          # Start with 1 Firefox node (heavier than Chrome)
+  maxReplicaCount: 10         # Cap at 10 Firefox nodes
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+
+  # Polling and cooldown configuration - longer for Firefox
+  pollingInterval: 20         # Check less frequently than Chrome (20s vs 15s)
+  cooldownPeriod: 120         # Longer cooldown for Firefox (2 min vs 1 min)
+
+  advanced:
+    restoreToOriginalReplicaCount: false
+
+    horizontalPodAutoscalerConfig:
+      behavior:
+        # Scale down behavior - very conservative
+        scaleDown:
+          stabilizationWindowSeconds: 600   # Wait 10 minutes before downscaling
+          policies:
+          # Policy 1: Remove max 1 pod every 2 minutes
+          - type: Pods
+            value: 1
+            periodSeconds: 120
+          # Policy 2: Remove max 5% of current replicas
+          - type: Percent
+            value: 5
+            periodSeconds: 120
+          selectPolicy: Min
+
+        # Scale up behavior - moderate pace
+        scaleUp:
+          stabilizationWindowSeconds: 45    # Slightly slower than Chrome
+          policies:
+          # Policy 1: Add max 2 pods every 45 seconds
+          - type: Pods
+            value: 2
+            periodSeconds: 45
+          # Policy 2: Add max 30% increase
+          - type: Percent
+            value: 30
+            periodSeconds: 45
+          selectPolicy: Max
+
+  triggers:
+    # Primary Trigger: Session queue for Firefox
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.browser-pool.svc:9090
+        query: |
+          # Number of Firefox sessions in queue
+          ceil(selenium_sessions_queued{node="firefox"}) > 0
+          or
+          on() vector(0)
+        threshold: "1"
+        activationThreshold: "1"
+
+    # Secondary Trigger: Available slots for Firefox
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.browser-pool.svc:9090
+        query: |
+          # Available slots ratio for Firefox nodes
+          (
+            selenium_node_slots_available{node="firefox"}
+            /
+            (
+              selenium_node_slots_available{node="firefox"}
+              +
+              selenium_node_slots_used{node="firefox"}
+            )
+          )
+        threshold: "0.15"       # Scale up when only 15% slots available (85% utilization)
+        activationThreshold: "0"
+
+    # Tertiary Trigger: CPU utilization
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        type: Utilization
+        value: "80"             # More lenient CPU threshold for Firefox
+
+---
+# KEDA ScaledObject for Selenium Grid 4 - Edge Nodes
+# Edge nodes are lightweight, can scale up aggressively
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-edge-nodes-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: edge-nodes
+    scaler: keda
+    version: "1.0"
+  annotations:
+    description: "KEDA autoscaler for Selenium Grid 4 Edge nodes"
+    managed-by: "e2e-testing-agent"
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-edge
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Replica scaling boundaries - allow scaling to zero for cost savings
+  minReplicaCount: 0          # Edge is optional - scale to zero when not needed
+  maxReplicaCount: 15         # Cap at 15 Edge nodes
+  fallback:
+    failureThreshold: 3
+    replicas: 0
+
+  # Polling and cooldown configuration - fast for Edge
+  pollingInterval: 10         # Check very frequently (10s)
+  cooldownPeriod: 90          # Moderate cooldown
+
+  advanced:
+    restoreToOriginalReplicaCount: false
+
+    horizontalPodAutoscalerConfig:
+      behavior:
+        # Scale down behavior - aggressive for cost savings
+        scaleDown:
+          stabilizationWindowSeconds: 180   # Wait 3 minutes before downscaling
+          policies:
+          # Policy 1: Remove max 3 pods every 60 seconds
+          - type: Pods
+            value: 3
+            periodSeconds: 60
+          # Policy 2: Remove max 20% of current replicas
+          - type: Percent
+            value: 20
+            periodSeconds: 60
+          selectPolicy: Min
+
+        # Scale up behavior - very aggressive
+        scaleUp:
+          stabilizationWindowSeconds: 15   # Very fast scaling up
+          policies:
+          # Policy 1: Add max 10 pods every 15 seconds
+          - type: Pods
+            value: 10
+            periodSeconds: 15
+          # Policy 2: Add max 100% increase
+          - type: Percent
+            value: 100
+            periodSeconds: 15
+          selectPolicy: Max
+
+  triggers:
+    # Primary Trigger: Session queue for Edge
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.browser-pool.svc:9090
+        query: |
+          # Number of Edge sessions in queue
+          ceil(selenium_sessions_queued{node="edge"}) > 0
+          or
+          on() vector(0)
+        threshold: "1"
+        activationThreshold: "1"
+
+    # Secondary Trigger: Available slots for Edge
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.browser-pool.svc:9090
+        query: |
+          # Available slots ratio for Edge nodes
+          (
+            selenium_node_slots_available{node="edge"}
+            /
+            (
+              selenium_node_slots_available{node="edge"}
+              +
+              selenium_node_slots_used{node="edge"}
+            )
+          )
+        threshold: "0.1"        # Scale up when only 10% slots available (90% utilization)
+        activationThreshold: "0"
+
+---
+# Alternative: KEDA ScaledObject using External Scaler
+# Uncomment this if using a custom KEDA scaler service that queries Selenium Grid HTTP API
+# This approach doesn't require Prometheus and queries the Hub directly
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-nodes-external-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: chrome-nodes
+    scaler-type: external
+    version: "1.0"
+  annotations:
+    description: "KEDA autoscaler using external scaler for Selenium Grid HTTP API"
+    keda.sh/paused: "true"  # Disabled by default - enable if using external scaler
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-chrome
+    apiVersion: apps/v1
+    kind: Deployment
+
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+
+  pollingInterval: 15
+  cooldownPeriod: 60
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+          - type: Pods
+            value: 5
+            periodSeconds: 30
+          - type: Percent
+            value: 50
+            periodSeconds: 30
+          selectPolicy: Max
+
+  triggers:
+    # External scaler queries Selenium Grid HTTP API directly
+    # Requires a running KEDA scaler service (e.g., selenium-keda-scaler:6000)
+    - type: external
+      metadata:
+        scalerAddress: "selenium-keda-scaler:6000"
+        metric: session_queue_length
+        threshold: "10"
+        unsafeSsl: "false"
+
+---
+# PodDisruptionBudget for Chrome nodes
+# Ensures minimum availability during cluster maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-chrome-nodes-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: selenium-grid
+      component: chrome-nodes
+
+---
+# PodDisruptionBudget for Firefox nodes
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-firefox-nodes-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: selenium-grid
+      component: firefox-nodes
+
+---
+# ServiceMonitor for Prometheus (if using Prometheus Operator)
+# Allows automatic scraping of Selenium Grid metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: selenium-grid-metrics
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: selenium-grid
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+  # Hub metrics
+  - port: hub-metrics
+    interval: 30s
+    path: /metrics
+
+---
+# ConfigMap with KEDA scaling guidelines and documentation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keda-selenium-scaling-config
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: keda-config
+data:
+  scaling-strategy.md: |
+    # KEDA Scaling Strategy for Selenium Grid 4
+
+    ## Overview
+    This configuration implements intelligent autoscaling for Selenium Grid 4 browser nodes
+    using KEDA (Kubernetes Event Driven Autoscaling).
+
+    ## Browser Node Types
+
+    ### Chrome Nodes (selenium-chrome-nodes-scaler)
+    - Min Replicas: 2 (availability)
+    - Max Replicas: 20 (cost control)
+    - Scale up: Aggressive (5 pods/30s or 50% increase)
+    - Scale down: Conservative (2 pods/60s or 10% decrease)
+    - Reason: Chrome is lightweight, good for high-throughput testing
+
+    ### Firefox Nodes (selenium-firefox-nodes-scaler)
+    - Min Replicas: 1 (heavier browser)
+    - Max Replicas: 10 (cost control)
+    - Scale up: Moderate (2 pods/45s or 30% increase)
+    - Scale down: Very conservative (1 pod/120s or 5% decrease)
+    - Reason: Firefox consumes more resources per instance
+
+    ### Edge Nodes (selenium-edge-nodes-scaler)
+    - Min Replicas: 0 (optional browser)
+    - Max Replicas: 15 (cost savings potential)
+    - Scale up: Very aggressive (10 pods/15s or 100% increase)
+    - Scale down: Aggressive (3 pods/60s or 20% decrease)
+    - Reason: Edge is optional, scale to zero when not needed
+
+    ## Scaling Metrics
+
+    ### Primary: Session Queue Length
+    - Query: ceil(selenium_sessions_queued{node="<type>"})
+    - Threshold: >= 1 (scale up if any sessions queued)
+    - Impact: Ensures responsive scaling to test load
+
+    ### Secondary: Available Slots Ratio
+    - Chrome: Scale up at 20% available (80% utilization)
+    - Firefox: Scale up at 15% available (85% utilization)
+    - Edge: Scale up at 10% available (90% utilization)
+    - Impact: Prevents resource exhaustion before queue builds up
+
+    ### Tertiary: CPU Utilization Fallback
+    - Chrome: 70% CPU threshold
+    - Firefox: 80% CPU threshold (more lenient)
+    - Impact: Fallback if Prometheus metrics unavailable
+
+    ## Configuration Files
+    - Main: keda-scaledobject.yaml (this file)
+    - Setup: keda-setup.md
+    - Advanced Prometheus: keda-prometheus-advanced.yaml
+    - Auth: keda-auth-config.yaml
+
+    ## Monitoring Checklist
+    - [ ] Verify KEDA operator running: kubectl get pods -n keda
+    - [ ] Check ScaledObjects status: kubectl get scaledobjects -n selenium-grid
+    - [ ] Monitor scaling events: kubectl logs -n selenium-grid deploy/selenium-grid-selenium-hub
+    - [ ] View HPA status: kubectl get hpa -n selenium-grid
+    - [ ] Check Prometheus metrics: http://prometheus:9090/graph
+
+    ## Troubleshooting
+    - If scaling not working: Check KEDA operator logs and Prometheus connectivity
+    - If scaling too aggressive: Increase stabilizationWindowSeconds
+    - If scaling not responsive: Decrease pollingInterval
+    - If high costs: Reduce maxReplicaCount or increase scaling thresholds
+
+  monitoring-queries.yaml: |
+    # Prometheus Queries for Monitoring KEDA Scaling
+
+    # Current replica count by node type
+    keda_scaler_replicas{scaled_object=~"selenium-.*-scaler"}
+
+    # Queue length by browser type
+    selenium_sessions_queued{node=~"chrome|firefox|edge"}
+
+    # Available slots ratio
+    (
+      selenium_node_slots_available{node="chrome"}
+      /
+      (
+        selenium_node_slots_available{node="chrome"}
+        +
+        selenium_node_slots_used{node="chrome"}
+      )
+    )
+
+    # KEDA scaling events
+    increase(keda_scaler_scale_total[5m])
+
+    # HPA metrics
+    keda_hpa_scale_events_total{scaled_object=~"selenium-.*"}

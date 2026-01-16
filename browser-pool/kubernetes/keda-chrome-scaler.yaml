@@ -1,0 +1,80 @@
+---
+# KEDA ScaledObject for Selenium Grid 4 - Chrome Nodes
+# Autoscales Chrome browser nodes based on CPU utilization
+# Uses Prometheus at browser-pool namespace for metrics
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-scaler
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: chrome-nodes
+    scaler: keda
+spec:
+  # Target deployment to scale
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-chrome
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Replica scaling boundaries
+  minReplicaCount: 2          # Always keep 2 Chrome nodes running
+  maxReplicaCount: 10         # Maximum 10 Chrome nodes (cluster resource limit)
+
+  # Polling and cooldown configuration
+  pollingInterval: 15         # Check metrics every 15 seconds
+  cooldownPeriod: 60          # Wait 60s before scaling down
+
+  # Advanced scaling behavior
+  advanced:
+    restoreToOriginalReplicaCount: false
+    horizontalPodAutoscalerConfig:
+      behavior:
+        # Scale down behavior - conservative
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+          selectPolicy: Min
+        # Scale up behavior - aggressive
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+          - type: Pods
+            value: 3
+            periodSeconds: 30
+          - type: Percent
+            value: 50
+            periodSeconds: 30
+          selectPolicy: Max
+
+  # Scaling triggers
+  triggers:
+    # Primary: CPU utilization based scaling
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"             # Scale up when average CPU > 70%
+
+    # Secondary: Memory utilization
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "80"             # Scale up when average memory > 80%
+
+---
+# PodDisruptionBudget for Chrome nodes
+# Ensures minimum availability during cluster maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-chrome-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: selenium-node-chrome

@@ -1,0 +1,33 @@
+# Dockerfile for KEDA External Scaler for Selenium Grid
+# Build with: docker build -f Dockerfile.keda-scaler -t my-registry/selenium-keda-scaler:latest .
+# Push with: docker push my-registry/selenium-keda-scaler:latest
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy scaler code
+COPY scaler.py .
+COPY externalscaler_pb2.py .
+COPY externalscaler_pb2_grpc.py .
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD python -c "import socket; socket.create_connection(('localhost', 6000), timeout=5)"
+
+# Expose gRPC port
+EXPOSE 6000/tcp
+
+# Run the scaler
+CMD ["python", "scaler.py"]
