@@ -87,6 +87,7 @@ class SupabaseClient:
         columns: str = "*",
         filters: Optional[dict[str, Any]] = None,
         limit: Optional[int] = None,
+        offset: Optional[int] = None,
         order_by: Optional[str] = None,
         ascending: bool = True,
     ) -> list[dict[str, Any]]:
@@ -97,6 +98,7 @@ class SupabaseClient:
             columns: Columns to select (default: "*")
             filters: Dictionary of column=value filters
             limit: Maximum number of records
+            offset: Number of records to skip (for pagination)
             order_by: Column to order by
             ascending: Sort order
 
@@ -121,6 +123,9 @@ class SupabaseClient:
 
             if limit:
                 query = query.limit(limit)
+
+            if offset:
+                query = query.offset(offset)
 
             result = query.execute()
             return result.data if result.data else []
