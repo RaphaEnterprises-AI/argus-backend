@@ -287,17 +287,17 @@ async def list_organizations(request: Request):
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
-    org = await supabase.request(f"/organizations?id=eq.{org_id}&select=*")
+    org = await supabase.request(f"/organizations?id=eq.{supabase_org_id}&select=*")
 
     if org.get("error") or not org.get("data"):
         raise HTTPException(status_code=404, detail="Organization not found")
 
     org_data = org["data"][0]
-    member_count = await get_member_count(org_id)
+    member_count = await get_member_count(supabase_org_id)
 
     return OrganizationResponse(
         id=org_data["id"],
@@ -323,7 +323,7 @@ async def get_organization(org_id: str, request: Request):
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -347,7 +347,7 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
     if body.sso_enabled is not None:
         update_data["sso_enabled"] = body.sso_enabled
 
-    result = await supabase.update("organizations", {"id": f"eq.{org_id}"}, update_data)
+    result = await supabase.update("organizations", {"id": f"eq.{supabase_org_id}"}, update_data)
 
     if result.get("error"):
         logger.error("Failed to update organization", error=result.get("error"))
@@ -355,20 +355,20 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="org.update",
         resource_type="organization",
-        resource_id=org_id,
+        resource_id=supabase_org_id,
         description="Updated organization settings",
         metadata={"changes": {k: v for k, v in update_data.items() if k != "updated_at"}},
         request=request,
     )
 
-    logger.info("Organization updated", org_id=org_id)
+    logger.info("Organization updated", org_id=supabase_org_id)
 
-    return await get_organization(org_id, request)
+    return await get_organization(supabase_org_id, request)
 
 
 @router.delete("/{org_id}")
@@ -378,12 +378,12 @@ async def delete_organization(org_id: str, request: Request):
     This permanently deletes the organization and all associated data.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get organization details for audit log
-    org = await supabase.request(f"/organizations?id=eq.{org_id}&select=name,slug")
+    org = await supabase.request(f"/organizations?id=eq.{supabase_org_id}&select=name,slug")
 
     if org.get("error") or not org.get("data"):
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -392,13 +392,13 @@ async def delete_organization(org_id: str, request: Request):
 
     # Delete all organization members first
     await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}",
+        f"/organization_members?organization_id=eq.{supabase_org_id}",
         method="DELETE"
     )
 
     # Delete the organization
     delete_result = await supabase.request(
-        f"/organizations?id=eq.{org_id}",
+        f"/organizations?id=eq.{supabase_org_id}",
         method="DELETE"
     )
 
@@ -408,7 +408,7 @@ async def delete_organization(org_id: str, request: Request):
 
     # Note: Audit log for deleted org is stored but org reference will be orphaned
     # In production, consider a soft delete pattern instead
-    logger.info("Organization deleted", org_id=org_id, name=org_data["name"])
+    logger.info("Organization deleted", org_id=supabase_org_id, name=org_data["name"])
 
     return {"success": True, "message": f"Organization '{org_data['name']}' has been deleted"}
 
@@ -421,13 +421,13 @@ async def transfer_ownership(org_id: str, body: TransferOwnershipRequest, reques
     The current owner will be demoted to admin.
     """
     user = await get_current_user(request)
-    current_member = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
+    current_member, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Verify new owner is a member of the organization
     new_owner_member = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&user_id=eq.{body.new_owner_user_id}&status=eq.active&select=*"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&user_id=eq.{body.new_owner_user_id}&status=eq.active&select=*"
     )
 
     if not new_owner_member.get("data"):
@@ -458,12 +458,12 @@ async def transfer_ownership(org_id: str, body: TransferOwnershipRequest, reques
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="org.transfer_ownership",
         resource_type="organization",
-        resource_id=org_id,
+        resource_id=supabase_org_id,
         description=f"Transferred ownership to user {body.new_owner_user_id}",
         metadata={
             "previous_owner_id": user["user_id"],
@@ -475,7 +475,7 @@ async def transfer_ownership(org_id: str, body: TransferOwnershipRequest, reques
 
     logger.info(
         "Organization ownership transferred",
-        org_id=org_id,
+        org_id=supabase_org_id,
         from_user=user["user_id"],
         to_user=body.new_owner_user_id
     )

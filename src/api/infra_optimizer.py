@@ -226,29 +226,12 @@ async def get_recommendations(
         raise HTTPException(status_code=500, detail=f"Failed to get recommendations: {str(e)}")
 
 
-@router.get("/cost-report", response_model=CostReportResponse)
-async def get_cost_report(
-    org_id: str = Depends(require_organization_id),
-    days: int = Query(7, ge=1, le=90, description="Number of days to analyze"),
-    optimizer: AIInfraOptimizer = Depends(get_optimizer),
-):
-    """Get infrastructure cost analysis report.
-
-    Provides detailed cost breakdown including:
-    - Total cost for the period
-    - Daily cost breakdown
-    - Cost by resource type (compute, network, storage)
-    - Projected monthly cost
-    - Comparison to BrowserStack pricing
-    - Savings achieved through self-hosting
-
-    **Example savings calculation:**
-    - 10 concurrent sessions on BrowserStack: $990/month
-    - Same capacity self-hosted: ~$200/month
-    - Savings: 80%
-    """
-    logger.info("getting_cost_report", org_id=org_id, days=days)
-
+async def _get_cost_report_impl(
+    org_id: str,
+    days: int,
+    optimizer: AIInfraOptimizer,
+) -> CostReportResponse:
+    """Implementation for cost report endpoints."""
     try:
         report = await optimizer.get_cost_report(org_id, days=days)
 
@@ -274,6 +257,51 @@ async def get_cost_report(
     except Exception as e:
         logger.error("cost_report_error", error=str(e), org_id=org_id)
         raise HTTPException(status_code=500, detail=f"Failed to get cost report: {str(e)}")
+
+
+@router.get("/cost-overview", response_model=CostReportResponse)
+async def get_cost_overview(
+    org_id: str = Depends(require_organization_id),
+    days: int = Query(7, ge=1, le=90, description="Number of days to analyze"),
+    optimizer: AIInfraOptimizer = Depends(get_optimizer),
+):
+    """Get infrastructure cost overview.
+
+    Alias for /cost-report. Provides detailed cost breakdown including:
+    - Total cost for the period
+    - Daily cost breakdown
+    - Cost by resource type (compute, network, storage)
+    - Projected monthly cost
+    - Comparison to BrowserStack pricing
+    - Savings achieved through self-hosting
+    """
+    logger.info("getting_cost_overview", org_id=org_id, days=days)
+    return await _get_cost_report_impl(org_id, days, optimizer)
+
+
+@router.get("/cost-report", response_model=CostReportResponse)
+async def get_cost_report(
+    org_id: str = Depends(require_organization_id),
+    days: int = Query(7, ge=1, le=90, description="Number of days to analyze"),
+    optimizer: AIInfraOptimizer = Depends(get_optimizer),
+):
+    """Get infrastructure cost analysis report.
+
+    Provides detailed cost breakdown including:
+    - Total cost for the period
+    - Daily cost breakdown
+    - Cost by resource type (compute, network, storage)
+    - Projected monthly cost
+    - Comparison to BrowserStack pricing
+    - Savings achieved through self-hosting
+
+    **Example savings calculation:**
+    - 10 concurrent sessions on BrowserStack: $990/month
+    - Same capacity self-hosted: ~$200/month
+    - Savings: 80%
+    """
+    logger.info("getting_cost_report", org_id=org_id, days=days)
+    return await _get_cost_report_impl(org_id, days, optimizer)
 
 
 @router.get("/forecast", response_model=DemandForecastResponse)

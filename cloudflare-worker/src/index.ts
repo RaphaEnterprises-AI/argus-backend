@@ -333,6 +333,94 @@ function shouldUseVultrPool(backend: Backend, env: Env): boolean {
 }
 
 // ============================================================================
+// SSRF PROTECTION
+// ============================================================================
+
+/**
+ * Blocked hostnames and IP patterns for SSRF protection.
+ * Prevents access to internal networks, cloud metadata endpoints, etc.
+ */
+const BLOCKED_HOST_PATTERNS = [
+  // Localhost variants
+  /^localhost$/i,
+  /^127\.\d+\.\d+\.\d+$/,
+  /^0\.0\.0\.0$/,
+  /^\[::1\]$/,
+  /^::1$/,
+  
+  // Private IPv4 ranges (RFC 1918)
+  /^10\.\d+\.\d+\.\d+$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
+  /^192\.168\.\d+\.\d+$/,
+  
+  // Link-local
+  /^169\.254\.\d+\.\d+$/,
+  
+  // IPv6 private/local
+  /^fc[0-9a-f]{2}:/i,
+  /^fd[0-9a-f]{2}:/i,
+  /^fe80:/i,
+  
+  // Cloud metadata endpoints
+  /^metadata\.google/i,
+  /^metadata\.azure/i,
+  /^169\.254\.169\.254$/,  // AWS/GCP/Azure metadata
+  /^100\.100\.100\.200$/,  // Alibaba Cloud metadata
+  
+  // Internal domain patterns
+  /\.internal$/i,
+  /\.local$/i,
+  /\.localhost$/i,
+];
+
+const BLOCKED_SCHEMES = ['file:', 'ftp:', 'gopher:', 'data:', 'javascript:'];
+
+/**
+ * Validate that a URL is safe for browser automation (not internal/private).
+ * Returns true if URL is allowed, false if it should be blocked.
+ */
+function isAllowedUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    
+    // Block non-HTTP(S) schemes
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return false;
+    }
+    
+    // Block schemes that could be dangerous
+    if (BLOCKED_SCHEMES.includes(url.protocol)) {
+      return false;
+    }
+    
+    const hostname = url.hostname.toLowerCase();
+    
+    // Check against blocked patterns
+    for (const pattern of BLOCKED_HOST_PATTERNS) {
+      if (pattern.test(hostname)) {
+        return false;
+      }
+    }
+    
+    // Block URLs with username:password (potential for abuse)
+    if (url.username || url.password) {
+      return false;
+    }
+    
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Zod refinement for safe external URLs.
+ */
+const SafeUrlSchema = z.string().url().refine(isAllowedUrl, {
+  message: "URL must be a publicly accessible HTTP/HTTPS URL. Internal networks, localhost, and cloud metadata endpoints are blocked."
+});
+
+// ============================================================================
 // REQUEST SCHEMAS
 // ============================================================================
 
@@ -346,7 +434,7 @@ const DeviceSchema = z.enum([
 ]).optional().default("desktop");
 
 const ActRequestSchema = z.object({
-  url: z.string().url(),
+  url: SafeUrlSchema,
   instruction: z.string().optional(),
   action: z.object({
     selector: z.string(),
@@ -365,7 +453,7 @@ const ActRequestSchema = z.object({
 });
 
 const ExtractRequestSchema = z.object({
-  url: z.string().url(),
+  url: SafeUrlSchema,
   instruction: z.string().optional(),
   schema: z.record(z.any()).optional(),
   selector: z.string().optional(),
@@ -376,7 +464,7 @@ const ExtractRequestSchema = z.object({
 });
 
 const ObserveRequestSchema = z.object({
-  url: z.string().url(),
+  url: SafeUrlSchema,
   instruction: z.string().optional().default("Find all interactive elements"),
   selector: z.string().optional(),
   timeout: z.number().optional().default(30000),
@@ -388,7 +476,7 @@ const ObserveRequestSchema = z.object({
 });
 
 const AgentRequestSchema = z.object({
-  url: z.string().url(),
+  url: SafeUrlSchema,
   instruction: z.string(),
   systemPrompt: z.string().optional(),
   maxSteps: z.number().optional().default(20),
@@ -412,7 +500,7 @@ const SessionConfigSchema = z.object({
 }).optional();
 
 const TestRequestSchema = z.object({
-  url: z.string().url(),
+  url: SafeUrlSchema,
   steps: z.array(z.string()),
   screenshot: z.boolean().optional().default(false),
   captureScreenshots: z.boolean().optional().default(false),
@@ -2787,7 +2875,7 @@ async function createActivityLogger(
 // ============================================================================
 
 const RetryRequestSchema = z.object({
-  url: z.string().url(),
+  url: SafeUrlSchema,
   failedStep: z.object({
     instruction: z.string(),
     failedAction: z.object({
@@ -3007,16 +3095,61 @@ interface QueueMessage {
 // MAIN WORKER
 // ============================================================================
 
+// ============================================================================
+// CORS CONFIGURATION
+// ============================================================================
+
+/**
+ * Allowed origins for CORS. Restricts to known Argus domains.
+ */
+const ALLOWED_ORIGINS = [
+  'https://heyargus.ai',
+  'https://www.heyargus.ai',
+  'https://app.heyargus.ai',
+  'https://dashboard.heyargus.ai',
+  'https://argus-dashboard.vercel.app',
+];
+
+// Development origins (only allowed when not in production)
+const DEV_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+];
+
+/**
+ * Get CORS headers based on request origin.
+ * Returns specific origin if allowed, otherwise the first allowed origin.
+ */
+function getCorsHeaders(request: Request, env: Env): Record<string, string> {
+  const origin = request.headers.get('Origin') || '';
+  
+  // Check if origin is in allowed list
+  let allowedOrigins = [...ALLOWED_ORIGINS];
+  
+  // Add dev origins if not in production
+  const isProduction = env.DEFAULT_BACKEND !== 'cloudflare' || !env.BROWSER_POOL_URL?.includes('localhost');
+  if (!isProduction) {
+    allowedOrigins = [...allowedOrigins, ...DEV_ORIGINS];
+  }
+  
+  const allowedOrigin = allowedOrigins.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
+    const corsHeaders = getCorsHeaders(request, env);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
@@ -3091,10 +3224,21 @@ export default {
     }
 
     // Serve files from R2 storage (screenshots, artifacts)
+    // SECURITY: Requires authentication to prevent unauthorized access to screenshots
     if (path.startsWith("/storage/") && request.method === "GET") {
+      // Require authentication for storage access
+      if (!authenticate(request, env)) {
+        return Response.json({ error: "Unauthorized - authentication required for storage access" }, { status: 401, headers: corsHeaders });
+      }
+      
       const key = path.replace("/storage/", "");
       if (!key) {
         return Response.json({ error: "Missing file key" }, { status: 400, headers: corsHeaders });
+      }
+      
+      // Validate key format to prevent path traversal
+      if (key.includes('..') || key.startsWith('/') || !key.match(/^[a-zA-Z0-9\-_\/\.]+$/)) {
+        return Response.json({ error: "Invalid file key format" }, { status: 400, headers: corsHeaders });
       }
 
       if (!env.ARTIFACTS) {

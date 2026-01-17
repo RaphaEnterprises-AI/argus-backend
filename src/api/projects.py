@@ -143,7 +143,7 @@ async def verify_project_access(project_id: str, user_id: str, user_email: str =
     project = project_result["data"][0]
 
     # Verify user has access to the organization
-    await verify_org_access(project["organization_id"], user_id, user_email=user_email, request=request)
+    _, _ = await verify_org_access(project["organization_id"], user_id, user_email=user_email, request=request)
 
     return project
 
@@ -165,12 +165,12 @@ async def list_organization_projects(
     Requires membership in the organization.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Build query
-    query = f"/projects?organization_id=eq.{org_id}&select=*&order=created_at.desc"
+    query = f"/projects?organization_id=eq.{supabase_org_id}&select=*&order=created_at.desc"
 
     if is_active is not None:
         query += f"&is_active=eq.{str(is_active).lower()}"
@@ -214,13 +214,13 @@ async def create_organization_project(
     Requires admin or owner role in the organization.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Create project
     project_data = {
-        "organization_id": org_id,
+        "organization_id": supabase_org_id,
         "name": body.name,
         "description": body.description,
         "app_url": body.app_url,
@@ -240,7 +240,7 @@ async def create_organization_project(
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="project.create",
@@ -251,7 +251,7 @@ async def create_organization_project(
         request=request,
     )
 
-    logger.info("Project created", org_id=org_id, project_id=project["id"], name=body.name)
+    logger.info("Project created", org_id=supabase_org_id, project_id=project["id"], name=body.name)
 
     return ProjectResponse(
         id=project["id"],
@@ -399,7 +399,7 @@ async def update_project(project_id: str, body: UpdateProjectRequest, request: R
     project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
     # Verify admin/owner access
-    await verify_org_access(project["organization_id"], user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(project["organization_id"], user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -429,7 +429,7 @@ async def update_project(project_id: str, body: UpdateProjectRequest, request: R
 
     # Audit log
     await log_audit(
-        organization_id=project["organization_id"],
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="project.update",
@@ -456,7 +456,7 @@ async def delete_project(project_id: str, request: Request):
     project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
     # Verify owner access
-    await verify_org_access(project["organization_id"], user["user_id"], ["owner"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(project["organization_id"], user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -472,7 +472,7 @@ async def delete_project(project_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=project["organization_id"],
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="project.delete",

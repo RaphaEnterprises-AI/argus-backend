@@ -107,6 +107,33 @@ def hash_api_key(key: str) -> str:
 # Endpoints
 # ============================================================================
 
+async def check_api_key_auth(user: dict, supabase_org_id: str) -> bool:
+    """Check if the user is authenticated via API key for the given organization.
+
+    Compares the user's organization ID (from API key auth context) with the
+    requested organization ID after translating both to Supabase UUIDs.
+
+    Returns:
+        True if authenticated via API key for this organization, False otherwise.
+    """
+    if "api_user" not in user.get("roles", []):
+        return False
+
+    user_org_id = user.get("organization_id")
+    if not user_org_id:
+        return False
+
+    try:
+        user_org_id_translated = await translate_clerk_org_id(
+            user_org_id,
+            user.get("user_id"),
+            user.get("email")
+        )
+        return user_org_id_translated == supabase_org_id
+    except HTTPException:
+        return False
+
+
 async def resolve_org_id(org_id: str, user: dict) -> str:
     """Resolve 'default' org_id to user's actual organization.
 
@@ -161,9 +188,9 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
 
     # For API key auth, the key's organization_id IS the authorization
     # Only verify org membership for JWT/session auth
-    is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
+    is_api_key_auth = await check_api_key_auth(user, supabase_org_id)
     if not is_api_key_auth:
-        await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        _, supabase_org_id = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -172,9 +199,14 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
     if not include_revoked:
         query += "&revoked_at=is.null"
 
-    result = await supabase.request(query)
+    try:
+        result = await supabase.request(query)
+    except Exception as e:
+        logger.error("Failed to fetch API keys", org_id=supabase_org_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch API keys")
 
     if result.get("error"):
+        logger.error("Supabase error fetching API keys", org_id=supabase_org_id, error=result.get("error"))
         raise HTTPException(status_code=500, detail="Failed to fetch API keys")
 
     now = datetime.now(timezone.utc)
@@ -186,7 +218,7 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
             key_prefix=key["key_prefix"],
             scopes=key.get("scopes", ["read", "write"]),
             last_used_at=key.get("last_used_at"),
-            request_count=key.get("request_count", 0),
+            request_count=key.get("request_count") or 0,
             expires_at=key.get("expires_at"),
             revoked_at=key.get("revoked_at"),
             created_at=key["created_at"],
@@ -216,12 +248,12 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
     )
 
     # For API key auth, the key's organization_id IS the authorization
-    is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
+    is_api_key_auth = await check_api_key_auth(user, supabase_org_id)
     if is_api_key_auth:
         # API key auth - use the user_id as created_by (it's the original key creator's member ID)
         member = {"id": user["user_id"]}
     else:
-        member = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        member, supabase_org_id = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -309,20 +341,24 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
     )
 
     # For API key auth, the key's organization_id IS the authorization
-    is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
+    is_api_key_auth = await check_api_key_auth(user, supabase_org_id)
     if is_api_key_auth:
         member = {"id": user["user_id"]}
     else:
-        member = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        member, supabase_org_id = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get the existing key
-    existing = await supabase.request(
-        f"/api_keys?id=eq.{key_id}&organization_id=eq.{supabase_org_id}&select=*"
-    )
+    try:
+        existing = await supabase.request(
+            f"/api_keys?id=eq.{key_id}&organization_id=eq.{supabase_org_id}&select=*"
+        )
+    except Exception as e:
+        logger.error("Failed to fetch API key for rotation", key_id=key_id, org_id=supabase_org_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch API key")
 
-    if not existing.get("data"):
+    if not existing.get("data") or len(existing["data"]) == 0:
         raise HTTPException(status_code=404, detail="API key not found")
 
     old_key = existing["data"][0]
@@ -346,28 +382,44 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
     plaintext_key, key_hash = generate_api_key()
     key_prefix = plaintext_key[:16]
 
-    # Create new key
-    new_key_result = await supabase.insert("api_keys", {
-        "organization_id": supabase_org_id,
-        "name": f"{old_key['name']} (rotated)",
-        "key_hash": key_hash,
-        "key_prefix": key_prefix,
-        "scopes": old_scopes,
-        "expires_at": old_key.get("expires_at"),
-        "created_by": member["id"],
-    })
+    # Create new key first, before revoking old one (to avoid partial failure state)
+    try:
+        new_key_result = await supabase.insert("api_keys", {
+            "organization_id": supabase_org_id,
+            "name": f"{old_key['name']} (rotated)",
+            "key_hash": key_hash,
+            "key_prefix": key_prefix,
+            "scopes": old_scopes,
+            "expires_at": old_key.get("expires_at"),
+            "created_by": member["id"],
+        })
+    except Exception as e:
+        logger.error("Failed to create new key during rotation", key_id=key_id, org_id=supabase_org_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create new key during rotation")
 
     if new_key_result.get("error"):
+        logger.error("Supabase error creating new key", key_id=key_id, error=new_key_result.get("error"))
         raise HTTPException(status_code=500, detail="Failed to create new key")
+
+    if not new_key_result.get("data") or len(new_key_result["data"]) == 0:
+        logger.error("No data returned when creating new key", key_id=key_id)
+        raise HTTPException(status_code=500, detail="Failed to create new key - no data returned")
 
     new_key_data = new_key_result["data"][0]
 
-    # Revoke old key
-    await supabase.update(
-        "api_keys",
-        {"id": f"eq.{key_id}"},
-        {"revoked_at": datetime.now(timezone.utc).isoformat()}
-    )
+    # Revoke old key only after new key is successfully created
+    try:
+        revoke_result = await supabase.update(
+            "api_keys",
+            {"id": f"eq.{key_id}"},
+            {"revoked_at": datetime.now(timezone.utc).isoformat()}
+        )
+        if revoke_result.get("error"):
+            logger.warning("Failed to revoke old key after rotation, but new key was created",
+                         key_id=key_id, new_key_id=new_key_data["id"], error=revoke_result.get("error"))
+    except Exception as e:
+        logger.warning("Exception revoking old key after rotation, but new key was created",
+                      key_id=key_id, new_key_id=new_key_data["id"], error=str(e))
 
     # Audit log
     await log_audit(
@@ -419,18 +471,22 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
     )
 
     # For API key auth, the key's organization_id IS the authorization
-    is_api_key_auth = user.get("organization_id") == resolved_org_id and "api_user" in user.get("roles", [])
+    is_api_key_auth = await check_api_key_auth(user, supabase_org_id)
     if not is_api_key_auth:
-        await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+        _, supabase_org_id = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get the key
-    existing = await supabase.request(
-        f"/api_keys?id=eq.{key_id}&organization_id=eq.{supabase_org_id}&select=*"
-    )
+    try:
+        existing = await supabase.request(
+            f"/api_keys?id=eq.{key_id}&organization_id=eq.{supabase_org_id}&select=*"
+        )
+    except Exception as e:
+        logger.error("Failed to fetch API key for revocation", key_id=key_id, org_id=supabase_org_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch API key")
 
-    if not existing.get("data"):
+    if not existing.get("data") or len(existing["data"]) == 0:
         raise HTTPException(status_code=404, detail="API key not found")
 
     key_data = existing["data"][0]
@@ -439,24 +495,37 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
         raise HTTPException(status_code=400, detail="Key is already revoked")
 
     # Revoke the key
-    await supabase.update(
-        "api_keys",
-        {"id": f"eq.{key_id}"},
-        {"revoked_at": datetime.now(timezone.utc).isoformat()}
-    )
+    try:
+        revoke_result = await supabase.update(
+            "api_keys",
+            {"id": f"eq.{key_id}"},
+            {"revoked_at": datetime.now(timezone.utc).isoformat()}
+        )
+        if revoke_result.get("error"):
+            logger.error("Supabase error revoking API key", key_id=key_id, error=revoke_result.get("error"))
+            raise HTTPException(status_code=500, detail="Failed to revoke API key")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to revoke API key", key_id=key_id, org_id=supabase_org_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to revoke API key")
 
     # Audit log
-    await log_audit(
-        organization_id=supabase_org_id,
-        user_id=user["user_id"],
-        user_email=user["email"],
-        action="api_key.revoke",
-        resource_type="api_key",
-        resource_id=key_id,
-        description=f"Revoked API key '{key_data['name']}'",
-        metadata={"key_name": key_data["name"]},
-        request=request,
-    )
+    try:
+        await log_audit(
+            organization_id=supabase_org_id,
+            user_id=user["user_id"],
+            user_email=user["email"],
+            action="api_key.revoke",
+            resource_type="api_key",
+            resource_id=key_id,
+            description=f"Revoked API key '{key_data['name']}'",
+            metadata={"key_name": key_data["name"]},
+            request=request,
+        )
+    except Exception as e:
+        # Don't fail the operation if audit logging fails
+        logger.warning("Failed to create audit log for key revocation", key_id=key_id, error=str(e))
 
     logger.info("API key revoked", org_id=supabase_org_id, key_id=key_id)
 

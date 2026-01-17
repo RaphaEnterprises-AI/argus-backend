@@ -63,6 +63,7 @@ from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.infra_optimizer import router as infra_optimizer_router
 from src.api.tests import router as tests_router
+from src.api.reports import router as reports_router
 
 # Security Module
 from src.api.security.middleware import (
@@ -243,6 +244,7 @@ app.include_router(mcp_sessions_router)
 app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
 app.include_router(tests_router)
+app.include_router(reports_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -308,6 +310,7 @@ class SecurityInfoResponse(BaseModel):
 class NLPTestRequest(BaseModel):
     """Request to create test from natural language."""
 
+    project_id: str = Field(..., description="Project ID to associate the test with")
     description: str = Field(..., description="Plain English test description")
     app_url: str = Field("http://localhost:3000", description="Application URL to test")
     context: Optional[str] = Field(None, description="Additional context about the app")
@@ -641,23 +644,120 @@ async def list_jobs(limit: int = 20, status: Optional[str] = None):
 
 
 @app.post("/api/v1/tests/create", tags=["NLP Testing"])
-async def create_test_from_nlp(request: NLPTestRequest):
+async def create_test_from_nlp(body: NLPTestRequest, request: Request):
     """
-    Create a test specification from plain English description.
+    Create a test specification from plain English description and persist to database.
 
     Example: "Login as admin@example.com and verify dashboard shows 5 widgets"
+
+    The test is saved to the database and can be retrieved via GET /api/v1/tests/{id}.
     """
     from src.agents.nlp_test_creator import NLPTestCreator
+    from src.services.supabase_client import get_supabase_client
+    from src.api.projects import verify_project_access
+    from src.api.teams import get_current_user, log_audit
 
     try:
-        creator = NLPTestCreator(app_url=request.app_url)
-        test = await creator.create(request.description, context=request.context)
+        # Get current user and verify project access
+        user = await get_current_user(request)
+        await verify_project_access(body.project_id, user["user_id"], user.get("email"), request)
+
+        # Generate test from NLP description
+        creator = NLPTestCreator(app_url=body.app_url)
+        generated_test = await creator.create(body.description, context=body.context)
+
+        # Convert generated test to database format
+        test_dict = generated_test.to_dict()
+
+        # Prepare steps in the format expected by the tests table
+        steps = []
+        for step in test_dict.get("steps", []):
+            steps.append({
+                "action": step.get("action", ""),
+                "target": step.get("target"),
+                "value": step.get("value"),
+                "description": step.get("description", ""),
+            })
+
+        # Add assertions as additional verification steps
+        for assertion in test_dict.get("assertions", []):
+            steps.append({
+                "action": "assert",
+                "target": assertion.get("target", ""),
+                "value": assertion.get("expected", ""),
+                "description": assertion.get("description", ""),
+                "assertion_type": assertion.get("type", ""),
+            })
+
+        # Persist to database
+        supabase = get_supabase_client()
+        test_data = {
+            "project_id": body.project_id,
+            "name": test_dict.get("name", "Generated Test"),
+            "description": test_dict.get("description", body.description),
+            "steps": steps,
+            "tags": test_dict.get("tags", []),
+            "priority": test_dict.get("priority", "medium"),
+            "is_active": True,
+            "source": "generated",
+            "created_by": user["user_id"],
+        }
+
+        result = await supabase.insert("tests", test_data)
+
+        if result.get("error"):
+            logger.error("Failed to persist NLP-generated test", error=result.get("error"))
+            raise HTTPException(status_code=500, detail="Failed to save test to database")
+
+        saved_test = result["data"][0]
+
+        # Audit log
+        from src.api.tests import get_project_org_id
+        org_id = await get_project_org_id(body.project_id)
+        await log_audit(
+            organization_id=org_id,
+            user_id=user["user_id"],
+            user_email=user.get("email"),
+            action="test.create",
+            resource_type="test",
+            resource_id=saved_test["id"],
+            description=f"Created test '{saved_test['name']}' from NLP description",
+            metadata={
+                "name": saved_test["name"],
+                "project_id": body.project_id,
+                "source": "nlp_generated",
+                "original_description": body.description[:500],
+            },
+            request=request,
+        )
+
+        logger.info(
+            "NLP test created and persisted",
+            test_id=saved_test["id"],
+            name=saved_test["name"],
+            project_id=body.project_id,
+        )
 
         return {
             "success": True,
-            "test": test.to_dict(),
-            "spec": test.to_spec(),
+            "test": {
+                "id": saved_test["id"],
+                "project_id": saved_test["project_id"],
+                "name": saved_test["name"],
+                "description": saved_test.get("description"),
+                "steps": saved_test.get("steps", []),
+                "tags": saved_test.get("tags", []),
+                "priority": saved_test.get("priority", "medium"),
+                "is_active": saved_test.get("is_active", True),
+                "source": saved_test.get("source", "generated"),
+                "created_by": saved_test.get("created_by"),
+                "created_at": saved_test.get("created_at"),
+            },
+            "spec": generated_test.to_spec(),
+            "original_nlp_output": test_dict,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to create test from NLP", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

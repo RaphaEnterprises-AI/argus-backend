@@ -124,21 +124,21 @@ class HealingStatsResponse(BaseModel):
 async def get_healing_config(org_id: str, request: Request, project_id: Optional[str] = None):
     """Get healing configuration for organization (optionally project-specific)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Try to get project-specific config first
     if project_id:
         result = await supabase.request(
-            f"/self_healing_config?organization_id=eq.{org_id}&project_id=eq.{project_id}&select=*"
+            f"/self_healing_config?organization_id=eq.{supabase_org_id}&project_id=eq.{project_id}&select=*"
         )
         if result.get("data"):
             return _config_to_response(result["data"][0])
 
     # Fall back to org-level config
     result = await supabase.request(
-        f"/self_healing_config?organization_id=eq.{org_id}&project_id=is.null&select=*"
+        f"/self_healing_config?organization_id=eq.{supabase_org_id}&project_id=is.null&select=*"
     )
 
     if not result.get("data"):
@@ -146,7 +146,7 @@ async def get_healing_config(org_id: str, request: Request, project_id: Optional
         default = await supabase.insert(
             "self_healing_config",
             {
-                "organization_id": org_id,
+                "organization_id": supabase_org_id,
             },
         )
         if default.get("data"):
@@ -162,7 +162,7 @@ async def update_healing_config(
 ):
     """Update healing configuration."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -176,11 +176,11 @@ async def update_healing_config(
     # Find existing config
     if project_id:
         existing = await supabase.request(
-            f"/self_healing_config?organization_id=eq.{org_id}&project_id=eq.{project_id}&select=id"
+            f"/self_healing_config?organization_id=eq.{supabase_org_id}&project_id=eq.{project_id}&select=id"
         )
     else:
         existing = await supabase.request(
-            f"/self_healing_config?organization_id=eq.{org_id}&project_id=is.null&select=id"
+            f"/self_healing_config?organization_id=eq.{supabase_org_id}&project_id=is.null&select=id"
         )
 
     if existing.get("data"):
@@ -189,7 +189,7 @@ async def update_healing_config(
         await supabase.update("self_healing_config", {"id": f"eq.{config_id}"}, update_data)
     else:
         # Create new
-        update_data["organization_id"] = org_id
+        update_data["organization_id"] = supabase_org_id
         if project_id:
             update_data["project_id"] = project_id
         result = await supabase.insert("self_healing_config", update_data)
@@ -199,7 +199,7 @@ async def update_healing_config(
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="org.settings_change",
@@ -210,7 +210,7 @@ async def update_healing_config(
         request=request,
     )
 
-    return await get_healing_config(org_id, request, project_id)
+    return await get_healing_config(supabase_org_id, request, project_id)
 
 
 def _config_to_response(config: dict) -> HealingConfigResponse:
@@ -264,12 +264,12 @@ async def list_healing_patterns(
 ):
     """List learned healing patterns."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get projects for this org
-    projects = await supabase.request(f"/projects?organization_id=eq.{org_id}&select=id")
+    projects = await supabase.request(f"/projects?organization_id=eq.{supabase_org_id}&select=id")
     project_ids = [p["id"] for p in projects.get("data", [])]
 
     if not project_ids:
@@ -309,7 +309,7 @@ async def list_healing_patterns(
 async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request):
     """Delete a healing pattern."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -326,7 +326,7 @@ async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request)
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="healing.reject",
@@ -352,7 +352,7 @@ async def get_healing_stats(
 ):
     """Get healing statistics for the organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -362,7 +362,7 @@ async def get_healing_stats(
     month_ago = (now - timedelta(days=30)).isoformat()
 
     # Get projects for this org
-    projects = await supabase.request(f"/projects?organization_id=eq.{org_id}&select=id,name")
+    projects = await supabase.request(f"/projects?organization_id=eq.{supabase_org_id}&select=id,name")
     project_data = {p["id"]: p["name"] for p in projects.get("data", [])}
     project_ids = list(project_data.keys())
 
@@ -456,7 +456,7 @@ async def get_pending_approvals(
 ):
     """Get healing suggestions pending approval."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, _ = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     # For now, return empty list - would be populated by actual healing suggestions
     # This would query a healing_suggestions table in production
@@ -471,7 +471,7 @@ async def get_pending_approvals(
 async def approve_healing(org_id: str, pattern_id: str, request: Request):
     """Approve a healing suggestion."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -487,7 +487,7 @@ async def approve_healing(org_id: str, pattern_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="healing.apply",
@@ -504,7 +504,7 @@ async def approve_healing(org_id: str, pattern_id: str, request: Request):
 async def reject_healing(org_id: str, pattern_id: str, request: Request):
     """Reject a healing suggestion."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -520,7 +520,7 @@ async def reject_healing(org_id: str, pattern_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="healing.reject",

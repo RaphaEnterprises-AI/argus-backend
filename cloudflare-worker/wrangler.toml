@@ -105,14 +105,17 @@ DEFAULT_BACKEND = "vultr"  # "vultr", "cloudflare", "testingbot", "auto"
 
 # Vultr VKE Browser Pool (Legacy - Custom implementation)
 # Deployed via: ./browser-pool/deploy-vultr.sh
+# SECURITY: Should use HTTPS in production. Configure TLS termination on ingress.
 # Note: Using nip.io domain because Cloudflare Workers can't fetch raw IPs
-BROWSER_POOL_URL = "http://65.20.72.251.nip.io"
+# TODO: Set up proper domain with TLS certificate (e.g., browser-pool.heyargus.ai)
+BROWSER_POOL_URL = "https://browser-pool.heyargus.ai"
 
 # Selenium Grid 4 (Primary - Vultr VKE cluster)
 # Production-grade browser automation with KEDA autoscaling
 # W3C WebDriver protocol, same cluster as browser pool for low latency
-# Note: Using nip.io domain because Cloudflare Workers can't fetch raw IPs
-SELENIUM_GRID_URL = "http://65.20.71.218.nip.io:4444"
+# SECURITY: Should use HTTPS in production. Configure TLS termination on ingress.
+# TODO: Set up proper domain with TLS certificate (e.g., selenium.heyargus.ai)
+SELENIUM_GRID_URL = "https://selenium.heyargus.ai"
 
 # Module aliasing for Playwright compatibility
 [alias]

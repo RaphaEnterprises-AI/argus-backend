@@ -253,14 +253,21 @@ async def verify_org_access(
     required_roles: list[str] = None,
     user_email: str = None,
     request: "Request" = None
-) -> dict:
+) -> tuple[dict, str]:
     """Verify user has access to the organization with required role.
 
     Checks membership by user_id first, then falls back to email.
     For API key authentication, trusts the API key's organization_id claim.
 
     For Clerk organizations (org_xxx format), auto-syncs to Supabase if needed.
+
+    Returns:
+        tuple[dict, str]: A tuple of (member_record, translated_org_id) where
+        translated_org_id is the Supabase UUID (translated from Clerk org ID if needed).
     """
+    # Store original for reference
+    original_org_id = organization_id
+
     # Handle API key authentication - trust the API key's organization_id
     if request and hasattr(request.state, "user") and request.state.user:
         user = request.state.user
@@ -272,13 +279,15 @@ async def verify_org_access(
         if auth_method and str(auth_method) == "api_key":
             if user_org_id == organization_id:
                 # Return synthetic member record for API key access
+                # Translate org ID for API key auth as well
+                translated_org_id = await translate_clerk_org_id(organization_id, user_id, user_email) if is_clerk_org_id(organization_id) else organization_id
                 return {
                     "user_id": user_id,
-                    "organization_id": organization_id,
+                    "organization_id": translated_org_id,
                     "role": "admin",  # API keys get admin role by default
                     "status": "active",
                     "auth_method": "api_key"
-                }
+                }, translated_org_id
             else:
                 raise HTTPException(
                     status_code=403,
@@ -324,7 +333,8 @@ async def verify_org_access(
             detail=f"Requires {' or '.join(required_roles)} role"
         )
 
-    return member
+    # Return both member record and the translated organization ID
+    return member, organization_id
 
 
 async def log_audit(
@@ -502,11 +512,11 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
-    org = await supabase.request(f"/organizations?id=eq.{org_id}&select=*")
+    org = await supabase.request(f"/organizations?id=eq.{supabase_org_id}&select=*")
 
     if org.get("error") or not org.get("data"):
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -515,7 +525,7 @@ async def get_organization(org_id: str, request: Request):
 
     # Get member count
     members = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&status=eq.active&select=id"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&status=eq.active&select=id"
     )
 
     return OrganizationResponse(
@@ -537,7 +547,7 @@ async def get_organization(org_id: str, request: Request):
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -552,25 +562,25 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
     if body.settings is not None:
         update_data["settings"] = body.settings
 
-    result = await supabase.update("organizations", {"id": f"eq.{org_id}"}, update_data)
+    result = await supabase.update("organizations", {"id": f"eq.{supabase_org_id}"}, update_data)
 
     if result.get("error"):
         raise HTTPException(status_code=500, detail="Failed to update organization")
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="org.update",
         resource_type="organization",
-        resource_id=org_id,
+        resource_id=supabase_org_id,
         description="Updated organization settings",
         metadata={"changes": update_data},
         request=request,
     )
 
-    return await get_organization(org_id, request)
+    return await get_organization(supabase_org_id, request)
 
 
 # ============================================================================
@@ -581,12 +591,12 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
 async def list_members(org_id: str, request: Request):
     """List all members of an organization."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     members = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&select=*&order=created_at.asc"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&select=*&order=created_at.asc"
     )
 
     if members.get("error"):
@@ -611,13 +621,13 @@ async def list_members(org_id: str, request: Request):
 async def invite_member(org_id: str, body: InviteMemberRequest, request: Request):
     """Invite a new member to the organization (admin/owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Check if already a member
     existing = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&email=eq.{body.email}&select=id,status"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&email=eq.{body.email}&select=id,status"
     )
 
     if existing.get("data"):
@@ -629,13 +639,13 @@ async def invite_member(org_id: str, body: InviteMemberRequest, request: Request
 
     # Get inviter's member record
     inviter = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&user_id=eq.{user['user_id']}&select=id"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&user_id=eq.{user['user_id']}&select=id"
     )
     inviter_id = inviter["data"][0]["id"] if inviter.get("data") else None
 
     # Create pending membership
     member_result = await supabase.insert("organization_members", {
-        "organization_id": org_id,
+        "organization_id": supabase_org_id,
         "user_id": f"pending_{secrets.token_hex(8)}",  # Placeholder until they accept
         "email": body.email,
         "role": body.role,
@@ -653,7 +663,7 @@ async def invite_member(org_id: str, body: InviteMemberRequest, request: Request
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="member.invite",
@@ -664,7 +674,7 @@ async def invite_member(org_id: str, body: InviteMemberRequest, request: Request
         request=request,
     )
 
-    logger.info("Member invited", org_id=org_id, email=body.email, role=body.role)
+    logger.info("Member invited", org_id=supabase_org_id, email=body.email, role=body.role)
 
     return MemberResponse(
         id=member["id"],
@@ -687,13 +697,13 @@ async def update_member_role(
 ):
     """Update a member's role (owner only)."""
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get target member
     member = await supabase.request(
-        f"/organization_members?id=eq.{member_id}&organization_id=eq.{org_id}&select=*"
+        f"/organization_members?id=eq.{member_id}&organization_id=eq.{supabase_org_id}&select=*"
     )
 
     if not member.get("data"):
@@ -716,7 +726,7 @@ async def update_member_role(
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="member.role_change",
@@ -727,7 +737,7 @@ async def update_member_role(
         request=request,
     )
 
-    logger.info("Member role updated", org_id=org_id, member_id=member_id, new_role=body.role)
+    logger.info("Member role updated", org_id=supabase_org_id, member_id=member_id, new_role=body.role)
 
     return {"success": True, "message": f"Role updated to {body.role}"}
 
@@ -736,13 +746,13 @@ async def update_member_role(
 async def remove_member(org_id: str, member_id: str, request: Request):
     """Remove a member from the organization (admin/owner only)."""
     user = await get_current_user(request)
-    current_member = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    current_member, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get target member
     member = await supabase.request(
-        f"/organization_members?id=eq.{member_id}&organization_id=eq.{org_id}&select=*"
+        f"/organization_members?id=eq.{member_id}&organization_id=eq.{supabase_org_id}&select=*"
     )
 
     if not member.get("data"):
@@ -766,7 +776,7 @@ async def remove_member(org_id: str, member_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user["email"],
         action="member.remove",
@@ -777,6 +787,6 @@ async def remove_member(org_id: str, member_id: str, request: Request):
         request=request,
     )
 
-    logger.info("Member removed", org_id=org_id, member_email=target_member["email"])
+    logger.info("Member removed", org_id=supabase_org_id, member_email=target_member["email"])
 
     return {"success": True, "message": "Member removed"}

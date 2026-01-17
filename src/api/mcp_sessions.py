@@ -208,20 +208,28 @@ class RecordActivityRequest(BaseModel):
 
 
 def format_connection(row: dict) -> MCPConnectionResponse:
-    """Format a database row into a connection response."""
+    """Format a database row into a connection response.
+
+    Handles null values safely to prevent KeyError exceptions.
+    """
+    if not row:
+        raise ValueError("Cannot format empty row")
+
     now = datetime.now(timezone.utc)
     last_activity = None
-    if row.get("last_activity_at"):
+    last_activity_str = row.get("last_activity_at")
+    if last_activity_str:
         try:
-            last_activity = datetime.fromisoformat(row["last_activity_at"].replace("Z", "+00:00"))
-        except:
+            last_activity = datetime.fromisoformat(str(last_activity_str).replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
             pass
 
     connected_at = None
-    if row.get("connected_at"):
+    connected_at_str = row.get("connected_at")
+    if connected_at_str:
         try:
-            connected_at = datetime.fromisoformat(row["connected_at"].replace("Z", "+00:00"))
-        except:
+            connected_at = datetime.fromisoformat(str(connected_at_str).replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
             pass
 
     seconds_since = None
@@ -232,22 +240,31 @@ def format_connection(row: dict) -> MCPConnectionResponse:
     if connected_at:
         duration_hours = (now - connected_at).total_seconds() / 3600
 
+    # Handle required fields with safe defaults
+    row_id = row.get("id")
+    if row_id is None:
+        raise ValueError("Connection row missing required 'id' field")
+
+    user_id = row.get("user_id")
+    if user_id is None:
+        raise ValueError("Connection row missing required 'user_id' field")
+
     return MCPConnectionResponse(
-        id=str(row["id"]),
-        user_id=row["user_id"],
+        id=str(row_id),
+        user_id=str(user_id),
         organization_id=str(row["organization_id"]) if row.get("organization_id") else None,
-        client_id=row.get("client_id", "argus-mcp"),
+        client_id=row.get("client_id") or "argus-mcp",
         client_name=row.get("client_name"),
-        client_type=row.get("client_type", "mcp"),
+        client_type=row.get("client_type") or "mcp",
         session_id=row.get("session_id"),
         device_name=row.get("device_name"),
         ip_address=str(row["ip_address"]) if row.get("ip_address") else None,
-        scopes=row.get("scopes", ["read", "write"]),
-        status=row.get("status", "active"),
-        last_activity_at=row.get("last_activity_at", ""),
-        request_count=row.get("request_count", 0),
-        tools_used=row.get("tools_used", []) or [],
-        connected_at=row.get("connected_at", ""),
+        scopes=row.get("scopes") or ["read", "write"],
+        status=row.get("status") or "active",
+        last_activity_at=str(last_activity_str) if last_activity_str else "",
+        request_count=row.get("request_count") or 0,
+        tools_used=row.get("tools_used") or [],
+        connected_at=str(connected_at_str) if connected_at_str else "",
         disconnected_at=row.get("disconnected_at"),
         revoked_at=row.get("revoked_at"),
         is_active=row.get("status") == "active",
@@ -284,9 +301,8 @@ async def list_mcp_connections(
     if org_id:
         # INPUT VALIDATION: Validate org_id format
         org_id = validate_org_id(org_id)
-        # Get org connections (requires org access)
-        supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user_id, user_email=user.get("email"), request=request)
+        # Get org connections (requires org access) - verify_org_access handles translation
+        _, supabase_org_id = await verify_org_access(org_id, user_id, user_email=user.get("email"), request=request)
         query += f"&organization_id=eq.{supabase_org_id}"
     else:
         # Get user's own connections
@@ -297,19 +313,30 @@ async def list_mcp_connections(
 
     query += f"&limit={limit}&offset={offset}"
 
-    result = await supabase.request(query)
+    try:
+        result = await supabase.request(query)
 
-    if result.get("error"):
+        if result.get("error"):
+            error_msg = result.get("error", "")
+            # Handle missing table gracefully
+            if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                logger.warning("mcp_connections table not found, returning empty list")
+                return MCPConnectionListResponse(connections=[], total=0, active_count=0)
+            raise HTTPException(status_code=500, detail="Failed to fetch connections")
+
+        connections = [format_connection(row) for row in result.get("data", []) if row]
+        active_count = sum(1 for c in connections if c.is_active)
+
+        return MCPConnectionListResponse(
+            connections=connections,
+            total=len(connections),
+            active_count=active_count,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error listing MCP connections", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch connections")
-
-    connections = [format_connection(row) for row in result.get("data", [])]
-    active_count = sum(1 for c in connections if c.is_active)
-
-    return MCPConnectionListResponse(
-        connections=connections,
-        total=len(connections),
-        active_count=active_count,
-    )
 
 
 @router.get("/connections/{connection_id}", response_model=MCPConnectionResponse)
@@ -324,21 +351,34 @@ async def get_mcp_connection(
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
-    result = await supabase.request(f"/mcp_connections?id=eq.{connection_id}&select=*")
+    try:
+        result = await supabase.request(f"/mcp_connections?id=eq.{connection_id}&select=*")
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Connection not found")
+        if result.get("error"):
+            error_msg = result.get("error", "")
+            if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                raise HTTPException(status_code=404, detail="Connection not found")
+            raise HTTPException(status_code=500, detail="Failed to fetch connection")
 
-    connection = result["data"][0]
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Connection not found")
 
-    # Verify access
-    if connection["user_id"] != user["user_id"]:
-        if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
-        else:
-            raise HTTPException(status_code=403, detail="Access denied")
+        connection = result["data"][0]
 
-    return format_connection(connection)
+        # Verify access - check user_id safely
+        connection_user_id = connection.get("user_id")
+        if connection_user_id != user["user_id"]:
+            if connection.get("organization_id"):
+                _, _ = await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
+            else:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        return format_connection(connection)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error fetching MCP connection", connection_id=connection_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch connection")
 
 
 @router.delete("/connections/{connection_id}")
@@ -358,71 +398,91 @@ async def revoke_mcp_connection(
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
-    # Get the connection first
-    result = await supabase.request(f"/mcp_connections?id=eq.{connection_id}&select=*")
+    try:
+        # Get the connection first
+        result = await supabase.request(f"/mcp_connections?id=eq.{connection_id}&select=*")
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Connection not found")
+        if result.get("error"):
+            error_msg = result.get("error", "")
+            if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                raise HTTPException(status_code=404, detail="Connection not found")
+            raise HTTPException(status_code=500, detail="Failed to fetch connection")
 
-    connection = result["data"][0]
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Connection not found")
 
-    # Verify access
-    if connection["user_id"] != user["user_id"]:
-        if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
-        else:
-            raise HTTPException(status_code=403, detail="Access denied")
+        connection = result["data"][0]
 
-    if connection["status"] != "active":
-        raise HTTPException(status_code=400, detail="Connection is not active")
+        # Verify access - check user_id safely
+        connection_user_id = connection.get("user_id")
+        if connection_user_id != user["user_id"]:
+            if connection.get("organization_id"):
+                _, _ = await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
+            else:
+                raise HTTPException(status_code=403, detail="Access denied")
 
-    # Revoke the connection
-    reason = body.reason if body else "User revoked"
-    update_result = await supabase.update(
-        "mcp_connections",
-        {"id": f"eq.{connection_id}"},
-        {
-            "status": "revoked",
-            "revoked_at": datetime.now(timezone.utc).isoformat(),
-            "revoked_by": user["user_id"],
-            "revoke_reason": reason,
-        },
-    )
+        # Check status safely
+        if connection.get("status") != "active":
+            raise HTTPException(status_code=400, detail="Connection is not active")
 
-    if update_result.get("error"):
-        raise HTTPException(status_code=500, detail="Failed to revoke connection")
-
-    # Log activity
-    await supabase.insert(
-        "mcp_connection_activity",
-        {
-            "connection_id": connection_id,
-            "activity_type": "disconnect",
-            "metadata": {"reason": reason, "revoked_by": user["user_id"]},
-        },
-    )
-
-    # Audit log (skip if no organization - audit logs are org-scoped)
-    if connection.get("organization_id"):
-        await log_audit(
-            organization_id=str(connection["organization_id"]),
-            user_id=user["user_id"],
-            user_email=user.get("email", ""),
-            action="mcp.connection.revoked",
-            resource_type="mcp_connection",
-            resource_id=connection_id,
-            description=f"Revoked MCP connection: {connection.get('client_name', 'Unknown')}",
-            metadata={"reason": reason},
+        # Revoke the connection
+        reason = body.reason if body else "User revoked"
+        update_result = await supabase.update(
+            "mcp_connections",
+            {"id": f"eq.{connection_id}"},
+            {
+                "status": "revoked",
+                "revoked_at": datetime.now(timezone.utc).isoformat(),
+                "revoked_by": user["user_id"],
+                "revoke_reason": reason,
+            },
         )
 
-    logger.info(
-        "MCP connection revoked",
-        connection_id=connection_id,
-        revoked_by=user["user_id"],
-        reason=reason,
-    )
+        if update_result.get("error"):
+            raise HTTPException(status_code=500, detail="Failed to revoke connection")
 
-    return {"status": "revoked", "connection_id": connection_id}
+        # Log activity (non-critical, don't fail if this errors)
+        try:
+            await supabase.insert(
+                "mcp_connection_activity",
+                {
+                    "connection_id": connection_id,
+                    "activity_type": "disconnect",
+                    "metadata": {"reason": reason, "revoked_by": user["user_id"]},
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to log revoke activity", connection_id=connection_id, error=str(e))
+
+        # Audit log (skip if no organization - audit logs are org-scoped)
+        if connection.get("organization_id"):
+            try:
+                await log_audit(
+                    organization_id=str(connection["organization_id"]),
+                    user_id=user["user_id"],
+                    user_email=user.get("email", ""),
+                    action="mcp.connection.revoked",
+                    resource_type="mcp_connection",
+                    resource_id=connection_id,
+                    description=f"Revoked MCP connection: {connection.get('client_name', 'Unknown')}",
+                    metadata={"reason": reason},
+                )
+            except Exception as e:
+                logger.warning("Failed to create audit log", connection_id=connection_id, error=str(e))
+
+        logger.info(
+            "MCP connection revoked",
+            connection_id=connection_id,
+            revoked_by=user["user_id"],
+            reason=reason,
+        )
+
+        return {"status": "revoked", "connection_id": connection_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error revoking MCP connection", connection_id=connection_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to revoke connection")
 
 
 @router.get("/connections/{connection_id}/activity", response_model=MCPActivityListResponse)
@@ -440,52 +500,76 @@ async def get_connection_activity(
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
-    # Verify access to the connection
-    conn_result = await supabase.request(
-        f"/mcp_connections?id=eq.{connection_id}&select=user_id,organization_id"
-    )
-
-    if conn_result.get("error") or not conn_result.get("data"):
-        raise HTTPException(status_code=404, detail="Connection not found")
-
-    connection = conn_result["data"][0]
-    if connection["user_id"] != user["user_id"]:
-        if connection.get("organization_id"):
-            await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
-        else:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-    # Get activity
-    query = (
-        f"/mcp_connection_activity?connection_id=eq.{connection_id}&select=*&order=created_at.desc"
-    )
-
-    if activity_type:
-        query += f"&activity_type=eq.{activity_type.value}"
-
-    query += f"&limit={limit}&offset={offset}"
-
-    result = await supabase.request(query)
-
-    activities = [
-        MCPActivityResponse(
-            id=str(row["id"]),
-            connection_id=str(row["connection_id"]),
-            activity_type=row["activity_type"],
-            tool_name=row.get("tool_name"),
-            request_id=row.get("request_id"),
-            duration_ms=row.get("duration_ms"),
-            success=row.get("success", True),
-            error_message=row.get("error_message"),
-            created_at=row.get("created_at", ""),
+    try:
+        # Verify access to the connection
+        conn_result = await supabase.request(
+            f"/mcp_connections?id=eq.{connection_id}&select=user_id,organization_id"
         )
-        for row in result.get("data", [])
-    ]
 
-    return MCPActivityListResponse(
-        activities=activities,
-        total=len(activities),
-    )
+        if conn_result.get("error"):
+            error_msg = conn_result.get("error", "")
+            if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                raise HTTPException(status_code=404, detail="Connection not found")
+            raise HTTPException(status_code=500, detail="Failed to fetch connection")
+
+        if not conn_result.get("data"):
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        connection = conn_result["data"][0]
+        connection_user_id = connection.get("user_id")
+        if connection_user_id != user["user_id"]:
+            if connection.get("organization_id"):
+                _, _ = await verify_org_access(str(connection["organization_id"]), user["user_id"], user_email=user.get("email"), request=request)
+            else:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get activity
+        query = (
+            f"/mcp_connection_activity?connection_id=eq.{connection_id}&select=*&order=created_at.desc"
+        )
+
+        if activity_type:
+            query += f"&activity_type=eq.{activity_type.value}"
+
+        query += f"&limit={limit}&offset={offset}"
+
+        result = await supabase.request(query)
+
+        # Handle missing activity table gracefully
+        if result.get("error"):
+            error_msg = result.get("error", "")
+            if "mcp_connection_activity" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                logger.warning("mcp_connection_activity table not found, returning empty list")
+                return MCPActivityListResponse(activities=[], total=0)
+            # Log but don't fail for other errors - just return empty list
+            logger.warning("Error fetching MCP activity", error=error_msg)
+            return MCPActivityListResponse(activities=[], total=0)
+
+        activities = [
+            MCPActivityResponse(
+                id=str(row["id"]) if row.get("id") else "",
+                connection_id=str(row["connection_id"]) if row.get("connection_id") else connection_id,
+                activity_type=row.get("activity_type", "unknown"),
+                tool_name=row.get("tool_name"),
+                request_id=row.get("request_id"),
+                duration_ms=row.get("duration_ms"),
+                success=row.get("success", True),
+                error_message=row.get("error_message"),
+                created_at=row.get("created_at", ""),
+            )
+            for row in result.get("data", [])
+            if row
+        ]
+
+        return MCPActivityListResponse(
+            activities=activities,
+            total=len(activities),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error fetching MCP activity", connection_id=connection_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch activity")
 
 
 @router.get("/stats", response_model=MCPStatsResponse)
@@ -504,93 +588,124 @@ async def get_mcp_stats(
 
     # Build base query
     if org_id:
-        supabase_org_id = await translate_clerk_org_id(org_id)
-        await verify_org_access(org_id, user_id, user_email=user.get("email"), request=request)
+        # INPUT VALIDATION: Validate org_id format
+        org_id = validate_org_id(org_id)
+        # verify_org_access handles translation internally
+        _, supabase_org_id = await verify_org_access(org_id, user_id, user_email=user.get("email"), request=request)
         filter_clause = f"organization_id=eq.{supabase_org_id}"
     else:
         filter_clause = f"user_id=eq.{user_id}"
 
-    # Get all connections for this user/org
-    result = await supabase.request(f"/mcp_connections?{filter_clause}&select=*")
+    try:
+        # Get all connections for this user/org
+        result = await supabase.request(f"/mcp_connections?{filter_clause}&select=*")
 
-    connections = result.get("data", [])
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = result.get("error", "")
+            if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                logger.warning("mcp_connections table not found, returning empty stats")
+                return MCPStatsResponse(
+                    active_connections=0,
+                    total_connections=0,
+                    total_requests=0,
+                    unique_users=0,
+                    client_types=[],
+                    last_activity=None,
+                    connections_today=0,
+                    connections_this_week=0,
+                    requests_today=0,
+                    top_tools=[],
+                )
+            logger.warning("Error fetching MCP connections for stats", error=error_msg)
 
-    # Calculate stats
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = today_start - timedelta(days=7)
+        connections = result.get("data", []) or []
 
-    active_connections = sum(1 for c in connections if c.get("status") == "active")
-    total_requests = sum(c.get("request_count", 0) for c in connections)
-    unique_users = len(set(c.get("user_id") for c in connections))
+        # Calculate stats
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
 
-    # Get client types
-    client_types = list(
-        set(
-            c.get("client_name") or c.get("client_type", "mcp")
-            for c in connections
-            if c.get("client_name") or c.get("client_type")
+        active_connections = sum(1 for c in connections if c and c.get("status") == "active")
+        total_requests = sum(c.get("request_count", 0) for c in connections if c)
+        unique_users = len(set(c.get("user_id") for c in connections if c and c.get("user_id")))
+
+        # Get client types
+        client_types = list(
+            set(
+                c.get("client_name") or c.get("client_type", "mcp")
+                for c in connections
+                if c and (c.get("client_name") or c.get("client_type"))
+            )
         )
-    )
 
-    # Last activity
-    last_activity = None
-    for c in connections:
-        if c.get("last_activity_at"):
-            last_activity = c["last_activity_at"]
-            break
+        # Last activity
+        last_activity = None
+        for c in connections:
+            if c and c.get("last_activity_at"):
+                last_activity = c["last_activity_at"]
+                break
 
-    # Connections today/this week
-    connections_today = 0
-    connections_this_week = 0
-    requests_today = 0
+        # Connections today/this week
+        connections_today = 0
+        connections_this_week = 0
+        requests_today = 0
 
-    for c in connections:
-        connected_at = c.get("connected_at")
-        if connected_at:
-            try:
-                conn_time = datetime.fromisoformat(connected_at.replace("Z", "+00:00"))
-                if conn_time >= today_start:
-                    connections_today += 1
-                if conn_time >= week_start:
-                    connections_this_week += 1
-            except:
-                pass
+        for c in connections:
+            if not c:
+                continue
+            connected_at = c.get("connected_at")
+            if connected_at:
+                try:
+                    conn_time = datetime.fromisoformat(connected_at.replace("Z", "+00:00"))
+                    if conn_time >= today_start:
+                        connections_today += 1
+                    if conn_time >= week_start:
+                        connections_this_week += 1
+                except Exception:
+                    pass
 
-        # Estimate requests today (would need activity table for accurate count)
-        last_act = c.get("last_activity_at")
-        if last_act:
-            try:
-                act_time = datetime.fromisoformat(last_act.replace("Z", "+00:00"))
-                if act_time >= today_start and c.get("status") == "active":
-                    # Rough estimate
-                    requests_today += min(c.get("request_count", 0), 100)
-            except:
-                pass
+            # Estimate requests today (would need activity table for accurate count)
+            last_act = c.get("last_activity_at")
+            if last_act:
+                try:
+                    act_time = datetime.fromisoformat(last_act.replace("Z", "+00:00"))
+                    if act_time >= today_start and c.get("status") == "active":
+                        # Rough estimate
+                        requests_today += min(c.get("request_count", 0), 100)
+                except Exception:
+                    pass
 
-    # Aggregate tool usage
-    tool_counts = {}
-    for c in connections:
-        for tool in c.get("tools_used", []) or []:
-            tool_counts[tool] = tool_counts.get(tool, 0) + 1
+        # Aggregate tool usage
+        tool_counts = {}
+        for c in connections:
+            if not c:
+                continue
+            for tool in c.get("tools_used", []) or []:
+                tool_counts[tool] = tool_counts.get(tool, 0) + 1
 
-    top_tools = [
-        {"tool": tool, "count": count}
-        for tool, count in sorted(tool_counts.items(), key=lambda x: -x[1])[:10]
-    ]
+        top_tools = [
+            {"tool": tool, "count": count}
+            for tool, count in sorted(tool_counts.items(), key=lambda x: -x[1])[:10]
+        ]
 
-    return MCPStatsResponse(
-        active_connections=active_connections,
-        total_connections=len(connections),
-        total_requests=total_requests,
-        unique_users=unique_users,
-        client_types=client_types,
-        last_activity=last_activity,
-        connections_today=connections_today,
-        connections_this_week=connections_this_week,
-        requests_today=requests_today,
-        top_tools=top_tools,
-    )
+        return MCPStatsResponse(
+            active_connections=active_connections,
+            total_connections=len(connections),
+            total_requests=total_requests,
+            unique_users=unique_users,
+            client_types=client_types,
+            last_activity=last_activity,
+            connections_today=connections_today,
+            connections_this_week=connections_this_week,
+            requests_today=requests_today,
+            top_tools=top_tools,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error fetching MCP stats", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch statistics")
 
 
 # ============================================================================
@@ -610,73 +725,92 @@ async def register_mcp_connection(
     """
     user = await get_current_user(request)
     supabase = get_supabase_client()
+    connection_id = None
 
-    # Check for existing connection with same session
-    existing = await supabase.request(
-        f"/mcp_connections?session_id=eq.{body.session_id}&status=eq.active&select=id"
-    )
-
-    if existing.get("data"):
-        # Update existing connection
-        connection_id = existing["data"][0]["id"]
-        await supabase.update(
-            "mcp_connections",
-            {"id": f"eq.{connection_id}"},
-            {
-                "last_activity_at": datetime.now(timezone.utc).isoformat(),
-                "ip_address": body.ip_address,
-                "user_agent": body.user_agent,
-            },
-        )
-    else:
-        # Get organization ID for user
-        org_id = None
-        if user.get("organization_id"):
-            org_id = user.get("organization_id")
-
-        # Create new connection
-        result = await supabase.insert(
-            "mcp_connections",
-            {
-                "user_id": user["user_id"],
-                "organization_id": org_id,
-                "session_id": body.session_id,
-                "client_id": body.client_id,
-                "client_name": body.client_name,
-                "client_type": body.client_type,
-                "device_name": body.device_name,
-                "ip_address": body.ip_address,
-                "user_agent": body.user_agent,
-                "scopes": body.scopes,
-            },
+    try:
+        # Check for existing connection with same session
+        existing = await supabase.request(
+            f"/mcp_connections?session_id=eq.{body.session_id}&status=eq.active&select=id"
         )
 
-        if result.get("error"):
-            raise HTTPException(status_code=500, detail="Failed to register connection")
+        if existing.get("data") and len(existing["data"]) > 0:
+            # Update existing connection
+            connection_id = existing["data"][0].get("id")
+            if connection_id:
+                await supabase.update(
+                    "mcp_connections",
+                    {"id": f"eq.{connection_id}"},
+                    {
+                        "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                        "ip_address": body.ip_address,
+                        "user_agent": body.user_agent,
+                    },
+                )
+        else:
+            # Get organization ID for user
+            org_id = None
+            if user.get("organization_id"):
+                org_id = user.get("organization_id")
 
-        connection_id = result["data"][0]["id"]
-
-        # Log connect activity
-        await supabase.insert(
-            "mcp_connection_activity",
-            {
-                "connection_id": connection_id,
-                "activity_type": "connect",
-                "metadata": {
+            # Create new connection
+            result = await supabase.insert(
+                "mcp_connections",
+                {
+                    "user_id": user["user_id"],
+                    "organization_id": org_id,
+                    "session_id": body.session_id,
+                    "client_id": body.client_id,
                     "client_name": body.client_name,
                     "client_type": body.client_type,
+                    "device_name": body.device_name,
+                    "ip_address": body.ip_address,
+                    "user_agent": body.user_agent,
+                    "scopes": body.scopes,
                 },
-            },
+            )
+
+            if result.get("error"):
+                error_msg = result.get("error", "")
+                # Handle missing table gracefully
+                if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                    logger.warning("mcp_connections table not found, skipping registration")
+                    return {"status": "skipped", "connection_id": None, "reason": "table_not_found"}
+                raise HTTPException(status_code=500, detail="Failed to register connection")
+
+            if not result.get("data") or len(result["data"]) == 0:
+                raise HTTPException(status_code=500, detail="Failed to register connection - no data returned")
+
+            connection_id = result["data"][0].get("id")
+
+            # Log connect activity (non-critical, don't fail if this errors)
+            try:
+                await supabase.insert(
+                    "mcp_connection_activity",
+                    {
+                        "connection_id": connection_id,
+                        "activity_type": "connect",
+                        "metadata": {
+                            "client_name": body.client_name,
+                            "client_type": body.client_type,
+                        },
+                    },
+                )
+            except Exception as e:
+                logger.warning("Failed to log connect activity", connection_id=connection_id, error=str(e))
+
+        logger.info(
+            "MCP connection registered",
+            session_id=body.session_id,
+            user_id=user["user_id"],
+            client_name=body.client_name,
         )
 
-    logger.info(
-        "MCP connection registered",
-        session_id=body.session_id,
-        user_id=user["user_id"],
-        client_name=body.client_name,
-    )
-
-    return {"status": "registered", "connection_id": connection_id}
+        return {"status": "registered", "connection_id": connection_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error registering MCP connection", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to register connection")
 
 
 @router.post("/connections/activity", include_in_schema=False)
@@ -688,42 +822,68 @@ async def record_mcp_activity(
 
     Called by the MCP server after each tool invocation.
     """
+    # INPUT VALIDATION: Validate connection_id format
+    connection_id = validate_uuid(body.connection_id, "connection_id")
+
     user = await get_current_user(request)
     user_id = user["user_id"]
     supabase = get_supabase_client()
 
-    # Verify connection belongs to user
-    conn_result = await supabase.request(
-        f"/mcp_connections?id=eq.{body.connection_id}&user_id=eq.{user_id}&select=id"
-    )
+    try:
+        # Verify connection belongs to user
+        conn_result = await supabase.request(
+            f"/mcp_connections?id=eq.{connection_id}&user_id=eq.{user_id}&select=id"
+        )
 
-    if not conn_result.get("data"):
-        raise HTTPException(status_code=404, detail="Connection not found")
+        if conn_result.get("error"):
+            error_msg = conn_result.get("error", "")
+            # Handle missing table gracefully
+            if "mcp_connections" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                logger.warning("mcp_connections table not found, skipping activity recording")
+                return {"status": "skipped", "reason": "table_not_found"}
+            raise HTTPException(status_code=500, detail="Failed to verify connection")
 
-    # Build activity metadata with new fields
-    activity_metadata = body.metadata or {}
-    if body.screenshot_key:
-        activity_metadata["screenshot_key"] = body.screenshot_key
-    if body.input_tokens is not None:
-        activity_metadata["input_tokens"] = body.input_tokens
-    if body.output_tokens is not None:
-        activity_metadata["output_tokens"] = body.output_tokens
+        if not conn_result.get("data"):
+            raise HTTPException(status_code=404, detail="Connection not found")
 
-    # Update connection stats
-    await supabase.rpc(
-        "record_mcp_tool_usage",
-        {
-            "p_connection_id": body.connection_id,
-            "p_tool_name": body.tool_name,
-            "p_request_id": body.request_id,
-            "p_duration_ms": body.duration_ms,
-            "p_success": body.success,
-            "p_error_message": body.error_message,
-            "p_metadata": activity_metadata if activity_metadata else None,
-        },
-    )
+        # Build activity metadata with new fields
+        activity_metadata = body.metadata or {}
+        if body.screenshot_key:
+            activity_metadata["screenshot_key"] = body.screenshot_key
+        if body.input_tokens is not None:
+            activity_metadata["input_tokens"] = body.input_tokens
+        if body.output_tokens is not None:
+            activity_metadata["output_tokens"] = body.output_tokens
 
-    return {"status": "recorded"}
+        # Update connection stats via RPC
+        rpc_result = await supabase.rpc(
+            "record_mcp_tool_usage",
+            {
+                "p_connection_id": connection_id,
+                "p_tool_name": body.tool_name,
+                "p_request_id": body.request_id,
+                "p_duration_ms": body.duration_ms,
+                "p_success": body.success,
+                "p_error_message": body.error_message,
+                "p_metadata": activity_metadata if activity_metadata else None,
+            },
+        )
+
+        # Handle RPC errors gracefully (function might not exist)
+        if rpc_result.get("error"):
+            error_msg = rpc_result.get("error", "")
+            if "record_mcp_tool_usage" in str(error_msg) and ("does not exist" in str(error_msg) or "function" in str(error_msg).lower()):
+                logger.warning("record_mcp_tool_usage function not found, skipping activity recording")
+                return {"status": "skipped", "reason": "function_not_found"}
+            logger.warning("Error calling record_mcp_tool_usage RPC", error=error_msg)
+            # Don't fail the request, just log the warning
+
+        return {"status": "recorded"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error recording MCP activity", connection_id=connection_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to record activity")
 
 
 # ============================================================================
@@ -743,11 +903,24 @@ async def get_pending_auth_sessions(
     user_id = user["user_id"]
     supabase = get_supabase_client()
 
-    result = await supabase.request(
-        f"/device_auth_sessions?user_id=eq.{user_id}&status=eq.pending&select=*&order=created_at.desc"
-    )
+    try:
+        result = await supabase.request(
+            f"/device_auth_sessions?user_id=eq.{user_id}&status=eq.pending&select=*&order=created_at.desc"
+        )
 
-    return {
-        "sessions": result.get("data", []),
-        "count": len(result.get("data", [])),
-    }
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = result.get("error", "")
+            if "device_auth_sessions" in str(error_msg) and ("does not exist" in str(error_msg) or "relation" in str(error_msg)):
+                logger.warning("device_auth_sessions table not found, returning empty list")
+                return {"sessions": [], "count": 0}
+            logger.warning("Error fetching pending auth sessions", error=error_msg)
+
+        sessions = result.get("data", []) or []
+        return {
+            "sessions": sessions,
+            "count": len(sessions),
+        }
+    except Exception as e:
+        logger.exception("Error fetching pending auth sessions", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch pending sessions")

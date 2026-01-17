@@ -99,13 +99,13 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
     The invitation email should be sent separately (e.g., via email service).
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Check if email is already a member
     existing_member = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&email=eq.{body.email}&status=eq.active&select=id"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&email=eq.{body.email}&status=eq.active&select=id"
     )
 
     if existing_member.get("data"):
@@ -113,7 +113,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
 
     # Check if there's already a pending invitation for this email
     existing_invitation = await supabase.request(
-        f"/invitations?organization_id=eq.{org_id}&email=eq.{body.email}&status=eq.pending&select=id"
+        f"/invitations?organization_id=eq.{supabase_org_id}&email=eq.{body.email}&status=eq.pending&select=id"
     )
 
     if existing_invitation.get("data"):
@@ -121,7 +121,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
 
     # Get inviter's member record for invited_by reference
     inviter_member = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&user_id=eq.{user['user_id']}&select=id"
+        f"/organization_members?organization_id=eq.{supabase_org_id}&user_id=eq.{user['user_id']}&select=id"
     )
     inviter_id = inviter_member["data"][0]["id"] if inviter_member.get("data") else None
 
@@ -131,7 +131,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
 
     # Create invitation
     invitation_result = await supabase.insert("invitations", {
-        "organization_id": org_id,
+        "organization_id": supabase_org_id,
         "email": body.email,
         "role": body.role,
         "token": token,
@@ -148,7 +148,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
     invitation = invitation_result["data"][0]
 
     # Get organization name for the email
-    org_result = await supabase.request(f"/organizations?id=eq.{org_id}&select=name")
+    org_result = await supabase.request(f"/organizations?id=eq.{supabase_org_id}&select=name")
     org_name = org_result["data"][0]["name"] if org_result.get("data") else "the organization"
 
     # Send invitation email
@@ -167,7 +167,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="invitation.send",
@@ -178,7 +178,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
         request=request,
     )
 
-    logger.info("Invitation sent", org_id=org_id, email=body.email, role=body.role, email_sent=email_sent)
+    logger.info("Invitation sent", org_id=supabase_org_id, email=body.email, role=body.role, email_sent=email_sent)
 
     return InvitationResponse(
         id=invitation["id"],
@@ -200,7 +200,7 @@ async def list_pending_invitations(org_id: str, request: Request):
     Returns invitations with status 'pending' that haven't expired.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
@@ -208,7 +208,7 @@ async def list_pending_invitations(org_id: str, request: Request):
     # Use 'Z' suffix instead of '+00:00' to avoid URL encoding issues with '+'
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     invitations_result = await supabase.request(
-        f"/invitations?organization_id=eq.{org_id}&status=eq.pending"
+        f"/invitations?organization_id=eq.{supabase_org_id}&status=eq.pending"
         f"&token_expires_at=gt.{now}&select=*&order=created_at.desc"
     )
 
@@ -243,13 +243,13 @@ async def revoke_invitation(org_id: str, invite_id: str, request: Request):
     Sets the invitation status to 'revoked', preventing it from being accepted.
     """
     user = await get_current_user(request)
-    await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
+    _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
     supabase = get_supabase_client()
 
     # Get the invitation
     invitation_result = await supabase.request(
-        f"/invitations?id=eq.{invite_id}&organization_id=eq.{org_id}&select=*"
+        f"/invitations?id=eq.{invite_id}&organization_id=eq.{supabase_org_id}&select=*"
     )
 
     if not invitation_result.get("data"):
@@ -275,7 +275,7 @@ async def revoke_invitation(org_id: str, invite_id: str, request: Request):
 
     # Audit log
     await log_audit(
-        organization_id=org_id,
+        organization_id=supabase_org_id,
         user_id=user["user_id"],
         user_email=user.get("email"),
         action="invitation.revoke",
@@ -286,7 +286,7 @@ async def revoke_invitation(org_id: str, invite_id: str, request: Request):
         request=request,
     )
 
-    logger.info("Invitation revoked", org_id=org_id, invite_id=invite_id, email=invitation["email"])
+    logger.info("Invitation revoked", org_id=supabase_org_id, invite_id=invite_id, email=invitation["email"])
 
     return {"success": True, "message": "Invitation revoked successfully"}
 

@@ -546,165 +546,197 @@ async def compare_snapshots(request: CompareRequest):
     supabase = get_supabase_client()
     comparison_id = _generate_comparison_id()
 
-    # Get baseline snapshot
-    baseline_result = await supabase.select(
-        "visual_snapshots",
-        filters={"id": f"eq.{request.baseline_id}"}
-    )
-
-    if baseline_result.get("error") or not baseline_result.get("data"):
-        # Try to find in visual_baselines table
+    try:
+        # Get baseline snapshot
         baseline_result = await supabase.select(
-            "visual_baselines",
+            "visual_snapshots",
             filters={"id": f"eq.{request.baseline_id}"}
         )
 
-        if baseline_result.get("error") or not baseline_result.get("data"):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Baseline not found: {request.baseline_id}"
+        # Handle missing table gracefully
+        if baseline_result.get("error"):
+            error_msg = str(baseline_result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_snapshots table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+
+        if not baseline_result.get("data"):
+            # Try to find in visual_baselines table
+            baseline_result = await supabase.select(
+                "visual_baselines",
+                filters={"id": f"eq.{request.baseline_id}"}
             )
 
-    baseline = baseline_result["data"][0]
+            # Handle missing table gracefully
+            if baseline_result.get("error"):
+                error_msg = str(baseline_result.get("error", ""))
+                if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                    logger.warning("visual_baselines table not found")
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                    )
 
-    # Capture current screenshot
-    viewport = request.viewport or ViewportConfig(
-        width=baseline.get("viewport_width", 1440),
-        height=baseline.get("viewport_height", 900)
-    )
+            if not baseline_result.get("data"):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Baseline not found: {request.baseline_id}"
+                )
 
-    current_id = _generate_snapshot_id()
+        baseline = baseline_result["data"][0]
 
-    try:
-        screenshot_bytes, metadata = await _capture_screenshot(
-            url=request.current_url,
-            viewport=viewport,
-            browser=request.browser,
+        # Capture current screenshot
+        viewport = request.viewport or ViewportConfig(
+            width=baseline.get("viewport_width", 1440),
+            height=baseline.get("viewport_height", 900)
         )
 
-        current_screenshot_url = await _store_screenshot(
-            screenshot_bytes,
-            current_id
-        )
+        current_id = _generate_snapshot_id()
 
-        await _save_snapshot_to_db(
-            snapshot_id=current_id,
-            url=request.current_url,
-            screenshot_path=current_screenshot_url,
-            viewport={"width": viewport.width, "height": viewport.height},
-            browser=request.browser,
-            metadata=metadata,
-        )
+        try:
+            screenshot_bytes, metadata = await _capture_screenshot(
+                url=request.current_url,
+                viewport=viewport,
+                browser=request.browser,
+            )
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to capture current screenshot: {str(e)}"
-        )
+            current_screenshot_url = await _store_screenshot(
+                screenshot_bytes,
+                current_id
+            )
 
-    # Perform visual comparison using VisualAI
-    visual_ai = VisualAI(sensitivity=request.sensitivity)
+            await _save_snapshot_to_db(
+                snapshot_id=current_id,
+                url=request.current_url,
+                screenshot_path=current_screenshot_url,
+                viewport={"width": viewport.width, "height": viewport.height},
+                browser=request.browser,
+                metadata=metadata,
+            )
 
-    # Get paths to screenshots
-    settings = get_settings()
-    screenshots_dir = Path(settings.output_dir) / "screenshots"
-    baseline_path = screenshots_dir / f"{request.baseline_id}.png"
-    current_path = screenshots_dir / f"{current_id}.png"
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to capture current screenshot: {str(e)}"
+            )
 
-    # Check if baseline file exists, if not try to reconstruct from stored data
-    if not baseline_path.exists():
-        # For now, return an error - in production would fetch from storage
-        raise HTTPException(
-            status_code=404,
-            detail="Baseline screenshot file not found"
-        )
+        # Perform visual comparison using VisualAI
+        visual_ai = VisualAI(sensitivity=request.sensitivity)
 
-    # Build context for AI
-    context_parts = []
-    if request.context:
-        context_parts.append(f"Page context: {request.context}")
-    if request.pr_description:
-        context_parts.append(f"PR description: {request.pr_description}")
-    if request.git_diff:
-        context_parts.append(f"Recent code changes:\n{request.git_diff[:1000]}")
+        # Get paths to screenshots
+        settings = get_settings()
+        screenshots_dir = Path(settings.output_dir) / "screenshots"
+        baseline_path = screenshots_dir / f"{request.baseline_id}.png"
+        current_path = screenshots_dir / f"{current_id}.png"
 
-    context = "\n\n".join(context_parts) if context_parts else None
+        # Check if baseline file exists, if not try to reconstruct from stored data
+        if not baseline_path.exists():
+            # For now, return an error - in production would fetch from storage
+            raise HTTPException(
+                status_code=404,
+                detail="Baseline screenshot file not found"
+            )
 
-    # Compare screenshots
-    try:
-        result = await visual_ai.compare(
-            baseline=baseline_path,
-            current=current_path,
-            context=context,
-            ignore_regions=request.ignore_regions,
-        )
-    except Exception as e:
-        logger.exception("Visual comparison failed", error=str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Comparison failed: {str(e)}"
-        )
+        # Build context for AI
+        context_parts = []
+        if request.context:
+            context_parts.append(f"Page context: {request.context}")
+        if request.pr_description:
+            context_parts.append(f"PR description: {request.pr_description}")
+        if request.git_diff:
+            context_parts.append(f"Recent code changes:\n{request.git_diff[:1000]}")
 
-    # Convert differences to serializable format
-    differences = [
-        {
-            "id": f"diff_{i}",
-            "type": d.type.value,
-            "severity": d.severity.value,
-            "description": d.description,
-            "location": d.location,
-            "element": d.element,
-            "expected": d.expected,
-            "actual": d.actual,
-            "is_regression": d.is_regression,
+        context = "\n\n".join(context_parts) if context_parts else None
+
+        # Compare screenshots
+        try:
+            result = await visual_ai.compare(
+                baseline=baseline_path,
+                current=current_path,
+                context=context,
+                ignore_regions=request.ignore_regions,
+            )
+        except Exception as e:
+            logger.exception("Visual comparison failed", error=str(e))
+            raise HTTPException(
+                status_code=500,
+                detail=f"Comparison failed: {str(e)}"
+            )
+
+        # Convert differences to serializable format
+        differences = [
+            {
+                "id": f"diff_{i}",
+                "type": d.type.value,
+                "severity": d.severity.value,
+                "description": d.description,
+                "location": d.location,
+                "element": d.element,
+                "expected": d.expected,
+                "actual": d.actual,
+                "is_regression": d.is_regression,
+            }
+            for i, d in enumerate(result.differences)
+        ]
+
+        # Store comparison result
+        comparison_record = {
+            "id": comparison_id,
+            "baseline_id": request.baseline_id,
+            "current_snapshot_id": current_id,
+            "match": result.match,
+            "match_percentage": result.match_percentage,
+            "has_regressions": result.has_regressions(),
+            "differences": differences,
+            "summary": result.summary,
+            "cost_usd": result.analysis_cost_usd,
+            "context": context,
+            "status": "pending_review" if result.has_regressions() else "passed",
+            "compared_at": datetime.now(timezone.utc).isoformat(),
         }
-        for i, d in enumerate(result.differences)
-    ]
 
-    # Store comparison result
-    comparison_record = {
-        "id": comparison_id,
-        "baseline_id": request.baseline_id,
-        "current_snapshot_id": current_id,
-        "match": result.match,
-        "match_percentage": result.match_percentage,
-        "has_regressions": result.has_regressions(),
-        "differences": differences,
-        "summary": result.summary,
-        "cost_usd": result.analysis_cost_usd,
-        "context": context,
-        "status": "pending_review" if result.has_regressions() else "passed",
-        "compared_at": datetime.now(timezone.utc).isoformat(),
-    }
+        await supabase.insert("visual_comparisons", comparison_record)
 
-    await supabase.insert("visual_comparisons", comparison_record)
+        logger.info(
+            "Visual comparison completed",
+            comparison_id=comparison_id,
+            match=result.match,
+            match_percentage=result.match_percentage,
+            differences=len(differences),
+            has_regressions=result.has_regressions(),
+        )
 
-    logger.info(
-        "Visual comparison completed",
-        comparison_id=comparison_id,
-        match=result.match,
-        match_percentage=result.match_percentage,
-        differences=len(differences),
-        has_regressions=result.has_regressions(),
-    )
+        return ComparisonResponse(
+            id=comparison_id,
+            baseline_id=request.baseline_id,
+            current_id=current_id,
+            match=result.match,
+            match_percentage=result.match_percentage,
+            has_regressions=result.has_regressions(),
+            differences=differences,
+            summary=result.summary,
+            ai_analysis={
+                "model": visual_ai.model,
+                "sensitivity": request.sensitivity,
+                "context_provided": bool(context),
+            },
+            cost_usd=result.analysis_cost_usd,
+            compared_at=result.timestamp,
+        )
 
-    return ComparisonResponse(
-        id=comparison_id,
-        baseline_id=request.baseline_id,
-        current_id=current_id,
-        match=result.match,
-        match_percentage=result.match_percentage,
-        has_regressions=result.has_regressions(),
-        differences=differences,
-        summary=result.summary,
-        ai_analysis={
-            "model": visual_ai.model,
-            "sensitivity": request.sensitivity,
-            "context_provided": bool(context),
-        },
-        cost_usd=result.analysis_cost_usd,
-        compared_at=result.timestamp,
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Visual comparison endpoint failed", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Visual comparison failed: {str(e)}"
+        )
 
 
 @router.post("/responsive/compare")
@@ -1164,15 +1196,34 @@ async def get_baseline(baseline_id: str):
     """Get baseline details."""
     supabase = get_supabase_client()
 
-    result = await supabase.select(
-        "visual_baselines",
-        filters={"id": f"eq.{baseline_id}"}
-    )
+    try:
+        result = await supabase.select(
+            "visual_baselines",
+            filters={"id": f"eq.{baseline_id}"}
+        )
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Baseline not found")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_baselines table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch baseline", error=result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch baseline")
 
-    return {"baseline": result["data"][0]}
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Baseline not found")
+
+        return {"baseline": result["data"][0]}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get baseline", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get baseline: {str(e)}")
 
 
 @router.get("/baselines/{baseline_id}/history")
@@ -1187,30 +1238,49 @@ async def get_baseline_history(
     """
     supabase = get_supabase_client()
 
-    # Get baseline
-    baseline_result = await supabase.select(
-        "visual_baselines",
-        filters={"id": f"eq.{baseline_id}"}
-    )
+    try:
+        # Get baseline
+        baseline_result = await supabase.select(
+            "visual_baselines",
+            filters={"id": f"eq.{baseline_id}"}
+        )
 
-    if baseline_result.get("error") or not baseline_result.get("data"):
-        raise HTTPException(status_code=404, detail="Baseline not found")
+        # Handle missing table gracefully
+        if baseline_result.get("error"):
+            error_msg = str(baseline_result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_baselines table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch baseline", error=baseline_result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch baseline")
 
-    baseline = baseline_result["data"][0]
+        if not baseline_result.get("data"):
+            raise HTTPException(status_code=404, detail="Baseline not found")
 
-    # Get history
-    history_result = await supabase.request(
-        f"/visual_baseline_history?baseline_id=eq.{baseline_id}"
-        f"&order=version.desc&limit={limit}"
-    )
+        baseline = baseline_result["data"][0]
 
-    history = history_result.get("data", []) if not history_result.get("error") else []
+        # Get history
+        history_result = await supabase.request(
+            f"/visual_baseline_history?baseline_id=eq.{baseline_id}"
+            f"&order=version.desc&limit={limit}"
+        )
 
-    return {
-        "baseline": baseline,
-        "history": history,
-        "total_versions": len(history),
-    }
+        history = history_result.get("data") or [] if not history_result.get("error") else []
+
+        return {
+            "baseline": baseline,
+            "history": history,
+            "total_versions": len(history),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get baseline history", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get baseline history: {str(e)}")
 
 
 @router.get("/baselines")
@@ -1221,19 +1291,29 @@ async def list_baselines(
     """List all baselines for a project."""
     supabase = get_supabase_client()
 
-    result = await supabase.request(
-        f"/visual_baselines?project_id=eq.{project_id}"
-        f"&order=updated_at.desc&limit={limit}"
-    )
+    try:
+        result = await supabase.request(
+            f"/visual_baselines?project_id=eq.{project_id}"
+            f"&order=updated_at.desc&limit={limit}"
+        )
 
-    if result.get("error"):
-        logger.warning("Failed to fetch baselines", error=result["error"])
-        return {"baselines": [], "total": 0}
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_baselines table not found")
+                return {"baselines": [], "total": 0, "message": "Run migrations to enable visual testing"}
+            logger.warning("Failed to fetch baselines", error=result["error"])
+            return {"baselines": [], "total": 0}
 
-    return {
-        "baselines": result.get("data", []),
-        "total": len(result.get("data", [])),
-    }
+        return {
+            "baselines": result.get("data") or [],
+            "total": len(result.get("data") or []),
+        }
+
+    except Exception as e:
+        logger.exception("Failed to list baselines", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to list baselines: {str(e)}")
 
 
 # =============================================================================
@@ -1252,90 +1332,110 @@ async def approve_changes(
     """
     supabase = get_supabase_client()
 
-    # Get comparison
-    result = await supabase.select(
-        "visual_comparisons",
-        filters={"id": f"eq.{comparison_id}"}
-    )
+    try:
+        # Get comparison
+        result = await supabase.select(
+            "visual_comparisons",
+            filters={"id": f"eq.{comparison_id}"}
+        )
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Comparison not found")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_comparisons table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch comparison", error=result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch comparison")
 
-    comparison = result["data"][0]
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Comparison not found")
 
-    # Update comparison status
-    approved_changes = request.change_ids or [d["id"] for d in comparison.get("differences", [])]
+        comparison = result["data"][0]
 
-    await supabase.update(
-        "visual_comparisons",
-        {"id": f"eq.{comparison_id}"},
-        {
-            "status": "approved",
-            "review_notes": request.notes,
-            "approved_changes": approved_changes,
-            "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+        # Update comparison status
+        differences = comparison.get("differences") or []
+        approved_changes = request.change_ids or [d["id"] for d in differences if isinstance(d, dict) and "id" in d]
 
-    # Optionally update baseline
-    if request.update_baseline and comparison.get("baseline_id"):
-        baseline_id = comparison["baseline_id"]
-        current_snapshot_id = comparison.get("current_snapshot_id")
+        await supabase.update(
+            "visual_comparisons",
+            {"id": f"eq.{comparison_id}"},
+            {
+                "status": "approved",
+                "review_notes": request.notes,
+                "approved_changes": approved_changes,
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
-        if current_snapshot_id:
-            # Get current snapshot
-            snapshot_result = await supabase.select(
-                "visual_snapshots",
-                filters={"id": f"eq.{current_snapshot_id}"}
-            )
+        # Optionally update baseline
+        if request.update_baseline and comparison.get("baseline_id"):
+            baseline_id = comparison["baseline_id"]
+            current_snapshot_id = comparison.get("current_snapshot_id")
 
-            if snapshot_result.get("data"):
-                snapshot = snapshot_result["data"][0]
-
-                # Get existing baseline version
-                baseline_result = await supabase.select(
-                    "visual_baselines",
-                    filters={"id": f"eq.{baseline_id}"}
+            if current_snapshot_id:
+                # Get current snapshot
+                snapshot_result = await supabase.select(
+                    "visual_snapshots",
+                    filters={"id": f"eq.{current_snapshot_id}"}
                 )
 
-                if baseline_result.get("data"):
-                    baseline = baseline_result["data"][0]
-                    new_version = baseline.get("version", 0) + 1
+                if snapshot_result.get("data"):
+                    snapshot = snapshot_result["data"][0]
 
-                    # Update baseline with approved snapshot
-                    await supabase.update(
+                    # Get existing baseline version
+                    baseline_result = await supabase.select(
                         "visual_baselines",
-                        {"id": f"eq.{baseline_id}"},
-                        {
-                            "screenshot_path": snapshot.get("screenshot_path"),
-                            "version": new_version,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        }
+                        filters={"id": f"eq.{baseline_id}"}
                     )
 
-                    # Add to history
-                    await supabase.insert("visual_baseline_history", {
-                        "baseline_id": baseline_id,
-                        "version": new_version,
-                        "screenshot_path": snapshot.get("screenshot_path"),
-                        "metadata": {"approved_from_comparison": comparison_id},
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                    })
+                    if baseline_result.get("data"):
+                        baseline = baseline_result["data"][0]
+                        new_version = (baseline.get("version") or 0) + 1
 
-    logger.info(
-        "Changes approved",
-        comparison_id=comparison_id,
-        approved_count=len(approved_changes),
-        baseline_updated=request.update_baseline,
-    )
+                        # Update baseline with approved snapshot
+                        await supabase.update(
+                            "visual_baselines",
+                            {"id": f"eq.{baseline_id}"},
+                            {
+                                "screenshot_path": snapshot.get("screenshot_path"),
+                                "version": new_version,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        )
 
-    return {
-        "success": True,
-        "comparison_id": comparison_id,
-        "approved_changes": approved_changes,
-        "baseline_updated": request.update_baseline,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-    }
+                        # Add to history
+                        await supabase.insert("visual_baseline_history", {
+                            "baseline_id": baseline_id,
+                            "version": new_version,
+                            "screenshot_path": snapshot.get("screenshot_path"),
+                            "metadata": {"approved_from_comparison": comparison_id},
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        })
+
+        logger.info(
+            "Changes approved",
+            comparison_id=comparison_id,
+            approved_count=len(approved_changes),
+            baseline_updated=request.update_baseline,
+        )
+
+        return {
+            "success": True,
+            "comparison_id": comparison_id,
+            "approved_changes": approved_changes,
+            "baseline_updated": request.update_baseline,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to approve changes", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to approve changes: {str(e)}")
 
 
 @router.post("/comparisons/{comparison_id}/reject")
@@ -1350,53 +1450,72 @@ async def reject_changes(
     """
     supabase = get_supabase_client()
 
-    # Get comparison
-    result = await supabase.select(
-        "visual_comparisons",
-        filters={"id": f"eq.{comparison_id}"}
-    )
-
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Comparison not found")
-
-    comparison = result["data"][0]
-
-    # Update comparison status
-    await supabase.update(
-        "visual_comparisons",
-        {"id": f"eq.{comparison_id}"},
-        {
-            "status": "rejected",
-            "review_notes": request.notes,
-            "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-
-    # Optionally create GitHub issue
-    issue_url = None
-    if request.create_issue:
-        # This would integrate with GitHub API
-        # For now, just log it
-        logger.info(
-            "GitHub issue creation requested",
-            comparison_id=comparison_id,
-            notes=request.notes,
+    try:
+        # Get comparison
+        result = await supabase.select(
+            "visual_comparisons",
+            filters={"id": f"eq.{comparison_id}"}
         )
 
-    logger.info(
-        "Changes rejected",
-        comparison_id=comparison_id,
-        notes=request.notes[:100],
-    )
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_comparisons table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch comparison", error=result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch comparison")
 
-    return {
-        "success": True,
-        "comparison_id": comparison_id,
-        "status": "rejected",
-        "notes": request.notes,
-        "issue_url": issue_url,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-    }
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Comparison not found")
+
+        comparison = result["data"][0]
+
+        # Update comparison status
+        await supabase.update(
+            "visual_comparisons",
+            {"id": f"eq.{comparison_id}"},
+            {
+                "status": "rejected",
+                "review_notes": request.notes,
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+        # Optionally create GitHub issue
+        issue_url = None
+        if request.create_issue:
+            # This would integrate with GitHub API
+            # For now, just log it
+            logger.info(
+                "GitHub issue creation requested",
+                comparison_id=comparison_id,
+                notes=request.notes,
+            )
+
+        logger.info(
+            "Changes rejected",
+            comparison_id=comparison_id,
+            notes=request.notes[:100] if request.notes else "",
+        )
+
+        return {
+            "success": True,
+            "comparison_id": comparison_id,
+            "status": "rejected",
+            "notes": request.notes,
+            "issue_url": issue_url,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to reject changes", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to reject changes: {str(e)}")
 
 
 # =============================================================================
@@ -1413,40 +1532,53 @@ async def explain_changes(comparison_id: str):
     """
     supabase = get_supabase_client()
 
-    # Get comparison
-    result = await supabase.select(
-        "visual_comparisons",
-        filters={"id": f"eq.{comparison_id}"}
-    )
+    try:
+        # Get comparison
+        result = await supabase.select(
+            "visual_comparisons",
+            filters={"id": f"eq.{comparison_id}"}
+        )
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Comparison not found")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_comparisons table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch comparison", error=result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch comparison")
 
-    comparison = result["data"][0]
-    differences = comparison.get("differences", [])
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Comparison not found")
 
-    if not differences:
-        return {
-            "success": True,
-            "comparison_id": comparison_id,
-            "explanation": "No visual differences were detected between the baseline and current screenshots.",
-            "recommendations": [],
-        }
+        comparison = result["data"][0]
+        differences = comparison.get("differences") or []
 
-    # Build explanation prompt
-    settings = get_settings()
-    api_key = settings.anthropic_api_key
-    if hasattr(api_key, 'get_secret_value'):
-        api_key = api_key.get_secret_value()
+        if not differences:
+            return {
+                "success": True,
+                "comparison_id": comparison_id,
+                "explanation": "No visual differences were detected between the baseline and current screenshots.",
+                "recommendations": [],
+            }
 
-    import anthropic
-    import json
-    client = anthropic.Anthropic(api_key=api_key)
+        # Build explanation prompt
+        settings = get_settings()
+        api_key = settings.anthropic_api_key
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
 
-    differences_text = json.dumps(differences, indent=2)
-    context = comparison.get("context", "No additional context provided")
+        import anthropic
+        import json
+        client = anthropic.Anthropic(api_key=api_key)
 
-    prompt = f"""Analyze these visual differences from a UI comparison and provide a clear explanation:
+        differences_text = json.dumps(differences, indent=2)
+        context = comparison.get("context") or "No additional context provided"
+
+        prompt = f"""Analyze these visual differences from a UI comparison and provide a clear explanation:
 
 DIFFERENCES DETECTED:
 {differences_text}
@@ -1476,7 +1608,6 @@ Respond in JSON:
 }}
 """
 
-    try:
         response = client.messages.create(
             model="claude-sonnet-4-5-20250514",
             max_tokens=1500,
@@ -1505,6 +1636,8 @@ Respond in JSON:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("AI explanation failed", error=str(e))
         raise HTTPException(
@@ -1526,29 +1659,40 @@ async def list_comparisons(
     """List visual comparisons with optional filtering."""
     supabase = get_supabase_client()
 
-    query_path = "/visual_comparisons?"
-    filters = []
+    try:
+        # Build query path with proper parameter ordering
+        query_parts = []
 
-    if project_id:
-        filters.append(f"project_id=eq.{project_id}")
-    if status:
-        filters.append(f"status=eq.{status}")
+        if project_id:
+            query_parts.append(f"project_id=eq.{project_id}")
+        if status:
+            query_parts.append(f"status=eq.{status}")
 
-    query_path += "&".join(filters)
-    if filters:
-        query_path += "&"
-    query_path += f"order=compared_at.desc&limit={limit}"
+        # Always add ordering and limit
+        query_parts.append("order=compared_at.desc")
+        query_parts.append(f"limit={limit}")
 
-    result = await supabase.request(query_path)
+        query_path = "/visual_comparisons?" + "&".join(query_parts)
 
-    if result.get("error"):
-        logger.warning("Failed to fetch comparisons", error=result["error"])
-        return {"comparisons": [], "total": 0}
+        result = await supabase.request(query_path)
 
-    return {
-        "comparisons": result.get("data", []),
-        "total": len(result.get("data", [])),
-    }
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_comparisons table not found")
+                return {"comparisons": [], "total": 0, "message": "Run migrations to enable visual testing"}
+            logger.warning("Failed to fetch comparisons", error=result["error"])
+            return {"comparisons": [], "total": 0}
+
+        return {
+            "comparisons": result.get("data") or [],
+            "total": len(result.get("data") or []),
+        }
+
+    except Exception as e:
+        logger.exception("Failed to list comparisons", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to list comparisons: {str(e)}")
 
 
 @router.get("/comparisons/{comparison_id}")
@@ -1556,15 +1700,34 @@ async def get_comparison(comparison_id: str):
     """Get details of a specific comparison."""
     supabase = get_supabase_client()
 
-    result = await supabase.select(
-        "visual_comparisons",
-        filters={"id": f"eq.{comparison_id}"}
-    )
+    try:
+        result = await supabase.select(
+            "visual_comparisons",
+            filters={"id": f"eq.{comparison_id}"}
+        )
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Comparison not found")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_comparisons table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch comparison", error=result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch comparison")
 
-    return {"comparison": result["data"][0]}
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Comparison not found")
+
+        return {"comparison": result["data"][0]}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get comparison", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get comparison: {str(e)}")
 
 
 @router.get("/snapshots/{snapshot_id}")
@@ -1572,12 +1735,31 @@ async def get_snapshot(snapshot_id: str):
     """Get details of a specific snapshot."""
     supabase = get_supabase_client()
 
-    result = await supabase.select(
-        "visual_snapshots",
-        filters={"id": f"eq.{snapshot_id}"}
-    )
+    try:
+        result = await supabase.select(
+            "visual_snapshots",
+            filters={"id": f"eq.{snapshot_id}"}
+        )
 
-    if result.get("error") or not result.get("data"):
-        raise HTTPException(status_code=404, detail="Snapshot not found")
+        # Handle missing table gracefully
+        if result.get("error"):
+            error_msg = str(result.get("error", ""))
+            if "does not exist" in error_msg or "42703" in error_msg or "42P01" in error_msg:
+                logger.warning("visual_snapshots table not found")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Visual testing tables not configured. Run migrations to enable visual testing."
+                )
+            logger.warning("Failed to fetch snapshot", error=result["error"])
+            raise HTTPException(status_code=500, detail="Failed to fetch snapshot")
 
-    return {"snapshot": result["data"][0]}
+        if not result.get("data"):
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        return {"snapshot": result["data"][0]}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get snapshot", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get snapshot: {str(e)}")

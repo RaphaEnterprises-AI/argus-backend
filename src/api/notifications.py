@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 import structlog
 
 from src.integrations.slack import (
@@ -34,6 +34,19 @@ router = APIRouter(prefix="/api/v1/notifications", tags=["Notifications"])
 
 
 # =============================================================================
+# Validation Helpers
+# =============================================================================
+
+def validate_url(url: str | None, field_name: str) -> str | None:
+    """Validate that a URL starts with http:// or https://."""
+    if url is None:
+        return None
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"{field_name} must start with http:// or https://")
+    return url
+
+
+# =============================================================================
 # Request/Response Models
 # =============================================================================
 
@@ -42,6 +55,11 @@ class SlackConfigureRequest(BaseModel):
     webhook_url: Optional[str] = Field(None, description="Slack webhook URL")
     bot_token: Optional[str] = Field(None, description="Slack bot token")
     default_channel: str = Field("#testing", description="Default notification channel")
+
+    @field_validator("webhook_url")
+    @classmethod
+    def validate_webhook_url(cls, v: str | None) -> str | None:
+        return validate_url(v, "webhook_url")
 
 
 class SlackTestRequest(BaseModel):
@@ -150,6 +168,15 @@ class ChannelCreateRequest(BaseModel):
     enabled: bool = Field(True, description="Whether the channel is enabled")
     rate_limit_per_hour: int = Field(100, ge=1, le=1000, description="Rate limit per hour")
 
+    @model_validator(mode="after")
+    def validate_config_urls(self) -> "ChannelCreateRequest":
+        """Validate webhook_url in config for channel types that use it."""
+        if self.config and "webhook_url" in self.config:
+            webhook_url = self.config["webhook_url"]
+            if webhook_url is not None and not webhook_url.startswith(("http://", "https://")):
+                raise ValueError("webhook_url in config must start with http:// or https://")
+        return self
+
 
 class ChannelUpdateRequest(BaseModel):
     """Request to update a notification channel."""
@@ -157,6 +184,15 @@ class ChannelUpdateRequest(BaseModel):
     config: Optional[dict] = None
     enabled: Optional[bool] = None
     rate_limit_per_hour: Optional[int] = Field(None, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def validate_config_urls(self) -> "ChannelUpdateRequest":
+        """Validate webhook_url in config if provided."""
+        if self.config and "webhook_url" in self.config:
+            webhook_url = self.config["webhook_url"]
+            if webhook_url is not None and not webhook_url.startswith(("http://", "https://")):
+                raise ValueError("webhook_url in config must start with http:// or https://")
+        return self
 
 
 class ChannelResponse(BaseModel):
@@ -218,6 +254,82 @@ class NotificationLogResponse(BaseModel):
 
 
 # =============================================================================
+# User Notification Models
+# =============================================================================
+
+class UserNotification(BaseModel):
+    """User notification model."""
+    id: str
+    user_id: str
+    organization_id: Optional[str] = None
+    type: str = Field(..., description="Notification type: test_result, failure, schedule, quality, system, mention")
+    title: str
+    message: str
+    read: bool = False
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+    action_url: Optional[str] = Field(None, description="URL to navigate to when clicked")
+    metadata: dict = Field(default_factory=dict, description="Additional notification data")
+    created_at: str
+    read_at: Optional[str] = None
+
+
+class UserNotificationListResponse(BaseModel):
+    """Response for listing user notifications."""
+    notifications: list[UserNotification]
+    total: int
+    unread_count: int
+    has_more: bool
+
+
+class UnreadCountResponse(BaseModel):
+    """Response for unread notification count."""
+    unread_count: int
+    by_priority: dict = Field(default_factory=dict, description="Counts by priority level")
+
+
+class NotificationPreferences(BaseModel):
+    """User notification preferences."""
+    user_id: str
+    email_enabled: bool = True
+    email_frequency: Literal["instant", "hourly", "daily", "weekly"] = "instant"
+    email_types: list[str] = Field(
+        default_factory=lambda: ["test_result", "failure", "quality", "system", "mention"],
+        description="Notification types to receive via email"
+    )
+    in_app_enabled: bool = True
+    in_app_types: list[str] = Field(
+        default_factory=lambda: ["test_result", "failure", "schedule", "quality", "system", "mention"],
+        description="Notification types to show in-app"
+    )
+    slack_enabled: bool = False
+    slack_channel: Optional[str] = None
+    slack_types: list[str] = Field(
+        default_factory=lambda: ["failure", "quality"],
+        description="Notification types to send to Slack"
+    )
+    quiet_hours_enabled: bool = False
+    quiet_hours_start: Optional[str] = Field(None, description="Start time in HH:MM format (UTC)")
+    quiet_hours_end: Optional[str] = Field(None, description="End time in HH:MM format (UTC)")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    """Request to update notification preferences."""
+    email_enabled: Optional[bool] = None
+    email_frequency: Optional[Literal["instant", "hourly", "daily", "weekly"]] = None
+    email_types: Optional[list[str]] = None
+    in_app_enabled: Optional[bool] = None
+    in_app_types: Optional[list[str]] = None
+    slack_enabled: Optional[bool] = None
+    slack_channel: Optional[str] = None
+    slack_types: Optional[list[str]] = None
+    quiet_hours_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+
+
+# =============================================================================
 # In-Memory Configuration Store (fallback when Supabase not configured)
 # =============================================================================
 
@@ -225,6 +337,8 @@ _slack_config: Optional[SlackConfig] = None
 _channels: dict[str, dict] = {}  # In-memory fallback
 _rules: dict[str, dict] = {}  # In-memory fallback
 _logs: list[dict] = []  # In-memory fallback
+_user_notifications: dict[str, dict] = {}  # In-memory fallback for user notifications
+_user_preferences: dict[str, dict] = {}  # In-memory fallback for user preferences
 
 
 # =============================================================================
@@ -451,6 +565,198 @@ def set_slack_config(config: SlackConfig) -> None:
     """Set Slack configuration."""
     global _slack_config
     _slack_config = config
+
+
+# =============================================================================
+# User Notification Helper Functions
+# =============================================================================
+
+async def _get_user_notification_from_db(notification_id: str) -> Optional[dict]:
+    """Get a user notification from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _user_notifications.get(notification_id)
+
+    result = await supabase.select(
+        "user_notifications",
+        columns="*",
+        filters={"id": notification_id},
+        limit=1
+    )
+    return result[0] if result else None
+
+
+async def _list_user_notifications_from_db(
+    user_id: str,
+    read: Optional[bool] = None,
+    notification_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """List user notifications from Supabase. Returns (notifications, total_count)."""
+    supabase = await get_supabase()
+    if not supabase:
+        notifications = [n for n in _user_notifications.values() if n.get("user_id") == user_id]
+        if read is not None:
+            notifications = [n for n in notifications if n.get("read") == read]
+        if notification_type:
+            notifications = [n for n in notifications if n.get("type") == notification_type]
+        # Sort by created_at descending
+        notifications.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        total = len(notifications)
+        return notifications[offset:offset + limit], total
+
+    filters = {"user_id": user_id}
+    if read is not None:
+        filters["read"] = read
+    if notification_type:
+        filters["type"] = notification_type
+
+    # Get total count
+    count_result = await supabase.select(
+        "user_notifications",
+        columns="id",
+        filters=filters,
+    )
+    total = len(count_result) if count_result else 0
+
+    # Get paginated results
+    result = await supabase.select(
+        "user_notifications",
+        columns="*",
+        filters=filters,
+        order_by="created_at",
+        ascending=False,
+        limit=limit,
+        offset=offset
+    )
+    return result or [], total
+
+
+async def _get_unread_count_from_db(user_id: str) -> dict:
+    """Get unread notification count for a user."""
+    supabase = await get_supabase()
+    if not supabase:
+        notifications = [n for n in _user_notifications.values() if n.get("user_id") == user_id and not n.get("read")]
+        by_priority = {}
+        for n in notifications:
+            priority = n.get("priority", "normal")
+            by_priority[priority] = by_priority.get(priority, 0) + 1
+        return {"unread_count": len(notifications), "by_priority": by_priority}
+
+    result = await supabase.select(
+        "user_notifications",
+        columns="id,priority",
+        filters={"user_id": user_id, "read": False},
+    )
+    notifications = result or []
+    by_priority = {}
+    for n in notifications:
+        priority = n.get("priority", "normal")
+        by_priority[priority] = by_priority.get(priority, 0) + 1
+    return {"unread_count": len(notifications), "by_priority": by_priority}
+
+
+async def _save_user_notification_to_db(notification: dict) -> bool:
+    """Save a user notification to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        _user_notifications[notification["id"]] = notification
+        return True
+
+    return await supabase.insert("user_notifications", [notification])
+
+
+async def _update_user_notification_in_db(notification_id: str, updates: dict) -> bool:
+    """Update a user notification in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if notification_id in _user_notifications:
+            _user_notifications[notification_id].update(updates)
+            return True
+        return False
+
+    return await supabase.update("user_notifications", updates, {"id": notification_id})
+
+
+async def _mark_all_notifications_read(user_id: str) -> int:
+    """Mark all notifications as read for a user. Returns count updated."""
+    supabase = await get_supabase()
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not supabase:
+        count = 0
+        for notification in _user_notifications.values():
+            if notification.get("user_id") == user_id and not notification.get("read"):
+                notification["read"] = True
+                notification["read_at"] = now
+                count += 1
+        return count
+
+    # Get unread notifications for this user
+    unread = await supabase.select(
+        "user_notifications",
+        columns="id",
+        filters={"user_id": user_id, "read": False},
+    )
+
+    if not unread:
+        return 0
+
+    # Update each notification
+    for notification in unread:
+        await supabase.update(
+            "user_notifications",
+            {"read": True, "read_at": now},
+            {"id": notification["id"]}
+        )
+
+    return len(unread)
+
+
+async def _get_user_preferences_from_db(user_id: str) -> Optional[dict]:
+    """Get user notification preferences from Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        return _user_preferences.get(user_id)
+
+    result = await supabase.select(
+        "notification_preferences",
+        columns="*",
+        filters={"user_id": user_id},
+        limit=1
+    )
+    return result[0] if result else None
+
+
+async def _save_user_preferences_to_db(preferences: dict) -> bool:
+    """Save user notification preferences to Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        _user_preferences[preferences["user_id"]] = preferences
+        return True
+
+    # Use upsert pattern - try insert, update on conflict
+    existing = await _get_user_preferences_from_db(preferences["user_id"])
+    if existing:
+        return await supabase.update(
+            "notification_preferences",
+            preferences,
+            {"user_id": preferences["user_id"]}
+        )
+    return await supabase.insert("notification_preferences", [preferences])
+
+
+async def _update_user_preferences_in_db(user_id: str, updates: dict) -> bool:
+    """Update user notification preferences in Supabase."""
+    supabase = await get_supabase()
+    if not supabase:
+        if user_id in _user_preferences:
+            _user_preferences[user_id].update(updates)
+            return True
+        return False
+
+    return await supabase.update("notification_preferences", updates, {"user_id": user_id})
 
 
 # =============================================================================
@@ -1184,3 +1490,251 @@ async def list_event_types():
             {"type": "alert.performance", "description": "Performance degradation"},
         ]
     }
+
+
+# =============================================================================
+# User Notification Endpoints
+# =============================================================================
+
+@router.get("", response_model=UserNotificationListResponse)
+async def list_user_notifications(
+    request: Request,
+    read: Optional[bool] = Query(None, description="Filter by read status (true/false)"),
+    notification_type: Optional[str] = Query(None, alias="type", description="Filter by notification type"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum notifications to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+):
+    """
+    List notifications for the authenticated user.
+
+    Supports filtering by read status and notification type.
+    Returns paginated results with total count and unread count.
+    """
+    user_id = request.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User ID not found. Authentication required."
+        )
+
+    notifications, total = await _list_user_notifications_from_db(
+        user_id=user_id,
+        read=read,
+        notification_type=notification_type,
+        limit=limit,
+        offset=offset,
+    )
+
+    # Get unread count
+    unread_data = await _get_unread_count_from_db(user_id)
+
+    logger.info(
+        "Listed user notifications",
+        user_id=user_id,
+        total=total,
+        returned=len(notifications),
+        unread=unread_data["unread_count"],
+    )
+
+    return UserNotificationListResponse(
+        notifications=[UserNotification(**n) for n in notifications],
+        total=total,
+        unread_count=unread_data["unread_count"],
+        has_more=(offset + limit) < total,
+    )
+
+
+@router.get("/unread-count", response_model=UnreadCountResponse)
+async def get_unread_notification_count(request: Request):
+    """
+    Get the count of unread notifications for the authenticated user.
+
+    Returns total unread count and breakdown by priority level.
+    """
+    user_id = request.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User ID not found. Authentication required."
+        )
+
+    unread_data = await _get_unread_count_from_db(user_id)
+
+    return UnreadCountResponse(
+        unread_count=unread_data["unread_count"],
+        by_priority=unread_data["by_priority"],
+    )
+
+
+@router.put("/{notification_id}/read", response_model=NotificationResponse)
+async def mark_notification_as_read(notification_id: str, request: Request):
+    """
+    Mark a specific notification as read.
+
+    The notification must belong to the authenticated user.
+    """
+    user_id = request.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User ID not found. Authentication required."
+        )
+
+    notification = await _get_user_notification_from_db(notification_id)
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    if notification.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this notification")
+
+    if notification.get("read"):
+        return NotificationResponse(
+            success=True,
+            message="Notification already marked as read",
+            details={"notification_id": notification_id},
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    await _update_user_notification_in_db(notification_id, {
+        "read": True,
+        "read_at": now,
+    })
+
+    logger.info("Notification marked as read", notification_id=notification_id, user_id=user_id)
+
+    return NotificationResponse(
+        success=True,
+        message="Notification marked as read",
+        details={"notification_id": notification_id, "read_at": now},
+    )
+
+
+@router.put("/mark-all-read", response_model=NotificationResponse)
+async def mark_all_notifications_as_read(request: Request):
+    """
+    Mark all notifications as read for the authenticated user.
+
+    Returns the count of notifications that were marked as read.
+    """
+    user_id = request.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User ID not found. Authentication required."
+        )
+
+    count = await _mark_all_notifications_read(user_id)
+
+    logger.info("All notifications marked as read", user_id=user_id, count=count)
+
+    return NotificationResponse(
+        success=True,
+        message=f"Marked {count} notifications as read",
+        details={"count": count},
+    )
+
+
+# =============================================================================
+# Notification Preferences Endpoints
+# =============================================================================
+
+@router.get("/preferences", response_model=NotificationPreferences)
+async def get_notification_preferences(request: Request):
+    """
+    Get notification preferences for the authenticated user.
+
+    Returns preferences for email, in-app, and Slack notifications.
+    If no preferences exist, returns default preferences.
+    """
+    user_id = request.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User ID not found. Authentication required."
+        )
+
+    preferences = await _get_user_preferences_from_db(user_id)
+
+    if preferences:
+        return NotificationPreferences(**preferences)
+
+    # Return default preferences for new users
+    now = datetime.now(timezone.utc).isoformat()
+    default_preferences = NotificationPreferences(
+        user_id=user_id,
+        email_enabled=True,
+        email_frequency="instant",
+        email_types=["test_result", "failure", "quality", "system", "mention"],
+        in_app_enabled=True,
+        in_app_types=["test_result", "failure", "schedule", "quality", "system", "mention"],
+        slack_enabled=False,
+        slack_channel=None,
+        slack_types=["failure", "quality"],
+        quiet_hours_enabled=False,
+        quiet_hours_start=None,
+        quiet_hours_end=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    return default_preferences
+
+
+@router.put("/preferences", response_model=NotificationPreferences)
+async def update_notification_preferences(
+    body: NotificationPreferencesUpdate,
+    request: Request,
+):
+    """
+    Update notification preferences for the authenticated user.
+
+    Supports partial updates - only provided fields will be updated.
+    Preferences control notifications for email, in-app, and Slack channels.
+    """
+    user_id = request.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User ID not found. Authentication required."
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Get existing preferences or create defaults
+    existing = await _get_user_preferences_from_db(user_id)
+
+    if existing:
+        # Update existing preferences
+        update_data = body.model_dump(exclude_unset=True)
+        update_data["updated_at"] = now
+
+        await _update_user_preferences_in_db(user_id, update_data)
+        existing.update(update_data)
+        preferences = existing
+    else:
+        # Create new preferences with provided values
+        preferences = {
+            "user_id": user_id,
+            "email_enabled": body.email_enabled if body.email_enabled is not None else True,
+            "email_frequency": body.email_frequency or "instant",
+            "email_types": body.email_types or ["test_result", "failure", "quality", "system", "mention"],
+            "in_app_enabled": body.in_app_enabled if body.in_app_enabled is not None else True,
+            "in_app_types": body.in_app_types or ["test_result", "failure", "schedule", "quality", "system", "mention"],
+            "slack_enabled": body.slack_enabled if body.slack_enabled is not None else False,
+            "slack_channel": body.slack_channel,
+            "slack_types": body.slack_types or ["failure", "quality"],
+            "quiet_hours_enabled": body.quiet_hours_enabled if body.quiet_hours_enabled is not None else False,
+            "quiet_hours_start": body.quiet_hours_start,
+            "quiet_hours_end": body.quiet_hours_end,
+            "created_at": now,
+            "updated_at": now,
+        }
+        await _save_user_preferences_to_db(preferences)
+
+    logger.info(
+        "Notification preferences updated",
+        user_id=user_id,
+        updates=list(body.model_dump(exclude_unset=True).keys()),
+    )
+
+    return NotificationPreferences(**preferences)
