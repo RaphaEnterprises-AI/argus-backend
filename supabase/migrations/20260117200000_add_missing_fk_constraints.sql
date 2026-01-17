@@ -120,7 +120,29 @@ $$;
 -- Create indexes for FK columns if they don't exist (performance)
 -- =============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_visual_baselines_test_id ON visual_baselines(test_id);
-CREATE INDEX IF NOT EXISTS idx_visual_snapshots_test_run_id ON visual_snapshots(test_run_id);
-CREATE INDEX IF NOT EXISTS idx_test_failure_patterns_test_id ON test_failure_patterns(test_id);
-CREATE INDEX IF NOT EXISTS idx_test_failure_patterns_project_id ON test_failure_patterns(project_id);
+DO $$
+BEGIN
+    -- visual_baselines indexes
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'visual_baselines' AND column_name = 'test_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_visual_baselines_test_id ON visual_baselines(test_id);
+    END IF;
+
+    -- visual_snapshots indexes
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'visual_snapshots' AND column_name = 'test_run_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_visual_snapshots_test_run_id ON visual_snapshots(test_run_id);
+    END IF;
+
+    -- test_failure_patterns indexes
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'test_failure_patterns' AND column_name = 'test_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_test_failure_patterns_test_id ON test_failure_patterns(test_id);
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'test_failure_patterns' AND column_name = 'project_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_test_failure_patterns_project_id ON test_failure_patterns(project_id);
+    END IF;
+END;
+$$;
