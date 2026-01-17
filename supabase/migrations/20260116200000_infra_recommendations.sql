@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS infra_recommendations (
     -- Status tracking
     status infra_recommendation_status NOT NULL DEFAULT 'pending',
     applied_at TIMESTAMPTZ,
-    applied_by UUID REFERENCES users(id),
+    applied_by TEXT,  -- Clerk user ID (not FK since users are managed by Clerk)
 
     -- Timestamps
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -154,30 +154,43 @@ ALTER TABLE infra_cost_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE infra_anomaly_history ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies (org members can view their org's data)
-CREATE POLICY infra_recommendations_org_access ON infra_recommendations
+-- Use service role for backend API access
+CREATE POLICY infra_recommendations_service_access ON infra_recommendations
     FOR ALL
+    USING (current_setting('role', true) = 'service_role');
+
+CREATE POLICY infra_recommendations_org_access ON infra_recommendations
+    FOR SELECT
     USING (
         org_id IN (
-            SELECT organization_id FROM team_memberships
-            WHERE user_id = auth.uid()
+            SELECT organization_id FROM organization_members
+            WHERE user_id = auth.uid()::TEXT AND status = 'active'
         )
     );
+
+CREATE POLICY infra_cost_history_service_access ON infra_cost_history
+    FOR ALL
+    USING (current_setting('role', true) = 'service_role');
 
 CREATE POLICY infra_cost_history_org_access ON infra_cost_history
-    FOR ALL
+    FOR SELECT
     USING (
         org_id IN (
-            SELECT organization_id FROM team_memberships
-            WHERE user_id = auth.uid()
+            SELECT organization_id FROM organization_members
+            WHERE user_id = auth.uid()::TEXT AND status = 'active'
         )
     );
 
-CREATE POLICY infra_anomaly_history_org_access ON infra_anomaly_history
+CREATE POLICY infra_anomaly_history_service_access ON infra_anomaly_history
     FOR ALL
+    USING (current_setting('role', true) = 'service_role');
+
+CREATE POLICY infra_anomaly_history_org_access ON infra_anomaly_history
+    FOR SELECT
     USING (
         org_id IN (
-            SELECT organization_id FROM team_memberships
-            WHERE user_id = auth.uid()
+            SELECT organization_id FROM organization_members
+            WHERE user_id = auth.uid()::TEXT AND status = 'active'
         )
     );
 
