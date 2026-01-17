@@ -125,6 +125,36 @@ async def get_project_test_count(project_id: str) -> int:
     return len(tests.get("data", []))
 
 
+async def get_project_test_counts_batch(project_ids: list[str]) -> dict[str, int]:
+    """Get test counts for multiple projects in a single query.
+
+    Uses Supabase RPC function to avoid N+1 query problem.
+    Returns a dict mapping project_id -> test_count.
+    """
+    if not project_ids:
+        return {}
+
+    supabase = get_supabase_client()
+    result = await supabase.rpc("get_project_test_counts", {"project_ids": project_ids})
+
+    if result.get("error"):
+        logger.warning("Batch test count query failed, falling back to individual queries", error=result.get("error"))
+        # Fallback to individual queries if RPC fails
+        counts = {}
+        for pid in project_ids:
+            counts[pid] = await get_project_test_count(pid)
+        return counts
+
+    # Build lookup dict from RPC result
+    counts = {str(row["project_id"]): row["count"] for row in result.get("data", [])}
+    # Fill in zeros for projects with no tests
+    for pid in project_ids:
+        if str(pid) not in counts:
+            counts[str(pid)] = 0
+
+    return counts
+
+
 async def verify_project_access(project_id: str, user_id: str, user_email: str = None, request: Request = None) -> dict:
     """Verify user has access to the project via organization membership.
 
@@ -184,10 +214,13 @@ async def list_organization_projects(
 
     projects = projects_result.get("data", [])
 
+    # Get test counts in batch (single query instead of N queries)
+    project_ids = [p["id"] for p in projects]
+    test_counts = await get_project_test_counts_batch(project_ids)
+
     # Build response with test counts
     result = []
     for project in projects:
-        test_count = await get_project_test_count(project["id"])
         result.append(ProjectListResponse(
             id=project["id"],
             organization_id=project["organization_id"],
@@ -195,7 +228,7 @@ async def list_organization_projects(
             description=project.get("description"),
             app_url=project.get("app_url"),
             is_active=project.get("is_active", True),
-            test_count=test_count,
+            test_count=test_counts.get(str(project["id"]), 0),
             last_run_at=project.get("last_run_at"),
             created_at=project["created_at"],
         ))
@@ -320,9 +353,12 @@ async def list_projects(
 
         projects = projects_result.get("data", [])
 
+        # Get test counts in batch (single query instead of N queries)
+        project_ids = [p["id"] for p in projects]
+        test_counts = await get_project_test_counts_batch(project_ids)
+
         result = []
         for project in projects:
-            test_count = await get_project_test_count(project["id"])
             result.append(ProjectListResponse(
                 id=project["id"],
                 organization_id=project["organization_id"],
@@ -330,7 +366,7 @@ async def list_projects(
                 description=project.get("description"),
                 app_url=project.get("app_url"),
                 is_active=project.get("is_active", True),
-                test_count=test_count,
+                test_count=test_counts.get(str(project["id"]), 0),
                 last_run_at=project.get("last_run_at"),
                 created_at=project["created_at"],
             ))

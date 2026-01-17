@@ -142,6 +142,36 @@ async def get_member_count(org_id: str) -> int:
     return len(members.get("data", []))
 
 
+async def get_member_counts_batch(org_ids: list[str]) -> dict[str, int]:
+    """Get member counts for multiple organizations in a single query.
+
+    Uses Supabase RPC function to avoid N+1 query problem.
+    Returns a dict mapping organization_id -> member_count.
+    """
+    if not org_ids:
+        return {}
+
+    supabase = get_supabase_client()
+    result = await supabase.rpc("get_org_member_counts", {"org_ids": org_ids})
+
+    if result.get("error"):
+        logger.warning("Batch member count query failed, falling back to individual queries", error=result.get("error"))
+        # Fallback to individual queries if RPC fails
+        counts = {}
+        for oid in org_ids:
+            counts[oid] = await get_member_count(oid)
+        return counts
+
+    # Build lookup dict from RPC result
+    counts = {str(row["organization_id"]): row["count"] for row in result.get("data", [])}
+    # Fill in zeros for orgs with no members
+    for oid in org_ids:
+        if str(oid) not in counts:
+            counts[str(oid)] = 0
+
+    return counts
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -264,18 +294,22 @@ async def list_organizations(request: Request):
     if orgs.get("error"):
         raise HTTPException(status_code=500, detail="Failed to fetch organizations")
 
+    org_data = orgs.get("data", [])
+
+    # Get member counts in batch (single query instead of N queries)
+    org_id_list = [o["id"] for o in org_data]
+    member_counts = await get_member_counts_batch(org_id_list)
+
     # Build response with member counts
     result = []
-    for org in orgs.get("data", []):
-        member_count = await get_member_count(org["id"])
-
+    for org in org_data:
         result.append(OrganizationListResponse(
             id=org["id"],
             name=org["name"],
             slug=org["slug"],
             plan=org["plan"],
             logo_url=org.get("logo_url"),
-            member_count=member_count,
+            member_count=member_counts.get(str(org["id"]), 0),
             role=org_roles.get(org["id"], "member"),
             created_at=org["created_at"],
         ))

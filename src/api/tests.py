@@ -10,9 +10,10 @@ Note: Test creation via NLP is in server.py at /api/v1/tests/create
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Literal
+from typing import Optional, Literal, Annotated
+import urllib.parse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field
 import structlog
 
@@ -141,6 +142,119 @@ async def get_project_org_id(project_id: str) -> str:
     return project_result["data"][0]["organization_id"]
 
 
+async def get_project_org_ids_batch(project_ids: list[str]) -> dict[str, str]:
+    """Get organization IDs for multiple projects in a single query.
+
+    Uses Supabase RPC function to avoid N+1 query problem.
+    Returns a dict mapping project_id -> organization_id.
+    """
+    if not project_ids:
+        return {}
+
+    supabase = get_supabase_client()
+    result = await supabase.rpc("get_project_org_ids", {"project_ids": project_ids})
+
+    if result.get("error"):
+        logger.warning("Batch project org_id query failed, falling back to direct query", error=result.get("error"))
+        # Fallback to direct query
+        query_result = await supabase.request(
+            f"/projects?id=in.({','.join(project_ids)})&select=id,organization_id"
+        )
+        return {p["id"]: p["organization_id"] for p in query_result.get("data", [])}
+
+    return {str(row["project_id"]): str(row["organization_id"]) for row in result.get("data", [])}
+
+
+async def batch_verify_test_access(
+    test_ids: list[str],
+    user_id: str,
+    user_email: str = None
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Verify user access to multiple tests in batch.
+
+    Returns:
+        - accessible_tests: dict mapping test_id -> test data (tests user can access)
+        - failed_tests: dict mapping test_id -> error message (tests user cannot access)
+
+    This function batches database queries to avoid N+1 problems:
+    1. Fetch all tests in a single query
+    2. Get all unique project_ids and their org_ids in one query
+    3. Get user's memberships for all relevant orgs in one query
+    4. Filter based on membership
+    """
+    supabase = get_supabase_client()
+    accessible_tests = {}
+    failed_tests = {}
+
+    if not test_ids:
+        return accessible_tests, failed_tests
+
+    # Step 1: Fetch all tests in a single query
+    tests_result = await supabase.request(
+        f"/tests?id=in.({','.join(test_ids)})&select=*"
+    )
+
+    if tests_result.get("error"):
+        for test_id in test_ids:
+            failed_tests[test_id] = "Failed to fetch tests"
+        return accessible_tests, failed_tests
+
+    tests_by_id = {t["id"]: t for t in tests_result.get("data", [])}
+
+    # Mark missing tests as failed
+    for test_id in test_ids:
+        if test_id not in tests_by_id:
+            failed_tests[test_id] = "Test not found"
+
+    if not tests_by_id:
+        return accessible_tests, failed_tests
+
+    # Step 2: Get all unique project_ids and their org_ids
+    project_ids = list(set(t["project_id"] for t in tests_by_id.values()))
+    project_org_map = await get_project_org_ids_batch(project_ids)
+
+    # Step 3: Get user's memberships for all relevant orgs in one query
+    org_ids = list(set(project_org_map.values()))
+    if not org_ids:
+        for test_id in tests_by_id:
+            failed_tests[test_id] = "Project organization not found"
+        return accessible_tests, failed_tests
+
+    membership_result = await supabase.request(
+        f"/organization_members?organization_id=in.({','.join(org_ids)})&user_id=eq.{user_id}&status=eq.active&select=organization_id"
+    )
+
+    user_org_ids = set()
+    if membership_result.get("data"):
+        user_org_ids = {m["organization_id"] for m in membership_result["data"]}
+
+    # Step 4: Filter tests based on membership
+    for test_id, test in tests_by_id.items():
+        project_id = test["project_id"]
+        org_id = project_org_map.get(project_id)
+
+        if not org_id:
+            failed_tests[test_id] = "Project organization not found"
+        elif org_id not in user_org_ids:
+            failed_tests[test_id] = "Access denied - not a member of project organization"
+        else:
+            accessible_tests[test_id] = test
+
+    return accessible_tests, failed_tests
+
+
+async def batch_insert_audit_logs(audit_entries: list[dict]) -> None:
+    """Insert multiple audit log entries in a single batch operation."""
+    if not audit_entries:
+        return
+
+    supabase = get_supabase_client()
+    result = await supabase.insert("audit_logs", audit_entries)
+
+    if result.get("error"):
+        logger.warning("Batch audit log insert failed", error=result.get("error"), count=len(audit_entries))
+
+
 # ============================================================================
 # Test Endpoints
 # ============================================================================
@@ -152,10 +266,10 @@ async def list_tests(
     is_active: Optional[bool] = None,
     priority: Optional[PriorityType] = None,
     source: Optional[SourceType] = None,
-    tags: Optional[str] = None,
-    search: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    tags: Annotated[Optional[str], Query(max_length=500, description="Tags to filter by (comma-separated)")] = None,
+    search: Annotated[Optional[str], Query(max_length=200, description="Search term for name/description")] = None,
+    limit: Annotated[int, Query(ge=1, le=500, description="Maximum results to return")] = 50,
+    offset: Annotated[int, Query(ge=0, le=10000, description="Offset for pagination")] = 0,
 ):
     """List tests with optional filters.
 
@@ -164,10 +278,10 @@ async def list_tests(
         is_active: Filter by active status
         priority: Filter by priority level
         source: Filter by test source
-        tags: Filter by tag (comma-separated for multiple)
-        search: Search in name and description
-        limit: Maximum number of results (default 50, max 100)
-        offset: Offset for pagination
+        tags: Filter by tag (comma-separated for multiple, max 500 chars)
+        search: Search in name and description (max 200 chars)
+        limit: Maximum number of results (default 50, max 500)
+        offset: Offset for pagination (max 10000)
 
     Returns:
         Paginated list of tests
@@ -175,8 +289,8 @@ async def list_tests(
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
-    # Limit max results
-    limit = min(limit, 100)
+    # Note: limit and offset are validated by FastAPI Query constraints
+    # limit: 1-500, offset: 0-10000
 
     if project_id:
         # Verify access to the specific project
@@ -218,12 +332,15 @@ async def list_tests(
 
     if tags:
         # Filter tests that contain any of the specified tags
-        tag_list = [t.strip() for t in tags.split(",")]
+        # URL-encode each tag to prevent injection
+        tag_list = [urllib.parse.quote(t.strip(), safe='') for t in tags.split(",")]
         query += f"&tags=ov.{{{','.join(tag_list)}}}"
 
     if search:
         # Search in name or description (case-insensitive)
-        query += f"&or=(name.ilike.*{search}*,description.ilike.*{search}*)"
+        # URL-encode the search term to prevent PostgREST injection
+        safe_search = urllib.parse.quote(search, safe='')
+        query += f"&or=(name.ilike.*{safe_search}*,description.ilike.*{safe_search}*)"
 
     # Get total count first (without pagination)
     count_query = query.replace("&select=*", "&select=id")
@@ -477,42 +594,78 @@ async def bulk_delete_tests(body: BulkDeleteRequest, request: Request):
     """Delete multiple tests at once.
 
     Requires membership in each test's project organization.
+
+    Optimized to use batch queries:
+    - Single query to fetch all tests
+    - Single query to verify all org memberships
+    - Single DELETE query for all accessible tests
+    - Single batch INSERT for audit logs
     """
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
+    # Step 1: Batch verify access to all tests (3 queries total instead of N*2)
+    accessible_tests, access_failures = await batch_verify_test_access(
+        body.test_ids, user["user_id"], user.get("email")
+    )
+
+    # Build failed list from access failures
+    failed = [{"id": test_id, "error": error} for test_id, error in access_failures.items()]
+
+    if not accessible_tests:
+        return {
+            "success": len(failed) == 0,
+            "deleted": [],
+            "failed": failed,
+            "deleted_count": 0,
+            "failed_count": len(failed),
+        }
+
+    # Step 2: Single DELETE query for all accessible tests
+    accessible_ids = list(accessible_tests.keys())
+    delete_result = await supabase.request(
+        f"/tests?id=in.({','.join(accessible_ids)})",
+        method="DELETE"
+    )
+
     deleted = []
-    failed = []
+    if delete_result.get("error"):
+        # If batch delete failed, mark all as failed
+        for test_id in accessible_ids:
+            failed.append({"id": test_id, "error": "Delete failed"})
+    else:
+        deleted = accessible_ids
 
-    for test_id in body.test_ids:
-        try:
-            test = await verify_test_access(test_id, user["user_id"], user.get("email"), request)
+    # Step 3: Batch get org_ids for audit logs (1 query instead of N)
+    if deleted:
+        project_ids = list(set(accessible_tests[tid]["project_id"] for tid in deleted))
+        project_org_map = await get_project_org_ids_batch(project_ids)
 
-            delete_result = await supabase.request(
-                f"/tests?id=eq.{test_id}",
-                method="DELETE"
-            )
+        # Step 4: Build and batch insert audit logs (1 query instead of N)
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        now = datetime.now(timezone.utc).isoformat()
 
-            if delete_result.get("error"):
-                failed.append({"id": test_id, "error": "Delete failed"})
-            else:
-                deleted.append(test_id)
+        audit_entries = []
+        for test_id in deleted:
+            test = accessible_tests[test_id]
+            org_id = project_org_map.get(test["project_id"])
+            if org_id:
+                audit_entries.append({
+                    "organization_id": org_id,
+                    "user_id": user["user_id"],
+                    "user_email": user.get("email"),
+                    "action": "test.delete",
+                    "resource_type": "test",
+                    "resource_id": test_id,
+                    "description": f"Deleted test '{test['name']}' (bulk operation)",
+                    "metadata": {"name": test["name"], "project_id": test["project_id"], "bulk": True},
+                    "ip_address": client_ip,
+                    "user_agent": user_agent,
+                    "created_at": now,
+                })
 
-                # Audit log
-                org_id = await get_project_org_id(test["project_id"])
-                await log_audit(
-                    organization_id=org_id,
-                    user_id=user["user_id"],
-                    user_email=user.get("email"),
-                    action="test.delete",
-                    resource_type="test",
-                    resource_id=test_id,
-                    description=f"Deleted test '{test['name']}' (bulk operation)",
-                    metadata={"name": test["name"], "project_id": test["project_id"], "bulk": True},
-                    request=request,
-                )
-        except HTTPException as e:
-            failed.append({"id": test_id, "error": e.detail})
+        await batch_insert_audit_logs(audit_entries)
 
     logger.info("Bulk delete completed", deleted=len(deleted), failed=len(failed))
 
@@ -530,18 +683,67 @@ async def bulk_update_tests(body: BulkUpdateRequest, request: Request):
     """Update multiple tests at once.
 
     Requires membership in each test's project organization.
+
+    Optimized to use batch queries:
+    - Single query to fetch all tests
+    - Single query to verify all org memberships
+    - Single UPDATE query when no tag modifications (or per-test for tags)
+    - Single batch INSERT for audit logs
     """
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
+    # Step 1: Batch verify access to all tests (3 queries total instead of N*2)
+    accessible_tests, access_failures = await batch_verify_test_access(
+        body.test_ids, user["user_id"], user.get("email")
+    )
+
+    # Build failed list from access failures
+    failed = [{"id": test_id, "error": error} for test_id, error in access_failures.items()]
+
+    if not accessible_tests:
+        return {
+            "success": len(failed) == 0,
+            "updated": [],
+            "failed": failed,
+            "updated_count": 0,
+            "failed_count": len(failed),
+        }
+
+    accessible_ids = list(accessible_tests.keys())
+    now = datetime.now(timezone.utc).isoformat()
     updated = []
-    failed = []
+    update_metadata = {}  # Track changes for audit log
 
-    for test_id in body.test_ids:
-        try:
-            test = await verify_test_access(test_id, user["user_id"], user.get("email"), request)
+    # Step 2: Perform updates
+    # If no tag modifications, we can do a single bulk UPDATE
+    if not body.tags_add and not body.tags_remove:
+        update_data = {"updated_at": now}
+        if body.is_active is not None:
+            update_data["is_active"] = body.is_active
+        if body.priority is not None:
+            update_data["priority"] = body.priority
 
-            update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+        result = await supabase.request(
+            f"/tests?id=in.({','.join(accessible_ids)})",
+            method="PATCH",
+            body=update_data
+        )
+
+        if result.get("error"):
+            for test_id in accessible_ids:
+                failed.append({"id": test_id, "error": "Update failed"})
+        else:
+            updated = accessible_ids
+            # Store the same update metadata for all tests
+            changes = {k: v for k, v in update_data.items() if k != "updated_at"}
+            for test_id in updated:
+                update_metadata[test_id] = changes
+    else:
+        # Tag modifications require per-test updates (each test has different existing tags)
+        for test_id in accessible_ids:
+            test = accessible_tests[test_id]
+            update_data = {"updated_at": now}
 
             if body.is_active is not None:
                 update_data["is_active"] = body.is_active
@@ -549,13 +751,12 @@ async def bulk_update_tests(body: BulkUpdateRequest, request: Request):
                 update_data["priority"] = body.priority
 
             # Handle tag modifications
-            if body.tags_add or body.tags_remove:
-                current_tags = set(test.get("tags", []) or [])
-                if body.tags_add:
-                    current_tags.update(body.tags_add)
-                if body.tags_remove:
-                    current_tags -= set(body.tags_remove)
-                update_data["tags"] = list(current_tags)
+            current_tags = set(test.get("tags", []) or [])
+            if body.tags_add:
+                current_tags.update(body.tags_add)
+            if body.tags_remove:
+                current_tags -= set(body.tags_remove)
+            update_data["tags"] = list(current_tags)
 
             result = await supabase.update("tests", {"id": f"eq.{test_id}"}, update_data)
 
@@ -563,22 +764,37 @@ async def bulk_update_tests(body: BulkUpdateRequest, request: Request):
                 failed.append({"id": test_id, "error": "Update failed"})
             else:
                 updated.append(test_id)
+                update_metadata[test_id] = {k: v for k, v in update_data.items() if k != "updated_at"}
 
-                # Audit log
-                org_id = await get_project_org_id(test["project_id"])
-                await log_audit(
-                    organization_id=org_id,
-                    user_id=user["user_id"],
-                    user_email=user.get("email"),
-                    action="test.update",
-                    resource_type="test",
-                    resource_id=test_id,
-                    description=f"Updated test '{test['name']}' (bulk operation)",
-                    metadata={"changes": {k: v for k, v in update_data.items() if k != "updated_at"}, "bulk": True},
-                    request=request,
-                )
-        except HTTPException as e:
-            failed.append({"id": test_id, "error": e.detail})
+    # Step 3: Batch get org_ids for audit logs (1 query instead of N)
+    if updated:
+        project_ids = list(set(accessible_tests[tid]["project_id"] for tid in updated))
+        project_org_map = await get_project_org_ids_batch(project_ids)
+
+        # Step 4: Build and batch insert audit logs (1 query instead of N)
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+
+        audit_entries = []
+        for test_id in updated:
+            test = accessible_tests[test_id]
+            org_id = project_org_map.get(test["project_id"])
+            if org_id:
+                audit_entries.append({
+                    "organization_id": org_id,
+                    "user_id": user["user_id"],
+                    "user_email": user.get("email"),
+                    "action": "test.update",
+                    "resource_type": "test",
+                    "resource_id": test_id,
+                    "description": f"Updated test '{test['name']}' (bulk operation)",
+                    "metadata": {"changes": update_metadata.get(test_id, {}), "bulk": True},
+                    "ip_address": client_ip,
+                    "user_agent": user_agent,
+                    "created_at": now,
+                })
+
+        await batch_insert_audit_logs(audit_entries)
 
     logger.info("Bulk update completed", updated=len(updated), failed=len(failed))
 

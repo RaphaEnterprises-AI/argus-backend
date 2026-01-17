@@ -6,7 +6,7 @@ from uuid import uuid4
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import structlog
 
 from src.api.teams import get_current_user
@@ -101,12 +101,57 @@ class RecordingMetadata(BaseModel):
 
 
 class RecordingUploadRequest(BaseModel):
-    """Request to upload a browser recording."""
+    """Request to upload a browser recording.
 
-    events: list[RRWebEvent] = Field(..., description="List of rrweb events")
+    Size limits are enforced to prevent DoS via memory exhaustion:
+    - Maximum 50,000 events per recording
+    - Maximum 50MB estimated payload size
+    """
+
+    events: list[RRWebEvent] = Field(
+        ...,
+        description="List of rrweb events",
+        max_length=50000  # Max 50K events to prevent memory exhaustion
+    )
     metadata: RecordingMetadata = Field(..., description="Recording metadata")
     project_id: Optional[str] = Field(None, description="Project to associate recording with")
     name: Optional[str] = Field(None, description="Name for the recording")
+
+    @field_validator("events")
+    @classmethod
+    def validate_events_payload_size(cls, v: list[RRWebEvent]) -> list[RRWebEvent]:
+        """Validate that the events payload is not too large.
+
+        Estimates payload size by sampling events to avoid O(n) serialization.
+        """
+        if not v:
+            return v
+
+        # Sample-based size estimation for performance
+        # Check first, middle, and last 10 events to estimate average size
+        sample_size = min(30, len(v))
+        if len(v) > 30:
+            sample_indices = list(range(10)) + list(range(len(v)//2 - 5, len(v)//2 + 5)) + list(range(len(v) - 10, len(v)))
+            sample = [v[i] for i in sample_indices]
+        else:
+            sample = v
+
+        # Estimate average event size
+        total_sample_size = sum(len(str(e.data)) for e in sample)
+        avg_event_size = total_sample_size / sample_size
+
+        # Estimate total payload size
+        estimated_total = avg_event_size * len(v)
+
+        # 50MB limit
+        max_payload_bytes = 50 * 1024 * 1024
+        if estimated_total > max_payload_bytes:
+            raise ValueError(
+                f"Recording payload too large. Estimated size: {estimated_total / 1024 / 1024:.1f}MB, "
+                f"maximum allowed: 50MB. Try recording a shorter session."
+            )
+
+        return v
 
 
 class RecordingUploadResponse(BaseModel):

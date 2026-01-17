@@ -214,6 +214,48 @@ app.add_middleware(
     ],
 )
 
+
+# =============================================================================
+# Request Size Limiting Middleware
+# =============================================================================
+
+# Maximum request body size: 100MB (handles large recording uploads)
+MAX_REQUEST_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Reject requests with Content-Length exceeding the maximum allowed size.
+
+    This prevents DoS attacks via memory exhaustion from extremely large payloads.
+    The limit is set to 100MB to accommodate large recording uploads while still
+    providing protection against abuse.
+    """
+    content_length = request.headers.get("content-length")
+
+    if content_length:
+        try:
+            size = int(content_length)
+            if size > MAX_REQUEST_SIZE_BYTES:
+                logger.warning(
+                    "Request rejected: payload too large",
+                    content_length=size,
+                    max_allowed=MAX_REQUEST_SIZE_BYTES,
+                    path=request.url.path,
+                )
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": f"Request payload too large. Maximum size: {MAX_REQUEST_SIZE_BYTES // (1024*1024)}MB"
+                    }
+                )
+        except ValueError:
+            # Invalid Content-Length header, let it through for other validation
+            pass
+
+    return await call_next(request)
+
+
 # Include routers
 app.include_router(webhooks_router)
 app.include_router(quality_router)

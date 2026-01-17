@@ -79,6 +79,40 @@ interface Env {
   DEFAULT_BACKEND: string;
   ENABLE_CACHING: string;
   ENABLE_SELF_HEALING: string;
+
+  // Environment - set to "production" to disable debug logging
+  ENVIRONMENT?: string;
+}
+
+// ============================================================================
+// DEBUG LOGGING
+// ============================================================================
+
+/**
+ * Conditional debug logging - only logs in non-production environments.
+ * Prevents information disclosure of internal operations in production.
+ */
+function debugLog(env: Env, message: string, data?: unknown): void {
+  if (env.ENVIRONMENT !== 'production') {
+    if (data !== undefined) {
+      console.log(message, JSON.stringify(data, null, 2));
+    } else {
+      console.log(message);
+    }
+  }
+}
+
+/**
+ * Conditional debug warning - only logs in non-production environments.
+ */
+function debugWarn(env: Env, message: string, data?: unknown): void {
+  if (env.ENVIRONMENT !== 'production') {
+    if (data !== undefined) {
+      console.warn(message, data);
+    } else {
+      console.warn(message);
+    }
+  }
 }
 
 type Backend = "cloudflare" | "testingbot" | "vultr" | "selenium" | "auto";
@@ -838,8 +872,13 @@ async function createSeleniumGridSession(
     } : undefined,
   };
 
-  // Log AI-determined config for debugging
-  console.log(`Creating Selenium session with AI config: maxDuration=${config.maxDuration}s, idleTimeout=${config.idleTimeout}s, memoryClass=${config.memoryClass}, priority=${config.priority}`);
+  // Log AI-determined config for debugging (non-production only)
+  debugLog(env, `Creating Selenium session with AI config`, {
+    maxDuration: config.maxDuration,
+    idleTimeout: config.idleTimeout,
+    memoryClass: config.memoryClass,
+    priority: config.priority,
+  });
 
   // Remove undefined options
   Object.keys(capabilities).forEach(key => {
@@ -2505,9 +2544,14 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
     viewport: sessionConfig.viewport,
   } : undefined;
 
-  // Log AI-determined session config if provided
+  // Log AI-determined session config if provided (non-production only)
   if (aiSessionConfig) {
-    console.log(`AI-determined session config: maxDuration=${aiSessionConfig.maxDuration}s, idleTimeout=${aiSessionConfig.idleTimeout}s, memoryClass=${aiSessionConfig.memoryClass}, priority=${aiSessionConfig.priority}`);
+    debugLog(env, `AI-determined session config`, {
+      maxDuration: aiSessionConfig.maxDuration,
+      idleTimeout: aiSessionConfig.idleTimeout,
+      memoryClass: aiSessionConfig.memoryClass,
+      priority: aiSessionConfig.priority,
+    });
   }
 
   // Use Vultr browser pool if configured
@@ -3295,7 +3339,7 @@ export default {
     for (const message of batch.messages) {
       try {
         const { type, payload, timestamp, projectId } = message.body;
-        console.log(`Processing ${type} event for project ${projectId}`);
+        debugLog(env, `Processing ${type} event for project ${projectId}`);
 
         switch (type) {
           case 'webhook_event':
@@ -3303,7 +3347,7 @@ export default {
             if (payload.fingerprint) {
               const isDupe = await cache.isDuplicate(String(payload.fingerprint));
               if (isDupe) {
-                console.log(`Duplicate event skipped: ${payload.fingerprint}`);
+                debugLog(env, `Duplicate event skipped: ${payload.fingerprint}`);
                 message.ack();
                 continue;
               }
@@ -3329,7 +3373,7 @@ export default {
 
           case 'test_request':
             // Process test generation requests
-            console.log(`Test request for project ${projectId}:`, payload);
+            debugLog(env, `Test request for project ${projectId}`, payload);
             // Store request and trigger processing
             if (projectId && storage.isAvailable()) {
               await storage.storeTestResults(
@@ -3342,11 +3386,11 @@ export default {
 
           case 'error_event':
             // Process error events for correlation
-            console.log(`Error event for project ${projectId}:`, payload);
+            debugLog(env, `Error event for project ${projectId}`, payload);
             break;
 
           default:
-            console.warn(`Unknown event type: ${type}`);
+            debugWarn(env, `Unknown event type: ${type}`);
         }
 
         message.ack();

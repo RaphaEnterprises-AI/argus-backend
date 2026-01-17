@@ -384,43 +384,36 @@ async def accept_invitation(token: str, request: Request):
     org_id = invitation["organization_id"]
     org_name = invitation.get("organizations", {}).get("name", "Unknown")
 
-    # Check if user is already a member
-    existing_member = await supabase.request(
-        f"/organization_members?organization_id=eq.{org_id}&user_id=eq.{user['user_id']}&select=id"
-    )
-
-    if existing_member.get("data"):
-        raise HTTPException(status_code=400, detail="You are already a member of this organization")
-
-    # Create organization membership
-    now = datetime.now(timezone.utc).isoformat()
-
-    member_result = await supabase.insert("organization_members", {
-        "organization_id": org_id,
-        "user_id": user["user_id"],
-        "email": invitation["email"],
-        "role": invitation["role"],
-        "status": "active",
-        "invited_by": invitation.get("invited_by"),
-        "invited_at": invitation["created_at"],
-        "accepted_at": now,
-    })
-
-    if member_result.get("error"):
-        logger.error("Failed to create membership", error=member_result.get("error"))
-        raise HTTPException(status_code=500, detail="Failed to create membership")
-
-    # Update invitation status to accepted
-    await supabase.update(
-        "invitations",
-        {"id": f"eq.{invitation['id']}"},
+    # Use atomic RPC function to create membership and update invitation
+    # This ensures both operations succeed or both fail (no partial state)
+    rpc_result = await supabase.rpc(
+        "accept_invitation_atomic",
         {
-            "status": "accepted",
-            "accepted_by": user["user_id"],
-            "accepted_at": now,
-            "updated_at": now,
+            "p_invitation_id": invitation["id"],
+            "p_user_id": user["user_id"],
+            "p_user_email": user.get("email") or invitation["email"],
         }
     )
+
+    if rpc_result.get("error"):
+        logger.error("RPC accept_invitation_atomic failed", error=rpc_result.get("error"))
+        raise HTTPException(status_code=500, detail="Failed to accept invitation")
+
+    # Parse RPC result (returns JSONB)
+    result_data = rpc_result.get("data")
+    if isinstance(result_data, list) and result_data:
+        result_data = result_data[0]
+
+    if not result_data or not result_data.get("success"):
+        error_msg = result_data.get("error", "Unknown error") if result_data else "Unknown error"
+        # Map common errors to appropriate HTTP status codes
+        if "already a member" in error_msg.lower():
+            raise HTTPException(status_code=400, detail="You are already a member of this organization")
+        elif "not found" in error_msg.lower() or "already used" in error_msg.lower():
+            raise HTTPException(status_code=400, detail="Invitation is no longer valid")
+        else:
+            logger.error("Accept invitation failed", error=error_msg)
+            raise HTTPException(status_code=500, detail="Failed to accept invitation")
 
     # Audit log
     await log_audit(
