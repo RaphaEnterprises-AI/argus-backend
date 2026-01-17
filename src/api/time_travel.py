@@ -19,6 +19,21 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/time-travel", tags=["Time Travel"])
 
 
+class CheckpointInfo(BaseModel):
+    """Basic checkpoint information."""
+    checkpoint_id: str
+    parent_checkpoint_id: Optional[str] = None
+    created_at: str
+    next_node: Optional[str] = None
+
+
+class CheckpointsResponse(BaseModel):
+    """Response containing checkpoints for a thread."""
+    thread_id: str
+    checkpoints: List[CheckpointInfo]
+    total_count: int
+
+
 class StateSnapshot(BaseModel):
     """A snapshot of graph state at a point in time."""
     checkpoint_id: str
@@ -85,6 +100,74 @@ class CompareStatesResponse(BaseModel):
     checkpoint_2: Optional[str] = None
     differences: dict
     difference_count: int
+
+
+@router.get("/checkpoints", response_model=CheckpointsResponse)
+async def get_checkpoints(
+    thread_id: str = Query(..., description="Thread ID to get checkpoints for"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of checkpoints to return"),
+):
+    """Get checkpoints for a thread.
+
+    Returns a list of checkpoints from newest to oldest.
+    This is a simplified endpoint that returns just checkpoint metadata
+    without the full state summary.
+    """
+    checkpointer = get_checkpointer()
+    settings = get_settings()
+
+    graph = create_testing_graph(settings)
+    app = graph.compile(checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": thread_id}}
+
+    try:
+        checkpoints = []
+        count = 0
+
+        # Get state history using LangGraph's built-in method
+        async for state in app.aget_state_history(config):
+            count += 1
+
+            current_checkpoint_id = state.config["configurable"].get("checkpoint_id", "")
+
+            # Extract parent checkpoint ID if available
+            parent_checkpoint_id = None
+            if state.parent_config:
+                parent_checkpoint_id = state.parent_config.get("configurable", {}).get("checkpoint_id")
+
+            # Get created_at timestamp
+            created_at = datetime.now().isoformat()
+            if hasattr(state, 'created_at') and state.created_at:
+                created_at = state.created_at.isoformat() if hasattr(state.created_at, 'isoformat') else str(state.created_at)
+
+            checkpoint = CheckpointInfo(
+                checkpoint_id=current_checkpoint_id,
+                parent_checkpoint_id=parent_checkpoint_id,
+                created_at=created_at,
+                next_node=state.next[0] if state.next else None,
+            )
+            checkpoints.append(checkpoint)
+
+            if len(checkpoints) >= limit:
+                break
+
+        logger.info(
+            "Retrieved checkpoints",
+            thread_id=thread_id,
+            checkpoint_count=len(checkpoints),
+            total_count=count,
+        )
+
+        return CheckpointsResponse(
+            thread_id=thread_id,
+            checkpoints=checkpoints,
+            total_count=count,
+        )
+
+    except Exception as e:
+        logger.exception("Failed to get checkpoints", thread_id=thread_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get checkpoints: {str(e)}")
 
 
 @router.get("/history/{thread_id}", response_model=StateHistoryResponse)

@@ -567,6 +567,62 @@ argusStopRecording().then(result => {
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/recordings")
+async def get_recordings(
+    request: Request,
+    project_id: Optional[str] = None,
+    limit: int = 20,
+):
+    """
+    List uploaded recordings for the authenticated user/organization.
+
+    Returns a list of recordings with metadata. Supports filtering by project_id.
+    Requires authentication.
+    """
+    # Authenticate the request
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user_org = user.get("organization_id")
+    current_user = user.get("user_id")
+
+    recordings = list(_recordings.values())
+
+    # Filter by organization - only show recordings from same org or owned by user
+    recordings = [
+        r
+        for r in recordings
+        if r.get("organization_id") == user_org
+        or r.get("user_id") == current_user
+        or not r.get("organization_id")  # Legacy recordings without org
+    ]
+
+    if project_id:
+        recordings = [r for r in recordings if r.get("project_id") == project_id]
+
+    # Sort by created_at descending
+    recordings.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    return {
+        "success": True,
+        "recordings": [
+            {
+                "id": r["id"],
+                "name": r.get("name"),
+                "project_id": r.get("project_id"),
+                "events_count": r.get("events_count", 0),
+                "interaction_count": r.get("interaction_count", 0),
+                "duration_ms": r.get("metadata", {}).get("duration", 0),
+                "url": r.get("metadata", {}).get("url"),
+                "created_at": r.get("created_at"),
+            }
+            for r in recordings[:limit]
+        ],
+        "total": len(recordings),
+    }
+
+
 @router.get("/list")
 async def list_recordings(
     request: Request,
@@ -576,6 +632,8 @@ async def list_recordings(
     """
     List uploaded recordings.
     Requires authentication. Only shows recordings from user's organization.
+
+    Note: This endpoint is an alias for /recordings and is maintained for backward compatibility.
     """
     # Authenticate the request
     user = await get_current_user(request)

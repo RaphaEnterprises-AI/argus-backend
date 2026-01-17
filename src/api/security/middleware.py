@@ -58,9 +58,15 @@ class RateLimitConfig:
     }
 
     # Per-endpoint overrides
+    # NOTE: Order matters! More specific paths must come before less specific ones
+    # because _get_limit_for_endpoint uses startswith() matching.
     ENDPOINT_LIMITS = {
         "/api/v1/chat/stream": {"requests": 10, "window": 60},
         "/api/v1/stream/test": {"requests": 5, "window": 60},
+        # Discovery API endpoints - higher limits for normal API usage
+        # Must come BEFORE /api/v1/discover to avoid false matches
+        "/api/v1/discovery/": {"requests": 100, "window": 60},
+        # Auto-discover endpoint (intensive crawling operation) - keep low
         "/api/v1/discover": {"requests": 10, "window": 60},
         "/health": {"requests": 1000, "window": 60},
     }

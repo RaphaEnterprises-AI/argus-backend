@@ -139,6 +139,7 @@ Autonomous E2E testing powered by Claude AI.
         {"name": "Health", "description": "Health check endpoints"},
         {"name": "Authentication", "description": "Authentication and authorization"},
         {"name": "Tests", "description": "Test execution and management"},
+        {"name": "Orchestrator", "description": "Unified orchestrator status and control"},
         {"name": "Chat", "description": "Chat-based test orchestration"},
         {"name": "Streaming", "description": "Server-Sent Events for real-time updates"},
         {"name": "Time Travel", "description": "State inspection and replay"},
@@ -1518,6 +1519,126 @@ async def start_supervised_test_run(
         current_phase="analysis",
         agents_available=list(SUPERVISOR_AGENTS),
         created_at=created_at,
+    )
+
+
+# ============================================================================
+# Unified Orchestrator Status Endpoint
+# ============================================================================
+
+
+class OrchestratorStatusResponse(BaseModel):
+    """Unified response for orchestrator status query."""
+
+    thread_id: str
+    found: bool
+    source: str  # "supervisor", "streaming", or "not_found"
+    status: str  # running, paused, completed, failed, pending, error
+    current_phase: Optional[str] = None
+    iteration: Optional[int] = None
+    is_complete: Optional[bool] = None
+    next_node: Optional[str] = None
+    results: Optional[dict] = None
+    progress: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    state_summary: Optional[dict] = None
+
+
+@app.get(
+    "/api/v1/orchestrator/status/{thread_id}",
+    response_model=OrchestratorStatusResponse,
+    tags=["Orchestrator"],
+)
+async def get_orchestrator_status(thread_id: str):
+    """
+    Get the status of an orchestrator run by thread ID.
+
+    This is a unified endpoint that checks multiple sources:
+    1. Supervisor jobs (multi-agent orchestration)
+    2. Streaming execution state (LangGraph checkpoints)
+
+    Returns the status from the first source that has data for the given thread_id.
+    """
+    # First, check supervisor jobs (in-memory storage)
+    if thread_id in supervisor_jobs:
+        job = supervisor_jobs[thread_id]
+        return OrchestratorStatusResponse(
+            thread_id=thread_id,
+            found=True,
+            source="supervisor",
+            status=job.get("status", "unknown"),
+            current_phase=job.get("current_phase"),
+            iteration=job.get("iteration", 0),
+            is_complete=job.get("is_complete", False),
+            next_node=job.get("next_node"),
+            results=job.get("result"),
+            progress=job.get("progress"),
+            error=job.get("error"),
+            created_at=job.get("created_at"),
+        )
+
+    # Second, check streaming execution state (LangGraph checkpoints)
+    try:
+        from src.orchestrator.checkpointer import get_checkpointer
+        from src.orchestrator.graph import create_enhanced_testing_graph
+
+        checkpointer = get_checkpointer()
+        config = {"configurable": {"thread_id": thread_id}}
+
+        graph = create_enhanced_testing_graph(settings)
+        app_graph = graph.compile(checkpointer=checkpointer)
+
+        state = await app_graph.aget_state(config)
+
+        if state and state.values:
+            values = state.values
+            total_tests = len(values.get("test_plan", []))
+            current_test = values.get("current_test_index", 0)
+
+            # Determine status
+            if values.get("error"):
+                status = "error"
+            elif state.next:
+                status = "running"
+            elif values.get("passed_count", 0) + values.get("failed_count", 0) + values.get("skipped_count", 0) > 0:
+                status = "completed"
+            else:
+                status = "pending"
+
+            return OrchestratorStatusResponse(
+                thread_id=thread_id,
+                found=True,
+                source="streaming",
+                status=status,
+                current_phase=values.get("next_agent"),
+                iteration=values.get("iteration", 0),
+                is_complete=not bool(state.next),
+                next_node=state.next[0] if state.next else None,
+                error=values.get("error"),
+                created_at=values.get("started_at"),
+                state_summary={
+                    "passed": values.get("passed_count", 0),
+                    "failed": values.get("failed_count", 0),
+                    "skipped": values.get("skipped_count", 0),
+                    "current_test": current_test,
+                    "total_tests": total_tests,
+                    "progress_percent": (current_test / total_tests * 100) if total_tests > 0 else 0,
+                    "total_cost": values.get("total_cost", 0),
+                },
+            )
+    except Exception as e:
+        logger.debug(
+            "Failed to get streaming state for thread",
+            thread_id=thread_id,
+            error=str(e),
+        )
+
+    # Not found in any source
+    raise HTTPException(
+        status_code=404,
+        detail=f"Orchestrator run not found for thread_id: {thread_id}. "
+               "The thread may have expired or never existed."
     )
 
 

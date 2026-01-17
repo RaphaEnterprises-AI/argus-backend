@@ -28,6 +28,7 @@ from src.integrations.slack import (
     create_slack_notifier,
 )
 from src.integrations.supabase import get_supabase, is_supabase_configured
+from src.api.teams import get_current_user
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/notifications", tags=["Notifications"])
@@ -1187,9 +1188,10 @@ async def create_channel(body: ChannelCreateRequest, request: Request):
 
     Channels can be Slack, email, webhook, Discord, Teams, PagerDuty, or OpsGenie.
     """
+    user = await get_current_user(request)
     channel_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
-    user_id = request.headers.get("x-user-id")
+    user_id = user["user_id"]
 
     channel = {
         "id": channel_id,
@@ -1346,6 +1348,8 @@ async def create_rule(body: RuleCreateRequest, request: Request):
 
     Rules define when notifications are sent based on event types and conditions.
     """
+    user = await get_current_user(request)
+
     # Verify channel exists
     channel = await _get_channel_from_db(body.channel_id)
     if not channel:
@@ -1353,7 +1357,7 @@ async def create_rule(body: RuleCreateRequest, request: Request):
 
     rule_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
-    user_id = request.headers.get("x-user-id")
+    user_id = user["user_id"]
 
     rule = {
         "id": rule_id,
@@ -1510,12 +1514,8 @@ async def list_user_notifications(
     Supports filtering by read status and notification type.
     Returns paginated results with total count and unread count.
     """
-    user_id = request.headers.get("x-user-id")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="User ID not found. Authentication required."
-        )
+    user = await get_current_user(request)
+    user_id = user["user_id"]
 
     notifications, total = await _list_user_notifications_from_db(
         user_id=user_id,
@@ -1551,12 +1551,8 @@ async def get_unread_notification_count(request: Request):
 
     Returns total unread count and breakdown by priority level.
     """
-    user_id = request.headers.get("x-user-id")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="User ID not found. Authentication required."
-        )
+    user = await get_current_user(request)
+    user_id = user["user_id"]
 
     unread_data = await _get_unread_count_from_db(user_id)
 
@@ -1573,12 +1569,8 @@ async def mark_notification_as_read(notification_id: str, request: Request):
 
     The notification must belong to the authenticated user.
     """
-    user_id = request.headers.get("x-user-id")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="User ID not found. Authentication required."
-        )
+    user = await get_current_user(request)
+    user_id = user["user_id"]
 
     notification = await _get_user_notification_from_db(notification_id)
     if not notification:
@@ -1616,12 +1608,8 @@ async def mark_all_notifications_as_read(request: Request):
 
     Returns the count of notifications that were marked as read.
     """
-    user_id = request.headers.get("x-user-id")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="User ID not found. Authentication required."
-        )
+    user = await get_current_user(request)
+    user_id = user["user_id"]
 
     count = await _mark_all_notifications_read(user_id)
 
@@ -1646,12 +1634,8 @@ async def get_notification_preferences(request: Request):
     Returns preferences for email, in-app, and Slack notifications.
     If no preferences exist, returns default preferences.
     """
-    user_id = request.headers.get("x-user-id")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="User ID not found. Authentication required."
-        )
+    user = await get_current_user(request)
+    user_id = user["user_id"]
 
     preferences = await _get_user_preferences_from_db(user_id)
 
@@ -1691,12 +1675,8 @@ async def update_notification_preferences(
     Supports partial updates - only provided fields will be updated.
     Preferences control notifications for email, in-app, and Slack channels.
     """
-    user_id = request.headers.get("x-user-id")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="User ID not found. Authentication required."
-        )
+    user = await get_current_user(request)
+    user_id = user["user_id"]
 
     now = datetime.now(timezone.utc).isoformat()
 
