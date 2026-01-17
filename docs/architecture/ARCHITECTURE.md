@@ -1,10 +1,10 @@
 # Argus E2E Testing Agent - Complete Architecture Documentation
 
-> **Version:** 2.0.0
-> **Last Updated:** 2026-01-09T12:00:00Z
+> **Version:** 2.8.0
+> **Last Updated:** 2026-01-17T05:30:00Z
 > **Document Status:** Production Ready
 > **Audit Classification:** Technical Architecture
-> **Git Commit:** e22fef1
+> **Git Commit:** 918c51a
 
 ---
 
@@ -44,16 +44,19 @@
 - **Real-Time Streaming** - SSE-based live execution feedback
 - **Human-in-the-Loop** - Configurable breakpoints with approval workflows
 
-### Key Metrics (v2.0.0)
+### Key Metrics (v2.8.0)
 
 | Metric | Value |
 |--------|-------|
-| Total API Endpoints | 45+ |
-| Database Tables | 25+ |
-| Test Coverage | 158 tests |
-| Specialized Agents | 5 (coordinated by Supervisor) |
+| Total API Endpoints | 80+ (40 route modules) |
+| Database Tables | 40+ |
+| Test Coverage | 218 tests |
+| Specialized Agents | 23 (coordinated by Supervisor) |
 | LangGraph Features | 7 (PostgresSaver, Memory, Streaming, HITL, Supervisor, Time Travel, Chat) |
 | Supported Browsers | Chrome, Firefox, Safari, Edge |
+| AI Model Providers | 9 (OpenRouter, Anthropic, OpenAI, Google, Groq, DeepSeek, Cerebras, Together, Local) |
+| Model Routing | 45+ models with intelligent task-based selection |
+| Security Middleware | 7 layers (CORS, Headers, Audit, Rate Limit, Auth, Request Size, Core) |
 
 ---
 
@@ -1787,7 +1790,75 @@ GITHUB_TOKEN=ghp_...
 
 ---
 
-*Document generated: 2026-01-09T12:00:00Z*
-*Architecture Version: 2.0.0*
-*Git Commit: e22fef1*
+## Appendix C: Recent Changes (January 2026)
+
+### v2.8.0 Security & Infrastructure Updates
+
+**Security Improvements:**
+- Fixed hardcoded JWT secret fallback vulnerability
+- Replaced permissive RLS policies (`USING(true)`) with proper organization-scoped policies
+- Added authentication to all recording endpoints
+- Fixed development mode auth bypass
+- Added SSRF protection to URL validation
+- Fixed CORS wildcard in Cloudflare Worker
+- Added authentication to `/storage/*` endpoint
+- Enabled HTTPS for browser pool URL
+- Fixed race conditions in pattern_service.py and healing.py
+- Added missing foreign key constraints
+- Fixed frontend-backend type mismatches
+- Changed default passwords in Kubernetes configs
+- Added comprehensive security headers (CSP, HSTS, X-Frame-Options)
+
+**Performance Improvements:**
+- Fixed N+1 queries in project listing (batch query via `get_project_test_counts()` RPC)
+- Fixed N+1 queries in organization listing (batch query via `get_org_member_counts()` RPC)
+- Fixed N+1 in bulk test operations
+- Added recording upload size limits (50MB max)
+- Added request size middleware (100MB max)
+- Implemented transaction boundaries for invitation acceptance and org creation
+
+**Model Router Updates:**
+- Added OpenRouter as primary provider (single API for 300+ models)
+- Integrated DeepSeek V3.2 (90% cost reduction vs Claude for similar quality)
+- Integrated DeepSeek R1 (10% cost of o1 for reasoning tasks)
+- Fixed model key consistency (`llama-small` instead of `llama-3.1-8b`)
+- Added `ModelProvider.OPENROUTER` handling in `_get_router_client()`
+
+**Infrastructure Updates:**
+- Browser Pool: Updated resource specifications (750m CPU, 1.5Gi memory per pod)
+- KEDA: Added production scalers for Chrome/Firefox/Edge
+- Session Cleanup: Added CronJob for stuck session cleanup
+- AI-Controlled Sessions: Added `estimate_session_config()` for intelligent timeouts
+
+### Architecture Audit Summary (January 17, 2026)
+
+**Core Architecture:**
+- 7 LangGraph state fields with intelligent reducers
+- PostgresSaver for durable execution with automatic checkpointing
+- pgvector-powered memory store for semantic failure search
+- Supervisor pattern with 23 specialized agents
+
+**API Layer:**
+- 40 route modules with 80+ endpoints
+- 7-layer middleware stack (CORS → Headers → Audit → Rate Limit → Auth → Request Size → Core)
+- Multi-method authentication (API Key, JWT, Clerk, Service Account)
+- Fine-grained RBAC with scope-based permission validation
+
+**Data Layer:**
+- 40+ tables organized into functional domains
+- RLS policies with organization membership checks
+- pgvector HNSW indexes for O(log n) semantic search
+- Comprehensive foreign key relationships with CASCADE/SET NULL behaviors
+
+**AI/ML Integration:**
+- Multi-model routing with 45+ models across 9 providers
+- Task-based model selection (TRIVIAL → EXPERT tiers)
+- Budget enforcement per organization (daily/monthly limits)
+- 60-80% cost savings via intelligent routing
+
+---
+
+*Document generated: 2026-01-17T05:30:00Z*
+*Architecture Version: 2.8.0*
+*Git Commit: 918c51a*
 *Argus E2E Testing Agent*
