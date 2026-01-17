@@ -79,7 +79,7 @@ class RouterAgentConfig:
 
     # Which model the router uses for its own decisions
     # Priority: groq > google > openai > anthropic (by cost)
-    router_model: str = "llama-3.1-8b"
+    router_model: str = "llama-small"
     router_model_fallbacks: list[str] = field(default_factory=lambda: [
         "gemini-flash",
         "gpt-4o-mini",
@@ -151,7 +151,7 @@ class RouterAgent(BaseAgent):
 
     # Routing categories
     COMPLEXITY_TIERS = {
-        TaskComplexity.TRIVIAL: ["llama-3.1-8b", "gemini-flash"],
+        TaskComplexity.TRIVIAL: ["llama-small", "gemini-flash"],
         TaskComplexity.SIMPLE: ["gemini-flash", "gpt-4o-mini", "haiku"],
         TaskComplexity.MODERATE: ["deepseek-v3", "gemini-pro", "gpt-4o"],
         TaskComplexity.COMPLEX: ["sonnet", "gpt-4o", "gemini-pro"],
@@ -193,7 +193,12 @@ class RouterAgent(BaseAgent):
             provider = model_config.provider
 
             try:
-                if provider == ModelProvider.GROQ:
+                if provider == ModelProvider.OPENROUTER:
+                    # OpenRouter is the primary provider for all models
+                    if os.environ.get("OPENROUTER_API_KEY"):
+                        from ..core.model_router import OpenRouterClient
+                        return OpenRouterClient(), model_name
+                elif provider == ModelProvider.GROQ:
                     # Check if Groq API key is available
                     if os.environ.get("GROQ_API_KEY"):
                         from ..core.model_router import GroqClient
@@ -308,7 +313,7 @@ Respond with JSON only:
 
         # Quick heuristic for trivial tasks (skip LLM call)
         if self._is_trivial_task(context):
-            model_name = "gemini-flash" if context.has_images else "llama-3.1-8b"
+            model_name = "gemini-flash" if context.has_images else "llama-small"
             return AgentResult(
                 success=True,
                 data=RoutingDecision(

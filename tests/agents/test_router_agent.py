@@ -22,7 +22,7 @@ class TestRouterAgentConfig:
         """Test default configuration values."""
         config = RouterAgentConfig()
 
-        assert config.router_model == "llama-3.1-8b"
+        assert config.router_model == "llama-small"
         assert "gemini-flash" in config.router_model_fallbacks
         assert config.custom_system_prompt is None
         assert config.trivial_threshold_tokens == 500
@@ -122,7 +122,7 @@ class TestRouterAgent:
         """Test complexity tier definitions."""
         assert TaskComplexity.TRIVIAL in router.COMPLEXITY_TIERS
         assert TaskComplexity.EXPERT in router.COMPLEXITY_TIERS
-        assert "llama-3.1-8b" in router.COMPLEXITY_TIERS[TaskComplexity.TRIVIAL]
+        assert "llama-small" in router.COMPLEXITY_TIERS[TaskComplexity.TRIVIAL]
         assert "opus" in router.COMPLEXITY_TIERS[TaskComplexity.EXPERT]
 
     def test_is_trivial_task_short_prompt(self, router):
@@ -175,7 +175,7 @@ class TestRouterAgent:
         result = await router.execute(context)
 
         assert result.success is True
-        assert result.data.model_name in ["llama-3.1-8b", "gemini-flash"]
+        assert result.data.model_name in ["llama-small", "gemini-flash"]
         assert result.data.confidence >= 0.9
 
     @pytest.mark.asyncio
@@ -401,38 +401,41 @@ class TestRouterAgent:
 class TestRouterClientSelection:
     """Tests for router's own model selection."""
 
-    def test_get_router_client_groq_available(self, mock_env_vars):
-        """Test Groq client selection when available."""
-        with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}):
+    def test_get_router_client_openrouter_available(self, mock_env_vars):
+        """Test OpenRouter client selection when available."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
             with patch(
-                "src.core.model_router.GroqClient",
+                "src.core.model_router.OpenRouterClient",
                 return_value=MagicMock()
             ):
                 router = RouterAgent()
                 client, model_name = router._get_router_client()
 
-                assert model_name == "llama-3.1-8b"
+                # Default router_model is "llama-small" which uses OpenRouter
+                assert model_name == "llama-small"
 
-    def test_get_router_client_fallback_to_google(self, mock_env_vars):
-        """Test fallback to Google when Groq unavailable."""
-        # Clear GROQ_API_KEY, set GOOGLE_API_KEY
-        test_env = os.environ.copy()
-        test_env.pop("GROQ_API_KEY", None)
-        test_env["GOOGLE_API_KEY"] = "test-key"
-
-        with patch.dict(os.environ, test_env, clear=True):
+    def test_get_router_client_fallback_models(self, mock_env_vars):
+        """Test fallback to other models when primary unavailable."""
+        # Set OPENROUTER_API_KEY so OpenRouter models work
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
             with patch(
-                "src.core.model_router.GoogleClient",
+                "src.core.model_router.OpenRouterClient",
                 return_value=MagicMock()
             ):
-                router = RouterAgent()
+                # Use a custom config with different primary model
+                config = RouterAgentConfig(
+                    router_model="gemini-flash",  # Also OpenRouter
+                    router_model_fallbacks=["llama-small"],
+                )
+                router = RouterAgent(config=config)
                 client, model_name = router._get_router_client()
 
+                # Should select gemini-flash as it's the configured primary
                 assert model_name == "gemini-flash"
 
     def test_get_router_client_ultimate_fallback(self, mock_env_vars):
         """Test ultimate fallback to Anthropic when no other providers available."""
-        # Create env with only ANTHROPIC_API_KEY
+        # Create env with only ANTHROPIC_API_KEY (no OPENROUTER_API_KEY)
         test_env = {"ANTHROPIC_API_KEY": "test-key"}
 
         with patch.dict(os.environ, test_env, clear=True):
