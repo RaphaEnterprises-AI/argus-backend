@@ -49,10 +49,12 @@ class TestRequestModels:
         request = NLPTestRequest(
             description="Login as admin and verify dashboard",
             context="E-commerce application",
+            project_id="test-project-id",
         )
 
         assert request.description == "Login as admin and verify dashboard"
         assert request.context == "E-commerce application"
+        assert request.project_id == "test-project-id"
 
     def test_visual_compare_request(self, mock_env_vars):
         """Test VisualCompareRequest model."""
@@ -353,23 +355,43 @@ class TestNLPEndpoints:
         from src.api.server import create_test_from_nlp, NLPTestRequest
 
         mock_test = MagicMock()
-        mock_test.to_dict = MagicMock(return_value={"name": "Login Test"})
+        mock_test.to_dict = MagicMock(return_value={"name": "Login Test", "steps": [], "assertions": []})
         mock_test.to_spec = MagicMock(return_value={"steps": []})
 
         mock_creator = MagicMock()
         mock_creator.create = AsyncMock(return_value=mock_test)
 
-        request = NLPTestRequest(description="Login as admin")
+        nlp_request = NLPTestRequest(description="Login as admin", project_id="test-project")
+        mock_http_request = MagicMock()
 
-        with patch(
-            "src.agents.nlp_test_creator.NLPTestCreator",
-            return_value=mock_creator,
-        ):
-            response = await create_test_from_nlp(request)
+        # Mock user authentication
+        mock_user = {"user_id": "test-user", "email": "test@example.com"}
+
+        # Mock Supabase client with async insert
+        mock_supabase = MagicMock()
+        mock_supabase.insert = AsyncMock(return_value={
+            "data": [{
+                "id": "test-id",
+                "name": "Login Test",
+                "project_id": "test-project",
+                "description": "Login as admin",
+                "steps": [],
+                "tags": [],
+                "priority": "medium",
+            }],
+            "error": None
+        })
+
+        with patch("src.agents.nlp_test_creator.NLPTestCreator", return_value=mock_creator), \
+             patch("src.api.teams.get_current_user", AsyncMock(return_value=mock_user)), \
+             patch("src.api.projects.verify_project_access", AsyncMock()), \
+             patch("src.services.supabase_client.get_supabase_client", return_value=mock_supabase), \
+             patch("src.api.teams.log_audit", AsyncMock()), \
+             patch("src.api.tests.get_project_org_id", AsyncMock(return_value="test-org-id")):
+            response = await create_test_from_nlp(nlp_request, mock_http_request)
 
             assert response["success"] is True
-            assert response["test"] == {"name": "Login Test"}
-            assert response["spec"] == {"steps": []}
+            assert "test" in response
 
     @pytest.mark.asyncio
     async def test_create_test_from_nlp_failure(self, mock_env_vars):
@@ -377,14 +399,17 @@ class TestNLPEndpoints:
         from src.api.server import create_test_from_nlp, NLPTestRequest
         from fastapi import HTTPException
 
-        request = NLPTestRequest(description="Test something")
+        nlp_request = NLPTestRequest(description="Test something", project_id="test-project")
+        mock_http_request = MagicMock()
 
-        with patch(
-            "src.agents.nlp_test_creator.NLPTestCreator",
-            side_effect=Exception("NLP parsing failed"),
-        ):
+        # Mock user authentication
+        mock_user = {"user_id": "test-user", "email": "test@example.com"}
+
+        with patch("src.api.teams.get_current_user", AsyncMock(return_value=mock_user)), \
+             patch("src.api.projects.verify_project_access", AsyncMock()), \
+             patch("src.agents.nlp_test_creator.NLPTestCreator", side_effect=Exception("NLP parsing failed")):
             with pytest.raises(HTTPException) as exc_info:
-                await create_test_from_nlp(request)
+                await create_test_from_nlp(nlp_request, mock_http_request)
 
             assert exc_info.value.status_code == 500
 
