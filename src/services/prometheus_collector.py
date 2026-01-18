@@ -9,8 +9,7 @@ This service collects metrics from Prometheus/VictoriaMetrics for:
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
-from decimal import Decimal
+
 import httpx
 import structlog
 
@@ -106,7 +105,7 @@ class PrometheusCollector:
         """
         self.prometheus_url = prometheus_url.rstrip("/")
         self.timeout = timeout
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -239,7 +238,7 @@ class PrometheusCollector:
             logger.error("prometheus_range_query_error", query=query, error=str(e))
             return []
 
-    async def get_selenium_metrics(self) -> Optional[SeleniumMetrics]:
+    async def get_selenium_metrics(self) -> SeleniumMetrics | None:
         """Get current Selenium Grid metrics."""
         queries = {
             "queued": "selenium_sessions_queued",
@@ -273,7 +272,7 @@ class PrometheusCollector:
     async def get_browser_node_metrics(
         self,
         browser_type: str
-    ) -> Optional[BrowserNodeMetrics]:
+    ) -> BrowserNodeMetrics | None:
         """Get metrics for a specific browser node type.
 
         Args:
@@ -283,7 +282,7 @@ class PrometheusCollector:
 
         # Get current replicas from KEDA
         replicas_query = f'keda_scaler_active{{scaledObject=~"selenium-{browser_type}-scaler"}}'
-        replicas = await self.query(replicas_query)
+        await self.query(replicas_query)
 
         # Get CPU utilization
         cpu_query = f'''
@@ -489,7 +488,7 @@ class PrometheusCollector:
     ) -> dict:
         """Get test execution metrics for the given time period."""
         end = datetime.now()
-        start = end - timedelta(hours=hours)
+        end - timedelta(hours=hours)
 
         # Query custom Argus metrics
         queries = {
@@ -523,7 +522,7 @@ class PrometheusCollector:
 
 # Factory function
 def create_prometheus_collector(
-    prometheus_url: Optional[str] = None
+    prometheus_url: str | None = None
 ) -> PrometheusCollector:
     """Create a Prometheus collector instance.
 

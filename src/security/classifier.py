@@ -9,7 +9,6 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -186,7 +185,7 @@ class DataClassifier:
 
     def __init__(
         self,
-        custom_rules: Optional[dict] = None,
+        custom_rules: dict | None = None,
         scan_for_pii: bool = True,
         strict_mode: bool = False,  # In strict mode, unknown = CONFIDENTIAL
     ):
@@ -297,7 +296,7 @@ class DataClassifier:
     def classify_content(
         self,
         content: str,
-        source_hint: Optional[str] = None,
+        source_hint: str | None = None,
     ) -> Classification:
         """Classify content without a file path."""
         reasons = []

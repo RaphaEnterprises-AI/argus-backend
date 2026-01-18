@@ -1,8 +1,8 @@
 """Tests for team collaboration module."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
+
+import pytest
 
 
 class TestRole:
@@ -38,14 +38,14 @@ class TestRolePermissions:
 
     def test_admin_has_all_permissions(self, mock_env_vars):
         """Test admin has all permissions."""
-        from src.collaboration.team import Role, Permission, ROLE_PERMISSIONS
+        from src.collaboration.team import ROLE_PERMISSIONS, Permission, Role
 
         admin_permissions = ROLE_PERMISSIONS[Role.ADMIN]
         assert len(admin_permissions) == len(Permission)
 
     def test_viewer_has_limited_permissions(self, mock_env_vars):
         """Test viewer has limited permissions."""
-        from src.collaboration.team import Role, Permission, ROLE_PERMISSIONS
+        from src.collaboration.team import ROLE_PERMISSIONS, Permission, Role
 
         viewer_permissions = ROLE_PERMISSIONS[Role.VIEWER]
         assert Permission.VIEW_TEST in viewer_permissions
@@ -55,7 +55,7 @@ class TestRolePermissions:
 
     def test_ci_bot_permissions(self, mock_env_vars):
         """Test CI bot has appropriate permissions."""
-        from src.collaboration.team import Role, Permission, ROLE_PERMISSIONS
+        from src.collaboration.team import ROLE_PERMISSIONS, Permission, Role
 
         ci_permissions = ROLE_PERMISSIONS[Role.CI_BOT]
         assert Permission.RUN_TEST in ci_permissions
@@ -68,7 +68,7 @@ class TestUser:
 
     def test_user_creation(self, mock_env_vars):
         """Test User creation."""
-        from src.collaboration.team import User, Role
+        from src.collaboration.team import Role, User
 
         user = User(
             id="user-123",
@@ -87,7 +87,7 @@ class TestUser:
 
     def test_user_with_sso(self, mock_env_vars):
         """Test User with SSO provider."""
-        from src.collaboration.team import User, Role
+        from src.collaboration.team import Role, User
 
         user = User(
             id="user-789",
@@ -227,7 +227,7 @@ class TestTeamManager:
 
     def test_create_user(self, mock_env_vars):
         """Test create_user method."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         user = manager.create_user(
@@ -270,7 +270,7 @@ class TestTeamManager:
 
     def test_update_user_role(self, mock_env_vars):
         """Test update_user_role method."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         user = manager.create_user("test@example.com", "Test", "team-1")
@@ -283,7 +283,7 @@ class TestTeamManager:
 
     def test_update_user_role_not_found(self, mock_env_vars):
         """Test update_user_role for nonexistent user."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         success = manager.update_user_role("nonexistent", Role.ADMIN, "updater")
@@ -292,7 +292,7 @@ class TestTeamManager:
 
     def test_has_permission(self, mock_env_vars):
         """Test has_permission method."""
-        from src.collaboration.team import TeamManager, Role, Permission
+        from src.collaboration.team import Permission, Role, TeamManager
 
         manager = TeamManager()
         dev = manager.create_user("dev@example.com", "Dev", "team-1", Role.DEVELOPER)
@@ -304,14 +304,14 @@ class TestTeamManager:
 
     def test_has_permission_nonexistent_user(self, mock_env_vars):
         """Test has_permission for nonexistent user."""
-        from src.collaboration.team import TeamManager, Permission
+        from src.collaboration.team import Permission, TeamManager
 
         manager = TeamManager()
         assert manager.has_permission("nonexistent", Permission.VIEW_TEST) is False
 
     def test_check_permission_success(self, mock_env_vars):
         """Test check_permission when user has permission."""
-        from src.collaboration.team import TeamManager, Role, Permission
+        from src.collaboration.team import Permission, Role, TeamManager
 
         manager = TeamManager()
         admin = manager.create_user("admin@example.com", "Admin", "team-1", Role.ADMIN)
@@ -321,7 +321,7 @@ class TestTeamManager:
 
     def test_check_permission_failure(self, mock_env_vars):
         """Test check_permission when user lacks permission."""
-        from src.collaboration.team import TeamManager, Role, Permission
+        from src.collaboration.team import Permission, Role, TeamManager
 
         manager = TeamManager()
         viewer = manager.create_user("viewer@example.com", "Viewer", "team-1", Role.VIEWER)
@@ -331,7 +331,7 @@ class TestTeamManager:
 
     def test_create_team(self, mock_env_vars):
         """Test create_team method."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         team, owner = manager.create_team(
@@ -377,7 +377,7 @@ class TestTeamManager:
 
     def test_invite_member(self, mock_env_vars):
         """Test invite_member method."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         team, owner = manager.create_team("Test Team", "owner@example.com", "Owner")
@@ -391,7 +391,7 @@ class TestTeamManager:
 
     def test_invite_member_without_permission(self, mock_env_vars):
         """Test invite_member without permission."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         team, _ = manager.create_team("Test Team", "owner@example.com", "Owner")
@@ -502,7 +502,7 @@ class TestTeamManager:
 
     def test_approve_request(self, mock_env_vars):
         """Test approve_request method."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         team, owner = manager.create_team("Test Team", "owner@example.com", "Owner")
@@ -521,7 +521,7 @@ class TestTeamManager:
 
     def test_approve_request_not_found(self, mock_env_vars):
         """Test approve_request for nonexistent request."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import TeamManager
 
         manager = TeamManager()
         team, owner = manager.create_team("Test Team", "owner@example.com", "Owner")
@@ -532,7 +532,7 @@ class TestTeamManager:
 
     def test_approve_request_already_resolved(self, mock_env_vars):
         """Test approve_request for already resolved request."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import TeamManager
 
         manager = TeamManager()
         team, owner = manager.create_team("Test Team", "owner@example.com", "Owner")
@@ -607,7 +607,7 @@ class TestTeamManager:
 
     def test_get_audit_log_without_permission(self, mock_env_vars):
         """Test get_audit_log without permission."""
-        from src.collaboration.team import TeamManager, Role
+        from src.collaboration.team import Role, TeamManager
 
         manager = TeamManager()
         team, _ = manager.create_team("Test Team", "owner@example.com", "Owner")

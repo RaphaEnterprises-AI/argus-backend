@@ -9,9 +9,9 @@ This agent:
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from .base import BaseAgent, AgentResult
+from .base import AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
 
@@ -25,7 +25,7 @@ class QueryResult:
     row_count: int
     execution_time_ms: int
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -47,7 +47,7 @@ class DataValidationResult:
     passed: bool
     expected: Any
     actual: Any
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -70,7 +70,7 @@ class DBTestResult:
     queries: list[QueryResult] = field(default_factory=list)
     validations: list[DataValidationResult] = field(default_factory=list)
     total_duration_ms: int = 0
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -95,7 +95,7 @@ class DBTesterAgent(BaseAgent):
     - Before/after state comparison
     """
 
-    def __init__(self, database_url: Optional[str] = None, **kwargs):
+    def __init__(self, database_url: str | None = None, **kwargs):
         """Initialize with optional database URL.
 
         Args:
@@ -128,7 +128,7 @@ Respond with JSON containing:
     async def execute(
         self,
         test_spec: TestSpec | dict,
-        database_url: Optional[str] = None,
+        database_url: str | None = None,
     ) -> AgentResult[DBTestResult]:
         """Execute a database test specification.
 
@@ -269,7 +269,7 @@ Respond with JSON containing:
     async def _connect(self, database_url: str) -> None:
         """Connect to the database."""
         try:
-            from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+            from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
             from sqlalchemy.orm import sessionmaker
 
             # Convert to async URL if needed
@@ -289,7 +289,6 @@ Respond with JSON containing:
         except ImportError:
             self.log.warning("SQLAlchemy async not available, using sync mode")
             from sqlalchemy import create_engine
-            from sqlalchemy.orm import Session
 
             self._engine = create_engine(database_url)
 

@@ -1,6 +1,7 @@
 """Supabase client for Quality Intelligence data storage."""
 
-from typing import Any, Optional
+from typing import Any
+
 import httpx
 import structlog
 
@@ -12,7 +13,7 @@ logger = structlog.get_logger()
 class SupabaseClient:
     """Client for Supabase REST API operations."""
 
-    def __init__(self, url: Optional[str] = None, service_key: Optional[str] = None):
+    def __init__(self, url: str | None = None, service_key: str | None = None):
         settings = get_settings()
         self.url = url or settings.supabase_url
         self.service_key = service_key or (
@@ -20,7 +21,7 @@ class SupabaseClient:
             if settings.supabase_service_key
             else None
         )
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -51,8 +52,8 @@ class SupabaseClient:
         self,
         path: str,
         method: str = "GET",
-        body: Optional[dict] = None,
-        headers: Optional[dict] = None,
+        body: dict | None = None,
+        headers: dict | None = None,
     ) -> dict[str, Any]:
         """Make a request to Supabase REST API.
 
@@ -107,7 +108,7 @@ class SupabaseClient:
         return await self.request(f"/{table}", method="POST", body=data)
 
     async def select(
-        self, table: str, columns: str = "*", filters: Optional[dict] = None
+        self, table: str, columns: str = "*", filters: dict | None = None
     ) -> dict[str, Any]:
         """Select records with optional filters."""
         path = f"/{table}?select={columns}"
@@ -138,8 +139,8 @@ class SupabaseClient:
 
 
 # Global instance
-_supabase_client: Optional[SupabaseClient] = None
-_raw_supabase_client: Optional[Any] = None
+_supabase_client: SupabaseClient | None = None
+_raw_supabase_client: Any | None = None
 
 
 def get_supabase_client() -> SupabaseClient:

@@ -44,18 +44,15 @@ USAGE:
         forms = await page.observe("What forms are visible on this page?")
 """
 
-import asyncio
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Any, Callable
+from typing import Any
+
 import httpx
 import structlog
 
-from ..config import get_settings, InferenceGateway
-from ..core.model_router import ModelRouter, TaskType
-
+from ..config import get_settings
 
 logger = structlog.get_logger()
 
@@ -73,13 +70,13 @@ class ActionResult:
     success: bool
     action: BrowserAction
     instruction: str
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
     cached: bool = False  # Whether selector was cached
     healed: bool = False  # Whether self-healing was triggered
     duration_ms: int = 0
     tokens_used: int = 0
-    model_used: Optional[str] = None
+    model_used: str | None = None
 
 
 @dataclass
@@ -109,11 +106,11 @@ class PageState:
     """Current state of a browser page."""
     url: str
     title: str
-    visible_text: Optional[str] = None
+    visible_text: str | None = None
     forms: list[dict] = field(default_factory=list)
     buttons: list[str] = field(default_factory=list)
     links: list[dict] = field(default_factory=list)
-    screenshot_base64: Optional[str] = None
+    screenshot_base64: str | None = None
 
 
 class BrowserPage:
@@ -204,7 +201,7 @@ class BrowserPage:
     async def extract(
         self,
         schema: dict[str, str] | ExtractionSchema,
-        instruction: Optional[str] = None,
+        instruction: str | None = None,
     ) -> ActionResult:
         """
         Extract structured data from the page.
@@ -374,9 +371,9 @@ class E2EBrowserClient:
 
     def __init__(
         self,
-        endpoint: Optional[str] = None,  # Worker URL (e.g., https://e2e-testing-agent.you.workers.dev)
-        api_token: Optional[str] = None,  # API token for Worker auth
-        model_provider: Optional[str] = None,  # "openai", "anthropic", "workers-ai"
+        endpoint: str | None = None,  # Worker URL (e.g., https://e2e-testing-agent.you.workers.dev)
+        api_token: str | None = None,  # API token for Worker auth
+        model_provider: str | None = None,  # "openai", "anthropic", "workers-ai"
         cache_enabled: bool = True,
         self_healing_enabled: bool = True,
         timeout_seconds: int = 60,
@@ -392,7 +389,7 @@ class E2EBrowserClient:
         self.self_healing_enabled = self_healing_enabled
         self.timeout_seconds = timeout_seconds
 
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._http_client: httpx.AsyncClient | None = None
         self._pages: dict[str, BrowserPage] = {}
         self._connected = False
 
@@ -417,7 +414,7 @@ class E2EBrowserClient:
             "See cloudflare-worker/README.md for deployment instructions."
         )
 
-    def _get_env(self, key: str) -> Optional[str]:
+    def _get_env(self, key: str) -> str | None:
         """Get environment variable safely."""
         import os
         return os.environ.get(key)
@@ -497,8 +494,8 @@ class E2EBrowserClient:
         action: BrowserAction,
         instruction: str,
         timeout_ms: int = 10000,
-        schema: Optional[dict] = None,
-        url: Optional[str] = None,
+        schema: dict | None = None,
+        url: str | None = None,
     ) -> dict:
         """Execute a E2E Browser action via the Worker API.
 
@@ -649,7 +646,7 @@ class E2EBrowserClient:
         self,
         url: str,
         steps: list[str],
-        extract_schema: Optional[dict] = None,
+        extract_schema: dict | None = None,
         screenshot: bool = False,
         timeout_ms: int = 30000,
     ) -> dict:
@@ -702,7 +699,7 @@ class E2EBrowserClient:
 async def run_test_with_e2e_client(
     url: str,
     steps: list[str],
-    extract_schema: Optional[dict] = None,
+    extract_schema: dict | None = None,
 ) -> dict:
     """
     Quick helper to run a test with E2E Browser.

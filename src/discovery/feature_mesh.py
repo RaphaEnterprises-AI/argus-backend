@@ -13,17 +13,15 @@ This creates a feedback loop where:
 - Patterns flow back to improve future discoveries
 """
 
-import asyncio
 import hashlib
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
 from src.services.supabase_client import get_supabase_client
-from src.config import get_settings
 
 logger = structlog.get_logger()
 
@@ -34,7 +32,7 @@ class FeatureMeshConfig:
 
     # Visual AI integration
     auto_create_baselines: bool = True
-    baseline_viewports: List[Dict[str, int]] = field(default_factory=lambda: [
+    baseline_viewports: list[dict[str, int]] = field(default_factory=lambda: [
         {"name": "mobile", "width": 375, "height": 667},
         {"name": "desktop", "width": 1440, "height": 900},
     ])
@@ -60,7 +58,7 @@ class FeatureMeshIntegration:
     ─────────────────────────────────────────────────────
     """
 
-    def __init__(self, config: Optional[FeatureMeshConfig] = None):
+    def __init__(self, config: FeatureMeshConfig | None = None):
         self.config = config or FeatureMeshConfig()
         self.supabase = get_supabase_client()
         self.log = logger.bind(component="feature_mesh")
@@ -73,8 +71,8 @@ class FeatureMeshIntegration:
         self,
         session_id: str,
         project_id: str,
-        pages: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        pages: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Auto-create visual baselines from discovered pages.
 
         Each discovered page becomes a visual baseline that can be monitored
@@ -143,14 +141,14 @@ class FeatureMeshIntegration:
                     "metadata": {
                         "page_title": title,
                         "category": category,
-                        "discovered_at": datetime.now(timezone.utc).isoformat(),
+                        "discovered_at": datetime.now(UTC).isoformat(),
                         "elements_count": len(page.get("actions", [])),
                     },
                     "viewport_width": self.config.baseline_viewports[0]["width"],
                     "viewport_height": self.config.baseline_viewports[0]["height"],
                     "browser": self.config.baseline_browser,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
 
                 result = await self.supabase.insert("visual_baselines", baseline_record)
@@ -200,7 +198,7 @@ class FeatureMeshIntegration:
     async def _link_baselines_to_session(
         self,
         session_id: str,
-        baselines: List[Dict]
+        baselines: list[dict]
     ):
         """Link created baselines back to discovery session for tracking."""
         if not baselines:
@@ -217,7 +215,7 @@ class FeatureMeshIntegration:
     def _generate_baseline_name(
         self,
         url: str,
-        title: Optional[str],
+        title: str | None,
         category: str
     ) -> str:
         """Generate a descriptive baseline name from page info."""
@@ -258,8 +256,8 @@ class FeatureMeshIntegration:
         self,
         session_id: str,
         project_id: str,
-        elements: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        elements: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Share discovered selector alternatives with Self-Healing system.
 
         When discovery finds elements, it often identifies multiple ways to
@@ -319,8 +317,8 @@ class FeatureMeshIntegration:
                     "stability_score": element.get("stability_score", 0.5),
                     "usage_count": 0,
                     "success_count": 0,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
 
                 # Upsert (update if fingerprint exists)
@@ -359,8 +357,8 @@ class FeatureMeshIntegration:
 
     def _extract_alternative_selectors(
         self,
-        element: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        element: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Extract alternative selectors from discovered element data.
 
         Builds a prioritized list of alternative selectors based on
@@ -436,7 +434,7 @@ class FeatureMeshIntegration:
     def _generate_selector_fingerprint(
         self,
         primary_selector: str,
-        alternatives: List[Dict]
+        alternatives: list[dict]
     ) -> str:
         """Generate a unique fingerprint for selector deduplication."""
         alt_str = ",".join(sorted(a["selector"] for a in alternatives))
@@ -445,7 +443,7 @@ class FeatureMeshIntegration:
 
     async def _upsert_selector_alternative(
         self,
-        record: Dict[str, Any]
+        record: dict[str, Any]
     ) -> bool:
         """Insert or update selector alternative record."""
         try:
@@ -534,7 +532,7 @@ class FeatureMeshIntegration:
                         alt["confidence"] = min(1.0, current_conf + 0.05)
                     else:
                         alt["confidence"] = max(0.1, current_conf - 0.1)
-                    alt["last_used"] = datetime.now(timezone.utc).isoformat()
+                    alt["last_used"] = datetime.now(UTC).isoformat()
                     alt["usage_count"] = alt.get("usage_count", 0) + 1
                     break
 
@@ -546,7 +544,7 @@ class FeatureMeshIntegration:
                     "usage_count": usage_count,
                     "success_count": success_count,
                     "alternatives": alternatives,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             )
 
@@ -567,9 +565,9 @@ class FeatureMeshIntegration:
         self,
         session_id: str,
         project_id: str,
-        pages: List[Dict[str, Any]],
-        elements: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        pages: list[dict[str, Any]],
+        elements: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Process completed discovery session for all feature integrations.
 
         This is the main entry point called when a discovery session completes.
@@ -621,15 +619,15 @@ class FeatureMeshIntegration:
             "session_id": session_id,
             "project_id": project_id,
             "integrations": results,
-            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "processed_at": datetime.now(UTC).isoformat(),
         }
 
 
 # Singleton instance
-_feature_mesh: Optional[FeatureMeshIntegration] = None
+_feature_mesh: FeatureMeshIntegration | None = None
 
 
-def get_feature_mesh(config: Optional[FeatureMeshConfig] = None) -> FeatureMeshIntegration:
+def get_feature_mesh(config: FeatureMeshConfig | None = None) -> FeatureMeshIntegration:
     """Get or create the feature mesh integration instance."""
     global _feature_mesh
     if _feature_mesh is None:

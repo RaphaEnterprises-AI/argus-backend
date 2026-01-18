@@ -4,17 +4,17 @@ Tests responsive design analysis including viewport configurations,
 breakpoint detection, layout comparisons, and responsive issues.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from typing import Dict, List, Any
+from unittest.mock import patch
 
-from src.visual_ai.responsive_analyzer import (
-    ViewportConfig,
-    BreakpointIssue,
-    ResponsiveDiff,
-    ResponsiveAnalyzer,
-)
+import pytest
+
 from src.visual_ai.models import VisualElement, VisualSnapshot
+from src.visual_ai.responsive_analyzer import (
+    BreakpointIssue,
+    ResponsiveAnalyzer,
+    ResponsiveDiff,
+    ViewportConfig,
+)
 
 
 class TestViewportConfig:

@@ -15,13 +15,13 @@ import asyncio
 import base64
 import json
 import re
-import subprocess
 import tempfile
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import AsyncGenerator, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import structlog
@@ -76,7 +76,7 @@ class CrawleeBridge:
     def __init__(
         self,
         use_crawlee: bool = False,
-        crawlee_script_path: Optional[str] = None,
+        crawlee_script_path: str | None = None,
     ):
         """Initialize the crawler bridge.
 
@@ -89,12 +89,12 @@ class CrawleeBridge:
         self.log = logger.bind(component="crawlee_bridge")
 
         # Crawl state
-        self._visited_urls: Set[str] = set()
-        self._queued_urls: Set[str] = set()
-        self._current_depth: Dict[str, int] = {}
+        self._visited_urls: set[str] = set()
+        self._queued_urls: set[str] = set()
+        self._current_depth: dict[str, int] = {}
         self._graph = PageGraph()
-        self._errors: List[CrawlError] = []
-        self._progress_callback: Optional[Callable[[CrawlProgress], None]] = None
+        self._errors: list[CrawlError] = []
+        self._progress_callback: Callable[[CrawlProgress], None] | None = None
 
     def set_progress_callback(
         self,
@@ -237,7 +237,7 @@ class CrawleeBridge:
                 else:
                     raise RuntimeError("No results file generated")
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 raise RuntimeError("Crawl timed out")
             except FileNotFoundError:
@@ -252,7 +252,7 @@ class CrawleeBridge:
             return str(script_path)
         raise FileNotFoundError("Default Crawlee script not found")
 
-    def _parse_crawlee_results(self, data: Dict[str, Any]) -> CrawlResult:
+    def _parse_crawlee_results(self, data: dict[str, Any]) -> CrawlResult:
         """Parse results from Crawlee output.
 
         Args:
@@ -315,7 +315,7 @@ class CrawleeBridge:
         Returns:
             CrawlResult with discovered pages
         """
-        pages: Dict[str, DiscoveredPage] = {}
+        pages: dict[str, DiscoveredPage] = {}
         base_domain = urlparse(start_url).netloc
 
         try:
@@ -422,7 +422,7 @@ class CrawleeBridge:
         depth: int,
         config: DiscoveryConfig,
         base_domain: str,
-    ) -> Optional[DiscoveredPage]:
+    ) -> DiscoveredPage | None:
         """Crawl a single page and extract information.
 
         Args:
@@ -517,7 +517,7 @@ class CrawleeBridge:
         self,
         page,
         url: str,
-    ) -> List[DiscoveredElement]:
+    ) -> list[DiscoveredElement]:
         """Extract interactive elements from a page.
 
         Args:
@@ -638,7 +638,7 @@ class CrawleeBridge:
         self,
         page,
         base_domain: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Extract links from a page.
 
         Args:
@@ -711,7 +711,7 @@ class CrawleeBridge:
 
         return True
 
-    def _categorize_element(self, el_data: Dict[str, Any]) -> ElementCategory:
+    def _categorize_element(self, el_data: dict[str, Any]) -> ElementCategory:
         """Categorize an element based on its properties.
 
         Args:
@@ -722,7 +722,7 @@ class CrawleeBridge:
         """
         el_type = el_data.get("type", "")
         label = (el_data.get("label") or "").lower()
-        attrs = el_data.get("attributes", {})
+        el_data.get("attributes", {})
 
         # Check for authentication elements
         if any(
@@ -759,7 +759,7 @@ class CrawleeBridge:
         self,
         url: str,
         title: str,
-        elements: List[DiscoveredElement],
+        elements: list[DiscoveredElement],
     ) -> PageCategory:
         """Classify a page based on URL, title, and elements.
 
@@ -857,7 +857,7 @@ class CrawleeBridge:
         self,
         start_url: str,
         config: DiscoveryConfig,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream crawl progress as events.
 
         Args:
@@ -906,7 +906,7 @@ class CrawleeBridge:
                     timeout=1.0,
                 )
                 yield event
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
         # Get final result
@@ -937,8 +937,8 @@ async def discover_application(
     max_depth: int = 3,
     timeout_seconds: int = 600,
     capture_screenshots: bool = False,
-    auth_config: Optional[Dict[str, Any]] = None,
-    on_page: Optional[Callable[[DiscoveredPage], None]] = None,
+    auth_config: dict[str, Any] | None = None,
+    on_page: Callable[[DiscoveredPage], None] | None = None,
     use_crawlee: bool = False,
     **kwargs,
 ) -> CrawlResult:
@@ -999,8 +999,7 @@ async def discover_application(
 
     if on_page:
         # Use streaming mode with callback
-        pages: Dict[str, DiscoveredPage] = {}
-        errors: List[CrawlError] = []
+        pages: dict[str, DiscoveredPage] = {}
 
         async for event in bridge.stream_crawl(start_url, config):
             if event["type"] == "progress":

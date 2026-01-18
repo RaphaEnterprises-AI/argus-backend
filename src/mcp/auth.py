@@ -27,10 +27,9 @@ import os
 import sys
 import time
 import webbrowser
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import Optional
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import structlog
@@ -62,14 +61,14 @@ MAX_POLL_DURATION = 600  # 10 minutes
 class TokenData:
     """Stored token data."""
     access_token: str
-    refresh_token: Optional[str]
+    refresh_token: str | None
     expires_at: datetime
     scope: str
-    user_id: Optional[str] = None
-    organization_id: Optional[str] = None
+    user_id: str | None = None
+    organization_id: str | None = None
 
 
-def load_cached_tokens() -> Optional[TokenData]:
+def load_cached_tokens() -> TokenData | None:
     """Load tokens from disk cache."""
     if not TOKEN_CACHE_FILE.exists():
         return None
@@ -79,7 +78,7 @@ def load_cached_tokens() -> Optional[TokenData]:
         expires_at = datetime.fromisoformat(data["expires_at"])
 
         # Check if expired (with 5 minute buffer)
-        if expires_at < datetime.now(timezone.utc) + timedelta(minutes=5):
+        if expires_at < datetime.now(UTC) + timedelta(minutes=5):
             return None
 
         return TokenData(
@@ -144,7 +143,7 @@ class MCPAuthenticator:
         self.client_id = client_id
         self.scope = scope
         self.auto_open_browser = auto_open_browser
-        self._token_data: Optional[TokenData] = None
+        self._token_data: TokenData | None = None
         self.log = logger.bind(component="mcp_auth")
 
     async def get_token(self, force_refresh: bool = False) -> str:
@@ -260,7 +259,7 @@ class MCPAuthenticator:
             print("=" * 60 + "\n")
         else:
             # Plain text output for non-interactive environments
-            print(f"\nARGUS AUTHENTICATION REQUIRED")
+            print("\nARGUS AUTHENTICATION REQUIRED")
             print(f"Visit: {verification_uri}")
             print(f"Enter code: {user_code}")
             print(f"Or visit: {verification_uri_complete}")
@@ -296,7 +295,7 @@ class MCPAuthenticator:
                     return TokenData(
                         access_token=data["access_token"],
                         refresh_token=data.get("refresh_token"),
-                        expires_at=datetime.now(timezone.utc) + timedelta(seconds=data["expires_in"]),
+                        expires_at=datetime.now(UTC) + timedelta(seconds=data["expires_in"]),
                         scope=data.get("scope", self.scope),
                     )
 
@@ -325,7 +324,7 @@ class MCPAuthenticator:
 
         raise AuthenticationError("Authorization timed out. Please try again.")
 
-    async def _refresh_token(self, refresh_token: str) -> Optional[TokenData]:
+    async def _refresh_token(self, refresh_token: str) -> TokenData | None:
         """Refresh an access token."""
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -343,7 +342,7 @@ class MCPAuthenticator:
             return TokenData(
                 access_token=data["access_token"],
                 refresh_token=refresh_token,  # Keep existing refresh token
-                expires_at=datetime.now(timezone.utc) + timedelta(seconds=data["expires_in"]),
+                expires_at=datetime.now(UTC) + timedelta(seconds=data["expires_in"]),
                 scope=data.get("scope", self.scope),
             )
 
@@ -379,7 +378,7 @@ class AuthenticatedClient:
         """
         self.api_url = api_url or os.getenv("ARGUS_API_URL", DEFAULT_API_URL)
         self.auth = authenticator or MCPAuthenticator(api_url=self.api_url)
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -432,7 +431,7 @@ async def login_command():
     """CLI command to authenticate with Argus."""
     auth = MCPAuthenticator()
     try:
-        token = await auth.get_token(force_refresh=True)
+        await auth.get_token(force_refresh=True)
         print("\n✅ Successfully authenticated with Argus!")
         print(f"Token cached at: {TOKEN_CACHE_FILE}")
     except AuthenticationError as e:

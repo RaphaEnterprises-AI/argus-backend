@@ -1,8 +1,9 @@
 """Tests for screenshot capture utilities."""
 
 import io
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 from PIL import Image
 
 
@@ -35,8 +36,9 @@ class TestScreenshot:
 
     def test_screenshot_base64(self):
         """Test base64 encoding."""
-        from src.computer_use.screenshot import Screenshot
         import base64
+
+        from src.computer_use.screenshot import Screenshot
 
         data = create_test_image()
         screenshot = Screenshot(data=data, width=100, height=100)
@@ -133,7 +135,7 @@ class TestScreenshotCapture:
 
     def test_compare_screenshots_identical(self):
         """Test comparing identical screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         data = create_test_image(100, 100, "blue")
         screenshot1 = Screenshot(data=data, width=100, height=100)
@@ -143,12 +145,12 @@ class TestScreenshotCapture:
         is_same, diff = capture.compare_screenshots(screenshot1, screenshot2)
 
         # Use == instead of is for numpy bool comparison
-        assert bool(is_same) == True
+        assert bool(is_same)
         assert float(diff) == 0.0
 
     def test_compare_screenshots_different(self):
         """Test comparing different screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         data1 = create_test_image(100, 100, "red")
         data2 = create_test_image(100, 100, "blue")
@@ -159,12 +161,12 @@ class TestScreenshotCapture:
         is_same, diff = capture.compare_screenshots(screenshot1, screenshot2)
 
         # Use == instead of is for numpy bool comparison
-        assert bool(is_same) == False
+        assert not bool(is_same)
         assert float(diff) > 0.0
 
     def test_highlight_differences(self):
         """Test highlighting differences between screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         data1 = create_test_image(100, 100, "red")
         data2 = create_test_image(100, 100, "blue")

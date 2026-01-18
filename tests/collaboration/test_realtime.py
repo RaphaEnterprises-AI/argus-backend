@@ -1,22 +1,19 @@
 """Tests for real-time collaboration manager."""
 
-import pytest
-import asyncio
 
+import pytest
+
+from src.collaboration.models import (
+    CursorPosition,
+    PresenceStatus,
+    SelectionRange,
+)
 from src.collaboration.realtime import (
     RealtimeConfig,
-    RealtimeSession,
     RealtimeManager,
+    RealtimeSession,
     create_realtime_manager,
 )
-from src.collaboration.models import (
-    PresenceStatus,
-    CursorPosition,
-    SelectionRange,
-    BroadcastMessage,
-)
-from src.collaboration.crdt import CRDTOperation
-
 
 # =============================================================================
 # Fixtures
@@ -489,7 +486,8 @@ class TestBroadcasts:
     async def test_remove_broadcast_handler(self, realtime_manager):
         """Test removing broadcast handler."""
         messages = []
-        handler = lambda msg: messages.append(msg)
+        def handler(msg):
+            return messages.append(msg)
 
         realtime_manager.add_broadcast_handler(handler)
         realtime_manager.remove_broadcast_handler(handler)

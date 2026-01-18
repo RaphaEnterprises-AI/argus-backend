@@ -14,21 +14,19 @@ All endpoints are prefixed with /api/v1/parameterized.
 """
 
 import base64
-import csv
 import json
 import uuid
-from datetime import datetime, timezone
-from io import StringIO
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Request, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 
+from src.integrations.supabase import get_supabase
 from src.parameterized.data_sources import (
     CSVDataSource,
     DataSourceError,
-    DataSourceFactory,
     JSONDataSource,
 )
 from src.parameterized.engine import ParameterizationEngine, ParameterizationError
@@ -39,11 +37,9 @@ from src.parameterized.models import (
     IterationMode,
     ParameterizedTest,
     ParameterSet,
-    ParameterValidationResult,
     TestAssertion,
     TestStep,
 )
-from src.integrations.supabase import get_supabase, is_supabase_configured
 
 logger = structlog.get_logger()
 
@@ -63,7 +59,7 @@ _execution_results: dict[str, list[dict]] = {}  # test_id -> list of results
 # Supabase Helper Functions
 # =============================================================================
 
-async def _get_test_from_db(test_id: str) -> Optional[dict]:
+async def _get_test_from_db(test_id: str) -> dict | None:
     """Get a parameterized test from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -79,7 +75,7 @@ async def _get_test_from_db(test_id: str) -> Optional[dict]:
 
 
 async def _list_tests_from_db(
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
     limit: int = 50
 ) -> list[dict]:
     """List parameterized tests from Supabase."""
@@ -215,67 +211,67 @@ class TestStepRequest(BaseModel):
     """Test step for API requests."""
 
     action: str = Field(..., description="Action to perform")
-    target: Optional[str] = Field(None, description="Target selector")
-    value: Optional[str] = Field(None, description="Value for the action")
-    timeout: Optional[int] = Field(None, description="Timeout in ms")
-    description: Optional[str] = Field(None, description="Step description")
+    target: str | None = Field(None, description="Target selector")
+    value: str | None = Field(None, description="Value for the action")
+    timeout: int | None = Field(None, description="Timeout in ms")
+    description: str | None = Field(None, description="Step description")
 
 
 class TestAssertionRequest(BaseModel):
     """Test assertion for API requests."""
 
     type: str = Field(..., description="Assertion type")
-    target: Optional[str] = Field(None, description="Target selector")
-    expected: Optional[str] = Field(None, description="Expected value")
-    description: Optional[str] = Field(None, description="Assertion description")
+    target: str | None = Field(None, description="Target selector")
+    expected: str | None = Field(None, description="Expected value")
+    description: str | None = Field(None, description="Assertion description")
 
 
 class DataSourceRequest(BaseModel):
     """Data source configuration for API requests."""
 
     type: str = Field(..., description="Data source type: inline, csv, json, env")
-    data: Optional[list[dict[str, Any]]] = Field(None, description="Inline data")
-    path: Optional[str] = Field(None, description="Path to data file")
-    mapping: Optional[dict[str, str]] = Field(None, description="Field mapping")
-    filter: Optional[str] = Field(None, description="Filter expression")
-    limit: Optional[int] = Field(None, description="Limit results")
-    delimiter: Optional[str] = Field(",", description="CSV delimiter")
+    data: list[dict[str, Any]] | None = Field(None, description="Inline data")
+    path: str | None = Field(None, description="Path to data file")
+    mapping: dict[str, str] | None = Field(None, description="Field mapping")
+    filter: str | None = Field(None, description="Filter expression")
+    limit: int | None = Field(None, description="Limit results")
+    delimiter: str | None = Field(",", description="CSV delimiter")
 
 
 class ParameterizedTestRequest(BaseModel):
     """Request model for parameterized test operations."""
 
-    id: Optional[str] = Field(None, description="Test identifier")
+    id: str | None = Field(None, description="Test identifier")
     name: str = Field(..., description="Test name")
-    description: Optional[str] = Field(None, description="Test description")
-    data_source: Optional[DataSourceRequest] = Field(
+    description: str | None = Field(None, description="Test description")
+    data_source: DataSourceRequest | None = Field(
         None, description="Data source configuration"
     )
-    parameter_sets: Optional[list[dict[str, Any]]] = Field(
+    parameter_sets: list[dict[str, Any]] | None = Field(
         None, description="Explicit parameter sets"
     )
-    iteration_mode: Optional[str] = Field(
+    iteration_mode: str | None = Field(
         "sequential", description="Iteration mode"
     )
     steps: list[TestStepRequest] = Field(..., description="Test steps")
-    assertions: Optional[list[TestAssertionRequest]] = Field(
+    assertions: list[TestAssertionRequest] | None = Field(
         None, description="Test assertions"
     )
-    setup: Optional[list[TestStepRequest]] = Field(None, description="Setup steps")
-    teardown: Optional[list[TestStepRequest]] = Field(
+    setup: list[TestStepRequest] | None = Field(None, description="Setup steps")
+    teardown: list[TestStepRequest] | None = Field(
         None, description="Teardown steps"
     )
-    timeout: Optional[int] = Field(30000, description="Default timeout in ms")
+    timeout: int | None = Field(30000, description="Default timeout in ms")
 
 
 class ExpandRequest(BaseModel):
     """Request to expand a parameterized test."""
 
     test: ParameterizedTestRequest = Field(..., description="Test to expand")
-    data_source_override: Optional[DataSourceRequest] = Field(
+    data_source_override: DataSourceRequest | None = Field(
         None, description="Override data source"
     )
-    limit: Optional[int] = Field(None, description="Limit expanded tests")
+    limit: int | None = Field(None, description="Limit expanded tests")
 
 
 class PreviewRequest(BaseModel):
@@ -296,9 +292,9 @@ class ImportDataRequest(BaseModel):
 
     content: str = Field(..., description="File content (base64 for binary)")
     format: str = Field(..., description="Format: csv or json")
-    mapping: Optional[dict[str, str]] = Field(None, description="Field mapping")
-    filter: Optional[str] = Field(None, description="Filter expression")
-    delimiter: Optional[str] = Field(",", description="CSV delimiter")
+    mapping: dict[str, str] | None = Field(None, description="Field mapping")
+    filter: str | None = Field(None, description="Filter expression")
+    delimiter: str | None = Field(",", description="CSV delimiter")
 
 
 class ExpandedTestResponse(BaseModel):
@@ -306,7 +302,7 @@ class ExpandedTestResponse(BaseModel):
 
     index: int
     name: str
-    description: Optional[str]
+    description: str | None
     parameter_set_name: str
     parameter_values: dict[str, Any]
     steps: list[dict[str, Any]]
@@ -324,7 +320,7 @@ class ExpandResponse(BaseModel):
     expanded_tests: list[ExpandedTestResponse]
     iteration_mode: str
     warnings: list[str] = []
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class PreviewResponse(BaseModel):
@@ -334,7 +330,7 @@ class PreviewResponse(BaseModel):
     test_name: str
     total_combinations: int
     previews: list[dict[str, Any]]
-    data_source_type: Optional[str] = None
+    data_source_type: str | None = None
     warnings: list[str] = []
 
 
@@ -359,7 +355,7 @@ class ImportDataResponse(BaseModel):
     detected_fields: list[str]
     sample_values: dict[str, Any]
     warnings: list[str] = []
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -813,8 +809,8 @@ async def import_data(request: ImportDataRequest):
 @router.post("/import-data/upload")
 async def import_data_file(
     file: UploadFile = File(...),
-    mapping: Optional[str] = None,
-    filter_expr: Optional[str] = None,
+    mapping: str | None = None,
+    filter_expr: str | None = None,
 ):
     """Import test data from uploaded CSV or JSON file.
 
@@ -977,14 +973,14 @@ class TestCreateRequest(BaseModel):
 
     project_id: str = Field(..., description="Project ID this test belongs to")
     name: str = Field(..., description="Test name")
-    description: Optional[str] = Field(None, description="Test description")
+    description: str | None = Field(None, description="Test description")
     data_source_type: str = Field(..., description="Data source type: inline, csv, json, env, database, api")
     data_source_config: dict[str, Any] = Field(..., description="Data source configuration")
-    parameter_schema: Optional[dict[str, str]] = Field(None, description="Parameter schema")
+    parameter_schema: dict[str, str] | None = Field(None, description="Parameter schema")
     steps: list[dict[str, Any]] = Field(default_factory=list, description="Test steps")
-    assertions: Optional[list[dict[str, Any]]] = Field(None, description="Test assertions")
-    setup: Optional[list[dict[str, Any]]] = Field(None, description="Setup steps")
-    teardown: Optional[list[dict[str, Any]]] = Field(None, description="Teardown steps")
+    assertions: list[dict[str, Any]] | None = Field(None, description="Test assertions")
+    setup: list[dict[str, Any]] | None = Field(None, description="Setup steps")
+    teardown: list[dict[str, Any]] | None = Field(None, description="Teardown steps")
     iteration_mode: str = Field("sequential", description="Iteration mode")
     max_parallel: int = Field(5, description="Max parallel iterations")
     timeout_per_iteration_ms: int = Field(60000, description="Timeout per iteration in ms")
@@ -993,18 +989,18 @@ class TestCreateRequest(BaseModel):
 class TestUpdateRequest(BaseModel):
     """Request to update a parameterized test."""
 
-    name: Optional[str] = None
-    description: Optional[str] = None
-    data_source_type: Optional[str] = None
-    data_source_config: Optional[dict[str, Any]] = None
-    parameter_schema: Optional[dict[str, str]] = None
-    steps: Optional[list[dict[str, Any]]] = None
-    assertions: Optional[list[dict[str, Any]]] = None
-    setup: Optional[list[dict[str, Any]]] = None
-    teardown: Optional[list[dict[str, Any]]] = None
-    iteration_mode: Optional[str] = None
-    max_parallel: Optional[int] = None
-    timeout_per_iteration_ms: Optional[int] = None
+    name: str | None = None
+    description: str | None = None
+    data_source_type: str | None = None
+    data_source_config: dict[str, Any] | None = None
+    parameter_schema: dict[str, str] | None = None
+    steps: list[dict[str, Any]] | None = None
+    assertions: list[dict[str, Any]] | None = None
+    setup: list[dict[str, Any]] | None = None
+    teardown: list[dict[str, Any]] | None = None
+    iteration_mode: str | None = None
+    max_parallel: int | None = None
+    timeout_per_iteration_ms: int | None = None
 
 
 class TestResponse(BaseModel):
@@ -1013,10 +1009,10 @@ class TestResponse(BaseModel):
     id: str
     project_id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     data_source_type: str
     data_source_config: dict[str, Any]
-    parameter_schema: Optional[dict[str, str]] = None
+    parameter_schema: dict[str, str] | None = None
     steps: list[dict[str, Any]]
     assertions: list[dict[str, Any]] = []
     setup: list[dict[str, Any]] = []
@@ -1024,19 +1020,19 @@ class TestResponse(BaseModel):
     iteration_mode: str = "sequential"
     max_parallel: int = 5
     timeout_per_iteration_ms: int = 60000
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class ParameterSetCreateRequest(BaseModel):
     """Request to create a parameter set."""
 
     name: str = Field(..., description="Parameter set name")
-    description: Optional[str] = Field(None, description="Description")
+    description: str | None = Field(None, description="Description")
     values: dict[str, Any] = Field(..., description="Parameter values")
     tags: list[str] = Field(default_factory=list, description="Tags")
     skip: bool = Field(False, description="Skip this set")
-    skip_reason: Optional[str] = Field(None, description="Reason for skipping")
+    skip_reason: str | None = Field(None, description="Reason for skipping")
 
 
 class ParameterSetResponse(BaseModel):
@@ -1045,13 +1041,13 @@ class ParameterSetResponse(BaseModel):
     id: str
     parameterized_test_id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     values: dict[str, Any]
     tags: list[str] = []
     skip: bool = False
-    skip_reason: Optional[str] = None
+    skip_reason: str | None = None
     order_index: int = 0
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 class ExecutionResultResponse(BaseModel):
@@ -1059,17 +1055,17 @@ class ExecutionResultResponse(BaseModel):
 
     id: str
     parameterized_test_id: str
-    test_run_id: Optional[str] = None
-    schedule_run_id: Optional[str] = None
+    test_run_id: str | None = None
+    schedule_run_id: str | None = None
     total_iterations: int
     passed: int = 0
     failed: int = 0
     skipped: int = 0
-    duration_ms: Optional[int] = None
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    duration_ms: int | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
     iteration_results: list[dict[str, Any]] = []
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 @router.post("/tests", response_model=TestResponse, status_code=201)
@@ -1083,7 +1079,7 @@ async def create_test(request: TestCreateRequest):
         Created test
     """
     test_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     test_data = {
         "id": test_id,
@@ -1115,7 +1111,7 @@ async def create_test(request: TestCreateRequest):
 
 @router.get("/tests", response_model=list[TestResponse])
 async def list_tests(
-    project_id: Optional[str] = Query(None, description="Filter by project"),
+    project_id: str | None = Query(None, description="Filter by project"),
     limit: int = Query(50, ge=1, le=200, description="Maximum results"),
 ):
     """List parameterized tests.
@@ -1170,7 +1166,7 @@ async def update_test(test_id: str, request: TestUpdateRequest):
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
 
     updates = {k: v for k, v in request.model_dump().items() if v is not None}
-    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updates["updated_at"] = datetime.now(UTC).isoformat()
 
     success = await _update_test_in_db(test_id, updates)
     if not success:
@@ -1229,7 +1225,7 @@ async def create_parameter_set(test_id: str, request: ParameterSetCreateRequest)
     order_index = len(existing_sets)
 
     set_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     param_set_data = {
         "id": set_id,
@@ -1354,7 +1350,7 @@ async def execute_test(test_id: str, dry_run: bool = Query(False, description="P
 
     # Create execution result
     result_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     execution_result = {
         "id": result_id,

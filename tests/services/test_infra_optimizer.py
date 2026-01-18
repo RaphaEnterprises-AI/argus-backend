@@ -1,10 +1,11 @@
 """Tests for the AI-driven infrastructure optimizer service."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
-import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestRecommendationType:
@@ -56,10 +57,10 @@ class TestInfraRecommendation:
     def test_infra_recommendation_creation(self):
         """Test creating an InfraRecommendation instance."""
         from src.services.infra_optimizer import (
-            InfraRecommendation,
-            RecommendationType,
-            RecommendationPriority,
             ApprovalStatus,
+            InfraRecommendation,
+            RecommendationPriority,
+            RecommendationType,
         )
 
         rec = InfraRecommendation(
@@ -157,8 +158,8 @@ class TestAIInfraOptimizerInit:
         """Test initialization with default parameters."""
         from src.services.infra_optimizer import AIInfraOptimizer
 
-        with patch("src.services.infra_optimizer.create_prometheus_collector") as mock_prometheus:
-            with patch("anthropic.Anthropic") as mock_anthropic:
+        with patch("src.services.infra_optimizer.create_prometheus_collector"):
+            with patch("anthropic.Anthropic"):
                 optimizer = AIInfraOptimizer()
 
         assert optimizer.model == "claude-sonnet-4-5-20241022"
@@ -1017,8 +1018,9 @@ class TestAIInfraOptimizerGetSavingsSummary:
     @pytest.mark.asyncio
     async def test_get_savings_summary_success(self, mock_env_vars):
         """Test successful savings summary generation."""
-        from src.services.infra_optimizer import AIInfraOptimizer, CostReport
         from decimal import Decimal
+
+        from src.services.infra_optimizer import AIInfraOptimizer, CostReport
 
         mock_prometheus = MagicMock()
         mock_anthropic = MagicMock()

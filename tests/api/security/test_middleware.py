@@ -10,13 +10,11 @@ Tests cover:
 - Timing attack prevention
 """
 
-import asyncio
 import time
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
+import pytest
 
 # =============================================================================
 # Rate Limit Configuration Tests
@@ -113,7 +111,7 @@ class TestAuthenticationMiddleware:
 
         mock_request.url.path = "/health"
 
-        response = await auth_middleware.dispatch(mock_request, mock_call_next)
+        await auth_middleware.dispatch(mock_request, mock_call_next)
 
         assert mock_request.state.user is not None
         assert mock_request.state.user.user_id == "anonymous"
@@ -145,7 +143,7 @@ class TestAuthenticationMiddleware:
     @pytest.mark.asyncio
     async def test_dispatch_api_key_authentication(self, auth_middleware, mock_request, mock_call_next):
         """Test authentication with API key."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         mock_request.headers = {"x-api-key": "argus_sk_test_key"}
 
@@ -158,7 +156,7 @@ class TestAuthenticationMiddleware:
         with patch("src.api.security.middleware.authenticate_api_key", new_callable=AsyncMock) as mock_auth:
             mock_auth.return_value = mock_user
 
-            response = await auth_middleware.dispatch(mock_request, mock_call_next)
+            await auth_middleware.dispatch(mock_request, mock_call_next)
 
             assert mock_request.state.user == mock_user
             mock_auth.assert_called_once()
@@ -166,7 +164,7 @@ class TestAuthenticationMiddleware:
     @pytest.mark.asyncio
     async def test_dispatch_jwt_authentication(self, auth_middleware, mock_request, mock_call_next):
         """Test authentication with JWT token."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         mock_request.headers = {"authorization": "Bearer test_jwt_token"}
 
@@ -180,14 +178,14 @@ class TestAuthenticationMiddleware:
             with patch("src.api.security.middleware.authenticate_jwt", new_callable=AsyncMock) as mock_jwt:
                 mock_jwt.return_value = mock_user
 
-                response = await auth_middleware.dispatch(mock_request, mock_call_next)
+                await auth_middleware.dispatch(mock_request, mock_call_next)
 
                 assert mock_request.state.user == mock_user
 
     @pytest.mark.asyncio
     async def test_dispatch_service_account_authentication(self, auth_middleware, mock_request, mock_call_next):
         """Test authentication with service account token."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         mock_request.headers = {"authorization": "Bearer svc_test_token"}
 
@@ -203,7 +201,7 @@ class TestAuthenticationMiddleware:
                 with patch("src.api.security.middleware.authenticate_service_account", new_callable=AsyncMock) as mock_svc:
                     mock_svc.return_value = mock_user
 
-                    response = await auth_middleware.dispatch(mock_request, mock_call_next)
+                    await auth_middleware.dispatch(mock_request, mock_call_next)
 
                     assert mock_request.state.user == mock_user
 
@@ -211,13 +209,12 @@ class TestAuthenticationMiddleware:
     async def test_dispatch_enforce_auth_disabled_development(self, mock_app, mock_request, mock_call_next):
         """Test that auth bypass works in development mode."""
         from src.api.security.middleware import AuthenticationMiddleware
-        from src.api.security.auth import AuthMethod
 
         middleware = AuthenticationMiddleware(mock_app, enforce_auth=False)
         mock_request.url.path = "/api/v1/protected"
 
         with patch.dict("os.environ", {"ENVIRONMENT": "development"}):
-            response = await middleware.dispatch(mock_request, mock_call_next)
+            await middleware.dispatch(mock_request, mock_call_next)
 
             assert mock_request.state.user is not None
             assert mock_request.state.user.user_id == "dev-user"
@@ -339,7 +336,7 @@ class TestRateLimitMiddleware:
     @pytest.mark.asyncio
     async def test_get_rate_limit_key_user(self, rate_middleware, mock_request):
         """Test rate limit key generation for authenticated user."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         user = UserContext(
             user_id="user_123",
@@ -355,7 +352,7 @@ class TestRateLimitMiddleware:
     @pytest.mark.asyncio
     async def test_get_rate_limit_key_no_org(self, rate_middleware, mock_request):
         """Test rate limit key generation for user without org."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         user = UserContext(
             user_id="user_123",
@@ -681,7 +678,7 @@ class TestSecurityMiddleware:
         # Ensure request_id doesn't exist
         mock_request.state = type('State', (), {})()
 
-        response = await security_middleware.dispatch(mock_request, mock_call_next)
+        await security_middleware.dispatch(mock_request, mock_call_next)
 
         assert hasattr(mock_request.state, "request_id")
         # Should be a valid UUID
@@ -692,7 +689,7 @@ class TestSecurityMiddleware:
         """Test that existing request ID is preserved."""
         mock_request.state = type('State', (), {"request_id": "existing-id"})()
 
-        response = await security_middleware.dispatch(mock_request, mock_call_next)
+        await security_middleware.dispatch(mock_request, mock_call_next)
 
         assert mock_request.state.request_id == "existing-id"
 
@@ -737,16 +734,10 @@ class TestMiddlewareIntegration:
     @pytest.mark.asyncio
     async def test_middleware_chain_order(self):
         """Test that middleware executes in correct order."""
-        from src.api.security.middleware import (
-            AuthenticationMiddleware,
-            RateLimitMiddleware,
-            AuditLogMiddleware,
-            SecurityMiddleware,
-        )
 
         execution_order = []
 
-        mock_app = MagicMock()
+        MagicMock()
 
         class TrackingMiddleware:
             def __init__(self, app, name):
@@ -771,8 +762,8 @@ class TestMiddlewareIntegration:
     @pytest.mark.asyncio
     async def test_authenticated_request_flow(self):
         """Test complete flow of authenticated request."""
+        from src.api.security.auth import AuthMethod, UserContext
         from src.api.security.middleware import AuthenticationMiddleware
-        from src.api.security.auth import UserContext, AuthMethod
 
         mock_app = MagicMock()
         middleware = AuthenticationMiddleware(mock_app, enforce_auth=True)

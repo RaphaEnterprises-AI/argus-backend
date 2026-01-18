@@ -1,8 +1,7 @@
 """Tests for the local MCP server module."""
 
+
 import pytest
-import asyncio
-from pathlib import Path
 
 from src.mcp.local_mcp_server import LocalMCPServer
 
@@ -200,7 +199,7 @@ def test_app_run():
         server = LocalMCPServer(str(temp_repo))
 
         # Should handle gracefully
-        result = await server.call_tool("get_repo_stats", {})
+        await server.call_tool("get_repo_stats", {})
         # May auto-initialize or return error
 
 

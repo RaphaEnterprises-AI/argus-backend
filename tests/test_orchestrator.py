@@ -1,7 +1,6 @@
 """Tests for the testing orchestrator."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 class TestTestingState:
@@ -44,7 +43,7 @@ class TestTestSpec:
 
     def test_test_spec_creation(self):
         """Test creating a test spec."""
-        from src.orchestrator.state import TestSpec, TestType, Priority
+        from src.orchestrator.state import Priority, TestSpec, TestType
 
         spec = TestSpec(
             id="test-1",
@@ -62,7 +61,7 @@ class TestTestSpec:
 
     def test_test_spec_to_dict(self):
         """Test converting test spec to dict."""
-        from src.orchestrator.state import TestSpec, TestType, Priority
+        from src.orchestrator.state import Priority, TestSpec, TestType
 
         spec = TestSpec(
             id="test-1",

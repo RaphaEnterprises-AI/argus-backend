@@ -1,7 +1,5 @@
 """Tests for the orchestrator state module."""
 
-import pytest
-from datetime import datetime
 
 
 class TestTestType:
@@ -50,7 +48,7 @@ class TestTestSpec:
 
     def test_test_spec_creation(self, mock_env_vars):
         """Test TestSpec creation."""
-        from src.orchestrator.state import TestSpec, TestType, Priority
+        from src.orchestrator.state import Priority, TestSpec, TestType
 
         spec = TestSpec(
             id="test-001",
@@ -69,7 +67,7 @@ class TestTestSpec:
 
     def test_test_spec_with_all_fields(self, mock_env_vars):
         """Test TestSpec with all fields."""
-        from src.orchestrator.state import TestSpec, TestType, Priority
+        from src.orchestrator.state import Priority, TestSpec, TestType
 
         spec = TestSpec(
             id="test-002",
@@ -91,7 +89,7 @@ class TestTestSpec:
 
     def test_test_spec_to_dict(self, mock_env_vars):
         """Test TestSpec to_dict method."""
-        from src.orchestrator.state import TestSpec, TestType, Priority
+        from src.orchestrator.state import Priority, TestSpec, TestType
 
         spec = TestSpec(
             id="test-003",

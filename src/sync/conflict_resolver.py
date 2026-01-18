@@ -1,18 +1,13 @@
 """Conflict resolution for test specification synchronization."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
-from uuid import uuid4
+from typing import Any
 
+from .change_detector import Change, ChangeDetector
 from .models import (
-    SyncConflict,
     ConflictResolutionStrategy,
-    SyncEvent,
-    SyncEventType,
-    SyncSource,
+    SyncConflict,
 )
-from .change_detector import ChangeDetector, DiffResult, Change
 
 
 @dataclass
@@ -20,7 +15,7 @@ class MergeResult:
     """Result of a merge operation."""
 
     success: bool
-    merged_spec: Optional[dict] = None
+    merged_spec: dict | None = None
     conflicts: list[SyncConflict] = field(default_factory=list)
     auto_resolved: int = 0
     manual_required: int = 0
@@ -61,7 +56,7 @@ class ConflictResolver:
 
     def detect_conflicts(
         self,
-        base_spec: Optional[dict],
+        base_spec: dict | None,
         local_spec: dict,
         remote_spec: dict,
         test_id: str,
@@ -143,7 +138,7 @@ class ConflictResolver:
     def resolve(
         self,
         conflict: SyncConflict,
-        strategy: Optional[ConflictResolutionStrategy] = None,
+        strategy: ConflictResolutionStrategy | None = None,
         manual_value: Any = None,
     ) -> SyncConflict:
         """Resolve a single conflict.
@@ -193,7 +188,7 @@ class ConflictResolver:
         conflict.resolution = strategy
         return conflict
 
-    def _try_auto_merge(self, local_val: Any, remote_val: Any) -> Optional[Any]:
+    def _try_auto_merge(self, local_val: Any, remote_val: Any) -> Any | None:
         """Try to automatically merge two values.
 
         Args:
@@ -234,11 +229,11 @@ class ConflictResolver:
 
     def merge_specs(
         self,
-        base_spec: Optional[dict],
+        base_spec: dict | None,
         local_spec: dict,
         remote_spec: dict,
         test_id: str,
-        strategy: Optional[ConflictResolutionStrategy] = None,
+        strategy: ConflictResolutionStrategy | None = None,
     ) -> MergeResult:
         """Perform a three-way merge of test specs.
 
@@ -307,7 +302,7 @@ class ConflictResolver:
 
     def _merge_no_conflicts(
         self,
-        base_spec: Optional[dict],
+        base_spec: dict | None,
         local_spec: dict,
         remote_spec: dict,
     ) -> dict:
@@ -340,7 +335,7 @@ class ConflictResolver:
 
     def _apply_resolutions(
         self,
-        base_spec: Optional[dict],
+        base_spec: dict | None,
         local_spec: dict,
         remote_spec: dict,
         resolved_conflicts: list[SyncConflict],

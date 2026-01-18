@@ -15,21 +15,21 @@ The key insight: We're not just monitoring - we're LEARNING.
 
 import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
 from enum import Enum
+
 import anthropic
 
+from src.config import get_settings
 from src.integrations.observability_hub import (
     ObservabilityHub,
-    RealUserSession,
-    ProductionError,
     PerformanceAnomaly,
-    UserJourneyPattern,
     Platform,
+    ProductionError,
+    RealUserSession,
+    UserJourneyPattern,
 )
-from src.config import get_settings
 
 
 class InsightType(str, Enum):
@@ -76,7 +76,7 @@ class ErrorInsight:
     priority: ActionPriority
     impact_score: float  # 0-100, based on users affected, frequency
     root_cause_hypothesis: str
-    suggested_test: Optional[TestSuggestion]
+    suggested_test: TestSuggestion | None
     related_errors: list[str]  # IDs of similar errors
     affected_user_journeys: list[str]
     recommended_actions: list[str]
@@ -287,7 +287,7 @@ class AISynthesizer:
     async def _session_to_test(
         self,
         session: RealUserSession
-    ) -> Optional[TestSuggestion]:
+    ) -> TestSuggestion | None:
         """Convert a real user session into a test suggestion using AI."""
         if not session.actions:
             return None
@@ -349,7 +349,7 @@ Focus on the most critical user flow in this session."""
                     tags=spec.get("tags", []),
                     estimated_coverage=spec.get("estimated_coverage", 0.1),
                 )
-        except Exception as e:
+        except Exception:
             pass
 
         return None
@@ -357,7 +357,7 @@ Focus on the most critical user flow in this session."""
     async def _error_to_test(
         self,
         error: ProductionError
-    ) -> Optional[TestSuggestion]:
+    ) -> TestSuggestion | None:
         """Convert an error into a regression test."""
         prompt = f"""Analyze this production error and generate a regression test.
 
@@ -420,7 +420,7 @@ This test should PREVENT this error from happening again."""
     async def _journey_to_test(
         self,
         journey: UserJourneyPattern
-    ) -> Optional[TestSuggestion]:
+    ) -> TestSuggestion | None:
         """Convert a user journey pattern into an E2E test."""
         if not journey.steps:
             return None
@@ -679,7 +679,7 @@ Focus on validating the complete user journey."""
             return {"is_increasing": False}
 
         # Group errors by hour
-        now = datetime.utcnow()
+        datetime.utcnow()
         hourly_counts = {}
 
         for error in errors:
@@ -734,7 +734,7 @@ Focus on validating the complete user journey."""
                 gaps.append(CoverageGap(
                     id=f"cg_{hash(page) % 10000}",
                     area=page,
-                    description=f"High-traffic page needs test coverage",
+                    description="High-traffic page needs test coverage",
                     user_traffic_percent=traffic_percent,
                     current_coverage_percent=0,  # Would need actual coverage data
                     priority=ActionPriority.HIGH if traffic_percent > 30 else ActionPriority.MEDIUM,
@@ -882,7 +882,7 @@ Focus on validating the complete user journey."""
         return actions[:10]  # Top 10 actions
 
 
-async def create_ai_synthesizer(hub: Optional[ObservabilityHub] = None) -> AISynthesizer:
+async def create_ai_synthesizer(hub: ObservabilityHub | None = None) -> AISynthesizer:
     """Create an AI Synthesizer with the observability hub."""
     if hub is None:
         hub = ObservabilityHub()

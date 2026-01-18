@@ -1,8 +1,8 @@
 """Tests for Supabase integration module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import os
+
+import pytest
 
 
 class TestSupabaseClientInit:
@@ -217,7 +217,7 @@ class TestSupabaseClientSelect:
         mock_query.execute.return_value = MagicMock(data=[{"name": "test"}])
         initialized_client._client.table.return_value = mock_query
 
-        result = await initialized_client.select("test_table", columns="name, value")
+        await initialized_client.select("test_table", columns="name, value")
 
         mock_query.select.assert_called_with("name, value")
 
@@ -230,7 +230,7 @@ class TestSupabaseClientSelect:
         mock_query.execute.return_value = MagicMock(data=[{"id": 1, "status": "active"}])
         initialized_client._client.table.return_value = mock_query
 
-        result = await initialized_client.select(
+        await initialized_client.select(
             "test_table",
             filters={"status": "active"},
         )
@@ -246,7 +246,7 @@ class TestSupabaseClientSelect:
         mock_query.execute.return_value = MagicMock(data=[{"id": 2}, {"id": 1}])
         initialized_client._client.table.return_value = mock_query
 
-        result = await initialized_client.select(
+        await initialized_client.select(
             "test_table",
             order_by="id",
             ascending=False,
@@ -263,7 +263,7 @@ class TestSupabaseClientSelect:
         mock_query.execute.return_value = MagicMock(data=[{"id": 1}])
         initialized_client._client.table.return_value = mock_query
 
-        result = await initialized_client.select(
+        await initialized_client.select(
             "test_table",
             limit=10,
         )
@@ -279,7 +279,7 @@ class TestSupabaseClientSelect:
         mock_query.execute.return_value = MagicMock(data=[{"id": 11}])
         initialized_client._client.table.return_value = mock_query
 
-        result = await initialized_client.select(
+        await initialized_client.select(
             "test_table",
             offset=10,
         )

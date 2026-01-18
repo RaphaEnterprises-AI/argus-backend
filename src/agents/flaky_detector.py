@@ -9,15 +9,11 @@ This is a KEY DIFFERENTIATOR. We automatically:
 5. Suggest fixes for common flakiness patterns
 """
 
-import json
 import statistics
-from enum import Enum
-from typing import Optional
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from collections import defaultdict
-
-from src.config import get_settings
+from enum import Enum
 
 
 class FlakinessLevel(str, Enum):
@@ -45,10 +41,10 @@ class TestRun:
     passed: bool
     duration_ms: float
     timestamp: datetime
-    error_message: Optional[str] = None
-    environment: Optional[str] = None
+    error_message: str | None = None
+    environment: str | None = None
     retry_number: int = 0
-    ci_run_id: Optional[str] = None
+    ci_run_id: str | None = None
 
 
 @dataclass
@@ -67,7 +63,7 @@ class FlakinessReport:
     cause_confidence: float
     recommended_action: str
     should_quarantine: bool
-    first_flaky_date: Optional[datetime] = None
+    first_flaky_date: datetime | None = None
     failure_patterns: list[str] = field(default_factory=list)
 
 
@@ -93,7 +89,7 @@ class FlakyTestDetector:
     - Trend reporting
     """
 
-    def __init__(self, config: Optional[QuarantineConfig] = None):
+    def __init__(self, config: QuarantineConfig | None = None):
         self.config = config or QuarantineConfig()
         self.test_history: dict[str, list[TestRun]] = defaultdict(list)
         self.quarantined_tests: dict[str, datetime] = {}
@@ -310,7 +306,7 @@ class FlakyTestDetector:
                 hour_counts[h] += 1
             max_hour = max(hour_counts.values())
             if max_hour > len(failed_runs) * 0.4:
-                patterns.append(f"Failures cluster around certain hours")
+                patterns.append("Failures cluster around certain hours")
 
         # Environment patterns
         failure_envs = [r.environment for r in failed_runs if r.environment]
@@ -369,7 +365,7 @@ class FlakyTestDetector:
 
         return " | ".join(recommendations)
 
-    def _find_first_flaky_date(self, runs: list[TestRun]) -> Optional[datetime]:
+    def _find_first_flaky_date(self, runs: list[TestRun]) -> datetime | None:
         """Find when test first became flaky."""
         if len(runs) < 3:
             return None

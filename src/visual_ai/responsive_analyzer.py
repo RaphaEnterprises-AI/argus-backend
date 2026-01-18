@@ -9,13 +9,13 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
-from playwright.async_api import Page, Browser, BrowserContext
+from playwright.async_api import Browser, BrowserContext
 
-from .models import VisualSnapshot, VisualElement
 from .capture import EnhancedCapture
+from .models import VisualSnapshot
 
 logger = structlog.get_logger()
 
@@ -43,12 +43,12 @@ class ViewportConfig:
     height: int
     device_scale_factor: float = 1.0
     is_mobile: bool = False
-    user_agent: Optional[str] = None
+    user_agent: str | None = None
     has_touch: bool = False
 
-    def to_playwright_config(self) -> Dict[str, Any]:
+    def to_playwright_config(self) -> dict[str, Any]:
         """Convert to Playwright viewport/context configuration."""
-        config: Dict[str, Any] = {
+        config: dict[str, Any] = {
             "viewport": {"width": self.width, "height": self.height},
             "device_scale_factor": self.device_scale_factor,
             "is_mobile": self.is_mobile,
@@ -58,7 +58,7 @@ class ViewportConfig:
             config["user_agent"] = self.user_agent
         return config
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "name": self.name,
@@ -95,13 +95,13 @@ class BreakpointIssue:
     severity: int  # 1-5, where 5 is most severe
 
     # Additional context
-    element_bounds: Optional[Dict[str, float]] = None
-    related_element: Optional[str] = None
-    overflow_amount: Optional[float] = None
-    overlap_area: Optional[float] = None
+    element_bounds: dict[str, float] | None = None
+    related_element: str | None = None
+    overflow_amount: float | None = None
+    overlap_area: float | None = None
     recommendation: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "viewport": self.viewport,
@@ -137,16 +137,16 @@ class ResponsiveDiff:
     viewport: str
     baseline_snapshot: VisualSnapshot
     current_snapshot: VisualSnapshot
-    issues: List[BreakpointIssue]
+    issues: list[BreakpointIssue]
     match_percentage: float
 
     # Layout comparison
     layout_changed: bool = False
-    elements_added: List[str] = field(default_factory=list)
-    elements_removed: List[str] = field(default_factory=list)
-    elements_moved: List[Dict[str, Any]] = field(default_factory=list)
+    elements_added: list[str] = field(default_factory=list)
+    elements_removed: list[str] = field(default_factory=list)
+    elements_moved: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "viewport": self.viewport,
@@ -238,7 +238,7 @@ class ResponsiveAnalyzer:
 
     def __init__(
         self,
-        capture: Optional[EnhancedCapture] = None,
+        capture: EnhancedCapture | None = None,
         min_touch_target_size: int = 44,
         overflow_threshold_px: int = 5,
         overlap_threshold_px: int = 2,
@@ -261,11 +261,11 @@ class ResponsiveAnalyzer:
         self,
         browser: Browser,
         url: str,
-        viewports: Optional[List[ViewportConfig]] = None,
+        viewports: list[ViewportConfig] | None = None,
         full_page: bool = False,
-        wait_for_selector: Optional[str] = None,
+        wait_for_selector: str | None = None,
         wait_timeout_ms: int = 30000,
-    ) -> Dict[str, VisualSnapshot]:
+    ) -> dict[str, VisualSnapshot]:
         """Capture screenshots at all viewport sizes.
 
         Creates a new browser context for each viewport to ensure clean
@@ -285,7 +285,7 @@ class ResponsiveAnalyzer:
         if viewports is None:
             viewports = self.STANDARD_VIEWPORTS
 
-        snapshots: Dict[str, VisualSnapshot] = {}
+        snapshots: dict[str, VisualSnapshot] = {}
 
         self.log.info(
             "Capturing viewports",
@@ -328,11 +328,11 @@ class ResponsiveAnalyzer:
         url: str,
         viewport: ViewportConfig,
         full_page: bool,
-        wait_for_selector: Optional[str],
+        wait_for_selector: str | None,
         wait_timeout_ms: int,
     ) -> VisualSnapshot:
         """Capture a single viewport with a fresh context."""
-        context: Optional[BrowserContext] = None
+        context: BrowserContext | None = None
         try:
             # Create new context with viewport settings
             context = await browser.new_context(**viewport.to_playwright_config())
@@ -366,8 +366,8 @@ class ResponsiveAnalyzer:
 
     async def detect_breakpoint_issues(
         self,
-        snapshots: Dict[str, VisualSnapshot],
-    ) -> List[BreakpointIssue]:
+        snapshots: dict[str, VisualSnapshot],
+    ) -> list[BreakpointIssue]:
         """Find layout breaks between viewport sizes.
 
         Analyzes snapshots from different viewports to detect:
@@ -383,7 +383,7 @@ class ResponsiveAnalyzer:
         Returns:
             List of detected BreakpointIssue objects
         """
-        issues: List[BreakpointIssue] = []
+        issues: list[BreakpointIssue] = []
 
         for viewport_name, snapshot in snapshots.items():
             viewport_config = self._get_viewport_config(viewport_name)
@@ -421,8 +421,8 @@ class ResponsiveAnalyzer:
     async def _detect_overflow_issues(
         self,
         snapshot: VisualSnapshot,
-        viewport_config: Optional[ViewportConfig],
-    ) -> List[BreakpointIssue]:
+        viewport_config: ViewportConfig | None,
+    ) -> list[BreakpointIssue]:
         """Detect horizontal overflow issues."""
         issues = []
         viewport_width = snapshot.viewport.get("width", 1920)
@@ -460,7 +460,7 @@ class ResponsiveAnalyzer:
     async def _detect_overlap_issues(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[BreakpointIssue]:
+    ) -> list[BreakpointIssue]:
         """Detect unintended element overlaps."""
         issues = []
         viewport_name = snapshot.device_name or "unknown"
@@ -508,7 +508,7 @@ class ResponsiveAnalyzer:
     async def _detect_touch_target_issues(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[BreakpointIssue]:
+    ) -> list[BreakpointIssue]:
         """Detect touch targets that are too small for mobile."""
         issues = []
         viewport_name = snapshot.device_name or "unknown"
@@ -548,7 +548,7 @@ class ResponsiveAnalyzer:
     async def _detect_truncation_issues(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[BreakpointIssue]:
+    ) -> list[BreakpointIssue]:
         """Detect potential text truncation issues."""
         issues = []
         viewport_name = snapshot.device_name or "unknown"
@@ -580,8 +580,8 @@ class ResponsiveAnalyzer:
 
     def _calculate_overlap_area(
         self,
-        bounds1: Dict[str, float],
-        bounds2: Dict[str, float],
+        bounds1: dict[str, float],
+        bounds2: dict[str, float],
     ) -> float:
         """Calculate the overlapping area between two elements."""
         x1_left, y1_top = bounds1["x"], bounds1["y"]
@@ -598,7 +598,7 @@ class ResponsiveAnalyzer:
 
         return x_overlap * y_overlap
 
-    def _get_viewport_config(self, name: str) -> Optional[ViewportConfig]:
+    def _get_viewport_config(self, name: str) -> ViewportConfig | None:
         """Get ViewportConfig by name from standard viewports."""
         for vp in self.STANDARD_VIEWPORTS + self.EXTENDED_VIEWPORTS:
             if vp.name == name:
@@ -607,10 +607,10 @@ class ResponsiveAnalyzer:
 
     async def compare_responsive_regression(
         self,
-        baseline_snapshots: Dict[str, VisualSnapshot],
-        current_snapshots: Dict[str, VisualSnapshot],
+        baseline_snapshots: dict[str, VisualSnapshot],
+        current_snapshots: dict[str, VisualSnapshot],
         pixel_threshold: float = 0.05,
-    ) -> List[ResponsiveDiff]:
+    ) -> list[ResponsiveDiff]:
         """Compare responsive behavior changes between baseline and current.
 
         Analyzes visual differences at each viewport and detects:
@@ -627,7 +627,7 @@ class ResponsiveAnalyzer:
         Returns:
             List of ResponsiveDiff objects for each viewport
         """
-        diffs: List[ResponsiveDiff] = []
+        diffs: list[ResponsiveDiff] = []
 
         # Compare each viewport present in both sets
         common_viewports = set(baseline_snapshots.keys()) & set(current_snapshots.keys())
@@ -675,9 +675,10 @@ class ResponsiveAnalyzer:
     ) -> float:
         """Calculate visual similarity percentage between snapshots."""
         try:
+            import io
+
             import numpy as np
             from PIL import Image
-            import io
 
             # Load images
             img1 = Image.open(io.BytesIO(baseline.screenshot)).convert("RGB")
@@ -708,7 +709,7 @@ class ResponsiveAnalyzer:
         self,
         baseline: VisualSnapshot,
         current: VisualSnapshot,
-    ) -> tuple[bool, List[str], List[str], List[Dict[str, Any]]]:
+    ) -> tuple[bool, list[str], list[str], list[dict[str, Any]]]:
         """Compare layout structures between snapshots."""
         baseline_selectors = {el.selector for el in baseline.elements}
         current_selectors = {el.selector for el in current.elements}
@@ -748,7 +749,7 @@ class ResponsiveAnalyzer:
         baseline: VisualSnapshot,
         current: VisualSnapshot,
         match_percentage: float,
-    ) -> List[BreakpointIssue]:
+    ) -> list[BreakpointIssue]:
         """Detect issues specific to regression comparison."""
         issues = []
 
@@ -785,9 +786,9 @@ class ResponsiveAnalyzer:
 
     async def check_element_visibility(
         self,
-        snapshots: Dict[str, VisualSnapshot],
+        snapshots: dict[str, VisualSnapshot],
         element_selector: str,
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """Check if element is visible at each viewport.
 
         Useful for verifying responsive show/hide behavior works correctly.
@@ -799,7 +800,7 @@ class ResponsiveAnalyzer:
         Returns:
             Dict mapping viewport name to visibility boolean
         """
-        visibility: Dict[str, bool] = {}
+        visibility: dict[str, bool] = {}
 
         for viewport_name, snapshot in snapshots.items():
             # Check if element exists in snapshot
@@ -827,7 +828,7 @@ class ResponsiveAnalyzer:
     async def detect_text_overflow(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Detect text that overflows its container.
 
         Analyzes text blocks in the snapshot to identify overflow issues.
@@ -870,7 +871,7 @@ class ResponsiveAnalyzer:
     async def detect_element_overlap(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Detect elements that overlap incorrectly.
 
         Checks all element pairs for unintended overlapping.
@@ -901,9 +902,9 @@ class ResponsiveAnalyzer:
 
     async def generate_responsive_report(
         self,
-        snapshots: Dict[str, VisualSnapshot],
-        issues: List[BreakpointIssue],
-    ) -> Dict[str, Any]:
+        snapshots: dict[str, VisualSnapshot],
+        issues: list[BreakpointIssue],
+    ) -> dict[str, Any]:
         """Generate a comprehensive responsive testing report.
 
         Args:
@@ -914,14 +915,14 @@ class ResponsiveAnalyzer:
             Report dictionary with summary and details
         """
         # Group issues by viewport
-        issues_by_viewport: Dict[str, List[BreakpointIssue]] = {}
+        issues_by_viewport: dict[str, list[BreakpointIssue]] = {}
         for issue in issues:
             if issue.viewport not in issues_by_viewport:
                 issues_by_viewport[issue.viewport] = []
             issues_by_viewport[issue.viewport].append(issue)
 
         # Group issues by type
-        issues_by_type: Dict[str, int] = {}
+        issues_by_type: dict[str, int] = {}
         for issue in issues:
             issues_by_type[issue.issue_type] = issues_by_type.get(issue.issue_type, 0) + 1
 
@@ -969,8 +970,8 @@ class ResponsiveAnalyzer:
 
     def _generate_recommendations(
         self,
-        issues: List[BreakpointIssue],
-    ) -> List[str]:
+        issues: list[BreakpointIssue],
+    ) -> list[str]:
         """Generate actionable recommendations from issues."""
         recommendations = set()
 

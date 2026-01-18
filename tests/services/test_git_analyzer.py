@@ -1,11 +1,11 @@
 """Tests for the git analyzer service."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 import tempfile
-import os
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 class TestGitCommit:
@@ -20,7 +20,7 @@ class TestGitCommit:
             short_sha="abc123d",
             author="John Doe",
             author_email="john@example.com",
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             message="Fix button styling",
             files_changed=["src/Button.tsx", "src/Button.css"],
         )
@@ -40,7 +40,7 @@ class TestGitCommit:
             short_sha="abc",
             author="Jane",
             author_email="jane@example.com",
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             message="Update",
         )
 
@@ -58,7 +58,7 @@ class TestGitBlameResult:
             commit_sha="abc123def456",
             author="John Doe",
             author_email="john@example.com",
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             line_number=42,
             line_content='<button data-testid="submit">Submit</button>',
             commit_message="Add submit button",
@@ -77,7 +77,7 @@ class TestGitBlameResult:
             commit_sha="abc123",
             author="Jane",
             author_email="jane@example.com",
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             line_number=1,
             line_content="code",
         )
@@ -90,14 +90,14 @@ class TestSelectorChange:
 
     def test_selector_change_creation(self):
         """Test creating a SelectorChange instance."""
-        from src.services.git_analyzer import SelectorChange, GitCommit
+        from src.services.git_analyzer import GitCommit, SelectorChange
 
         commit = GitCommit(
             sha="abc123",
             short_sha="abc",
             author="John",
             author_email="john@example.com",
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             message="Rename selector",
         )
 
@@ -129,7 +129,7 @@ class TestCodeChange:
             short_sha="abc",
             author="John",
             author_email="john@example.com",
-            date=datetime.now(timezone.utc),
+            date=datetime.now(UTC),
             message="Update component",
         )
 
@@ -198,13 +198,13 @@ class TestGitAnalyzerRunGitCommand:
     @pytest.mark.asyncio
     async def test_run_git_command_timeout(self):
         """Test git command timeout handling."""
+
         from src.services.git_analyzer import GitAnalyzer
-        import asyncio
 
         analyzer = GitAnalyzer()
 
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
         mock_process.returncode = None
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
@@ -584,7 +584,7 @@ class TestGitAnalyzerFindReplacementSelector:
     @pytest.mark.asyncio
     async def test_find_replacement_selector_found(self):
         """Test finding replacement for broken selector."""
-        from src.services.git_analyzer import GitAnalyzer, SelectorChange, GitCommit
+        from src.services.git_analyzer import GitAnalyzer, GitCommit, SelectorChange
 
         analyzer = GitAnalyzer()
 
@@ -597,7 +597,7 @@ class TestGitAnalyzerFindReplacementSelector:
                 short_sha="abc",
                 author="John",
                 author_email="john@example.com",
-                date=datetime.now(timezone.utc),
+                date=datetime.now(UTC),
                 message="Rename selector",
             ),
             file_path="src/Button.tsx",
@@ -636,7 +636,7 @@ class TestGitAnalyzerFindReplacementSelector:
     @pytest.mark.asyncio
     async def test_find_replacement_selector_no_replacement(self):
         """Test when selector was removed but not replaced."""
-        from src.services.git_analyzer import GitAnalyzer, SelectorChange, GitCommit
+        from src.services.git_analyzer import GitAnalyzer, GitCommit, SelectorChange
 
         analyzer = GitAnalyzer()
 
@@ -648,7 +648,7 @@ class TestGitAnalyzerFindReplacementSelector:
                 short_sha="abc",
                 author="John",
                 author_email="john@example.com",
-                date=datetime.now(timezone.utc),
+                date=datetime.now(UTC),
                 message="Remove button",
             ),
             file_path="src/Button.tsx",
@@ -767,7 +767,7 @@ class TestGitAnalyzerGetComponentHistory:
                 short_sha="abc",
                 author="John",
                 author_email="john@example.com",
-                date=datetime.now(timezone.utc),
+                date=datetime.now(UTC),
                 message="Update Button",
                 files_changed=["src/Button.tsx"],
             )
@@ -884,8 +884,8 @@ class TestGetGitAnalyzer:
 
     def test_get_git_analyzer_creates_singleton(self):
         """Test that get_git_analyzer creates singleton."""
-        from src.services.git_analyzer import get_git_analyzer
         import src.services.git_analyzer as module
+        from src.services.git_analyzer import get_git_analyzer
 
         # Reset singleton
         module._git_analyzer = None
@@ -900,8 +900,8 @@ class TestGetGitAnalyzer:
 
     def test_get_git_analyzer_with_path(self):
         """Test get_git_analyzer with custom path."""
-        from src.services.git_analyzer import get_git_analyzer
         import src.services.git_analyzer as module
+        from src.services.git_analyzer import get_git_analyzer
 
         # Reset singleton
         module._git_analyzer = None
@@ -925,8 +925,9 @@ class TestSelectorPatterns:
 
     def test_selector_patterns_compile(self):
         """Test that all selector patterns are valid regex."""
-        from src.services.git_analyzer import GitAnalyzer
         import re
+
+        from src.services.git_analyzer import GitAnalyzer
 
         for pattern in GitAnalyzer.SELECTOR_PATTERNS:
             # Should not raise

@@ -1,22 +1,18 @@
 """Tests for collaboration models."""
 
-import pytest
-from datetime import datetime, timezone
-from uuid import uuid4
 
 from src.collaboration.models import (
-    PresenceStatus,
+    CURSOR_COLORS,
+    BroadcastMessage,
+    CollaborationEvent,
     CollaborationEventType,
+    CollaborativeComment,
     CursorPosition,
+    EditOperation,
+    PresenceStatus,
     SelectionRange,
     UserPresence,
-    CollaborationEvent,
-    CollaborativeComment,
-    EditOperation,
-    BroadcastMessage,
-    CURSOR_COLORS,
 )
-
 
 # =============================================================================
 # Enum Tests

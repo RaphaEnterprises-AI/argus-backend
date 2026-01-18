@@ -1,15 +1,13 @@
 """Tests for HybridExecutor."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import dataclass
-from typing import Optional
+from unittest.mock import AsyncMock
 
-from src.execution.hybrid_executor import HybridExecutor, TestStep, create_hybrid_executor
+import pytest
+
+from src.execution.hybrid_executor import HybridExecutor, TestStep
 from src.execution.models import (
     ExecutionMode,
     ExecutionStrategy,
-    FallbackLevel,
     StepExecutionConfig,
 )
 from src.tools.browser_abstraction import ActionResult

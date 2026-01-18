@@ -4,15 +4,14 @@ Provides perceptual image analysis using SSIM, perceptual hashing, color detecti
 and text rendering comparison. All methods work with images as bytes (PNG format).
 """
 
-from typing import Tuple, List, Dict, Optional
-from dataclasses import dataclass
 import io
 import math
 from collections import Counter
+from dataclasses import dataclass
 
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 import imagehash
 import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 @dataclass
@@ -30,7 +29,7 @@ class TextRenderingDiff:
     font_changed: bool
     size_changed: bool
     antialiasing_different: bool
-    affected_regions: List[Dict]
+    affected_regions: list[dict]
 
 
 def _bytes_to_image(image_bytes: bytes) -> Image.Image:
@@ -45,14 +44,14 @@ def _image_to_bytes(image: Image.Image, format: str = "PNG") -> bytes:
     return buffer.getvalue()
 
 
-def _ensure_same_size(img1: Image.Image, img2: Image.Image) -> Tuple[Image.Image, Image.Image]:
+def _ensure_same_size(img1: Image.Image, img2: Image.Image) -> tuple[Image.Image, Image.Image]:
     """Ensure two images have the same dimensions by resizing the second to match the first."""
     if img1.size != img2.size:
         img2 = img2.resize(img1.size, Image.Resampling.LANCZOS)
     return img1, img2
 
 
-def _ensure_same_mode(img1: Image.Image, img2: Image.Image) -> Tuple[Image.Image, Image.Image]:
+def _ensure_same_mode(img1: Image.Image, img2: Image.Image) -> tuple[Image.Image, Image.Image]:
     """Ensure both images have the same color mode."""
     target_mode = "RGBA" if img1.mode == "RGBA" or img2.mode == "RGBA" else "RGB"
     if img1.mode != target_mode:
@@ -62,7 +61,7 @@ def _ensure_same_mode(img1: Image.Image, img2: Image.Image) -> Tuple[Image.Image
     return img1, img2
 
 
-def _rgb_to_lab(r: int, g: int, b: int) -> Tuple[float, float, float]:
+def _rgb_to_lab(r: int, g: int, b: int) -> tuple[float, float, float]:
     """Convert RGB to CIELAB color space for perceptual comparison."""
     # Normalize RGB values
     r_norm = r / 255.0
@@ -96,7 +95,7 @@ def _rgb_to_lab(r: int, g: int, b: int) -> Tuple[float, float, float]:
     return L, a, b_val
 
 
-def _calculate_delta_e(lab1: Tuple[float, float, float], lab2: Tuple[float, float, float]) -> float:
+def _calculate_delta_e(lab1: tuple[float, float, float], lab2: tuple[float, float, float]) -> float:
     """Calculate Delta E (CIE76) between two LAB colors."""
     return math.sqrt(
         (lab1[0] - lab2[0]) ** 2 +
@@ -105,7 +104,7 @@ def _calculate_delta_e(lab1: Tuple[float, float, float], lab2: Tuple[float, floa
     )
 
 
-def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     """Convert hex color to RGB tuple."""
     hex_color = hex_color.lstrip("#")
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
@@ -154,7 +153,7 @@ class PerceptualAnalyzer:
         baseline: bytes,
         current: bytes,
         window_size: int = 11
-    ) -> Tuple[float, bytes]:
+    ) -> tuple[float, bytes]:
         """
         Compute Structural Similarity Index (SSIM) between two images.
 
@@ -205,7 +204,7 @@ class PerceptualAnalyzer:
         arr1: np.ndarray,
         arr2: np.ndarray,
         window_size: int
-    ) -> Tuple[float, np.ndarray]:
+    ) -> tuple[float, np.ndarray]:
         """Basic SSIM implementation when scikit-image is not available."""
         # Constants for numerical stability
         C1 = (0.01 * 255) ** 2
@@ -351,7 +350,7 @@ class PerceptualAnalyzer:
         baseline: bytes,
         current: bytes,
         threshold: float = 0.05
-    ) -> List[ColorChange]:
+    ) -> list[ColorChange]:
         """
         Detect significant color palette changes between images.
 
@@ -376,7 +375,7 @@ class PerceptualAnalyzer:
         img2_quantized = img2.quantize(colors=64, method=Image.Quantize.MEDIANCUT)
 
         # Get color histograms
-        def get_color_distribution(img_quantized: Image.Image, original: Image.Image) -> Dict[str, float]:
+        def get_color_distribution(img_quantized: Image.Image, original: Image.Image) -> dict[str, float]:
             """Get color distribution as hex:percentage dict."""
             palette = img_quantized.getpalette()
             if not palette:
@@ -459,7 +458,7 @@ class PerceptualAnalyzer:
 
         return unique_changes
 
-    def _find_closest_color(self, target_hex: str, candidates: List[str]) -> Optional[str]:
+    def _find_closest_color(self, target_hex: str, candidates: list[str]) -> str | None:
         """Find the closest color to target from candidates."""
         if not candidates:
             return None
@@ -605,7 +604,7 @@ class PerceptualAnalyzer:
         self,
         baseline: bytes,
         current: bytes,
-        highlight_regions: Optional[List[Dict]] = None
+        highlight_regions: list[dict] | None = None
     ) -> bytes:
         """
         Create a side-by-side comparison image.
@@ -645,10 +644,10 @@ class PerceptualAnalyzer:
         draw = ImageDraw.Draw(combined)
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        except (OSError, IOError):
+        except OSError:
             try:
                 font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-            except (OSError, IOError):
+            except OSError:
                 font = ImageFont.load_default()
 
         draw.text((10, 5), "Baseline", fill=(0, 0, 0), font=font)
@@ -721,10 +720,10 @@ class PerceptualAnalyzer:
             draw = ImageDraw.Draw(new_img)
             try:
                 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-            except (OSError, IOError):
+            except OSError:
                 try:
                     font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-                except (OSError, IOError):
+                except OSError:
                     font = ImageFont.load_default()
 
             draw.text((10, 5), label, fill=(0, 0, 0), font=font)

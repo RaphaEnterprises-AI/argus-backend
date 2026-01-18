@@ -6,6 +6,7 @@ test results, and other persistent data.
 
 import os
 from typing import Any, Optional
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -35,7 +36,7 @@ class SupabaseClient:
             return self._client is not None
 
         try:
-            from supabase import create_client, Client
+            from supabase import Client, create_client
             self._client: Client = create_client(self.url, self.key)
             self._initialized = True
             logger.info("Supabase client initialized", url=self.url[:50] + "...")
@@ -66,7 +67,7 @@ class SupabaseClient:
             return False
 
         try:
-            result = self._client.table(table).insert(records).execute()
+            self._client.table(table).insert(records).execute()
             logger.debug("Inserted records into Supabase", table=table, count=len(records))
             return True
         except Exception as e:
@@ -85,10 +86,10 @@ class SupabaseClient:
         self,
         table: str,
         columns: str = "*",
-        filters: Optional[dict[str, Any]] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-        order_by: Optional[str] = None,
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None,
         ascending: bool = True,
     ) -> list[dict[str, Any]]:
         """Select records from a table.
@@ -196,7 +197,7 @@ class SupabaseClient:
             return False
 
 
-async def get_supabase() -> Optional[SupabaseClient]:
+async def get_supabase() -> SupabaseClient | None:
     """Get the global Supabase client instance.
 
     Returns:

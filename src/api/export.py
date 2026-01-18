@@ -17,13 +17,12 @@ Parameterized test export generates:
 - Java: @ParameterizedTest with @CsvSource/@MethodSource
 """
 
-from datetime import datetime, timezone
-from typing import Any, Optional
 from enum import Enum
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import structlog
 
 logger = structlog.get_logger()
 
@@ -93,51 +92,51 @@ LANGUAGE_FRAMEWORKS: dict[str, list[str]] = {
 class TestStepModel(BaseModel):
     """Test step for export."""
     action: str
-    target: Optional[str] = None
-    value: Optional[str] = None
-    timeout: Optional[int] = None
+    target: str | None = None
+    value: str | None = None
+    timeout: int | None = None
 
 
 class TestAssertionModel(BaseModel):
     """Test assertion for export."""
     type: str
-    target: Optional[str] = None
-    expected: Optional[str] = None
+    target: str | None = None
+    expected: str | None = None
 
 
 class ParameterSetModel(BaseModel):
     """Parameter set for parameterized tests."""
     name: str
     values: dict[str, Any]
-    description: Optional[str] = None
+    description: str | None = None
     tags: list[str] = []
     skip: bool = False
-    skip_reason: Optional[str] = None
+    skip_reason: str | None = None
 
 
 class DataSourceModel(BaseModel):
     """Data source configuration for parameterized tests."""
     type: str  # inline, csv, json, env
-    data: Optional[list[dict[str, Any]]] = None
-    path: Optional[str] = None
-    mapping: Optional[dict[str, str]] = None
-    filter: Optional[str] = None
-    limit: Optional[int] = None
+    data: list[dict[str, Any]] | None = None
+    path: str | None = None
+    mapping: dict[str, str] | None = None
+    filter: str | None = None
+    limit: int | None = None
 
 
 class TestSpecModel(BaseModel):
     """Test specification for export."""
     id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     steps: list[TestStepModel]
-    assertions: Optional[list[TestAssertionModel]] = None
-    setup: Optional[list[TestStepModel]] = None
-    teardown: Optional[list[TestStepModel]] = None
-    metadata: Optional[dict] = None
+    assertions: list[TestAssertionModel] | None = None
+    setup: list[TestStepModel] | None = None
+    teardown: list[TestStepModel] | None = None
+    metadata: dict | None = None
     # Parameterized test fields
-    parameter_sets: Optional[list[ParameterSetModel]] = None
-    data_source: Optional[DataSourceModel] = None
+    parameter_sets: list[ParameterSetModel] | None = None
+    data_source: DataSourceModel | None = None
 
 
 class ExportRequest(BaseModel):
@@ -147,7 +146,7 @@ class ExportRequest(BaseModel):
     framework: str = Field(..., description="Target framework (playwright, selenium, etc.)")
     include_comments: bool = Field(True, description="Include explanatory comments")
     include_assertions: bool = Field(True, description="Include test assertions")
-    base_url: Optional[str] = Field(None, description="Base URL for the test")
+    base_url: str | None = Field(None, description="Base URL for the test")
     output_format: str = Field("code", description="Output format: code, file, or zip")
 
 
@@ -159,8 +158,8 @@ class ExportResponse(BaseModel):
     code: str
     filename: str
     dependencies: list[str] = []
-    setup_instructions: Optional[str] = None
-    error: Optional[str] = None
+    setup_instructions: str | None = None
+    error: str | None = None
 
 
 class ExportPreviewResponse(BaseModel):
@@ -188,7 +187,7 @@ class BulkExportResponse(BaseModel):
     total_tests: int
     total_lines: int
     zip_available: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -196,7 +195,7 @@ class BulkExportResponse(BaseModel):
 # =============================================================================
 
 
-def generate_python_playwright(test: TestSpecModel, include_comments: bool = True, base_url: Optional[str] = None) -> str:
+def generate_python_playwright(test: TestSpecModel, include_comments: bool = True, base_url: str | None = None) -> str:
     """Generate Python Playwright test code."""
     lines = []
 
@@ -211,10 +210,10 @@ def generate_python_playwright(test: TestSpecModel, include_comments: bool = Tru
     lines.append(f"class Test{class_name}:")
 
     if include_comments and test.description:
-        lines.append(f'    """')
+        lines.append('    """')
         lines.append(f"    {test.description}")
         lines.append(f"    Generated from Argus test spec: {test.id}")
-        lines.append(f'    """')
+        lines.append('    """')
 
     lines.append("")
 
@@ -255,7 +254,7 @@ def generate_python_playwright(test: TestSpecModel, include_comments: bool = Tru
     return "\n".join(lines)
 
 
-def _action_to_playwright(step: TestStepModel, base_url: Optional[str] = None) -> str:
+def _action_to_playwright(step: TestStepModel, base_url: str | None = None) -> str:
     """Convert action to Playwright code."""
     action = step.action.lower()
     target = step.target or ""
@@ -318,7 +317,7 @@ def _assertion_to_playwright(assertion: TestAssertionModel) -> str:
         return f"# TODO: assertion {atype}"
 
 
-def generate_typescript_playwright(test: TestSpecModel, include_comments: bool = True, base_url: Optional[str] = None) -> str:
+def generate_typescript_playwright(test: TestSpecModel, include_comments: bool = True, base_url: str | None = None) -> str:
     """Generate TypeScript Playwright test code."""
     lines = []
 
@@ -328,10 +327,10 @@ def generate_typescript_playwright(test: TestSpecModel, include_comments: bool =
 
     # Test description
     if include_comments and test.description:
-        lines.append(f"/**")
+        lines.append("/**")
         lines.append(f" * {test.description}")
         lines.append(f" * Generated from Argus test spec: {test.id}")
-        lines.append(f" */")
+        lines.append(" */")
 
     # Test block
     test_name = test.name
@@ -356,7 +355,7 @@ def generate_typescript_playwright(test: TestSpecModel, include_comments: bool =
     return "\n".join(lines)
 
 
-def _action_to_playwright_ts(step: TestStepModel, base_url: Optional[str] = None) -> str:
+def _action_to_playwright_ts(step: TestStepModel, base_url: str | None = None) -> str:
     """Convert action to TypeScript Playwright code."""
     action = step.action.lower()
     target = step.target or ""
@@ -406,7 +405,7 @@ def _assertion_to_playwright_ts(assertion: TestAssertionModel) -> str:
         return f"// TODO: assertion {atype}"
 
 
-def generate_java_selenium(test: TestSpecModel, include_comments: bool = True, base_url: Optional[str] = None) -> str:
+def generate_java_selenium(test: TestSpecModel, include_comments: bool = True, base_url: str | None = None) -> str:
     """Generate Java Selenium test code."""
     lines = []
 
@@ -443,7 +442,7 @@ def generate_java_selenium(test: TestSpecModel, include_comments: bool = True, b
     lines.append("")
 
     # Test method
-    method_name = test.name.lower().replace(" ", "_").replace("-", "_")
+    test.name.lower().replace(" ", "_").replace("-", "_")
     lines.append("    @Test")
     lines.append(f"    public void test{class_name}() {{")
 
@@ -474,7 +473,7 @@ def generate_java_selenium(test: TestSpecModel, include_comments: bool = True, b
     return "\n".join(lines)
 
 
-def _action_to_selenium_java(step: TestStepModel, base_url: Optional[str] = None) -> str:
+def _action_to_selenium_java(step: TestStepModel, base_url: str | None = None) -> str:
     """Convert action to Java Selenium code."""
     action = step.action.lower()
     target = step.target or ""
@@ -522,7 +521,7 @@ def _assertion_to_selenium_java(assertion: TestAssertionModel) -> str:
 def generate_python_parameterized(
     test: TestSpecModel,
     include_comments: bool = True,
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> str:
     """Generate Python Playwright test code with @pytest.mark.parametrize.
 
@@ -578,7 +577,7 @@ def generate_python_parameterized(
     lines.append("")
 
     # Generate parametrize decorator
-    param_values_str = _generate_python_param_values(param_sets, param_names)
+    _generate_python_param_values(param_sets, param_names)
     param_ids = [ps.name for ps in param_sets]
 
     lines.append(f'    @pytest.mark.parametrize("{",".join(param_names)}", [')
@@ -629,7 +628,7 @@ def generate_python_parameterized(
 def _action_to_playwright_parameterized(
     step: TestStepModel,
     param_names: list[str],
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> str:
     """Convert action to Playwright code with parameter substitution."""
     action = step.action.lower()
@@ -725,7 +724,7 @@ def _generate_python_param_values(
 def generate_typescript_parameterized(
     test: TestSpecModel,
     include_comments: bool = True,
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> str:
     """Generate TypeScript Playwright test code with test.each().
 
@@ -814,7 +813,7 @@ def generate_typescript_parameterized(
 def _action_to_playwright_ts_parameterized(
     step: TestStepModel,
     param_names: list[str],
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> str:
     """Convert action to TypeScript Playwright code with parameter substitution."""
     action = step.action.lower()
@@ -902,7 +901,7 @@ def _to_ts_value(value: Any) -> str:
 def generate_java_parameterized(
     test: TestSpecModel,
     include_comments: bool = True,
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> str:
     """Generate Java JUnit5 test code with @ParameterizedTest.
 
@@ -994,7 +993,7 @@ def generate_java_parameterized(
 
     # Method signature with parameters
     java_params = ", ".join(f"String {name}" for name in param_names)
-    method_name = test.name.lower().replace(" ", "_").replace("-", "_")
+    test.name.lower().replace(" ", "_").replace("-", "_")
     lines.append(f"    void test{class_name}({java_params}) {{")
 
     # Steps
@@ -1028,7 +1027,7 @@ def generate_java_parameterized(
 def _action_to_selenium_java_parameterized(
     step: TestStepModel,
     param_names: list[str],
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
 ) -> str:
     """Convert action to Java Selenium code with parameter substitution."""
     action = step.action.lower()
@@ -1162,7 +1161,7 @@ class ParameterizedExportRequest(BaseModel):
     language: str = Field(..., description="Target language")
     framework: str = Field(..., description="Target framework")
     include_comments: bool = Field(True, description="Include comments")
-    base_url: Optional[str] = Field(None, description="Base URL")
+    base_url: str | None = Field(None, description="Base URL")
 
 
 class ParameterizedExportResponse(BaseModel):
@@ -1175,8 +1174,8 @@ class ParameterizedExportResponse(BaseModel):
     parameter_count: int
     parameter_names: list[str]
     dependencies: list[str] = []
-    setup_instructions: Optional[str] = None
-    error: Optional[str] = None
+    setup_instructions: str | None = None
+    error: str | None = None
 
 
 # =============================================================================

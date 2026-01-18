@@ -4,11 +4,10 @@ This module contains dataclasses and enums used throughout the Visual AI
 testing system for representing snapshots, changes, comparisons, and results.
 """
 
-from enum import Enum
-from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any
-from datetime import datetime
 import json
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+from typing import Any
 
 
 class ChangeCategory(Enum):
@@ -71,14 +70,14 @@ class VisualElement:
     element_id: str
     selector: str
     tag_name: str
-    bounds: Dict[str, float]  # x, y, width, height
-    computed_styles: Dict[str, str]
-    text_content: Optional[str]
-    attributes: Dict[str, str]
+    bounds: dict[str, float]  # x, y, width, height
+    computed_styles: dict[str, str]
+    text_content: str | None
+    attributes: dict[str, str]
     children_count: int
-    screenshot_region: Optional[bytes] = None
+    screenshot_region: bytes | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         result = asdict(self)
         # Convert bytes to base64 string if present
@@ -88,7 +87,7 @@ class VisualElement:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "VisualElement":
+    def from_dict(cls, data: dict[str, Any]) -> "VisualElement":
         """Create instance from dictionary."""
         if data.get("screenshot_region") is not None:
             import base64
@@ -124,21 +123,21 @@ class VisualChange:
     category: ChangeCategory
     intent: ChangeIntent
     severity: Severity
-    element: Optional[VisualElement]
-    bounds_baseline: Optional[Dict[str, float]]
-    bounds_current: Optional[Dict[str, float]]
-    property_name: Optional[str]
+    element: VisualElement | None
+    bounds_baseline: dict[str, float] | None
+    bounds_current: dict[str, float] | None
+    property_name: str | None
     baseline_value: Any
     current_value: Any
     description: str
-    root_cause: Optional[str]
+    root_cause: str | None
     impact_assessment: str
     recommendation: str
     confidence: float
-    related_commit: Optional[str]
-    related_files: List[str] = field(default_factory=list)
+    related_commit: str | None
+    related_files: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         result = {
             "id": self.id,
@@ -162,7 +161,7 @@ class VisualChange:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "VisualChange":
+    def from_dict(cls, data: dict[str, Any]) -> "VisualChange":
         """Create instance from dictionary."""
         return cls(
             id=data["id"],
@@ -192,7 +191,7 @@ class VisualChange:
         """Check if this change is classified as a regression."""
         return self.intent == ChangeIntent.REGRESSION
 
-    def get_bounds_delta(self) -> Optional[Dict[str, float]]:
+    def get_bounds_delta(self) -> dict[str, float] | None:
         """Calculate the difference in bounds between baseline and current."""
         if not self.bounds_baseline or not self.bounds_current:
             return None
@@ -210,23 +209,23 @@ class VisualSnapshot:
 
     id: str
     url: str
-    viewport: Dict[str, int]
-    device_name: Optional[str]
+    viewport: dict[str, int]
+    device_name: str | None
     browser: str
     timestamp: str
     screenshot: bytes
     dom_snapshot: str
-    computed_styles: Dict[str, Dict]
-    network_har: Optional[Dict]
-    elements: List[VisualElement]
+    computed_styles: dict[str, dict]
+    network_har: dict | None
+    elements: list[VisualElement]
     layout_hash: str
-    color_palette: List[str]
-    text_blocks: List[Dict]
-    largest_contentful_paint: Optional[float]
-    cumulative_layout_shift: Optional[float]
-    time_to_interactive: Optional[float]
+    color_palette: list[str]
+    text_blocks: list[dict]
+    largest_contentful_paint: float | None
+    cumulative_layout_shift: float | None
+    time_to_interactive: float | None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         import base64
         return {
@@ -250,7 +249,7 @@ class VisualSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "VisualSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> "VisualSnapshot":
         """Create instance from dictionary."""
         import base64
         return cls(
@@ -273,18 +272,18 @@ class VisualSnapshot:
             time_to_interactive=data.get("time_to_interactive"),
         )
 
-    def get_element_by_selector(self, selector: str) -> Optional[VisualElement]:
+    def get_element_by_selector(self, selector: str) -> VisualElement | None:
         """Find an element by its CSS selector."""
         for element in self.elements:
             if element.selector == selector:
                 return element
         return None
 
-    def get_elements_by_tag(self, tag_name: str) -> List[VisualElement]:
+    def get_elements_by_tag(self, tag_name: str) -> list[VisualElement]:
         """Find all elements with a specific tag name."""
         return [el for el in self.elements if el.tag_name.lower() == tag_name.lower()]
 
-    def get_performance_score(self) -> Optional[float]:
+    def get_performance_score(self) -> float | None:
         """Calculate a simple performance score based on Core Web Vitals."""
         scores = []
 
@@ -338,21 +337,21 @@ class VisualComparisonResult:
     current_snapshot: str
     match: bool
     match_percentage: float
-    changes: List[VisualChange]
-    changes_by_category: Dict[str, int]
-    changes_by_severity: Dict[str, int]
+    changes: list[VisualChange]
+    changes_by_category: dict[str, int]
+    changes_by_severity: dict[str, int]
     auto_approval_recommendation: bool
     approval_confidence: float
-    blocking_changes: List[str]
+    blocking_changes: list[str]
     diff_image_url: str
     side_by_side_url: str
-    animated_gif_url: Optional[str]
-    lcp_delta: Optional[float]
-    cls_delta: Optional[float]
+    animated_gif_url: str | None
+    lcp_delta: float | None
+    cls_delta: float | None
     analysis_cost_usd: float
     analysis_duration_ms: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": self.id,
@@ -376,7 +375,7 @@ class VisualComparisonResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "VisualComparisonResult":
+    def from_dict(cls, data: dict[str, Any]) -> "VisualComparisonResult":
         """Create instance from dictionary."""
         return cls(
             id=data["id"],
@@ -403,24 +402,24 @@ class VisualComparisonResult:
         """Check if there are any changes that should block deployment."""
         return len(self.blocking_changes) > 0
 
-    def get_blocking_change_objects(self) -> List[VisualChange]:
+    def get_blocking_change_objects(self) -> list[VisualChange]:
         """Get the actual VisualChange objects for blocking changes."""
         blocking_ids = set(self.blocking_changes)
         return [c for c in self.changes if c.id in blocking_ids]
 
-    def get_changes_by_category(self, category: ChangeCategory) -> List[VisualChange]:
+    def get_changes_by_category(self, category: ChangeCategory) -> list[VisualChange]:
         """Get all changes in a specific category."""
         return [c for c in self.changes if c.category == category]
 
-    def get_changes_by_severity(self, severity: Severity) -> List[VisualChange]:
+    def get_changes_by_severity(self, severity: Severity) -> list[VisualChange]:
         """Get all changes with a specific severity."""
         return [c for c in self.changes if c.severity == severity]
 
-    def get_regressions(self) -> List[VisualChange]:
+    def get_regressions(self) -> list[VisualChange]:
         """Get all changes classified as regressions."""
         return [c for c in self.changes if c.is_regression()]
 
-    def get_highest_severity(self) -> Optional[Severity]:
+    def get_highest_severity(self) -> Severity | None:
         """Get the highest severity level among all changes."""
         if not self.changes:
             return None
@@ -473,7 +472,7 @@ class VisualComparisonResult:
         """Deserialize comparison result from JSON string."""
         return cls.from_dict(json.loads(json_str))
 
-    def get_performance_regression(self) -> Optional[str]:
+    def get_performance_regression(self) -> str | None:
         """Check for performance regressions based on Core Web Vitals deltas."""
         regressions = []
 

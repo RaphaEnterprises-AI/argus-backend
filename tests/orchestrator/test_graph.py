@@ -1,7 +1,6 @@
 """Tests for the orchestrator graph module."""
 
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
 
 
 class TestRouteAfterAnalysis:
@@ -111,8 +110,8 @@ class TestRouteAfterExecution:
 
     def test_route_to_self_heal(self, mock_env_vars):
         """Test routing to self_heal when healing queue has items."""
-        from src.orchestrator.graph import route_after_execution
         from src.config import Settings
+        from src.orchestrator.graph import route_after_execution
 
         settings = Settings()
         settings.self_heal_enabled = True
@@ -230,8 +229,8 @@ class TestShouldContinue:
 
     def test_stop_on_cost_limit(self, mock_env_vars):
         """Test stopping when cost limit reached."""
-        from src.orchestrator.graph import should_continue
         from src.config import Settings
+        from src.orchestrator.graph import should_continue
 
         settings = Settings()
         settings.cost_limit_per_run = 5.0
@@ -267,8 +266,8 @@ class TestShouldContinue:
 
     def test_continue_normal(self, mock_env_vars):
         """Test continuing in normal case."""
-        from src.orchestrator.graph import should_continue
         from src.config import Settings
+        from src.orchestrator.graph import should_continue
 
         settings = Settings()
         settings.cost_limit_per_run = 10.0
@@ -292,8 +291,8 @@ class TestCreateTestingGraph:
 
     def test_create_graph(self, mock_env_vars):
         """Test creating the testing graph."""
-        from src.orchestrator.graph import create_testing_graph
         from src.config import Settings
+        from src.orchestrator.graph import create_testing_graph
 
         settings = Settings()
 
@@ -335,8 +334,8 @@ class TestTestingOrchestrator:
 
     def test_orchestrator_with_settings(self, mock_env_vars):
         """Test TestingOrchestrator with custom settings."""
-        from src.orchestrator.graph import TestingOrchestrator
         from src.config import Settings
+        from src.orchestrator.graph import TestingOrchestrator
 
         settings = Settings()
         settings.max_iterations = 50

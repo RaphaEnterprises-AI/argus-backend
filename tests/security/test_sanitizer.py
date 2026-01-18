@@ -1,9 +1,7 @@
 """Tests for the security sanitizer module."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 
 class TestSecretType:
@@ -69,7 +67,7 @@ class TestSanitizationResult:
 
     def test_sanitization_result_with_secrets(self, mock_env_vars):
         """Test SanitizationResult with secrets."""
-        from src.security.sanitizer import SanitizationResult, RedactedSecret, SecretType
+        from src.security.sanitizer import RedactedSecret, SanitizationResult, SecretType
 
         secrets = [
             RedactedSecret(

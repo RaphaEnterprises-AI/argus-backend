@@ -16,10 +16,9 @@ import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
 
-from src.services.supabase_client import get_supabase_client, SupabaseClient
-from src.services.vectorize import get_vectorize_client, CloudflareVectorizeClient
+from src.services.supabase_client import SupabaseClient, get_supabase_client
+from src.services.vectorize import CloudflareVectorizeClient, get_vectorize_client
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ class DiscoveryPattern:
     pattern_name: str
     pattern_signature: str  # Hash for deduplication
     pattern_data: dict  # Full pattern details
-    embedding: Optional[list[float]] = None
+    embedding: list[float] | None = None
 
     @classmethod
     def from_page(cls, page_data: dict) -> "DiscoveryPattern":
@@ -183,8 +182,8 @@ class PatternService:
 
     def __init__(
         self,
-        supabase: Optional[SupabaseClient] = None,
-        vectorize: Optional[CloudflareVectorizeClient] = None,
+        supabase: SupabaseClient | None = None,
+        vectorize: CloudflareVectorizeClient | None = None,
     ):
         self.supabase = supabase or get_supabase_client()
         self.vectorize = vectorize or get_vectorize_client()
@@ -301,7 +300,7 @@ class PatternService:
 
         return {"created": True, "id": result["data"][0]["id"] if result["data"] else None}
 
-    async def _find_by_signature(self, signature: str) -> Optional[dict]:
+    async def _find_by_signature(self, signature: str) -> dict | None:
         """Find pattern by signature hash."""
         result = await self.supabase.request(
             f"/discovery_patterns?pattern_signature=eq.{signature}&limit=1"
@@ -328,7 +327,7 @@ class PatternService:
         logger.warning(f"Failed to atomically increment pattern times_seen: {result.get('error')}")
         return {"error": "Failed to update pattern", "details": result.get("error")}
 
-    async def _generate_embedding(self, pattern: DiscoveryPattern) -> Optional[list[float]]:
+    async def _generate_embedding(self, pattern: DiscoveryPattern) -> list[float] | None:
         """Generate embedding for pattern using available services."""
         text = pattern.to_embedding_text()
 
@@ -359,7 +358,7 @@ class PatternService:
     async def find_similar_patterns(
         self,
         query_pattern: DiscoveryPattern,
-        pattern_type: Optional[PatternType] = None,
+        pattern_type: PatternType | None = None,
         threshold: float = 0.7,
         limit: int = 5,
     ) -> list[PatternMatch]:
@@ -535,7 +534,7 @@ class PatternService:
 
     async def get_pattern_insights(
         self,
-        pattern_type: Optional[PatternType] = None,
+        pattern_type: PatternType | None = None,
     ) -> dict:
         """Get insights about stored patterns.
 
@@ -731,7 +730,7 @@ def _pad_embedding(embedding: list[float], target_dim: int) -> list[float]:
 
 
 # Global instance
-_pattern_service: Optional[PatternService] = None
+_pattern_service: PatternService | None = None
 
 
 def get_pattern_service() -> PatternService:

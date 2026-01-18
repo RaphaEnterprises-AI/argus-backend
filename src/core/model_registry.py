@@ -11,10 +11,9 @@ This module provides a unified registry for:
 IMPORTANT: ALL code should import model IDs from here, never hardcode them.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Optional
 import os
+from dataclasses import dataclass, field
+from enum import Enum
 
 
 class Provider(str, Enum):
@@ -354,7 +353,7 @@ class ModelRegistry:
         if os.getenv("ARGUS_POWERFUL_MODEL"):
             self.POWERFUL_MODEL = os.getenv("ARGUS_POWERFUL_MODEL")
 
-    def get_model(self, model_key: str) -> Optional[ModelConfig]:
+    def get_model(self, model_key: str) -> ModelConfig | None:
         """Get a model configuration by key."""
         return self._models.get(model_key)
 
@@ -378,9 +377,9 @@ class ModelRegistry:
     def get_model_for_task(
         self,
         task_type: TaskType,
-        required_capability: Optional[Capability] = None,
-        prefer_provider: Optional[Provider] = None,
-        budget_remaining: Optional[float] = None,
+        required_capability: Capability | None = None,
+        prefer_provider: Provider | None = None,
+        budget_remaining: float | None = None,
     ) -> ModelConfig:
         """
         Get the best model for a specific task.
@@ -434,7 +433,7 @@ class ModelRegistry:
 
 
 # Singleton instance
-_registry: Optional[ModelRegistry] = None
+_registry: ModelRegistry | None = None
 
 
 def get_model_registry() -> ModelRegistry:

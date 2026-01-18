@@ -1,9 +1,7 @@
 """Tests for the security classifier module."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 
 class TestSensitivityLevel:
@@ -55,7 +53,7 @@ class TestClassification:
 
     def test_classification_creation(self, mock_env_vars):
         """Test Classification creation."""
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
 
         classification = Classification(
             path="/path/to/file.py",
@@ -74,7 +72,7 @@ class TestClassification:
 
     def test_classification_with_secrets(self, mock_env_vars):
         """Test Classification with secrets."""
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
 
         classification = Classification(
             path="/path/to/.env",
@@ -90,7 +88,7 @@ class TestClassification:
 
     def test_classification_with_pii(self, mock_env_vars):
         """Test Classification with PII."""
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
 
         classification = Classification(
             path="/path/to/users.csv",
@@ -132,8 +130,8 @@ class TestPIIPatterns:
 
     def test_pii_patterns_exist(self, mock_env_vars):
         """Test PII_PATTERNS contains expected patterns."""
+
         from src.security.classifier import PII_PATTERNS
-        import re
 
         # Should have patterns for common PII types
         pii_types = [pii_type for _, pii_type in PII_PATTERNS]
@@ -241,7 +239,7 @@ class TestDataClassifier:
 
     def test_classify_file_basic(self, mock_env_vars):
         """Test classify_file for basic file."""
-        from src.security.classifier import DataClassifier, SensitivityLevel, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier, SensitivityLevel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = Path(tmpdir) / "main.py"
@@ -285,7 +283,7 @@ class TestDataClassifier:
 
     def test_classify_file_binary(self, mock_env_vars):
         """Test classify_file for binary file."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = Path(tmpdir) / "image.png"
@@ -309,7 +307,7 @@ class TestDataClassifier:
 
     def test_classify_content(self, mock_env_vars):
         """Test classify_content method."""
-        from src.security.classifier import DataClassifier, SensitivityLevel
+        from src.security.classifier import DataClassifier
 
         classifier = DataClassifier()
 
@@ -371,7 +369,7 @@ class TestDataClassifier:
 
     def test_determine_category_source_code(self, mock_env_vars):
         """Test _determine_category for source code."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         classifier = DataClassifier()
 
@@ -381,7 +379,7 @@ class TestDataClassifier:
 
     def test_determine_category_test_code(self, mock_env_vars):
         """Test _determine_category for test code."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         classifier = DataClassifier()
 
@@ -390,7 +388,7 @@ class TestDataClassifier:
 
     def test_determine_category_config(self, mock_env_vars):
         """Test _determine_category for config files."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         classifier = DataClassifier()
 
@@ -399,7 +397,7 @@ class TestDataClassifier:
 
     def test_determine_category_infrastructure(self, mock_env_vars):
         """Test _determine_category for infrastructure files."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         classifier = DataClassifier()
 
@@ -410,7 +408,7 @@ class TestDataClassifier:
 
     def test_determine_category_documentation(self, mock_env_vars):
         """Test _determine_category for documentation."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         classifier = DataClassifier()
 
@@ -419,7 +417,7 @@ class TestDataClassifier:
 
     def test_determine_category_media(self, mock_env_vars):
         """Test _determine_category for media files."""
-        from src.security.classifier import DataClassifier, DataCategory
+        from src.security.classifier import DataCategory, DataClassifier
 
         classifier = DataClassifier()
 
@@ -501,10 +499,10 @@ class TestDataClassifier:
     def test_get_summary(self, mock_env_vars):
         """Test get_summary method."""
         from src.security.classifier import (
-            DataClassifier,
             Classification,
-            SensitivityLevel,
             DataCategory,
+            DataClassifier,
+            SensitivityLevel,
         )
 
         classifier = DataClassifier()

@@ -5,17 +5,17 @@ visual_ai test modules.
 """
 
 import io
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from typing import Dict, List, Any
-from unittest.mock import Mock, AsyncMock, MagicMock
 
 from src.visual_ai.models import (
-    VisualElement,
-    VisualSnapshot,
-    VisualChange,
     ChangeCategory,
     ChangeIntent,
     Severity,
+    VisualChange,
+    VisualElement,
+    VisualSnapshot,
 )
 
 

@@ -6,31 +6,24 @@ This tests the core competitive advantage of Argus:
 - Enhanced SelfHealerAgent with code-aware healing
 """
 
-import asyncio
-import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.services.dependency_analyzer import (
+    DependencyAnalyzer,
+    ImpactResult,
+)
 from src.services.git_analyzer import (
     GitAnalyzer,
     GitCommit,
-    GitBlameResult,
     SelectorChange,
 )
 from src.services.source_analyzer import (
-    SourceAnalyzer,
     ExtractedSelector,
-    ComponentInfo,
-    SelectorMapping,
-)
-from src.services.dependency_analyzer import (
-    DependencyAnalyzer,
-    CodeModule,
-    ComponentNode,
-    ImpactResult,
+    SourceAnalyzer,
 )
 
 
@@ -312,7 +305,7 @@ test('renders cart', () => {
         dep_analyzer.build_graph(source_dirs=["src"])
 
         # formatPrice is used by PriceDisplay
-        dependents = dep_analyzer.get_dependents("src/utils/formatPrice.ts")
+        dep_analyzer.get_dependents("src/utils/formatPrice.ts")
         # This test depends on actual resolution which may vary
 
     def test_analyze_impact(self, dep_analyzer):
@@ -363,7 +356,7 @@ class TestCodeAwareHealing:
                         short_sha="abc123d",
                         author="Jane Developer",
                         author_email="jane@example.com",
-                        date=datetime.now(timezone.utc),
+                        date=datetime.now(UTC),
                         message="refactor: rename submit to checkout",
                     ),
                     file_path="src/components/Button.tsx",
@@ -408,7 +401,7 @@ class TestCodeAwareHealing:
         mock_source_analyzer,
     ):
         """Test code-aware healing using git history."""
-        from src.agents.self_healer import SelfHealerAgent, FailureType
+        from src.agents.self_healer import SelfHealerAgent
 
         with patch(
             'src.agents.self_healer.get_git_analyzer',
@@ -476,13 +469,12 @@ class TestCodeAwareHealing:
     ):
         """Test that HealingResult includes code context."""
         from src.agents.self_healer import (
-            SelfHealerAgent,
+            CodeAwareContext,
             FailureDiagnosis,
             FailureType,
-            CodeAwareContext,
-            HealingResult,
             FixSuggestion,
             FixType,
+            HealingResult,
         )
 
         context = CodeAwareContext(

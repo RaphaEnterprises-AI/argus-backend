@@ -1,10 +1,9 @@
 """Tests for Notifications API endpoints."""
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 
 
@@ -27,6 +26,7 @@ class TestNotificationModels:
     def test_slack_configure_request_invalid_url(self, mock_env_vars):
         """Test SlackConfigureRequest with invalid webhook URL."""
         from pydantic import ValidationError
+
         from src.api.notifications import SlackConfigureRequest
 
         with pytest.raises(ValidationError) as exc_info:
@@ -102,7 +102,7 @@ class TestNotificationModels:
             channel="#schedule",
             schedule_id="schedule-123",
             schedule_name="Daily Regression",
-            next_run_at=datetime.now(timezone.utc),
+            next_run_at=datetime.now(UTC),
             test_suite="Full Suite",
             estimated_duration_minutes=45,
             environment="staging",
@@ -186,6 +186,7 @@ class TestChannelModels:
     def test_channel_create_request_invalid_webhook(self, mock_env_vars):
         """Test ChannelCreateRequest with invalid webhook in config."""
         from pydantic import ValidationError
+
         from src.api.notifications import ChannelCreateRequest
 
         with pytest.raises(ValidationError) as exc_info:
@@ -304,7 +305,7 @@ class TestUserNotificationModels:
 
     def test_user_notification_list_response(self, mock_env_vars):
         """Test UserNotificationListResponse model."""
-        from src.api.notifications import UserNotificationListResponse, UserNotification
+        from src.api.notifications import UserNotification, UserNotificationListResponse
 
         response = UserNotificationListResponse(
             notifications=[
@@ -371,7 +372,7 @@ class TestSlackNotifierHelpers:
 
     def test_get_slack_notifier_with_config(self, mock_env_vars):
         """Test get_slack_notifier with configured settings."""
-        from src.api.notifications import get_slack_notifier, set_slack_config, _slack_config
+        from src.api.notifications import get_slack_notifier, set_slack_config
         from src.integrations.slack import SlackConfig
 
         config = SlackConfig(
@@ -406,7 +407,7 @@ class TestChannelDBHelpers:
     @pytest.mark.asyncio
     async def test_get_channel_from_db_in_memory(self, mock_env_vars):
         """Test _get_channel_from_db with in-memory fallback."""
-        from src.api.notifications import _get_channel_from_db, _channels
+        from src.api.notifications import _channels, _get_channel_from_db
 
         _channels["channel-123"] = {"id": "channel-123", "name": "Test Channel"}
 
@@ -420,7 +421,7 @@ class TestChannelDBHelpers:
     @pytest.mark.asyncio
     async def test_list_channels_from_db(self, mock_env_vars):
         """Test _list_channels_from_db."""
-        from src.api.notifications import _list_channels_from_db, _channels
+        from src.api.notifications import _channels, _list_channels_from_db
 
         _channels["channel-1"] = {"id": "channel-1", "organization_id": "org-1", "channel_type": "slack", "enabled": True}
         _channels["channel-2"] = {"id": "channel-2", "organization_id": "org-1", "channel_type": "email", "enabled": False}
@@ -444,7 +445,7 @@ class TestChannelDBHelpers:
     @pytest.mark.asyncio
     async def test_save_channel_to_db(self, mock_env_vars):
         """Test _save_channel_to_db."""
-        from src.api.notifications import _save_channel_to_db, _channels
+        from src.api.notifications import _channels, _save_channel_to_db
 
         _channels.clear()
 
@@ -460,7 +461,7 @@ class TestChannelDBHelpers:
     @pytest.mark.asyncio
     async def test_update_channel_in_db(self, mock_env_vars):
         """Test _update_channel_in_db."""
-        from src.api.notifications import _update_channel_in_db, _channels
+        from src.api.notifications import _channels, _update_channel_in_db
 
         _channels["channel-123"] = {"id": "channel-123", "name": "Original"}
 
@@ -474,7 +475,7 @@ class TestChannelDBHelpers:
     @pytest.mark.asyncio
     async def test_delete_channel_from_db(self, mock_env_vars):
         """Test _delete_channel_from_db."""
-        from src.api.notifications import _delete_channel_from_db, _channels
+        from src.api.notifications import _channels, _delete_channel_from_db
 
         _channels["to-delete"] = {"id": "to-delete"}
 
@@ -525,7 +526,7 @@ class TestRuleDBHelpers:
     @pytest.mark.asyncio
     async def test_save_rule_to_db(self, mock_env_vars):
         """Test _save_rule_to_db."""
-        from src.api.notifications import _save_rule_to_db, _rules
+        from src.api.notifications import _rules, _save_rule_to_db
 
         _rules.clear()
 
@@ -541,7 +542,7 @@ class TestRuleDBHelpers:
     @pytest.mark.asyncio
     async def test_update_rule_in_db(self, mock_env_vars):
         """Test _update_rule_in_db."""
-        from src.api.notifications import _update_rule_in_db, _rules
+        from src.api.notifications import _rules, _update_rule_in_db
 
         _rules["rule-123"] = {"id": "rule-123", "enabled": True}
 
@@ -573,7 +574,7 @@ class TestNotificationLogHelpers:
     @pytest.mark.asyncio
     async def test_save_notification_log(self, mock_env_vars):
         """Test _save_notification_log."""
-        from src.api.notifications import _save_notification_log, _logs
+        from src.api.notifications import _logs, _save_notification_log
 
         _logs.clear()
 
@@ -726,7 +727,7 @@ class TestSlackConfigEndpoints:
     @pytest.mark.asyncio
     async def test_configure_slack(self, mock_env_vars):
         """Test configure_slack endpoint."""
-        from src.api.notifications import configure_slack, SlackConfigureRequest
+        from src.api.notifications import SlackConfigureRequest, configure_slack
 
         request = SlackConfigureRequest(
             webhook_url="https://hooks.slack.com/services/xxx",
@@ -763,7 +764,7 @@ class TestSlackNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_send_test_notification(self, mock_env_vars):
         """Test send_test_notification endpoint."""
-        from src.api.notifications import send_test_notification, SlackTestRequest
+        from src.api.notifications import SlackTestRequest, send_test_notification
 
         request = SlackTestRequest(
             channel="#test",
@@ -783,7 +784,10 @@ class TestSlackNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_send_test_result_notification(self, mock_env_vars):
         """Test send_test_result_notification endpoint."""
-        from src.api.notifications import send_test_result_notification, TestResultNotificationRequest
+        from src.api.notifications import (
+            TestResultNotificationRequest,
+            send_test_result_notification,
+        )
 
         request = TestResultNotificationRequest(
             channel="#qa",
@@ -807,7 +811,7 @@ class TestSlackNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_send_failure_alert(self, mock_env_vars):
         """Test send_failure_alert endpoint."""
-        from src.api.notifications import send_failure_alert, FailureAlertRequest
+        from src.api.notifications import FailureAlertRequest, send_failure_alert
 
         request = FailureAlertRequest(
             test_id="test-123",
@@ -827,12 +831,12 @@ class TestSlackNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_send_schedule_reminder(self, mock_env_vars):
         """Test send_schedule_reminder endpoint."""
-        from src.api.notifications import send_schedule_reminder, ScheduleReminderRequest
+        from src.api.notifications import ScheduleReminderRequest, send_schedule_reminder
 
         request = ScheduleReminderRequest(
             schedule_id="schedule-123",
             schedule_name="Daily Tests",
-            next_run_at=datetime.now(timezone.utc),
+            next_run_at=datetime.now(UTC),
             test_suite="Regression Suite",
         )
 
@@ -848,7 +852,7 @@ class TestSlackNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_send_quality_report(self, mock_env_vars):
         """Test send_quality_report endpoint."""
-        from src.api.notifications import send_quality_report, QualityReportRequest
+        from src.api.notifications import QualityReportRequest, send_quality_report
 
         request = QualityReportRequest(
             project_id="project-123",
@@ -874,7 +878,7 @@ class TestChannelEndpoints:
     @pytest.mark.asyncio
     async def test_create_channel(self, mock_env_vars):
         """Test create_channel endpoint."""
-        from src.api.notifications import create_channel, ChannelCreateRequest, _channels
+        from src.api.notifications import ChannelCreateRequest, _channels, create_channel
 
         _channels.clear()
 
@@ -900,7 +904,7 @@ class TestChannelEndpoints:
     @pytest.mark.asyncio
     async def test_list_channels(self, mock_env_vars):
         """Test list_channels endpoint."""
-        from src.api.notifications import list_channels, _channels
+        from src.api.notifications import _channels, list_channels
 
         _channels.clear()
         _channels["channel-1"] = {
@@ -931,7 +935,7 @@ class TestChannelEndpoints:
     @pytest.mark.asyncio
     async def test_get_channel(self, mock_env_vars):
         """Test get_channel endpoint."""
-        from src.api.notifications import get_channel, _channels
+        from src.api.notifications import _channels, get_channel
 
         _channels["channel-123"] = {
             "id": "channel-123",
@@ -961,7 +965,7 @@ class TestChannelEndpoints:
     @pytest.mark.asyncio
     async def test_get_channel_not_found(self, mock_env_vars):
         """Test get_channel with non-existent channel."""
-        from src.api.notifications import get_channel, _channels
+        from src.api.notifications import _channels, get_channel
 
         _channels.clear()
 
@@ -978,7 +982,7 @@ class TestChannelEndpoints:
     @pytest.mark.asyncio
     async def test_delete_channel(self, mock_env_vars):
         """Test delete_channel endpoint."""
-        from src.api.notifications import delete_channel, _channels
+        from src.api.notifications import _channels, delete_channel
 
         _channels["to-delete"] = {
             "id": "to-delete",
@@ -1005,7 +1009,7 @@ class TestUserNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_list_user_notifications(self, mock_env_vars):
         """Test list_user_notifications endpoint."""
-        from src.api.notifications import list_user_notifications, _user_notifications
+        from src.api.notifications import _user_notifications, list_user_notifications
 
         _user_notifications.clear()
         _user_notifications["notif-1"] = {
@@ -1034,7 +1038,7 @@ class TestUserNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_get_unread_count(self, mock_env_vars):
         """Test get_unread_count endpoint."""
-        from src.api.notifications import get_unread_count, _user_notifications
+        from src.api.notifications import _user_notifications, get_unread_count
 
         _user_notifications.clear()
         _user_notifications["notif-1"] = {"id": "notif-1", "user_id": "user-123", "read": False, "priority": "high"}
@@ -1054,7 +1058,7 @@ class TestUserNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_mark_notification_read(self, mock_env_vars):
         """Test mark_notification_read endpoint."""
-        from src.api.notifications import mark_notification_read, _user_notifications
+        from src.api.notifications import _user_notifications, mark_notification_read
 
         _user_notifications["notif-123"] = {
             "id": "notif-123",
@@ -1081,7 +1085,7 @@ class TestUserNotificationEndpoints:
     @pytest.mark.asyncio
     async def test_mark_all_read(self, mock_env_vars):
         """Test mark_all_read endpoint."""
-        from src.api.notifications import mark_all_read, _user_notifications
+        from src.api.notifications import _user_notifications, mark_all_read
 
         _user_notifications.clear()
         _user_notifications["notif-1"] = {"id": "notif-1", "user_id": "user-123", "read": False}

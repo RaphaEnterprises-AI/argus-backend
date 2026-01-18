@@ -4,13 +4,6 @@ This module tests the CrawleeBridge class which provides a Python bridge
 to Crawlee (Node.js) or a fallback Playwright-based crawler.
 """
 
-import asyncio
-import base64
-import json
-import tempfile
-import uuid
-from datetime import datetime
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,16 +16,13 @@ from src.discovery.crawlers.crawlee_bridge import (
 )
 from src.discovery.models import (
     AuthConfig,
-    CrawlError,
     CrawlResult,
     DiscoveredElement,
-    DiscoveredPage,
     DiscoveryConfig,
     DiscoveryMode,
     ElementCategory,
     PageCategory,
 )
-
 
 # ==============================================================================
 # Fixtures
@@ -674,7 +664,7 @@ class TestPlaywrightCrawler:
     @pytest.mark.asyncio
     async def test_playwright_missing_returns_error(self, sample_config):
         """Test that missing Playwright returns an error result."""
-        bridge = CrawleeBridge()
+        CrawleeBridge()
 
         with patch.dict("sys.modules", {"playwright.async_api": None}):
             with patch(
@@ -750,7 +740,7 @@ class TestDiscoverApplication:
             mock_bridge.run_crawl = AsyncMock(return_value=CrawlResult(pages={}))
             MockBridge.return_value = mock_bridge
 
-            result = await discover_application(
+            await discover_application(
                 "https://example.com",
                 max_pages=100,
                 max_depth=5,
@@ -779,7 +769,7 @@ class TestDiscoverApplication:
                 "password": "pass",
             }
 
-            result = await discover_application(
+            await discover_application(
                 "https://example.com", auth_config=auth_config
             )
 

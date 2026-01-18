@@ -1,9 +1,10 @@
 """Tests for the chat graph orchestrator module."""
 
-import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 
 class TestEstimateTokens:
@@ -134,7 +135,7 @@ class TestTruncateToolResult:
 
     def test_truncate_long_content(self, mock_env_vars):
         """Test that long content is truncated."""
-        from src.orchestrator.chat_graph import truncate_tool_result, MAX_TOOL_RESULT_TOKENS
+        from src.orchestrator.chat_graph import MAX_TOOL_RESULT_TOKENS, truncate_tool_result
 
         # Create content longer than MAX_TOOL_RESULT_TOKENS * 4 chars
         long_content = "x" * (MAX_TOOL_RESULT_TOKENS * 4 + 1000)
@@ -219,7 +220,7 @@ class TestPruneMessagesForContext:
 
     def test_prune_drops_old_messages_when_over_limit(self, mock_env_vars):
         """Test that old messages are dropped when over token limit."""
-        from src.orchestrator.chat_graph import prune_messages_for_context, KEEP_RECENT_MESSAGES
+        from src.orchestrator.chat_graph import KEEP_RECENT_MESSAGES, prune_messages_for_context
 
         # Create many messages to exceed the limit
         messages = []
@@ -235,7 +236,7 @@ class TestPruneMessagesForContext:
 
     def test_prune_keeps_minimum_messages(self, mock_env_vars):
         """Test that minimum messages are always kept."""
-        from src.orchestrator.chat_graph import prune_messages_for_context, KEEP_RECENT_MESSAGES
+        from src.orchestrator.chat_graph import KEEP_RECENT_MESSAGES, prune_messages_for_context
 
         messages = []
         for i in range(KEEP_RECENT_MESSAGES):
@@ -858,8 +859,9 @@ class TestCreateChatGraph:
 
     def test_create_chat_graph_returns_state_graph(self, mock_env_vars):
         """Test create_chat_graph returns a StateGraph."""
-        from src.orchestrator.chat_graph import create_chat_graph
         from langgraph.graph import StateGraph
+
+        from src.orchestrator.chat_graph import create_chat_graph
 
         graph = create_chat_graph()
 
@@ -877,8 +879,9 @@ class TestCreateChatGraph:
 
     def test_create_chat_graph_compiles(self, mock_env_vars):
         """Test create_chat_graph compiles successfully."""
-        from src.orchestrator.chat_graph import create_chat_graph
         from langgraph.checkpoint.memory import MemorySaver
+
+        from src.orchestrator.chat_graph import create_chat_graph
 
         graph = create_chat_graph()
         checkpointer = MemorySaver()

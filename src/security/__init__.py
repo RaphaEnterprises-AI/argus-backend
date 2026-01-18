@@ -14,37 +14,37 @@ Enterprise features:
 - Multi-level data classification (public, internal, confidential, restricted)
 """
 
-from .sanitizer import (
-    CodeSanitizer,
-    SanitizationResult,
-    SecretType,
-    RedactedSecret,
-    create_sanitizer,
-    FORBIDDEN_FILES,
-    FORBIDDEN_DIRS,
-)
 from .audit import (
-    AuditLogger,
     AuditEvent,
     AuditEventType,
+    AuditLogger,
     get_audit_logger,
     hash_content,
 )
-from .consent import (
-    ConsentManager,
-    ConsentScope,
-    ConsentStatus,
-    ConsentBundle,
-    ConsentRecord,
-    CONSENT_REQUIREMENTS,
-    get_consent_manager,
-)
 from .classifier import (
+    Classification,
+    DataCategory,
     DataClassifier,
     SensitivityLevel,
-    DataCategory,
-    Classification,
     create_classifier,
+)
+from .consent import (
+    CONSENT_REQUIREMENTS,
+    ConsentBundle,
+    ConsentManager,
+    ConsentRecord,
+    ConsentScope,
+    ConsentStatus,
+    get_consent_manager,
+)
+from .sanitizer import (
+    FORBIDDEN_DIRS,
+    FORBIDDEN_FILES,
+    CodeSanitizer,
+    RedactedSecret,
+    SanitizationResult,
+    SecretType,
+    create_sanitizer,
 )
 from .secure_reader import (
     SecureCodeReader,

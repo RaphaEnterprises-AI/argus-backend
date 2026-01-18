@@ -5,10 +5,9 @@ Generates comprehensive test reports in multiple formats.
 
 import base64
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -22,12 +21,12 @@ class TestResultData:
     name: str
     status: str  # passed, failed, skipped
     duration_seconds: float
-    error_message: Optional[str] = None
+    error_message: str | None = None
     screenshots: list[str] = None  # Base64 encoded
     actions_taken: list[dict] = None
     assertions_passed: int = 0
     assertions_failed: int = 0
-    healing_applied: Optional[dict] = None
+    healing_applied: dict | None = None
 
     def __post_init__(self):
         self.screenshots = self.screenshots or []
@@ -49,7 +48,7 @@ class ReportData:
     total_cost_usd: float
     test_results: list[TestResultData]
     failures: list[dict]
-    security_summary: Optional[dict] = None
+    security_summary: dict | None = None
     codebase_summary: str = ""
 
 
@@ -118,7 +117,7 @@ class ReportGenerator:
 
         return paths
 
-    def generate_json(self, data: ReportData, output_path: Optional[Path] = None) -> Path:
+    def generate_json(self, data: ReportData, output_path: Path | None = None) -> Path:
         """Generate JSON report."""
         output_path = output_path or self.output_dir / "results.json"
 
@@ -161,7 +160,7 @@ class ReportGenerator:
         self.log.debug("Generated JSON report", path=str(output_path))
         return output_path
 
-    def generate_html(self, data: ReportData, output_path: Optional[Path] = None) -> Path:
+    def generate_html(self, data: ReportData, output_path: Path | None = None) -> Path:
         """Generate HTML report."""
         output_path = output_path or self.output_dir / "report.html"
 
@@ -339,7 +338,7 @@ class ReportGenerator:
         </div>
         """
 
-    def generate_markdown(self, data: ReportData, output_path: Optional[Path] = None) -> Path:
+    def generate_markdown(self, data: ReportData, output_path: Path | None = None) -> Path:
         """Generate Markdown report."""
         output_path = output_path or self.output_dir / "report.md"
 
@@ -399,7 +398,7 @@ class ReportGenerator:
         self.log.debug("Generated Markdown report", path=str(output_path))
         return output_path
 
-    def generate_junit(self, data: ReportData, output_path: Optional[Path] = None) -> Path:
+    def generate_junit(self, data: ReportData, output_path: Path | None = None) -> Path:
         """Generate JUnit XML report for CI/CD integration."""
         output_path = output_path or self.output_dir / "junit.xml"
 

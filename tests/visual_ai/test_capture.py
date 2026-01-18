@@ -5,19 +5,18 @@ and visual snapshot generation.
 """
 
 import io
-import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from typing import Dict, Any
 
 from src.visual_ai.capture import (
-    EnhancedCapture,
-    create_enhanced_capture,
     DOM_SERIALIZER_JS,
     ELEMENT_EXTRACTOR_JS,
     PERFORMANCE_METRICS_JS,
+    EnhancedCapture,
+    create_enhanced_capture,
 )
-from src.visual_ai.models import VisualSnapshot, VisualElement
+from src.visual_ai.models import VisualSnapshot
 
 
 class TestEnhancedCaptureInit:
@@ -347,7 +346,7 @@ class TestEnhancedCaptureSnapshot:
     @pytest.mark.asyncio
     async def test_capture_snapshot_with_full_page(self, capture, mock_page):
         """Test snapshot capture with full page mode."""
-        snapshot = await capture.capture_snapshot(
+        await capture.capture_snapshot(
             page=mock_page,
             url="https://example.com",
             viewport={"width": 1920, "height": 1080},

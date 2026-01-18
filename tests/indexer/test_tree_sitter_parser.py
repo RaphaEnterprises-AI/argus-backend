@@ -1,16 +1,14 @@
 """Tests for the tree-sitter parser module."""
 
-import pytest
-from pathlib import Path
-import tempfile
 import os
+import tempfile
+
+import pytest
 
 from src.indexer.tree_sitter_parser import (
-    TreeSitterParser,
-    ParsedFile,
-    ASTNode,
     EXTENSION_MAP,
     Language,
+    TreeSitterParser,
 )
 
 

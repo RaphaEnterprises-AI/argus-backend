@@ -10,7 +10,6 @@ Provides:
 import logging
 import sys
 from contextlib import contextmanager
-from typing import Any, Optional
 
 import structlog
 
@@ -59,7 +58,7 @@ def configure_logging(
     )
 
 
-def get_logger(name: Optional[str] = None, **context) -> structlog.BoundLogger:
+def get_logger(name: str | None = None, **context) -> structlog.BoundLogger:
     """Get a configured logger with optional context.
 
     Args:
@@ -105,7 +104,7 @@ class LogContext:
 @contextmanager
 def log_operation(
     operation: str,
-    logger: Optional[structlog.BoundLogger] = None,
+    logger: structlog.BoundLogger | None = None,
     **context,
 ):
     """Context manager for logging operation start/end.
@@ -164,7 +163,7 @@ class TestExecutionLogger:
         self.step_count = 0
         self.assertion_count = 0
 
-    def test_started(self, metadata: Optional[dict] = None) -> None:
+    def test_started(self, metadata: dict | None = None) -> None:
         """Log test start."""
         self.log.info("Test started", **(metadata or {}))
 
@@ -178,7 +177,7 @@ class TestExecutionLogger:
             assertions_checked=self.assertion_count,
         )
 
-    def step_started(self, step_index: int, action: str, target: Optional[str] = None) -> None:
+    def step_started(self, step_index: int, action: str, target: str | None = None) -> None:
         """Log step start."""
         self.step_count = step_index + 1
         self.log.debug(
@@ -206,7 +205,7 @@ class TestExecutionLogger:
             error=error,
         )
 
-    def assertion_checked(self, assertion_type: str, passed: bool, details: Optional[dict] = None) -> None:
+    def assertion_checked(self, assertion_type: str, passed: bool, details: dict | None = None) -> None:
         """Log assertion check."""
         self.assertion_count += 1
         level = self.log.debug if passed else self.log.warning
@@ -217,7 +216,7 @@ class TestExecutionLogger:
             **(details or {}),
         )
 
-    def screenshot_taken(self, path: Optional[str] = None, size_bytes: Optional[int] = None) -> None:
+    def screenshot_taken(self, path: str | None = None, size_bytes: int | None = None) -> None:
         """Log screenshot capture."""
         self.log.debug(
             "Screenshot taken",

@@ -1,18 +1,14 @@
 """Tests for the Merkle tree change detection module."""
 
+
 import pytest
-import tempfile
-import os
-import json
-import time
-from pathlib import Path
 
 from src.indexer.merkle_tree import (
-    MerkleTree,
-    MerkleNode,
-    MerkleTreeConfig,
     ChangeSet,
     IncrementalIndexer,
+    MerkleNode,
+    MerkleTree,
+    MerkleTreeConfig,
 )
 
 

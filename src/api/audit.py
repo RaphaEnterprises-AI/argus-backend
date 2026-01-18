@@ -6,15 +6,14 @@ Provides endpoints for:
 - Exporting logs for compliance
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
-from src.services.supabase_client import get_supabase_client
 from src.api.teams import get_current_user, verify_org_access
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/audit", tags=["Audit Logs"])
@@ -28,17 +27,17 @@ class AuditLogEntry(BaseModel):
     """Single audit log entry."""
     id: str
     user_id: str
-    user_email: Optional[str]
-    user_role: Optional[str]
+    user_email: str | None
+    user_role: str | None
     action: str
     resource_type: str
-    resource_id: Optional[str]
+    resource_id: str | None
     description: str
     metadata: dict
-    ip_address: Optional[str]
-    user_agent: Optional[str]
+    ip_address: str | None
+    user_agent: str | None
     status: str
-    error_message: Optional[str]
+    error_message: str | None
     created_at: str
 
 
@@ -74,13 +73,13 @@ async def get_audit_logs(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    action: Optional[str] = None,
-    resource_type: Optional[str] = None,
-    user_id: Optional[str] = None,
-    status: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    search: Optional[str] = None,
+    action: str | None = None,
+    resource_type: str | None = None,
+    user_id: str | None = None,
+    status: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    search: str | None = None,
 ):
     """Get audit logs for an organization with filtering."""
     user = await get_current_user(request)
@@ -183,7 +182,7 @@ async def get_audit_summary(org_id: str, request: Request):
     supabase = get_supabase_client()
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=now.weekday())
         month_start = today_start.replace(day=1)
@@ -309,8 +308,8 @@ async def export_audit_logs(
     org_id: str,
     request: Request,
     format: str = Query("json", pattern="^(json|csv)$"),
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ):
     """Export audit logs for compliance (JSON or CSV)."""
     user = await get_current_user(request)
@@ -341,7 +340,7 @@ async def export_audit_logs(
                 logger.warning("audit_logs table not found - returning empty export")
                 return {
                     "organization_id": supabase_org_id,
-                    "exported_at": datetime.now(timezone.utc).isoformat(),
+                    "exported_at": datetime.now(UTC).isoformat(),
                     "log_count": 0,
                     "date_range": {"start": start_date, "end": end_date},
                     "logs": [],
@@ -394,7 +393,7 @@ async def export_audit_logs(
         # Default: JSON format
         return {
             "organization_id": supabase_org_id,
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": datetime.now(UTC).isoformat(),
             "log_count": len(logs),
             "date_range": {
                 "start": start_date,

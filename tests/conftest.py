@@ -1,9 +1,10 @@
 """Shared fixtures for E2E Testing Agent tests."""
 
 import os
-import pytest
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Generator, AsyncGenerator
+
+import pytest
 
 # Check if tree-sitter is available
 try:
@@ -274,7 +275,7 @@ def mock_chat_anthropic():
 @pytest.fixture
 def mock_langchain_messages():
     """Provide mock LangChain message classes."""
-    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
     return {
         "HumanMessage": HumanMessage,
         "AIMessage": AIMessage,
@@ -297,7 +298,7 @@ def mock_checkpointer():
 @pytest.fixture
 def sample_test_state():
     """Sample test state for testing orchestrator."""
-    from datetime import datetime, timezone
+    from datetime import datetime
     return {
         "run_id": "test-run-123",
         "codebase_path": "/test/app",
@@ -325,7 +326,7 @@ def sample_test_state():
         "next_agent": "analyze_code",
         "should_continue": True,
         "error": None,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "pr_number": None,
         "user_id": "test-user",
         "session_id": "test-session",

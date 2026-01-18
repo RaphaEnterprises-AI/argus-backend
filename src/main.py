@@ -1,7 +1,7 @@
 """Main entry point for E2E Testing Agent."""
 
-import asyncio
 import argparse
+import asyncio
 from pathlib import Path
 
 import structlog
@@ -40,11 +40,11 @@ async def run_tests(
 ) -> dict:
     """Run the full test suite."""
     settings = get_settings()
-    
+
     # Create output directory
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     # Initialize orchestrator
     orchestrator = TestingOrchestrator(
         codebase_path=codebase_path,
@@ -53,18 +53,18 @@ async def run_tests(
         pr_number=pr_number,
         changed_files=changed_files,
     )
-    
+
     # Run tests
     result = await orchestrator.run()
-    
+
     # Save results
     import json
     results_file = output_path / "results.json"
     with open(results_file, "w") as f:
         json.dump(result, f, indent=2, default=str)
-    
+
     logger.info("Results saved", path=str(results_file))
-    
+
     # Print summary
     summary = orchestrator.get_run_summary(result)
     print("\n" + "=" * 50)
@@ -78,7 +78,7 @@ async def run_tests(
     print(f"Pass Rate: {summary['pass_rate']:.1%}")
     print(f"Total Cost: ${summary['total_cost']:.4f}")
     print("=" * 50 + "\n")
-    
+
     return result
 
 
@@ -112,9 +112,9 @@ def cli():
         nargs="*",
         help="List of changed files (for targeted testing)"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Run async
     result = asyncio.run(run_tests(
         codebase_path=args.codebase,
@@ -123,7 +123,7 @@ def cli():
         pr_number=args.pr,
         changed_files=args.changed_files,
     ))
-    
+
     # Exit with error code if tests failed
     if result.get("failed_count", 0) > 0:
         exit(1)

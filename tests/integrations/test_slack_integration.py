@@ -1,9 +1,8 @@
 """Tests for Slack integration module (slack_integration.py)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
-import httpx
+
+import pytest
 
 
 class TestTestSummary:

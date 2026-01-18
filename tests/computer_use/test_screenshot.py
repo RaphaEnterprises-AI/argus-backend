@@ -1,12 +1,12 @@
 """Tests for the screenshot capture module."""
 
-import pytest
-import io
 import base64
+import io
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
-import numpy as np
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 class TestCaptureMethod:
@@ -136,7 +136,6 @@ class TestScreenshot:
     def _create_test_png(self, width=10, height=10):
         """Create a minimal test PNG image."""
         from PIL import Image
-        import io
 
         img = Image.new("RGB", (width, height), color="red")
         buffer = io.BytesIO()
@@ -356,9 +355,9 @@ class TestScreenshotCapture:
 
     def test_optimize_png_with_transparency(self, mock_env_vars):
         """Test PNG optimization with transparent image."""
-        from src.computer_use.screenshot import ScreenshotCapture
         from PIL import Image
-        import io
+
+        from src.computer_use.screenshot import ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -387,7 +386,7 @@ class TestScreenshotCapture:
 
     def test_compare_screenshots_same(self, mock_env_vars):
         """Test comparing identical screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -403,7 +402,7 @@ class TestScreenshotCapture:
 
     def test_compare_screenshots_different(self, mock_env_vars):
         """Test comparing different screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -420,7 +419,7 @@ class TestScreenshotCapture:
 
     def test_compare_screenshots_different_sizes(self, mock_env_vars):
         """Test comparing screenshots of different sizes."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -439,7 +438,7 @@ class TestScreenshotCapture:
 
     def test_compare_screenshots_threshold(self, mock_env_vars):
         """Test comparing with custom threshold."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -457,7 +456,7 @@ class TestScreenshotCapture:
 
     def test_highlight_differences(self, mock_env_vars):
         """Test highlighting differences between screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -475,7 +474,7 @@ class TestScreenshotCapture:
 
     def test_highlight_differences_different_sizes(self, mock_env_vars):
         """Test highlighting with different sized screenshots."""
-        from src.computer_use.screenshot import ScreenshotCapture, Screenshot
+        from src.computer_use.screenshot import Screenshot, ScreenshotCapture
 
         capture = ScreenshotCapture()
 
@@ -494,7 +493,6 @@ class TestScreenshotCapture:
     def _create_test_png(self, width=10, height=10, color="red"):
         """Create a minimal test PNG image."""
         from PIL import Image
-        import io
 
         img = Image.new("RGB", (width, height), color=color)
         buffer = io.BytesIO()

@@ -1,7 +1,8 @@
 """Tests for action execution layer."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 class TestAction:
@@ -58,7 +59,7 @@ class TestParseTestStep:
 
     def test_parse_click_step(self):
         """Test parsing a click step."""
-        from src.computer_use.actions import parse_test_step, ActionType
+        from src.computer_use.actions import ActionType, parse_test_step
 
         step = {
             "action": "click",
@@ -72,7 +73,7 @@ class TestParseTestStep:
 
     def test_parse_fill_step(self):
         """Test parsing a fill step."""
-        from src.computer_use.actions import parse_test_step, ActionType
+        from src.computer_use.actions import ActionType, parse_test_step
 
         step = {
             "action": "fill",
@@ -137,7 +138,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_goto(self, mock_page):
         """Test executing goto action."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.GOTO, target="https://example.com/page")
@@ -150,7 +151,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_click(self, mock_page):
         """Test executing click action."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.CLICK, target="#button")
@@ -163,7 +164,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_fill(self, mock_page):
         """Test executing fill action."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.FILL, target="#input", value="test")
@@ -176,7 +177,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_failure(self, mock_page):
         """Test handling action failure."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         mock_page.click.side_effect = Exception("Element not found")
         executor = PlaywrightActionExecutor(mock_page)
@@ -204,7 +205,7 @@ class TestHybridActionExecutor:
     @pytest.fixture
     def mock_playwright_executor(self):
         """Create mock Playwright executor."""
-        from src.computer_use.actions import ActionResult, Action, ActionType
+        from src.computer_use.actions import Action, ActionResult, ActionType
 
         executor = AsyncMock()
         executor.execute = AsyncMock(
@@ -219,7 +220,7 @@ class TestHybridActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_uses_playwright_first(self, mock_playwright_executor):
         """Test that hybrid executor uses Playwright first."""
-        from src.computer_use.actions import HybridActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, HybridActionExecutor
 
         executor = HybridActionExecutor(mock_playwright_executor)
         action = Action(type=ActionType.CLICK, target="#button")
@@ -232,7 +233,7 @@ class TestHybridActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_sequence(self, mock_playwright_executor):
         """Test executing a sequence of actions."""
-        from src.computer_use.actions import HybridActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, HybridActionExecutor
 
         executor = HybridActionExecutor(mock_playwright_executor)
         actions = [
@@ -250,10 +251,10 @@ class TestHybridActionExecutor:
     async def test_execute_sequence_stops_on_failure(self, mock_playwright_executor):
         """Test that sequence stops on failure when stop_on_failure=True."""
         from src.computer_use.actions import (
-            HybridActionExecutor,
             Action,
-            ActionType,
             ActionResult,
+            ActionType,
+            HybridActionExecutor,
         )
 
         # Make second action fail

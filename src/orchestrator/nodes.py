@@ -3,20 +3,18 @@
 import json
 import re
 import time
-from datetime import datetime
 from typing import Any
 
 import anthropic
 import structlog
 
-from .state import TestingState, TestStatus, TestResult, FailureAnalysis
-from ..config import get_settings, MODEL_PRICING
+from ..config import MODEL_PRICING, get_settings
 from ..security import (
     create_secure_reader,
     get_audit_logger,
     hash_content,
-    AuditEventType,
 )
+from .state import FailureAnalysis, TestingState, TestResult, TestStatus
 
 logger = structlog.get_logger()
 
@@ -85,18 +83,18 @@ def _track_usage(state: TestingState, response: Any) -> TestingState:
     if hasattr(response, "usage"):
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
-        
+
         settings = get_settings()
         pricing = MODEL_PRICING[settings.default_model]
         cost = (
             input_tokens * pricing["input"] / 1_000_000 +
             output_tokens * pricing["output"] / 1_000_000
         )
-        
+
         state["total_input_tokens"] += input_tokens
         state["total_output_tokens"] += output_tokens
         state["total_cost"] += cost
-    
+
     state["iteration"] += 1
     return state
 
@@ -298,7 +296,7 @@ Respond with JSON:
 async def plan_tests_node(state: TestingState) -> TestingState:
     """
     Create a prioritized test plan based on analyzed surfaces.
-    
+
     This node:
     1. Generates test specs for each testable surface
     2. Prioritizes based on criticality and changed files
@@ -306,10 +304,10 @@ async def plan_tests_node(state: TestingState) -> TestingState:
     """
     log = logger.bind(node="plan_tests")
     log.info("Creating test plan")
-    
+
     settings = get_settings()
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
-    
+
     prompt = f"""Create comprehensive E2E tests for these testable surfaces.
 
 CODEBASE SUMMARY:
@@ -351,16 +349,16 @@ Respond with JSON array of test specs:
     }}
 ]
 """
-    
+
     try:
         response = client.messages.create(
             model=settings.default_model.value,
             max_tokens=8000,
             messages=[{"role": "user", "content": prompt}],
         )
-        
+
         state = _track_usage(state, response)
-        
+
         # Parse response using robust parser
         content = response.content[0].text
         test_plan = robust_json_parse(content)
@@ -376,17 +374,17 @@ Respond with JSON array of test specs:
         # Sort by priority
         priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         test_plan.sort(key=lambda t: priority_order.get(t.get("priority", "low"), 3))
-        
+
         state["test_plan"] = test_plan
         state["test_priorities"] = {t["id"]: t["priority"] for t in test_plan}
         state["current_test_index"] = 0
-        
+
         log.info("Test plan created", total_tests=len(test_plan))
-        
+
     except Exception as e:
         log.error("Planning failed", error=str(e))
         state["error"] = f"Test planning failed: {str(e)}"
-    
+
     return state
 
 
@@ -417,7 +415,7 @@ async def execute_test_node(state: TestingState) -> TestingState:
     log = log.bind(test_id=test["id"], test_name=test["name"])
     log.info("Executing test")
 
-    start_time = time.time()
+    time.time()
     settings = get_settings()
 
     if test["type"] == "ui":
@@ -830,7 +828,7 @@ Respond with JSON:
 async def self_heal_node(state: TestingState) -> TestingState:
     """
     Analyze failures and attempt to heal broken tests.
-    
+
     This node:
     1. Analyzes the failure to determine root cause
     2. Generates a fix (new selector, timing adjustment, etc.)
@@ -838,29 +836,29 @@ async def self_heal_node(state: TestingState) -> TestingState:
     4. Re-queues the test for retry
     """
     log = logger.bind(node="self_heal")
-    
+
     healing_queue = state.get("healing_queue", [])
     if not healing_queue:
         log.info("No tests to heal")
         return state
-    
+
     test_id = healing_queue[0]
     log = log.bind(test_id=test_id)
     log.info("Attempting to heal test")
-    
+
     settings = get_settings()
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
-    
+
     # Find the failed test and its result
     test = next((t for t in state["test_plan"] if t["id"] == test_id), None)
     failure = next((f for f in state["failures"] if f["test_id"] == test_id), None)
     result = next((r for r in state["test_results"] if r["test_id"] == test_id), None)
-    
+
     if not test or not failure:
         log.warning("Could not find test or failure info")
         state["healing_queue"] = healing_queue[1:]
         return state
-    
+
     prompt = f"""Analyze this test failure and suggest a fix.
 
 ORIGINAL TEST:
@@ -892,14 +890,14 @@ Respond with JSON:
     "should_auto_fix": true|false
 }}
 """
-    
+
     try:
         response = client.messages.create(
             model=settings.default_model.value,
             max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
         )
-        
+
         state = _track_usage(state, response)
 
         # Parse response using robust parser
@@ -913,14 +911,14 @@ Respond with JSON:
                 f["root_cause"] = heal_result["root_cause"]
                 f["suggested_fix"] = heal_result.get("fix")
                 f["confidence"] = heal_result["confidence"]
-        
+
         # Apply fix if confidence is high enough
-        if (heal_result.get("should_auto_fix") and 
+        if (heal_result.get("should_auto_fix") and
             heal_result["confidence"] >= settings.self_heal_confidence_threshold):
-            
+
             fix = heal_result.get("fix", {})
             log.info("Applying auto-fix", fix_type=fix.get("type"))
-            
+
             # Apply fix to test plan
             for t in state["test_plan"]:
                 if t["id"] == test_id:
@@ -937,12 +935,12 @@ Respond with JSON:
                             for a in t.get("assertions", []):
                                 if a.get("target") == fix.get("original"):
                                     a["expected"] = fix["replacement"]
-            
+
             # Update result to show healing was applied
             for r in state["test_results"]:
                 if r["test_id"] == test_id:
                     r["healing_applied"] = fix
-            
+
             log.info("Fix applied, test will be retried")
         else:
             log.info(
@@ -950,14 +948,14 @@ Respond with JSON:
                 confidence=heal_result["confidence"],
                 threshold=settings.self_heal_confidence_threshold,
             )
-        
+
         # Remove from healing queue
         state["healing_queue"] = healing_queue[1:]
-        
+
     except Exception as e:
         log.error("Healing failed", error=str(e))
         state["healing_queue"] = healing_queue[1:]
-    
+
     return state
 
 
@@ -982,7 +980,7 @@ async def report_node(state: TestingState) -> TestingState:
 
     # 1. Generate and save reports using the reporter module
     try:
-        from ..integrations.reporter import create_reporter, create_report_from_state
+        from ..integrations.reporter import create_report_from_state, create_reporter
 
         reporter = create_reporter(output_dir=settings.output_dir)
         report_data = create_report_from_state(state)
@@ -1003,8 +1001,10 @@ async def report_node(state: TestingState) -> TestingState:
     # 2. Send GitHub PR comment if PR number is provided
     if state.get("pr_number"):
         try:
-            from ..integrations.github_integration import GitHubIntegration, TestSummary as GHTestSummary
             import os
+
+            from ..integrations.github_integration import GitHubIntegration
+            from ..integrations.github_integration import TestSummary as GHTestSummary
 
             github = GitHubIntegration()
 
@@ -1037,7 +1037,8 @@ async def report_node(state: TestingState) -> TestingState:
 
     # 3. Send Slack notification
     try:
-        from ..integrations.slack_integration import SlackIntegration, TestSummary as SlackTestSummary
+        from ..integrations.slack_integration import SlackIntegration
+        from ..integrations.slack_integration import TestSummary as SlackTestSummary
 
         slack = SlackIntegration()
 

@@ -1,12 +1,12 @@
 """State definitions for the testing orchestrator."""
 
-from typing import TypedDict, Annotated, Literal, Optional
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Annotated, Literal, TypedDict
 
-from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 
 class TestType(str, Enum):
@@ -48,7 +48,7 @@ class TestSpec:
     cleanup: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     timeout_seconds: int = 120
-    
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -70,13 +70,13 @@ class TestResult:
     test_id: str
     status: TestStatus
     duration_seconds: float
-    error_message: Optional[str] = None
+    error_message: str | None = None
     screenshots: list[str] = field(default_factory=list)  # Base64 encoded
     actions_taken: list[dict] = field(default_factory=list)
     assertions_passed: int = 0
     assertions_failed: int = 0
-    healing_applied: Optional[dict] = None
-    
+    healing_applied: dict | None = None
+
     def to_dict(self) -> dict:
         return {
             "test_id": self.test_id,
@@ -97,10 +97,10 @@ class FailureAnalysis:
     test_id: str
     failure_type: Literal["selector_changed", "timing_issue", "ui_change", "real_bug", "unknown"]
     root_cause: str
-    suggested_fix: Optional[dict] = None
+    suggested_fix: dict | None = None
     confidence: float = 0.0
-    screenshot_at_failure: Optional[str] = None  # Base64
-    
+    screenshot_at_failure: str | None = None  # Base64
+
     def to_dict(self) -> dict:
         return {
             "test_id": self.test_id,
@@ -114,71 +114,71 @@ class FailureAnalysis:
 class TestingState(TypedDict):
     """
     Shared state for the testing orchestrator.
-    
+
     This state is passed between all agents in the LangGraph.
     """
     # Conversation history
     messages: Annotated[list[BaseMessage], add_messages]
-    
+
     # Codebase context
     codebase_path: str
     app_url: str
     codebase_summary: str
     testable_surfaces: list[dict]
     changed_files: list[str]  # For PR-triggered runs
-    
+
     # Test planning
     test_plan: list[dict]  # List of TestSpec dicts
     test_priorities: dict[str, str]  # test_id -> priority
-    
+
     # Execution tracking
     current_test_index: int
-    current_test: Optional[dict]  # Current TestSpec dict
-    
+    current_test: dict | None  # Current TestSpec dict
+
     # Results
     test_results: list[dict]  # List of TestResult dicts
     passed_count: int
     failed_count: int
     skipped_count: int
-    
+
     # Failures for healing
     failures: list[dict]  # List of FailureAnalysis dicts
     healing_queue: list[str]  # test_ids to heal
-    
+
     # Screenshots and evidence
     screenshots: list[str]  # Base64 encoded
-    
+
     # Cost tracking
     total_input_tokens: int
     total_output_tokens: int
     total_cost: float
-    
+
     # Iteration control
     iteration: int
     max_iterations: int
-    
+
     # Control flow
     next_agent: str
     should_continue: bool
-    error: Optional[str]
-    
+    error: str | None
+
     # Metadata
     run_id: str
     started_at: str
-    pr_number: Optional[int]  # If triggered by PR
+    pr_number: int | None  # If triggered by PR
 
     # Security & compliance
-    user_id: Optional[str]  # For audit trail
-    session_id: Optional[str]  # For tracking across requests
-    security_summary: Optional[dict]  # Files analyzed, secrets redacted, etc.
+    user_id: str | None  # For audit trail
+    session_id: str | None  # For tracking across requests
+    security_summary: dict | None  # Files analyzed, secrets redacted, etc.
 
 
 def create_initial_state(
     codebase_path: str,
     app_url: str,
-    pr_number: Optional[int] = None,
-    changed_files: Optional[list[str]] = None,
-    user_id: Optional[str] = None,
+    pr_number: int | None = None,
+    changed_files: list[str] | None = None,
+    user_id: str | None = None,
 ) -> TestingState:
     """Create initial state for a test run."""
     import uuid
@@ -212,7 +212,7 @@ def create_initial_state(
         should_continue=True,
         error=None,
         run_id=session_id,
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=datetime.now(UTC).isoformat(),
         pr_number=pr_number,
         user_id=user_id or "anonymous",
         session_id=session_id,

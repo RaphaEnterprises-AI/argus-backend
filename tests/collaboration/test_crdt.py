@@ -1,16 +1,14 @@
 """Tests for CRDT implementation."""
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.collaboration.crdt import (
-    VectorClock,
+    CRDTDocument,
     CRDTOperation,
     LWWRegister,
-    CRDTDocument,
     TestSpecCRDT,
+    VectorClock,
 )
-
 
 # =============================================================================
 # VectorClock Tests
@@ -179,7 +177,7 @@ class TestLWWRegister:
             node_id="node-2",
             operation="set",
             value="value2",
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         applied = register.apply(op)
@@ -196,7 +194,7 @@ class TestLWWRegister:
             node_id="node-2",
             operation="set",
             value="old value",
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         time.sleep(0.001)
@@ -282,7 +280,7 @@ class TestCRDTDocument:
             node_id="node-1",
             initial_doc={"name": "Test", "temp": "to delete"}
         )
-        op = doc.delete(["temp"])
+        doc.delete(["temp"])
 
         assert doc.get(["temp"]) is None
         assert doc.get(["name"]) == "Test"
@@ -293,7 +291,7 @@ class TestCRDTDocument:
             node_id="node-1",
             initial_doc={"steps": [{"action": "click"}]}
         )
-        op = doc.insert(["steps"], 0, {"action": "goto"})
+        doc.insert(["steps"], 0, {"action": "goto"})
 
         steps = doc.get(["steps"])
         assert len(steps) == 2

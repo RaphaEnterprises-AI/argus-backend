@@ -1,8 +1,6 @@
 """Tests for the artifact store module."""
 
-import pytest
-from unittest.mock import MagicMock, patch
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class TestArtifact:
@@ -63,7 +61,7 @@ class TestArtifact:
         """Test Artifact created_at defaults to current time."""
         from src.orchestrator.artifact_store import Artifact
 
-        before = datetime.now(timezone.utc).isoformat()
+        before = datetime.now(UTC).isoformat()
 
         artifact = Artifact(
             id="test",
@@ -71,7 +69,7 @@ class TestArtifact:
             content="data",
         )
 
-        after = datetime.now(timezone.utc).isoformat()
+        after = datetime.now(UTC).isoformat()
 
         assert artifact.created_at >= before
         assert artifact.created_at <= after
@@ -446,7 +444,7 @@ class TestArtifactStoreGet:
 
     def test_get_found(self, mock_env_vars):
         """Test get returns artifact when found."""
-        from src.orchestrator.artifact_store import ArtifactStore, Artifact
+        from src.orchestrator.artifact_store import Artifact, ArtifactStore
 
         store = ArtifactStore()
 
@@ -558,8 +556,8 @@ class TestGlobalArtifactStore:
 
     def test_get_artifact_store_creates_instance(self, mock_env_vars):
         """Test get_artifact_store creates new instance."""
-        from src.orchestrator.artifact_store import get_artifact_store
         import src.orchestrator.artifact_store as module
+        from src.orchestrator.artifact_store import get_artifact_store
 
         # Reset global instance
         module._artifact_store = None
@@ -571,8 +569,8 @@ class TestGlobalArtifactStore:
 
     def test_get_artifact_store_reuses_instance(self, mock_env_vars):
         """Test get_artifact_store reuses existing instance."""
-        from src.orchestrator.artifact_store import get_artifact_store
         import src.orchestrator.artifact_store as module
+        from src.orchestrator.artifact_store import get_artifact_store
 
         # Reset global instance
         module._artifact_store = None

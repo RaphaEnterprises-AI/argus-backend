@@ -7,22 +7,21 @@ It's DOM-based (not video-based), meaning:
 - Instant parsing
 """
 
-import re
 import json
-from typing import Optional
-from datetime import datetime
+import re
+
 import structlog
 
 from .models import (
+    ActionType,
+    MouseInteractionType,
+    NodeLookup,
+    ParsedAction,
+    RecordingMetadata,
+    RecordingSession,
+    RRWebEvent,
     RRWebEventType,
     RRWebIncrementalSource,
-    MouseInteractionType,
-    RRWebEvent,
-    RecordingSession,
-    RecordingMetadata,
-    ParsedAction,
-    ActionType,
-    NodeLookup,
 )
 
 logger = structlog.get_logger()
@@ -60,7 +59,7 @@ class RRWebParser:
 
         # Internal state during parsing
         self._node_lookup = NodeLookup()
-        self._last_input_node: Optional[int] = None
+        self._last_input_node: int | None = None
         self._last_input_value: str = ""
         self._last_scroll_position: tuple[int, int] = (0, 0)
         self._pending_actions: list[ParsedAction] = []
@@ -306,7 +305,7 @@ class RRWebParser:
         data = event.data
         node_id = data.get("id")
         value = data.get("text", "")
-        is_masked = data.get("isChecked") is None and data.get("text") is None
+        data.get("isChecked") is None and data.get("text") is None
 
         if not node_id:
             return

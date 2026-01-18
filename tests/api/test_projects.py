@@ -1,11 +1,10 @@
 """Tests for the Projects API module (src/api/projects.py)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+
+import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-
 
 # ============================================================================
 # Fixtures
@@ -411,7 +410,7 @@ class TestCreateOrganizationProject:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_project_data
     ):
         """Test successful project creation."""
-        from src.api.projects import create_organization_project, CreateProjectRequest
+        from src.api.projects import CreateProjectRequest, create_organization_project
 
         mock_supabase.insert = AsyncMock(return_value={
             "data": [sample_project_data],
@@ -439,7 +438,7 @@ class TestCreateOrganizationProject:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test project creation handles insert errors."""
-        from src.api.projects import create_organization_project, CreateProjectRequest
+        from src.api.projects import CreateProjectRequest, create_organization_project
 
         mock_supabase.insert = AsyncMock(return_value={
             "data": None,
@@ -538,7 +537,7 @@ class TestCreateProject:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_project_data
     ):
         """Test successful project creation with org context."""
-        from src.api.projects import create_project, CreateProjectRequest
+        from src.api.projects import CreateProjectRequest, create_project
 
         mock_supabase.insert = AsyncMock(return_value={
             "data": [sample_project_data],
@@ -608,7 +607,7 @@ class TestUpdateProject:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_project_data
     ):
         """Test successful project update."""
-        from src.api.projects import update_project, UpdateProjectRequest
+        from src.api.projects import UpdateProjectRequest, update_project
 
         updated_data = {**sample_project_data, "name": "Updated Project"}
 
@@ -627,7 +626,7 @@ class TestUpdateProject:
              patch("src.api.projects.verify_org_access", AsyncMock(return_value=({}, "org-456"))), \
              patch("src.api.projects.log_audit", AsyncMock()), \
              patch("src.api.projects.verify_project_access", AsyncMock(return_value=updated_data)):
-            response = await update_project("project-123", body, mock_request)
+            await update_project("project-123", body, mock_request)
 
             mock_supabase.update.assert_called_once()
 
@@ -636,7 +635,7 @@ class TestUpdateProject:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_project_data
     ):
         """Test partial project update."""
-        from src.api.projects import update_project, UpdateProjectRequest
+        from src.api.projects import UpdateProjectRequest, update_project
 
         mock_supabase.request = AsyncMock(side_effect=[
             {"data": [sample_project_data], "error": None},
@@ -665,7 +664,7 @@ class TestUpdateProject:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_project_data
     ):
         """Test project update handles errors."""
-        from src.api.projects import update_project, UpdateProjectRequest
+        from src.api.projects import UpdateProjectRequest, update_project
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [sample_project_data],
@@ -759,7 +758,7 @@ class TestAccessControl:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test that create project requires admin or owner role."""
-        from src.api.projects import create_organization_project, CreateProjectRequest
+        from src.api.projects import CreateProjectRequest, create_organization_project
 
         body = CreateProjectRequest(name="Test")
 
@@ -777,7 +776,7 @@ class TestAccessControl:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_project_data
     ):
         """Test that update project requires admin or owner role."""
-        from src.api.projects import update_project, UpdateProjectRequest
+        from src.api.projects import UpdateProjectRequest, update_project
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [sample_project_data],
@@ -834,9 +833,9 @@ class TestProjectIntegration:
     ):
         """Test creating and then listing a project."""
         from src.api.projects import (
+            CreateProjectRequest,
             create_organization_project,
             list_organization_projects,
-            CreateProjectRequest,
         )
 
         mock_supabase.insert = AsyncMock(return_value={

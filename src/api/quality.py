@@ -9,16 +9,16 @@ Provides endpoints for:
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Optional
+from datetime import UTC, datetime
+from typing import Literal
 
+import structlog
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-import structlog
 
 from src.config import get_settings
-from src.services.supabase_client import get_supabase_client
 from src.services.cache import cache_quality_score
+from src.services.supabase_client import get_supabase_client
 from src.services.vectorize import index_production_event, semantic_search_errors
 
 logger = structlog.get_logger()
@@ -35,7 +35,7 @@ class TestGenerationRequest(BaseModel):
     project_id: str = Field(..., description="Project ID")
     framework: Literal["playwright", "cypress", "jest"] = Field("playwright", description="Test framework")
     auto_create_pr: bool = Field(False, description="Automatically create GitHub PR")
-    github_config: Optional[dict] = Field(None, description="GitHub configuration for PR creation")
+    github_config: dict | None = Field(None, description="GitHub configuration for PR creation")
 
 
 class BatchGenerationRequest(BaseModel):
@@ -50,8 +50,8 @@ class TestUpdateRequest(BaseModel):
     """Request to update a generated test."""
     test_id: str = Field(..., description="Generated test ID")
     action: Literal["approve", "reject", "modify"] = Field(..., description="Review action")
-    review_notes: Optional[str] = Field(None, description="Review notes")
-    modified_code: Optional[str] = Field(None, description="Modified test code (for modify action)")
+    review_notes: str | None = Field(None, description="Review notes")
+    modified_code: str | None = Field(None, description="Modified test code (for modify action)")
 
 
 class RiskScoreRequest(BaseModel):
@@ -76,10 +76,10 @@ class TestGenerationResponse(BaseModel):
     """Response after test generation."""
     success: bool
     message: str
-    generated_test: Optional[GeneratedTestResponse] = None
-    test_code: Optional[str] = None
-    pr_url: Optional[str] = None
-    pr_number: Optional[int] = None
+    generated_test: GeneratedTestResponse | None = None
+    test_code: str | None = None
+    pr_url: str | None = None
+    pr_number: int | None = None
 
 
 # =============================================================================
@@ -176,7 +176,7 @@ async def generate_test_from_error(event: dict) -> dict:
     }
 
 
-def get_file_path(component: Optional[str], framework: str, timestamp: int) -> str:
+def get_file_path(component: str | None, framework: str, timestamp: int) -> str:
     """Generate file path for the test."""
     import re
     component_slug = re.sub(r"[^a-z0-9]", "-", (component or "unknown").lower())
@@ -219,7 +219,7 @@ async def generate_test(request: TestGenerationRequest):
 
     # Create job record
     job_id = str(uuid.uuid4())
-    job_start = datetime.now(timezone.utc)
+    job_start = datetime.now(UTC)
 
     await supabase.insert("test_generation_jobs", {
         "id": job_id,
@@ -283,20 +283,20 @@ async def generate_test(request: TestGenerationRequest):
                 "ai_analysis": {
                     "generated_test_id": generated_test_id,
                     "confidence_score": confidence,
-                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "generated_at": datetime.now(UTC).isoformat(),
                 },
             },
         )
 
         # Update job as completed
-        duration_ms = int((datetime.now(timezone.utc) - job_start).total_seconds() * 1000)
+        duration_ms = int((datetime.now(UTC) - job_start).total_seconds() * 1000)
         await supabase.update(
             "test_generation_jobs",
             {"id": f"eq.{job_id}"},
             {
                 "status": "completed",
                 "tests_generated": 1,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": datetime.now(UTC).isoformat(),
                 "duration_ms": duration_ms,
             },
         )
@@ -328,7 +328,7 @@ async def generate_test(request: TestGenerationRequest):
             {
                 "status": "failed",
                 "error_message": str(e),
-                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": datetime.now(UTC).isoformat(),
             },
         )
         logger.exception("Test generation failed", error=str(e))
@@ -366,7 +366,7 @@ async def batch_generate_tests(request: BatchGenerationRequest):
 
         # Create batch job
         job_id = str(uuid.uuid4())
-        job_start = datetime.now(timezone.utc)
+        job_start = datetime.now(UTC)
 
         await supabase.insert("test_generation_jobs", {
             "id": job_id,
@@ -427,7 +427,7 @@ async def batch_generate_tests(request: BatchGenerationRequest):
             {
                 "status": "completed",
                 "tests_generated": success_count,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": datetime.now(UTC).isoformat(),
                 "metadata": {"results": results},
             },
         )
@@ -461,7 +461,7 @@ async def update_generated_test(request: TestUpdateRequest):
 
     update_data = {
         "status": status_map[request.action],
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_at": datetime.now(UTC).isoformat(),
         "review_notes": request.review_notes,
     }
 
@@ -576,7 +576,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
         max_affected_users = max((d["affected_users"] for d in entity_data.values()), default=1)
 
         risk_scores = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for entity_key, data in entity_data.items():
             # Calculate individual factors
@@ -646,7 +646,7 @@ async def calculate_risk_scores(request: RiskScoreRequest):
                     "error_count": score["error_count"],
                     "affected_users": score["affected_users"],
                     "trend": score["trend"],
-                    "calculated_at": datetime.now(timezone.utc).isoformat(),
+                    "calculated_at": datetime.now(UTC).isoformat(),
                 },
                 headers={"Prefer": "resolution=merge-duplicates"},
             )
@@ -671,9 +671,9 @@ async def calculate_risk_scores(request: RiskScoreRequest):
 @router.get("/events")
 async def get_production_events(
     project_id: str = Query(..., description="Project ID"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    severity: Optional[str] = Query(None, description="Filter by severity"),
-    source: Optional[str] = Query(None, description="Filter by source"),
+    status: str | None = Query(None, description="Filter by status"),
+    severity: str | None = Query(None, description="Filter by severity"),
+    source: str | None = Query(None, description="Filter by source"),
     limit: int = Query(50, le=100, description="Max results"),
     offset: int = Query(0, description="Offset for pagination"),
 ):
@@ -765,7 +765,7 @@ async def get_quality_stats(
 @router.get("/risk-scores")
 async def get_risk_scores(
     project_id: str = Query(..., description="Project ID"),
-    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    entity_type: str | None = Query(None, description="Filter by entity type"),
     limit: int = Query(20, le=100, description="Max results"),
 ):
     """Get risk scores for a project."""
@@ -799,7 +799,7 @@ async def get_risk_scores(
 @router.get("/generated-tests")
 async def get_generated_tests(
     project_id: str = Query(..., description="Project ID"),
-    status: Optional[str] = Query(None, description="Filter by status"),
+    status: str | None = Query(None, description="Filter by status"),
     limit: int = Query(50, le=100, description="Max results"),
 ):
     """Get generated tests for a project."""
@@ -918,7 +918,7 @@ async def find_similar_errors(
 
 @router.post("/backfill-index")
 async def backfill_vectorize_index(
-    project_id: Optional[str] = Query(None, description="Project ID (optional, indexes all if not specified)"),
+    project_id: str | None = Query(None, description="Project ID (optional, indexes all if not specified)"),
     limit: int = Query(100, le=500, description="Max events to index"),
     offset: int = Query(0, description="Offset for pagination"),
 ):

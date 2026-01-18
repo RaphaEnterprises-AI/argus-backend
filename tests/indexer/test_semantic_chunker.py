@@ -1,13 +1,13 @@
 """Tests for the semantic chunker module."""
 
+
 import pytest
-from pathlib import Path
 
 from src.indexer.semantic_chunker import (
-    SemanticChunker,
-    CodeChunk,
-    ChunkType,
     ChunkingConfig,
+    ChunkType,
+    CodeChunk,
+    SemanticChunker,
 )
 from src.indexer.tree_sitter_parser import TreeSitterParser
 
@@ -185,7 +185,7 @@ export function useUser(id: number) {
         """Test that chunker finds imports."""
         chunks = chunker.chunk(sample_python_file)
 
-        import_chunks = [c for c in chunks if c.chunk_type == ChunkType.IMPORT_BLOCK]
+        [c for c in chunks if c.chunk_type == ChunkType.IMPORT_BLOCK]
         # Imports might be grouped together
         assert any("import" in c.content.lower() for c in chunks)
 

@@ -2,9 +2,9 @@
 
 import json
 import os
-import pytest
 import tempfile
-from pathlib import Path
+
+import pytest
 
 
 class TestDataSourceError:
@@ -315,7 +315,7 @@ class TestInlineDataSource:
 
     def test_load_inline_data_no_data(self, mock_env_vars):
         """Test loading inline data with no data field."""
-        from src.parameterized.data_sources import InlineDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, InlineDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         config = DataSource(
@@ -644,7 +644,7 @@ class TestJSONDataSource:
 
     def test_load_json_invalid_structure(self, mock_env_vars):
         """Test loading JSON with invalid structure."""
-        from src.parameterized.data_sources import JSONDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, JSONDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -662,7 +662,7 @@ class TestJSONDataSource:
 
     def test_load_json_file_not_found(self, mock_env_vars):
         """Test loading non-existent JSON file."""
-        from src.parameterized.data_sources import JSONDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, JSONDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         config = DataSource(type=DataSourceType.JSON, path="/nonexistent.json")
@@ -673,7 +673,7 @@ class TestJSONDataSource:
 
     def test_load_json_invalid_json(self, mock_env_vars):
         """Test loading invalid JSON."""
-        from src.parameterized.data_sources import JSONDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, JSONDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -829,7 +829,7 @@ class TestDataSourceFactory:
 
     def test_create_csv_source(self, mock_env_vars):
         """Test creating CSV data source."""
-        from src.parameterized.data_sources import DataSourceFactory, CSVDataSource
+        from src.parameterized.data_sources import CSVDataSource, DataSourceFactory
         from src.parameterized.models import DataSource, DataSourceType
 
         config = DataSource(type=DataSourceType.CSV, path="test.csv")
@@ -859,7 +859,7 @@ class TestDataSourceFactory:
 
     def test_create_unsupported_type(self, mock_env_vars):
         """Test creating unsupported data source type."""
-        from src.parameterized.data_sources import DataSourceFactory, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, DataSourceFactory
         from src.parameterized.models import DataSource, DataSourceType
 
         config = DataSource(type=DataSourceType.DATABASE, query="SELECT * FROM users")
@@ -986,7 +986,7 @@ class TestJSONDataSourceEdgeCases:
 
     def test_load_json_invalid_file(self, mock_env_vars):
         """Test loading invalid JSON file."""
-        from src.parameterized.data_sources import JSONDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, JSONDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -1004,7 +1004,7 @@ class TestJSONDataSourceEdgeCases:
 
     def test_load_json_object_without_array(self, mock_env_vars):
         """Test loading JSON object without nested array."""
-        from src.parameterized.data_sources import JSONDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, JSONDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -1022,7 +1022,7 @@ class TestJSONDataSourceEdgeCases:
 
     def test_load_json_string_value(self, mock_env_vars):
         """Test loading JSON with non-array/non-object root."""
-        from src.parameterized.data_sources import JSONDataSource, DataSourceError
+        from src.parameterized.data_sources import DataSourceError, JSONDataSource
         from src.parameterized.models import DataSource, DataSourceType
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:

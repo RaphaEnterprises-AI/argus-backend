@@ -7,13 +7,12 @@ Supports:
 - Console/Log (development - just logs emails)
 """
 
+import os
 from abc import ABC, abstractmethod
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
-import aiosmtplib
-import os
 
+import aiosmtplib
 import httpx
 import structlog
 
@@ -29,9 +28,9 @@ class EmailProvider(ABC):
         to: str,
         subject: str,
         html: str,
-        text: Optional[str] = None,
-        from_email: Optional[str] = None,
-        from_name: Optional[str] = None,
+        text: str | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         """Send an email.
 
@@ -57,9 +56,9 @@ class ConsoleEmailProvider(EmailProvider):
         to: str,
         subject: str,
         html: str,
-        text: Optional[str] = None,
-        from_email: Optional[str] = None,
-        from_name: Optional[str] = None,
+        text: str | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         logger.info(
             "Email sent (console/development mode)",
@@ -92,9 +91,9 @@ class ResendEmailProvider(EmailProvider):
         to: str,
         subject: str,
         html: str,
-        text: Optional[str] = None,
-        from_email: Optional[str] = None,
-        from_name: Optional[str] = None,
+        text: str | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -170,9 +169,9 @@ class SendGridEmailProvider(EmailProvider):
         to: str,
         subject: str,
         html: str,
-        text: Optional[str] = None,
-        from_email: Optional[str] = None,
-        from_name: Optional[str] = None,
+        text: str | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -238,8 +237,8 @@ class SMTPEmailProvider(EmailProvider):
         self,
         host: str,
         port: int,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
         use_tls: bool = True,
         start_tls: bool = False,
     ):
@@ -255,9 +254,9 @@ class SMTPEmailProvider(EmailProvider):
         to: str,
         subject: str,
         html: str,
-        text: Optional[str] = None,
-        from_email: Optional[str] = None,
-        from_name: Optional[str] = None,
+        text: str | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         sender = from_email or "noreply@heyargus.ai"
         if from_name:
@@ -313,7 +312,7 @@ class SMTPEmailProvider(EmailProvider):
 class EmailService:
     """Main email service with provider abstraction and template rendering."""
 
-    def __init__(self, provider: Optional[EmailProvider] = None):
+    def __init__(self, provider: EmailProvider | None = None):
         """Initialize email service.
 
         Args:
@@ -360,7 +359,7 @@ class EmailService:
         to: str,
         subject: str,
         html: str,
-        text: Optional[str] = None,
+        text: str | None = None,
     ) -> bool:
         """Send an email using the configured provider.
 
@@ -610,7 +609,7 @@ Argus - Autonomous E2E Testing
 
 
 # Singleton instance
-_email_service: Optional[EmailService] = None
+_email_service: EmailService | None = None
 
 
 def get_email_service() -> EmailService:

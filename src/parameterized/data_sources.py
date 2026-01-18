@@ -18,7 +18,7 @@ import re
 from abc import ABC, abstractmethod
 from io import StringIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -51,7 +51,7 @@ class BaseDataSource(ABC):
             config: DataSource configuration object
         """
         self.config = config
-        self._cache: Optional[list[ParameterSet]] = None
+        self._cache: list[ParameterSet] | None = None
 
     @abstractmethod
     def load(self) -> list[ParameterSet]:
@@ -221,7 +221,7 @@ class BaseDataSource(ABC):
         self,
         data: dict[str, Any],
         index: int,
-        name_template: Optional[str] = None,
+        name_template: str | None = None,
     ) -> ParameterSet:
         """Create a ParameterSet from data dictionary.
 
@@ -378,7 +378,7 @@ class CSVDataSource(BaseDataSource):
         logger.debug("Loading CSV data", path=str(path))
 
         try:
-            with open(path, "r", encoding=self.config.encoding) as f:
+            with open(path, encoding=self.config.encoding) as f:
                 reader = csv.DictReader(f, delimiter=self.config.delimiter)
                 data_list = list(reader)
         except Exception as e:
@@ -488,7 +488,7 @@ class JSONDataSource(BaseDataSource):
         logger.debug("Loading JSON data", path=str(path))
 
         try:
-            with open(path, "r", encoding=self.config.encoding) as f:
+            with open(path, encoding=self.config.encoding) as f:
                 content = json.load(f)
         except json.JSONDecodeError as e:
             raise DataSourceError(f"Invalid JSON in file: {e}")

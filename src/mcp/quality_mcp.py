@@ -31,8 +31,8 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timedelta
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any
 
 import structlog
 
@@ -202,7 +202,7 @@ class QualityMCPServer:
             self._supabase = get_supabase_client()
         else:
             # OAuth2 Device Flow authentication
-            from src.mcp.auth import MCPAuthenticator, AuthenticatedClient
+            from src.mcp.auth import AuthenticatedClient
             self.log.info("Authenticating with Argus...")
             self._api_client = AuthenticatedClient(api_url=ARGUS_API_URL)
             await self._api_client.__aenter__()

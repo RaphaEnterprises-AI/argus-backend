@@ -1,13 +1,14 @@
 """Tests for the Supabase Client service."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 from src.services.supabase_client import (
     SupabaseClient,
-    get_supabase_client,
     get_raw_supabase_client,
+    get_supabase_client,
 )
 
 
@@ -416,7 +417,7 @@ class TestSupabaseClientSelect:
         )
         client._client = mock_httpx_client
 
-        result = await client.select("users", columns="id,name")
+        await client.select("users", columns="id,name")
 
         call_args = mock_httpx_client.request.call_args
         assert "select=id,name" in call_args[1]["url"]
@@ -436,7 +437,7 @@ class TestSupabaseClientSelect:
         )
         client._client = mock_httpx_client
 
-        result = await client.select(
+        await client.select(
             "users",
             filters={"id": "eq.1", "status": "eq.active"}
         )
@@ -735,7 +736,7 @@ class TestGetRawSupabaseClient:
             with patch.dict("sys.modules", {"supabase": mock_supabase}):
                 with patch("src.services.supabase_client.create_client", mock_supabase.create_client, create=True):
                     # Need to import create_client from the mocked module
-                    import importlib
+                    pass
                     # This test verifies the happy path logic but actual import mocking is complex
                     # The key is that the function handles errors gracefully
 

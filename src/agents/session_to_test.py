@@ -17,10 +17,11 @@ Integration points:
 
 import json
 import re
-from typing import Optional, AsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
 from anthropic import Anthropic
 
 from src.config import get_settings
@@ -43,9 +44,9 @@ class SessionEvent:
     """A single event from a user session."""
     timestamp: datetime
     type: SessionEventType
-    target: Optional[str] = None  # CSS selector or description
-    value: Optional[str] = None
-    url: Optional[str] = None
+    target: str | None = None  # CSS selector or description
+    value: str | None = None
+    url: str | None = None
     metadata: dict = field(default_factory=dict)
 
 
@@ -53,14 +54,14 @@ class SessionEvent:
 class UserSession:
     """A recorded user session."""
     session_id: str
-    user_id: Optional[str]
+    user_id: str | None
     started_at: datetime
-    ended_at: Optional[datetime]
+    ended_at: datetime | None
     events: list[SessionEvent] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     device_info: dict = field(default_factory=dict)
     geo_info: dict = field(default_factory=dict)
-    outcome: Optional[str] = None  # "conversion", "abandonment", "error"
+    outcome: str | None = None  # "conversion", "abandonment", "error"
 
 
 @dataclass
@@ -495,7 +496,7 @@ class ErrorToTestConverter:
     async def convert_error(
         self,
         error_event: dict,
-        session: Optional[UserSession] = None
+        session: UserSession | None = None
     ) -> GeneratedTest:
         """
         Convert a production error into a regression test.
@@ -567,7 +568,7 @@ Be specific about what user actions would trigger this error."""
                     steps=test_data.get("steps", []),
                     assertions=test_data.get("assertions", []),
                     preconditions=test_data.get("preconditions", []),
-                    rationale=f"Generated from production error",
+                    rationale="Generated from production error",
                     confidence=0.6,
                     user_journey="Error Reproduction"
                 )

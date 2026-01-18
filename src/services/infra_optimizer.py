@@ -8,21 +8,19 @@ intelligent infrastructure optimization recommendations, including:
 - Right-sizing recommendations
 """
 
-from dataclasses import dataclass, field
+import json
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
-import json
-import uuid
+
 import anthropic
 import structlog
 
 from src.services.prometheus_collector import (
-    PrometheusCollector,
     InfrastructureSnapshot,
-    SeleniumMetrics,
-    BrowserNodeMetrics,
+    PrometheusCollector,
     create_prometheus_collector,
 )
 from src.services.supabase_client import get_supabase_client
@@ -78,7 +76,7 @@ class InfraRecommendation:
     created_at: datetime
     expires_at: datetime
     status: ApprovalStatus = ApprovalStatus.PENDING
-    org_id: Optional[str] = None
+    org_id: str | None = None
 
 
 @dataclass
@@ -131,8 +129,8 @@ class AIInfraOptimizer:
 
     def __init__(
         self,
-        prometheus_collector: Optional[PrometheusCollector] = None,
-        anthropic_client: Optional[anthropic.Anthropic] = None,
+        prometheus_collector: PrometheusCollector | None = None,
+        anthropic_client: anthropic.Anthropic | None = None,
         model: str = "claude-sonnet-4-5-20241022",
     ):
         """Initialize the optimizer.
@@ -240,7 +238,7 @@ class AIInfraOptimizer:
         """Prepare context string for AI analysis."""
         # Safely extract usage pattern values with defaults
         hourly_averages = usage_patterns.get("hourly_averages", [0.0] * 24)
-        daily_averages = usage_patterns.get("daily_averages", [0.0] * 7)
+        usage_patterns.get("daily_averages", [0.0] * 7)
         peak_hour = usage_patterns.get("peak_hour", 0)
         min_hour = usage_patterns.get("min_hour", 0)
         peak_day = usage_patterns.get("peak_day", 0)
@@ -889,7 +887,7 @@ Return ONLY the JSON array, no other text."""
 
 # Factory function
 def create_infra_optimizer(
-    prometheus_url: Optional[str] = None,
+    prometheus_url: str | None = None,
     model: str = "claude-sonnet-4-5-20241022",
 ) -> AIInfraOptimizer:
     """Create an InfraOptimizer instance.

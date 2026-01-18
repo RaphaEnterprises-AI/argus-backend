@@ -10,13 +10,11 @@ This module tests:
 - CloudflareClient unified interface
 """
 
-import pytest
 import base64
-import hashlib
 import json
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-import httpx
+
+import pytest
 
 
 class TestCloudflareConfig:
@@ -1011,7 +1009,7 @@ class TestCloudflareClient:
     @pytest.mark.asyncio
     async def test_get_healing_suggestions_no_vectorize(self, mock_env_vars):
         """Test get_healing_suggestions when vectorize not configured."""
-        from src.services.cloudflare_storage import CloudflareConfig, CloudflareClient
+        from src.services.cloudflare_storage import CloudflareClient, CloudflareConfig
 
         config = CloudflareConfig(
             account_id="test",

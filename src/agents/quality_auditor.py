@@ -11,9 +11,10 @@ This is a KEY DIFFERENTIATOR. We go beyond functional testing to include:
 
 import json
 import re
+from dataclasses import dataclass
+from datetime import UTC
 from enum import Enum
-from typing import Optional
-from dataclasses import dataclass, field
+
 from anthropic import Anthropic
 
 from src.config import get_settings
@@ -176,11 +177,11 @@ class AccessibilityAuditor:
         self,
         page_html: str,
         page_url: str,
-        screenshot: Optional[str] = None,  # base64
+        screenshot: str | None = None,  # base64
         level: AccessibilityLevel = AccessibilityLevel.AA
     ) -> AccessibilityReport:
         """Perform accessibility audit on a page."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         violations = []
         passes = 0
@@ -221,7 +222,7 @@ class AccessibilityAuditor:
 
         return AccessibilityReport(
             url=page_url,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             level_tested=level,
             total_violations=len(violations),
             violations_by_severity=severity_counts,
@@ -434,7 +435,7 @@ class PerformanceAuditor:
         metrics: dict[str, float]
     ) -> PerformanceReport:
         """Generate performance report from collected metrics."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         metric_results = []
         total_score = 0
@@ -468,7 +469,7 @@ class PerformanceAuditor:
 
         return PerformanceReport(
             url=page_url,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             overall_score=round(overall_score, 1),
             metrics=metric_results,
             opportunities=opportunities,
@@ -591,8 +592,8 @@ class QualityAuditor:
         self,
         page_url: str,
         page_html: str,
-        screenshot: Optional[str] = None,
-        performance_metrics: Optional[dict] = None
+        screenshot: str | None = None,
+        performance_metrics: dict | None = None
     ) -> QualityReport:
         """Perform comprehensive quality audit."""
         # Accessibility audit

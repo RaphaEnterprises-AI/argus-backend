@@ -4,16 +4,15 @@ Tests accessibility checks including contrast violations, touch target
 validation, readability issues, and comprehensive accessibility reports.
 """
 
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from typing import Dict, Any, List
 
 from src.visual_ai.accessibility_analyzer import (
     AccessibilityAnalyzer,
     AccessibilityReport,
     ContrastViolation,
-    TouchTargetViolation,
     ReadabilityIssue,
+    TouchTargetViolation,
 )
 from src.visual_ai.models import VisualElement, VisualSnapshot
 

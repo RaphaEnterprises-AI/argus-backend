@@ -1,8 +1,8 @@
 """Tests for the API Tester agent."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import httpx
+
+import pytest
 
 
 class TestAPIRequestResult:
@@ -34,14 +34,14 @@ class TestAPITestResult:
     def test_api_test_result(self, mock_env_vars):
         """Test creating APITestResult."""
         from src.agents.api_tester import APITestResult
-        
+
         result = APITestResult(
             test_id="api-001",
             test_name="User API Test",
             status="passed",
             total_duration_ms=500,
         )
-        
+
         assert result.status == "passed"
 
 
@@ -52,7 +52,7 @@ class TestAPITesterAgent:
     def api_agent(self, mock_env_vars):
         """Create API tester agent."""
         from src.agents.api_tester import APITesterAgent
-        
+
         return APITesterAgent()
 
     @pytest.fixture

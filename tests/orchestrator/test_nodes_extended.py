@@ -1,19 +1,19 @@
 """Extended tests for orchestrator nodes."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.orchestrator.nodes import (
-    _track_usage,
-    analyze_code_node,
-    plan_tests_node,
-    execute_test_node,
-    self_heal_node,
-    report_node,
-    _execute_ui_test,
     _execute_api_test,
     _execute_simulated_test,
+    _track_usage,
+    analyze_code_node,
+    execute_test_node,
+    plan_tests_node,
+    report_node,
+    self_heal_node,
 )
 from src.orchestrator.state import TestingState, TestStatus
 

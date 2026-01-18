@@ -1,9 +1,8 @@
 """Tests for GitHub integration module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
-import httpx
+
+import pytest
 
 
 class TestTestSummary:
@@ -575,7 +574,7 @@ class TestGitHubIntegrationCreateCheckRun:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
 
-            result = await github.create_check_run(
+            await github.create_check_run(
                 owner="testowner",
                 repo="testrepo",
                 sha="abc123def456",

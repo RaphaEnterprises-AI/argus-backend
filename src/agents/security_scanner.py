@@ -13,16 +13,14 @@ Scans for OWASP Top 10 vulnerabilities:
 - Insufficient Logging & Monitoring
 """
 
-import asyncio
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Literal
 from enum import Enum
+from typing import Literal
 
-from .prompts import get_enhanced_prompt
-
-from .base import BaseAgent, AgentResult
 from ..core.model_router import TaskType
+from .base import AgentResult, BaseAgent
+from .prompts import get_enhanced_prompt
 
 
 class VulnerabilitySeverity(str, Enum):
@@ -60,7 +58,7 @@ class Vulnerability:
     location: str  # URL, file path, or code location
     evidence: str  # Proof of vulnerability
     cvss_score: float = 0.0
-    cwe_id: Optional[str] = None
+    cwe_id: str | None = None
     remediation: str = ""
     references: list[str] = field(default_factory=list)
     false_positive_likelihood: float = 0.0  # 0-1
@@ -84,13 +82,13 @@ class Vulnerability:
 @dataclass
 class SecurityHeaders:
     """Security headers analysis."""
-    content_security_policy: Optional[str] = None
-    x_frame_options: Optional[str] = None
-    x_content_type_options: Optional[str] = None
-    strict_transport_security: Optional[str] = None
-    x_xss_protection: Optional[str] = None
-    referrer_policy: Optional[str] = None
-    permissions_policy: Optional[str] = None
+    content_security_policy: str | None = None
+    x_frame_options: str | None = None
+    x_content_type_options: str | None = None
+    strict_transport_security: str | None = None
+    x_xss_protection: str | None = None
+    referrer_policy: str | None = None
+    permissions_policy: str | None = None
 
     def get_missing_headers(self) -> list[str]:
         missing = []
@@ -174,7 +172,7 @@ You are an elite application security engineer with expertise in OWASP Top 10.
         url: str,
         scan_type: Literal["quick", "standard", "deep"] = "standard",
         include_api_tests: bool = True,
-        custom_payloads: Optional[list[str]] = None,
+        custom_payloads: list[str] | None = None,
     ) -> AgentResult[SecurityScanResult]:
         """
         Scan a URL for security vulnerabilities.

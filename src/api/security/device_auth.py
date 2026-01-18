@@ -13,20 +13,17 @@ Flow:
 Similar to how Vercel CLI, GitHub CLI, and other tools authenticate.
 """
 
-import asyncio
 import hashlib
 import secrets
-import string
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Request, Form
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
-from .auth import generate_jwt_token, UserContext
+from .auth import UserContext, generate_jwt_token
 
 logger = structlog.get_logger()
 
@@ -69,10 +66,10 @@ class DeviceAuthRequest(BaseModel):
     created_at: datetime
     expires_at: datetime
     status: DeviceCodeStatus = DeviceCodeStatus.PENDING
-    user_id: Optional[str] = None
-    organization_id: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
+    user_id: str | None = None
+    organization_id: str | None = None
+    email: str | None = None
+    name: str | None = None
 
 
 class DeviceAuthorizationResponse(BaseModel):
@@ -90,14 +87,14 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "Bearer"
     expires_in: int
-    refresh_token: Optional[str] = None
+    refresh_token: str | None = None
     scope: str
 
 
 class TokenErrorResponse(BaseModel):
     """OAuth2 error response."""
     error: str
-    error_description: Optional[str] = None
+    error_description: str | None = None
 
 
 # =============================================================================
@@ -136,7 +133,7 @@ def get_verification_url(request: Request) -> str:
 
 def cleanup_expired_codes():
     """Remove expired device codes from memory."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expired = [
         code_hash for code_hash, req in _device_codes.items()
         if req.expires_at < now
@@ -173,7 +170,7 @@ async def device_authorize(
     while user_code in _user_codes:
         user_code = generate_user_code()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_at = now + timedelta(seconds=DEVICE_CODE_EXPIRATION)
 
     # Store the request
@@ -254,7 +251,7 @@ async def device_token(
             detail={"error": "invalid_client", "error_description": "Client ID mismatch"}
         )
 
-    if auth_request.expires_at < datetime.now(timezone.utc):
+    if auth_request.expires_at < datetime.now(UTC):
         # Clean up expired request
         _device_codes.pop(device_code_hash, None)
         _user_codes.pop(auth_request.user_code, None)
@@ -326,7 +323,7 @@ async def device_token(
 # =============================================================================
 
 @router.get("/verify", response_class=HTMLResponse)
-async def device_verify_page(code: Optional[str] = None):
+async def device_verify_page(code: str | None = None):
     """Display device verification page.
 
     This page is shown to users when they visit the verification_uri.
@@ -490,7 +487,7 @@ async def device_verify_submit(
             status_code=400
         )
 
-    if auth_request.expires_at < datetime.now(timezone.utc):
+    if auth_request.expires_at < datetime.now(UTC):
         return HTMLResponse(
             content="""
             <html>
@@ -511,7 +508,7 @@ async def device_verify_submit(
 
     # Check if user is authenticated via Clerk (check cookies/session)
     # For simplicity, we'll check for a user in request.state (set by middleware)
-    user: Optional[UserContext] = getattr(request.state, "user", None)
+    user: UserContext | None = getattr(request.state, "user", None)
 
     if user and user.user_id != "anonymous":
         # User is authenticated - approve the device
@@ -591,7 +588,7 @@ async def device_approve(
 
     Called by the frontend after user makes their decision.
     """
-    user: Optional[UserContext] = getattr(request.state, "user", None)
+    user: UserContext | None = getattr(request.state, "user", None)
 
     if not user or user.user_id == "anonymous":
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -609,7 +606,7 @@ async def device_approve(
     if not auth_request:
         raise HTTPException(status_code=404, detail="Device code not found")
 
-    if auth_request.expires_at < datetime.now(timezone.utc):
+    if auth_request.expires_at < datetime.now(UTC):
         raise HTTPException(status_code=400, detail="Device code expired")
 
     if approve:

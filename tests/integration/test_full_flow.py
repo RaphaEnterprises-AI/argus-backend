@@ -1,8 +1,8 @@
 """Integration tests for the full orchestration flow."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-from typing import TypedDict
 
 
 class TestFullOrchestrationFlow:
@@ -71,8 +71,8 @@ class TestFullOrchestrationFlow:
     @pytest.mark.asyncio
     async def test_graph_structure(self):
         """Should create graph with expected structure."""
-        from src.orchestrator.graph import create_testing_graph
         from src.config import get_settings
+        from src.orchestrator.graph import create_testing_graph
 
         settings = get_settings()
         graph = create_testing_graph(settings)
@@ -467,7 +467,7 @@ class TestStateModels:
 
     def test_test_spec_to_dict(self):
         """Should convert TestSpec to dict."""
-        from src.orchestrator.state import TestSpec, TestType, Priority
+        from src.orchestrator.state import Priority, TestSpec, TestType
 
         spec = TestSpec(
             id="test-123",

@@ -6,15 +6,14 @@ Provides endpoints for:
 - Viewing healing statistics
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
+from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/healing", tags=["Self-Healing"])
@@ -28,28 +27,28 @@ router = APIRouter(prefix="/api/v1/healing", tags=["Self-Healing"])
 class HealingConfigRequest(BaseModel):
     """Request to update healing configuration."""
 
-    enabled: Optional[bool] = None
-    auto_apply: Optional[bool] = None
-    min_confidence_auto: Optional[float] = Field(None, ge=0.5, le=1.0)
-    min_confidence_suggest: Optional[float] = Field(None, ge=0.3, le=1.0)
-    heal_selectors: Optional[bool] = None
-    max_selector_variations: Optional[int] = Field(None, ge=1, le=20)
-    preferred_selector_strategies: Optional[list[str]] = None
-    heal_timeouts: Optional[bool] = None
-    max_wait_time_ms: Optional[int] = Field(None, ge=1000, le=120000)
-    heal_text_content: Optional[bool] = None
-    text_similarity_threshold: Optional[float] = Field(None, ge=0.5, le=1.0)
-    learn_from_success: Optional[bool] = None
-    learn_from_manual_fixes: Optional[bool] = None
-    share_patterns_across_projects: Optional[bool] = None
-    notify_on_heal: Optional[bool] = None
-    notify_on_suggestion: Optional[bool] = None
-    notification_channels: Optional[dict] = None
-    require_approval: Optional[bool] = None
-    auto_approve_after_hours: Optional[int] = Field(None, ge=1, le=168)
-    approvers: Optional[list[str]] = None
-    max_heals_per_hour: Optional[int] = Field(None, ge=1, le=1000)
-    max_heals_per_test: Optional[int] = Field(None, ge=1, le=50)
+    enabled: bool | None = None
+    auto_apply: bool | None = None
+    min_confidence_auto: float | None = Field(None, ge=0.5, le=1.0)
+    min_confidence_suggest: float | None = Field(None, ge=0.3, le=1.0)
+    heal_selectors: bool | None = None
+    max_selector_variations: int | None = Field(None, ge=1, le=20)
+    preferred_selector_strategies: list[str] | None = None
+    heal_timeouts: bool | None = None
+    max_wait_time_ms: int | None = Field(None, ge=1000, le=120000)
+    heal_text_content: bool | None = None
+    text_similarity_threshold: float | None = Field(None, ge=0.5, le=1.0)
+    learn_from_success: bool | None = None
+    learn_from_manual_fixes: bool | None = None
+    share_patterns_across_projects: bool | None = None
+    notify_on_heal: bool | None = None
+    notify_on_suggestion: bool | None = None
+    notification_channels: dict | None = None
+    require_approval: bool | None = None
+    auto_approve_after_hours: int | None = Field(None, ge=1, le=168)
+    approvers: list[str] | None = None
+    max_heals_per_hour: int | None = Field(None, ge=1, le=1000)
+    max_heals_per_test: int | None = Field(None, ge=1, le=50)
 
 
 class HealingConfigResponse(BaseModel):
@@ -57,7 +56,7 @@ class HealingConfigResponse(BaseModel):
 
     id: str
     organization_id: str
-    project_id: Optional[str]
+    project_id: str | None
     enabled: bool
     auto_apply: bool
     min_confidence_auto: float
@@ -76,8 +75,8 @@ class HealingConfigResponse(BaseModel):
     notify_on_suggestion: bool
     notification_channels: dict
     require_approval: bool
-    auto_approve_after_hours: Optional[int]
-    approvers: Optional[list[str]]
+    auto_approve_after_hours: int | None
+    approvers: list[str] | None
     max_heals_per_hour: int
     max_heals_per_test: int
     created_at: str
@@ -95,7 +94,7 @@ class HealingPatternResponse(BaseModel):
     success_count: int
     failure_count: int
     confidence: float
-    project_id: Optional[str]
+    project_id: str | None
     created_at: str
 
 
@@ -121,7 +120,7 @@ class HealingStatsResponse(BaseModel):
 
 
 @router.get("/organizations/{org_id}/config", response_model=HealingConfigResponse)
-async def get_healing_config(org_id: str, request: Request, project_id: Optional[str] = None):
+async def get_healing_config(org_id: str, request: Request, project_id: str | None = None):
     """Get healing configuration for organization (optionally project-specific)."""
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
@@ -158,7 +157,7 @@ async def get_healing_config(org_id: str, request: Request, project_id: Optional
 
 @router.put("/organizations/{org_id}/config", response_model=HealingConfigResponse)
 async def update_healing_config(
-    org_id: str, body: HealingConfigRequest, request: Request, project_id: Optional[str] = None
+    org_id: str, body: HealingConfigRequest, request: Request, project_id: str | None = None
 ):
     """Update healing configuration."""
     user = await get_current_user(request)
@@ -167,7 +166,7 @@ async def update_healing_config(
     supabase = get_supabase_client()
 
     # Build update data
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     for field, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
@@ -257,7 +256,7 @@ def _config_to_response(config: dict) -> HealingConfigResponse:
 async def list_healing_patterns(
     org_id: str,
     request: Request,
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
     min_confidence: float = 0.0,
     limit: int = Query(50, ge=1, le=500),
     offset: int = 0,
@@ -348,7 +347,7 @@ async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request)
 async def get_healing_stats(
     org_id: str,
     request: Request,
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
 ):
     """Get healing statistics for the organization."""
     user = await get_current_user(request)
@@ -356,7 +355,7 @@ async def get_healing_stats(
 
     supabase = get_supabase_client()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     day_ago = (now - timedelta(days=1)).isoformat()
     week_ago = (now - timedelta(days=7)).isoformat()
     month_ago = (now - timedelta(days=30)).isoformat()
@@ -452,7 +451,7 @@ async def get_healing_stats(
 async def get_pending_approvals(
     org_id: str,
     request: Request,
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
 ):
     """Get healing suggestions pending approval."""
     user = await get_current_user(request)

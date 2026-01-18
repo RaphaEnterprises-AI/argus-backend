@@ -7,12 +7,10 @@ This service analyzes source code to:
 - Provide suggestions for better selector alternatives
 """
 
-import ast
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +23,9 @@ class ExtractedSelector:
     file_path: str
     line_number: int
     column: int
-    element_type: Optional[str] = None  # "button", "input", "div", etc.
+    element_type: str | None = None  # "button", "input", "div", etc.
     context: str = ""  # Surrounding code
-    semantic_name: Optional[str] = None  # Human-readable purpose
+    semantic_name: str | None = None  # Human-readable purpose
 
 
 @dataclass
@@ -48,7 +46,7 @@ class SelectorMapping:
     semantic_purpose: str  # "submit button", "email input", etc.
     alternatives: list[str] = field(default_factory=list)
     stability_score: float = 0.5  # 0-1, higher = more stable
-    recommendation: Optional[str] = None
+    recommendation: str | None = None
 
 
 class SourceAnalyzer:
@@ -222,7 +220,7 @@ class SourceAnalyzer:
     ) -> list[ExtractedSelector]:
         """Extract all selectors from file content."""
         selectors = []
-        lines = content.split("\n")
+        content.split("\n")
 
         for selector_type, patterns in self.SELECTOR_PATTERNS.items():
             for pattern in patterns:
@@ -289,9 +287,9 @@ class SourceAnalyzer:
             semantic_name=semantic_name,
         )
 
-    def _detect_element_type(self, context: str) -> Optional[str]:
+    def _detect_element_type(self, context: str) -> str | None:
         """Detect the element type from context."""
-        context_lower = context.lower()
+        context.lower()
 
         for element_type, patterns in self.ELEMENT_PATTERNS.items():
             for pattern in patterns:
@@ -305,7 +303,7 @@ class SourceAnalyzer:
         selector: str,
         selector_type: str,
         context: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Infer the semantic purpose of a selector."""
         # Common patterns in selector names
         semantic_patterns = {
@@ -394,7 +392,7 @@ class SourceAnalyzer:
     def find_selector(
         self,
         selector: str,
-        file_path: Optional[str] = None
+        file_path: str | None = None
     ) -> list[ExtractedSelector]:
         """Find all occurrences of a selector.
 
@@ -492,7 +490,7 @@ class SourceAnalyzer:
     def get_selector_mapping(
         self,
         selector: str
-    ) -> Optional[SelectorMapping]:
+    ) -> SelectorMapping | None:
         """Get semantic mapping and alternatives for a selector.
 
         Args:
@@ -566,7 +564,7 @@ class SourceAnalyzer:
         self,
         selector: ExtractedSelector,
         stability: float
-    ) -> Optional[str]:
+    ) -> str | None:
         """Generate recommendation for improving selector stability."""
         if stability >= 0.8:
             return None
@@ -588,7 +586,7 @@ class SourceAnalyzer:
     def analyze_directory(
         self,
         directory: str = "src",
-        extensions: Optional[list[str]] = None
+        extensions: list[str] | None = None
     ) -> dict[str, ComponentInfo]:
         """Analyze all source files in a directory.
 
@@ -690,7 +688,7 @@ class SourceAnalyzer:
 
 
 # Global instance (lazy initialized)
-_source_analyzer: Optional[SourceAnalyzer] = None
+_source_analyzer: SourceAnalyzer | None = None
 
 
 def get_source_analyzer(repo_path: str = ".") -> SourceAnalyzer:

@@ -1,13 +1,12 @@
 """Recording API endpoints for browser recording to test conversion."""
 
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import uuid4
+from datetime import UTC, datetime
 from enum import Enum
+from uuid import uuid4
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-import structlog
 
 from src.api.teams import get_current_user
 
@@ -95,9 +94,9 @@ class RecordingMetadata(BaseModel):
 
     duration: int = Field(..., description="Recording duration in milliseconds")
     start_time: str = Field(..., description="ISO timestamp when recording started")
-    url: Optional[str] = Field(None, description="URL where recording was made")
-    user_agent: Optional[str] = Field(None, description="Browser user agent")
-    viewport: Optional[dict] = Field(None, description="Viewport dimensions")
+    url: str | None = Field(None, description="URL where recording was made")
+    user_agent: str | None = Field(None, description="Browser user agent")
+    viewport: dict | None = Field(None, description="Viewport dimensions")
 
 
 class RecordingUploadRequest(BaseModel):
@@ -114,8 +113,8 @@ class RecordingUploadRequest(BaseModel):
         max_length=50000  # Max 50K events to prevent memory exhaustion
     )
     metadata: RecordingMetadata = Field(..., description="Recording metadata")
-    project_id: Optional[str] = Field(None, description="Project to associate recording with")
-    name: Optional[str] = Field(None, description="Name for the recording")
+    project_id: str | None = Field(None, description="Project to associate recording with")
+    name: str | None = Field(None, description="Name for the recording")
 
     @field_validator("events")
     @classmethod
@@ -163,32 +162,32 @@ class RecordingUploadResponse(BaseModel):
     duration_ms: int
     estimated_steps: int
     message: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class TestStepModel(BaseModel):
     """Generated test step."""
 
     action: str
-    target: Optional[str] = None
-    value: Optional[str] = None
+    target: str | None = None
+    value: str | None = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    timestamp: Optional[int] = None
+    timestamp: int | None = None
 
 
 class TestAssertionModel(BaseModel):
     """Generated test assertion."""
 
     type: str
-    target: Optional[str] = None
-    expected: Optional[str] = None
+    target: str | None = None
+    expected: str | None = None
 
 
 class ConvertRequest(BaseModel):
     """Request to convert recording to test."""
 
     recording_id: str = Field(..., description="ID of uploaded recording")
-    test_name: Optional[str] = Field(None, description="Name for generated test")
+    test_name: str | None = Field(None, description="Name for generated test")
     include_waits: bool = Field(True, description="Include wait steps for timing")
     include_scrolls: bool = Field(False, description="Include scroll actions")
     min_wait_threshold: int = Field(500, description="Minimum pause to include as wait (ms)")
@@ -199,13 +198,13 @@ class ConvertResponse(BaseModel):
     """Response from recording conversion."""
 
     success: bool
-    test: Optional[dict] = None
+    test: dict | None = None
     recording_id: str
     duration_ms: int
     steps_generated: int
     assertions_generated: int
     warnings: list[str] = []
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class RecordingReplayResponse(BaseModel):
@@ -214,16 +213,16 @@ class RecordingReplayResponse(BaseModel):
     success: bool
     recording_id: str
     events: list[dict] = []
-    metadata: Optional[dict] = None
-    error: Optional[str] = None
+    metadata: dict | None = None
+    error: str | None = None
 
 
 class RecorderSnippetRequest(BaseModel):
     """Request to generate recorder JavaScript snippet."""
 
-    project_id: Optional[str] = Field(None, description="Project ID to associate recordings")
-    upload_url: Optional[str] = Field(None, description="URL to upload recordings to")
-    options: Optional[dict] = Field(None, description="rrweb recorder options")
+    project_id: str | None = Field(None, description="Project ID to associate recordings")
+    upload_url: str | None = Field(None, description="URL to upload recordings to")
+    options: dict | None = Field(None, description="rrweb recorder options")
 
 
 class RecorderSnippetResponse(BaseModel):
@@ -266,7 +265,7 @@ async def upload_recording(request: Request, body: RecordingUploadRequest):
             "metadata": body.metadata.model_dump(),
             "project_id": body.project_id,
             "name": body.name or f"Recording {recording_id[:8]}",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "events_count": len(body.events),
             "interaction_count": interaction_events,
             "user_id": user.get("user_id"),
@@ -344,13 +343,13 @@ async def convert_recording(request: Request, body: ConvertRequest):
         test_spec = {
             "id": f"test-{uuid4().hex[:12]}",
             "name": test_name,
-            "description": f"Auto-generated from browser recording",
+            "description": "Auto-generated from browser recording",
             "source": "rrweb_recording",
             "recording_id": body.recording_id,
             "steps": [s.model_dump() for s in steps],
             "assertions": [a.model_dump() for a in assertions],
             "metadata": {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "recording_duration_ms": metadata.get("duration", 0),
                 "recording_url": metadata.get("url"),
                 "original_events": len(events),
@@ -570,7 +569,7 @@ argusStopRecording().then(result => {
 @router.get("/recordings")
 async def get_recordings(
     request: Request,
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
     limit: int = 20,
 ):
     """
@@ -626,7 +625,7 @@ async def get_recordings(
 @router.get("/list")
 async def list_recordings(
     request: Request,
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
     limit: int = 20,
 ):
     """
@@ -762,8 +761,8 @@ def _parse_rrweb_events(
 
     # Build node ID to selector map from full snapshot
     node_map: dict[int, str] = {}
-    current_url: Optional[str] = None
-    last_timestamp: Optional[int] = None
+    current_url: str | None = None
+    last_timestamp: int | None = None
 
     for event in events:
         event_type = event.get("type")

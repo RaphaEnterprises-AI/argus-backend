@@ -4,9 +4,6 @@ This module tests the PatternService class which provides cross-project
 pattern learning with pgvector for similarity search.
 """
 
-import hashlib
-import json
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,7 +22,6 @@ from src.discovery.pattern_service import (
     _pad_embedding,
     get_pattern_service,
 )
-
 
 # ==============================================================================
 # Fixtures
@@ -381,7 +377,7 @@ class TestPatternServiceInit:
                 mock_get_supabase.return_value = MagicMock()
                 mock_get_vectorize.return_value = MagicMock()
 
-                service = PatternService()
+                PatternService()
 
                 mock_get_supabase.assert_called_once()
                 mock_get_vectorize.assert_called_once()

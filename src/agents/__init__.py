@@ -15,48 +15,32 @@ Competitive Features:
     - Accessibility Checker: WCAG 2.1 compliance testing
 """
 
-from .base import BaseAgent, AgentResult
-from .code_analyzer import CodeAnalyzerAgent
-from .test_planner import TestPlannerAgent
-# UI Tester V2 - Uses unified BrowserPoolClient (Hetzner K8s)
-from .ui_tester_v2 import UITesterAgentV2, UITesterAgent, UITestResult, StepResult, AssertionResult
-# Legacy UI Tester - Available as UITesterAgentLegacy for migration
-from .ui_tester import UITesterAgent as UITesterAgentLegacy
-from .api_tester import APITesterAgent
-from .db_tester import DBTesterAgent
-from .self_healer import SelfHealerAgent
-from .reporter import ReporterAgent
-
-# Competitive Features
-from .visual_ai import VisualAI, VisualRegressionManager, VisualComparisonResult
-from .nlp_test_creator import NLPTestCreator, ConversationalTestBuilder, GeneratedTest
-from .auto_discovery import AutoDiscovery, QuickDiscover, DiscoveryResult
-
-# New Advanced Agents
-from .performance_analyzer import (
-    PerformanceAnalyzerAgent,
-    PerformanceAnalysisResult,
-    PerformanceMetrics,
-    CoreWebVitals,
-    PerformanceGrade,
-)
-from .security_scanner import (
-    SecurityScannerAgent,
-    SecurityScanResult,
-    Vulnerability,
-    VulnerabilitySeverity,
-    VulnerabilityCategory,
-)
 from .accessibility_checker import (
     AccessibilityCheckerAgent,
     AccessibilityCheckResult,
     AccessibilityIssue,
-    WCAGLevel,
     IssueImpact,
+    WCAGLevel,
+)
+from .api_tester import APITesterAgent
+from .auto_discovery import AutoDiscovery, DiscoveryResult, QuickDiscover
+from .base import AgentResult, BaseAgent
+from .code_analyzer import CodeAnalyzerAgent
+from .db_tester import DBTesterAgent
+from .nlp_test_creator import ConversationalTestBuilder, GeneratedTest, NLPTestCreator
+
+# New Advanced Agents
+from .performance_analyzer import (
+    CoreWebVitals,
+    PerformanceAnalysisResult,
+    PerformanceAnalyzerAgent,
+    PerformanceGrade,
+    PerformanceMetrics,
 )
 
 # Enhanced System Prompts
 from .prompts import ENHANCED_PROMPTS, get_enhanced_prompt
+from .reporter import ReporterAgent
 
 # Intelligent Model Routing
 from .router_agent import (
@@ -66,6 +50,24 @@ from .router_agent import (
     TaskContext,
     route_with_agent,
 )
+from .security_scanner import (
+    SecurityScannerAgent,
+    SecurityScanResult,
+    Vulnerability,
+    VulnerabilityCategory,
+    VulnerabilitySeverity,
+)
+from .self_healer import SelfHealerAgent
+from .test_planner import TestPlannerAgent
+
+# Legacy UI Tester - Available as UITesterAgentLegacy for migration
+from .ui_tester import UITesterAgent as UITesterAgentLegacy
+
+# UI Tester V2 - Uses unified BrowserPoolClient (Hetzner K8s)
+from .ui_tester_v2 import AssertionResult, StepResult, UITesterAgent, UITesterAgentV2, UITestResult
+
+# Competitive Features
+from .visual_ai import VisualAI, VisualComparisonResult, VisualRegressionManager
 
 __all__ = [
     # Base

@@ -1,16 +1,17 @@
 """Tests for the Cloudflare Vectorize service."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 from src.services.vectorize import (
+    CF_API_BASE,
     CloudflareVectorizeClient,
     get_vectorize_client,
-    semantic_search_errors,
     index_error_pattern,
     index_production_event,
-    CF_API_BASE,
+    semantic_search_errors,
 )
 
 

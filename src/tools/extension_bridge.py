@@ -30,8 +30,9 @@ import base64
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 import structlog
 
@@ -42,7 +43,7 @@ except ImportError:
     websockets = None
     serve = None
 
-from .browser_abstraction import BrowserAutomation, BrowserConfig, ActionResult, AutomationFramework
+from .browser_abstraction import ActionResult, AutomationFramework, BrowserAutomation, BrowserConfig
 
 logger = structlog.get_logger()
 
@@ -53,7 +54,7 @@ class ExtensionMessage:
 
     action: str
     requestId: str = field(default_factory=lambda: str(uuid.uuid4()))
-    tabId: Optional[int] = None
+    tabId: int | None = None
     params: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -72,7 +73,7 @@ class ExtensionResponse:
     requestId: str
     success: bool
     data: Any = None
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ExtensionBridge(BrowserAutomation):
@@ -100,7 +101,7 @@ class ExtensionBridge(BrowserAutomation):
 
     def __init__(
         self,
-        config: Optional[BrowserConfig] = None,
+        config: BrowserConfig | None = None,
         port: int = 8765,
         host: str = "localhost",
     ):
@@ -117,7 +118,7 @@ class ExtensionBridge(BrowserAutomation):
         self._server = None
         self._connections: set = set()
         self._pending_requests: dict[str, asyncio.Future] = {}
-        self._active_tab_id: Optional[int] = None
+        self._active_tab_id: int | None = None
         self._console_logs: list[dict] = []
         self._event_handlers: dict[str, list[Callable]] = {}
         self.log = logger.bind(component="extension_bridge")
@@ -148,7 +149,7 @@ class ExtensionBridge(BrowserAutomation):
                 timeout=30.0,
             )
             self.log.info("Chrome extension connected")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.log.warning(
                 "No extension connection within timeout. "
                 "Make sure the E2E Testing Agent extension is installed and enabled."
@@ -216,7 +217,7 @@ class ExtensionBridge(BrowserAutomation):
         self,
         action: str,
         params: dict = None,
-        tab_id: Optional[int] = None,
+        tab_id: int | None = None,
         timeout: float = 30.0,
     ) -> ExtensionResponse:
         """Send a command to the extension and wait for response."""
@@ -244,7 +245,7 @@ class ExtensionBridge(BrowserAutomation):
         try:
             response = await asyncio.wait_for(future, timeout)
             return response
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending_requests.pop(message.requestId, None)
             raise TimeoutError(f"Command '{action}' timed out after {timeout}s")
 
@@ -283,7 +284,7 @@ class ExtensionBridge(BrowserAutomation):
                 error=str(e),
             )
 
-    async def click(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         start = time.time()
         try:
             response = await self._send_command(
@@ -384,7 +385,7 @@ class ExtensionBridge(BrowserAutomation):
 
         return False
 
-    async def wait_for_selector(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         start = time.time()
         try:
             response = await self._send_command(
@@ -479,7 +480,7 @@ class ExtensionBridge(BrowserAutomation):
             self._console_logs.clear()
         return logs
 
-    async def create_tab(self, url: Optional[str] = None) -> int:
+    async def create_tab(self, url: str | None = None) -> int:
         """Create a new browser tab.
 
         Args:
@@ -495,7 +496,7 @@ class ExtensionBridge(BrowserAutomation):
 
         raise RuntimeError(f"Create tab failed: {response.error}")
 
-    async def close_tab(self, tab_id: Optional[int] = None) -> None:
+    async def close_tab(self, tab_id: int | None = None) -> None:
         """Close a browser tab.
 
         Args:
@@ -539,7 +540,7 @@ class ExtensionBridge(BrowserAutomation):
 
         raise RuntimeError(f"Get page info failed: {response.error}")
 
-    async def query_selector(self, selector: str) -> Optional[dict]:
+    async def query_selector(self, selector: str) -> dict | None:
         """Query for an element.
 
         Args:
@@ -576,7 +577,7 @@ class ExtensionBridge(BrowserAutomation):
 async def create_extension_bridge(
     port: int = 8765,
     host: str = "localhost",
-    config: Optional[BrowserConfig] = None,
+    config: BrowserConfig | None = None,
 ) -> ExtensionBridge:
     """Create and start an extension bridge.
 

@@ -13,7 +13,7 @@ allowing the system to find similar past failures and apply proven healing solut
 import json
 import os
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import structlog
 
@@ -52,8 +52,8 @@ class MemoryStore:
 
     def __init__(
         self,
-        database_url: Optional[str] = None,
-        embeddings: Optional[Any] = None,  # Embeddings instance
+        database_url: str | None = None,
+        embeddings: Any | None = None,  # Embeddings instance
     ):
         """Initialize the memory store.
 
@@ -98,7 +98,7 @@ class MemoryStore:
             self._pool = None
             self._log.info("Closed database connection pool")
 
-    async def _get_embedding(self, text: str) -> Optional[List[float]]:
+    async def _get_embedding(self, text: str) -> list[float] | None:
         """Get embedding for text using configured embeddings model.
 
         Args:
@@ -129,10 +129,10 @@ class MemoryStore:
 
     async def put(
         self,
-        namespace: List[str],
+        namespace: list[str],
         key: str,
-        value: Dict[str, Any],
-        embed_text: Optional[str] = None,
+        value: dict[str, Any],
+        embed_text: str | None = None,
     ) -> None:
         """Store a value with optional embedding.
 
@@ -174,9 +174,9 @@ class MemoryStore:
 
     async def get(
         self,
-        namespace: List[str],
+        namespace: list[str],
         key: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get a value by namespace and key.
 
         Args:
@@ -204,7 +204,7 @@ class MemoryStore:
 
     async def delete(
         self,
-        namespace: List[str],
+        namespace: list[str],
         key: str,
     ) -> bool:
         """Delete a value by namespace and key.
@@ -235,9 +235,9 @@ class MemoryStore:
 
     async def list_keys(
         self,
-        namespace: List[str],
+        namespace: list[str],
         limit: int = 100,
-    ) -> List[str]:
+    ) -> list[str]:
         """List all keys in a namespace.
 
         Args:
@@ -265,11 +265,11 @@ class MemoryStore:
 
     async def search(
         self,
-        namespace: List[str],
+        namespace: list[str],
         query: str,
         limit: int = 5,
         threshold: float = 0.7,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Semantic search within a namespace.
 
         Args:
@@ -329,10 +329,10 @@ class MemoryStore:
         error_message: str,
         healed_selector: str,
         healing_method: str,
-        test_id: Optional[str] = None,
-        error_type: Optional[str] = None,
-        original_selector: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        test_id: str | None = None,
+        error_type: str | None = None,
+        original_selector: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Store a test failure pattern for future learning.
 
@@ -405,8 +405,8 @@ class MemoryStore:
         error_message: str,
         limit: int = 5,
         threshold: float = 0.7,
-        error_type: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        error_type: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Find similar past failures with their healing solutions.
 
         Uses semantic search to find failures with similar error messages
@@ -571,7 +571,7 @@ class MemoryStore:
             success=success,
         )
 
-    async def get_pattern_stats(self) -> Dict[str, Any]:
+    async def get_pattern_stats(self) -> dict[str, Any]:
         """Get statistics about stored failure patterns.
 
         Returns:
@@ -609,12 +609,12 @@ class MemoryStore:
 # Global Instance Management
 # =========================================================================
 
-_memory_store: Optional[MemoryStore] = None
+_memory_store: MemoryStore | None = None
 
 
 def get_memory_store(
-    embeddings: Optional[Any] = None,
-    database_url: Optional[str] = None,
+    embeddings: Any | None = None,
+    database_url: str | None = None,
 ) -> MemoryStore:
     """Get or create the global memory store instance.
 
@@ -646,8 +646,8 @@ def reset_memory_store() -> None:
 
 
 async def init_memory_store(
-    embeddings: Optional[Any] = None,
-    database_url: Optional[str] = None,
+    embeddings: Any | None = None,
+    database_url: str | None = None,
 ) -> MemoryStore:
     """Initialize and return the memory store.
 

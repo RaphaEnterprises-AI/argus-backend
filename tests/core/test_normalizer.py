@@ -1,8 +1,5 @@
 """Tests for the error normalizer module."""
 
-import pytest
-from datetime import datetime
-from unittest.mock import MagicMock, patch
 
 
 class TestEventSource:
@@ -130,7 +127,13 @@ class TestNormalizedEvent:
 
     def test_normalized_event_creation(self, mock_env_vars):
         """Test creating a NormalizedEvent."""
-        from src.core.normalizer import NormalizedEvent, EventSource, EventType, Severity, StackFrame
+        from src.core.normalizer import (
+            EventSource,
+            EventType,
+            NormalizedEvent,
+            Severity,
+            StackFrame,
+        )
 
         event = NormalizedEvent(
             id="event-001",
@@ -159,7 +162,13 @@ class TestNormalizedEvent:
 
     def test_normalized_event_to_dict(self, mock_env_vars):
         """Test NormalizedEvent to_dict method."""
-        from src.core.normalizer import NormalizedEvent, EventSource, EventType, Severity, StackFrame
+        from src.core.normalizer import (
+            EventSource,
+            EventType,
+            NormalizedEvent,
+            Severity,
+            StackFrame,
+        )
 
         frame = StackFrame(filename="test.py", function="main", lineno=10)
         event = NormalizedEvent(

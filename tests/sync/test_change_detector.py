@@ -1,16 +1,14 @@
 """Tests for change detector."""
 
-import pytest
 
 from src.sync.change_detector import (
     Change,
-    DiffResult,
     ChangeDetector,
-    diff_specs,
+    DiffResult,
     calculate_checksum,
+    diff_specs,
 )
-from src.sync.models import SyncEventType, SyncSource
-
+from src.sync.models import SyncEventType
 
 # =============================================================================
 # Change Tests

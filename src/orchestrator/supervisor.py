@@ -34,14 +34,12 @@ Example usage:
     final_state = await app.ainvoke(initial_state, config)
 """
 
-from typing import TypedDict, Annotated, Literal, List, Optional, Any
-from datetime import datetime, timezone
-import json
+from typing import Annotated, TypedDict
 
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 import structlog
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 
 from src.config import get_settings
 
@@ -70,26 +68,26 @@ class SupervisorState(TypedDict):
         total_cost: Accumulated API cost
         error: Error message if something went wrong
     """
-    messages: Annotated[List[BaseMessage], add_messages]
-    next_agent: Optional[str]
+    messages: Annotated[list[BaseMessage], add_messages]
+    next_agent: str | None
     task_complete: bool
     results: dict
     current_phase: str  # analysis, planning, execution, healing, reporting
     iteration: int
 
     # Testing context
-    codebase_path: Optional[str]
-    app_url: Optional[str]
-    pr_number: Optional[int]
-    changed_files: Optional[List[str]]
+    codebase_path: str | None
+    app_url: str | None
+    pr_number: int | None
+    changed_files: list[str] | None
 
     # Test state (shared with worker nodes)
-    codebase_summary: Optional[str]
-    testable_surfaces: Optional[List[dict]]
-    test_plan: Optional[List[dict]]
-    test_results: Optional[List[dict]]
-    failures: Optional[List[dict]]
-    healing_queue: Optional[List[str]]
+    codebase_summary: str | None
+    testable_surfaces: list[dict] | None
+    test_plan: list[dict] | None
+    test_results: list[dict] | None
+    failures: list[dict] | None
+    healing_queue: list[str] | None
 
     # Metrics
     passed_count: int
@@ -100,7 +98,7 @@ class SupervisorState(TypedDict):
     total_output_tokens: int
 
     # Error handling
-    error: Optional[str]
+    error: str | None
 
 
 # Available agents and their capabilities
@@ -175,9 +173,9 @@ Always explain your routing decision briefly (1-2 sentences) before stating your
 def create_initial_supervisor_state(
     codebase_path: str,
     app_url: str,
-    pr_number: Optional[int] = None,
-    changed_files: Optional[List[str]] = None,
-    initial_message: Optional[str] = None,
+    pr_number: int | None = None,
+    changed_files: list[str] | None = None,
+    initial_message: str | None = None,
 ) -> SupervisorState:
     """Create initial state for the supervisor graph.
 
@@ -497,7 +495,7 @@ async def supervisor_test_planner_node(state: SupervisorState) -> dict:
 async def supervisor_execute_test_node(state: SupervisorState) -> dict:
     """Wrapper for test executor that works with supervisor state."""
     from src.orchestrator.nodes import execute_test_node
-    from src.orchestrator.state import create_initial_state, TestStatus
+    from src.orchestrator.state import create_initial_state
 
     log = logger.bind(node="supervisor_execute_test")
 
@@ -770,8 +768,8 @@ class SupervisorOrchestrator:
         self,
         codebase_path: str,
         app_url: str,
-        pr_number: Optional[int] = None,
-        changed_files: Optional[List[str]] = None,
+        pr_number: int | None = None,
+        changed_files: list[str] | None = None,
     ):
         self.codebase_path = codebase_path
         self.app_url = app_url
@@ -791,7 +789,7 @@ class SupervisorOrchestrator:
             app_url=app_url,
         )
 
-    async def run(self, thread_id: Optional[str] = None) -> SupervisorState:
+    async def run(self, thread_id: str | None = None) -> SupervisorState:
         """
         Run the full supervised test suite.
 
@@ -833,7 +831,7 @@ class SupervisorOrchestrator:
             self.log.error("Supervised test run failed", error=str(e))
             raise
 
-    async def get_state(self, thread_id: str) -> Optional[dict]:
+    async def get_state(self, thread_id: str) -> dict | None:
         """Get current state of a supervised run."""
         config = {"configurable": {"thread_id": thread_id}}
 

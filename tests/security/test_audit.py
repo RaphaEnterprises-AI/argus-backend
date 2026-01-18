@@ -1,11 +1,10 @@
 """Tests for the security audit module."""
 
-import pytest
 import json
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestAuditEventType:
@@ -174,7 +173,7 @@ class TestAuditLogger:
 
     def test_log_event(self, mock_env_vars):
         """Test log_event method."""
-        from src.security.audit import AuditLogger, AuditEvent, AuditEventType
+        from src.security.audit import AuditEvent, AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -198,7 +197,7 @@ class TestAuditLogger:
 
     def test_log_event_to_stdout(self, mock_env_vars, capsys):
         """Test log_event to stdout."""
-        from src.security.audit import AuditLogger, AuditEvent, AuditEventType
+        from src.security.audit import AuditEvent, AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir, log_to_stdout=True)
@@ -216,7 +215,7 @@ class TestAuditLogger:
 
     def test_log_ai_request(self, mock_env_vars):
         """Test log_ai_request method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -237,7 +236,7 @@ class TestAuditLogger:
 
     def test_log_ai_response(self, mock_env_vars):
         """Test log_ai_response method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -257,7 +256,7 @@ class TestAuditLogger:
 
     def test_log_ai_response_error(self, mock_env_vars):
         """Test log_ai_response with error."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -278,7 +277,7 @@ class TestAuditLogger:
 
     def test_log_file_read(self, mock_env_vars):
         """Test log_file_read method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -298,7 +297,7 @@ class TestAuditLogger:
 
     def test_log_secret_detected(self, mock_env_vars):
         """Test log_secret_detected method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -317,7 +316,7 @@ class TestAuditLogger:
 
     def test_log_test_execution(self, mock_env_vars):
         """Test log_test_execution method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -337,7 +336,7 @@ class TestAuditLogger:
 
     def test_log_test_execution_failed(self, mock_env_vars):
         """Test log_test_execution with failure."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -357,7 +356,7 @@ class TestAuditLogger:
 
     def test_log_browser_action(self, mock_env_vars):
         """Test log_browser_action method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -378,7 +377,7 @@ class TestAuditLogger:
 
     def test_log_integration_event_success(self, mock_env_vars):
         """Test log_integration_event with success."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -395,7 +394,7 @@ class TestAuditLogger:
 
     def test_log_integration_event_error(self, mock_env_vars):
         """Test log_integration_event with error."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -413,7 +412,7 @@ class TestAuditLogger:
 
     def test_query_events(self, mock_env_vars):
         """Test query_events method."""
-        from src.security.audit import AuditLogger, AuditEventType
+        from src.security.audit import AuditEventType, AuditLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(output_dir=tmpdir)
@@ -497,8 +496,8 @@ class TestAuditLogger:
             )
 
             # Generate report
-            start_date = datetime.now(timezone.utc) - timedelta(hours=1)
-            end_date = datetime.now(timezone.utc) + timedelta(hours=1)
+            start_date = datetime.now(UTC) - timedelta(hours=1)
+            end_date = datetime.now(UTC) + timedelta(hours=1)
 
             report = logger.generate_compliance_report(start_date, end_date)
 
@@ -546,8 +545,8 @@ class TestGetAuditLogger:
 
     def test_get_audit_logger_default(self, mock_env_vars):
         """Test get_audit_logger with default settings."""
-        from src.security.audit import get_audit_logger, _audit_logger
         import src.security.audit as audit_module
+        from src.security.audit import get_audit_logger
 
         # Reset global logger
         audit_module._audit_logger = None
@@ -561,8 +560,8 @@ class TestGetAuditLogger:
 
     def test_get_audit_logger_singleton(self, mock_env_vars):
         """Test get_audit_logger returns singleton."""
-        from src.security.audit import get_audit_logger
         import src.security.audit as audit_module
+        from src.security.audit import get_audit_logger
 
         # Reset global logger
         audit_module._audit_logger = None

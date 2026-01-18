@@ -9,16 +9,15 @@ Provides endpoints for:
 - Managing project settings
 """
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, Field, field_validator
 import structlog
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
 
-from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit
 from src.api.context import get_current_organization_id, require_organization_id
+from src.api.teams import get_current_user, log_audit, verify_org_access
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Projects"])
@@ -44,11 +43,11 @@ def validate_url(url: str | None, field_name: str) -> str | None:
 class CreateProjectRequest(BaseModel):
     """Request to create a new project."""
     name: str = Field(..., min_length=2, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    app_url: Optional[str] = Field(None, max_length=500)
-    codebase_path: Optional[str] = Field(None, max_length=500)
-    repository_url: Optional[str] = Field(None, max_length=500)
-    settings: Optional[dict] = None
+    description: str | None = Field(None, max_length=500)
+    app_url: str | None = Field(None, max_length=500)
+    codebase_path: str | None = Field(None, max_length=500)
+    repository_url: str | None = Field(None, max_length=500)
+    settings: dict | None = None
 
     @field_validator("app_url")
     @classmethod
@@ -63,13 +62,13 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateProjectRequest(BaseModel):
     """Request to update a project."""
-    name: Optional[str] = Field(None, min_length=2, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    app_url: Optional[str] = Field(None, max_length=500)
-    codebase_path: Optional[str] = Field(None, max_length=500)
-    repository_url: Optional[str] = Field(None, max_length=500)
-    settings: Optional[dict] = None
-    is_active: Optional[bool] = None
+    name: str | None = Field(None, min_length=2, max_length=100)
+    description: str | None = Field(None, max_length=500)
+    app_url: str | None = Field(None, max_length=500)
+    codebase_path: str | None = Field(None, max_length=500)
+    repository_url: str | None = Field(None, max_length=500)
+    settings: dict | None = None
+    is_active: bool | None = None
 
     @field_validator("app_url")
     @classmethod
@@ -87,16 +86,16 @@ class ProjectResponse(BaseModel):
     id: str
     organization_id: str
     name: str
-    description: Optional[str]
-    app_url: Optional[str]
-    codebase_path: Optional[str]
-    repository_url: Optional[str]
-    settings: Optional[dict]
+    description: str | None
+    app_url: str | None
+    codebase_path: str | None
+    repository_url: str | None
+    settings: dict | None
     is_active: bool
     test_count: int
-    last_run_at: Optional[str]
+    last_run_at: str | None
     created_at: str
-    updated_at: Optional[str]
+    updated_at: str | None
 
 
 class ProjectListResponse(BaseModel):
@@ -104,11 +103,11 @@ class ProjectListResponse(BaseModel):
     id: str
     organization_id: str
     name: str
-    description: Optional[str]
-    app_url: Optional[str]
+    description: str | None
+    app_url: str | None
     is_active: bool
     test_count: int
-    last_run_at: Optional[str]
+    last_run_at: str | None
     created_at: str
 
 
@@ -186,7 +185,7 @@ async def verify_project_access(project_id: str, user_id: str, user_email: str =
 async def list_organization_projects(
     org_id: str,
     request: Request,
-    is_active: Optional[bool] = None,
+    is_active: bool | None = None,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -310,7 +309,7 @@ async def create_organization_project(
 @router.get("/projects", response_model=list[ProjectListResponse])
 async def list_projects(
     request: Request,
-    is_active: Optional[bool] = None,
+    is_active: bool | None = None,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -440,7 +439,7 @@ async def update_project(project_id: str, body: UpdateProjectRequest, request: R
     supabase = get_supabase_client()
 
     # Build update data
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.name is not None:
         update_data["name"] = body.name

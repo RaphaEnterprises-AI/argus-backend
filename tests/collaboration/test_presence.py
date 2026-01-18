@@ -1,17 +1,16 @@
 """Tests for presence manager."""
 
-import pytest
 import asyncio
-from datetime import datetime, timezone, timedelta
 
-from src.collaboration.presence import PresenceManager
+import pytest
+
 from src.collaboration.models import (
-    PresenceStatus,
-    CursorPosition,
-    SelectionRange,
     BroadcastMessage,
+    CursorPosition,
+    PresenceStatus,
+    SelectionRange,
 )
-
+from src.collaboration.presence import PresenceManager
 
 # =============================================================================
 # Fixtures

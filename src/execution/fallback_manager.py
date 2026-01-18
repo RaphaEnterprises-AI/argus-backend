@@ -15,8 +15,9 @@ The escalation flow is:
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 import structlog
 
@@ -38,7 +39,7 @@ class AttemptResult:
     """Result from a single execution attempt."""
 
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
     duration_ms: int = 0
     data: Any = None
 
@@ -78,7 +79,7 @@ class FallbackManager:
     def get_escalation_levels(
         self,
         step_action: str,
-        step_config: Optional[StepExecutionConfig] = None,
+        step_config: StepExecutionConfig | None = None,
     ) -> list[FallbackLevel]:
         """Get the escalation levels to try for a step.
 
@@ -151,11 +152,11 @@ class FallbackManager:
     async def execute_with_escalation(
         self,
         dom_fn: Callable[[], Any],
-        vision_fn: Optional[Callable[[], Any]],
+        vision_fn: Callable[[], Any] | None,
         step_index: int,
         step_action: str,
         step_target: str,
-        step_config: Optional[StepExecutionConfig] = None,
+        step_config: StepExecutionConfig | None = None,
     ) -> HybridStepResult:
         """Execute a step with escalation through fallback levels.
 
@@ -181,8 +182,8 @@ class FallbackManager:
         vision_attempts = 0
         dom_duration_ms = 0
         vision_duration_ms = 0
-        last_error: Optional[str] = None
-        fallback_event: Optional[FallbackEvent] = None
+        last_error: str | None = None
+        fallback_event: FallbackEvent | None = None
 
         for level in levels:
             if level == FallbackLevel.VISION_FALLBACK:
@@ -354,11 +355,11 @@ class FallbackManager:
         original_selector: str,
         fallback_level: FallbackLevel,
         dom_attempts: int,
-        dom_error: Optional[str],
+        dom_error: str | None,
         success: bool,
         dom_duration_ms: int = 0,
         vision_duration_ms: int = 0,
-        final_error: Optional[str] = None,
+        final_error: str | None = None,
     ) -> FallbackEvent:
         """Create a FallbackEvent for recording."""
         return FallbackEvent(

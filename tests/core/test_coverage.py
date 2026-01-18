@@ -1,9 +1,9 @@
 """Tests for the coverage analyzer module."""
 
 import json
-import pytest
-from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestCoverageLevel:
@@ -38,7 +38,7 @@ class TestFileCoverage:
 
     def test_file_coverage_creation(self, mock_env_vars):
         """Test creating a FileCoverage instance."""
-        from src.core.coverage import FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageLevel, FileCoverage
 
         fc = FileCoverage(
             path="src/utils/helpers.py",
@@ -59,35 +59,35 @@ class TestFileCoverage:
 
     def test_file_coverage_level_excellent(self, mock_env_vars):
         """Test coverage level determination - excellent."""
-        from src.core.coverage import FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageLevel, FileCoverage
 
         fc = FileCoverage(path="test.py", lines_percent=95.0)
         assert fc.level == CoverageLevel.EXCELLENT
 
     def test_file_coverage_level_good(self, mock_env_vars):
         """Test coverage level determination - good."""
-        from src.core.coverage import FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageLevel, FileCoverage
 
         fc = FileCoverage(path="test.py", lines_percent=80.0)
         assert fc.level == CoverageLevel.GOOD
 
     def test_file_coverage_level_fair(self, mock_env_vars):
         """Test coverage level determination - fair."""
-        from src.core.coverage import FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageLevel, FileCoverage
 
         fc = FileCoverage(path="test.py", lines_percent=60.0)
         assert fc.level == CoverageLevel.FAIR
 
     def test_file_coverage_level_poor(self, mock_env_vars):
         """Test coverage level determination - poor."""
-        from src.core.coverage import FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageLevel, FileCoverage
 
         fc = FileCoverage(path="test.py", lines_percent=30.0)
         assert fc.level == CoverageLevel.POOR
 
     def test_file_coverage_level_critical(self, mock_env_vars):
         """Test coverage level determination - critical."""
-        from src.core.coverage import FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageLevel, FileCoverage
 
         fc = FileCoverage(path="test.py", lines_percent=10.0)
         assert fc.level == CoverageLevel.CRITICAL
@@ -167,7 +167,7 @@ class TestCoverageSummary:
 
     def test_coverage_summary_creation(self, mock_env_vars):
         """Test creating a CoverageSummary instance."""
-        from src.core.coverage import CoverageSummary, CoverageLevel
+        from src.core.coverage import CoverageLevel, CoverageSummary
 
         summary = CoverageSummary(
             lines_total=1000,
@@ -185,21 +185,21 @@ class TestCoverageSummary:
 
     def test_coverage_summary_level_excellent(self, mock_env_vars):
         """Test overall level - excellent."""
-        from src.core.coverage import CoverageSummary, CoverageLevel
+        from src.core.coverage import CoverageLevel, CoverageSummary
 
         summary = CoverageSummary(lines_percent=95.0)
         assert summary.overall_level == CoverageLevel.EXCELLENT
 
     def test_coverage_summary_level_critical(self, mock_env_vars):
         """Test overall level - critical."""
-        from src.core.coverage import CoverageSummary, CoverageLevel
+        from src.core.coverage import CoverageLevel, CoverageSummary
 
         summary = CoverageSummary(lines_percent=20.0)
         assert summary.overall_level == CoverageLevel.CRITICAL
 
     def test_coverage_summary_to_dict(self, mock_env_vars):
         """Test CoverageSummary to_dict method."""
-        from src.core.coverage import CoverageSummary, FileCoverage, CoverageGap, GapPriority
+        from src.core.coverage import CoverageGap, CoverageSummary, FileCoverage, GapPriority
 
         file_cov = FileCoverage(path="test.py", lines_percent=80.0)
         gap = CoverageGap(
@@ -447,7 +447,7 @@ end_of_record
     @pytest.mark.asyncio
     async def test_analyze_gaps_with_error_files(self, mock_env_vars):
         """Test gap analysis with error correlation."""
-        from src.core.coverage import CoverageAnalyzer, CoverageSummary, FileCoverage, GapPriority
+        from src.core.coverage import CoverageAnalyzer, CoverageSummary, FileCoverage
 
         analyzer = CoverageAnalyzer(use_llm=False)
 
@@ -652,7 +652,7 @@ end_of_record
 
     def test_get_critical_uncovered_files(self, mock_env_vars):
         """Test getting critical uncovered files."""
-        from src.core.coverage import CoverageAnalyzer, CoverageSummary, FileCoverage, CoverageLevel
+        from src.core.coverage import CoverageAnalyzer, CoverageSummary, FileCoverage
 
         analyzer = CoverageAnalyzer(use_llm=False)
 
@@ -825,7 +825,7 @@ class TestCoverageAnalyzerLevelDistribution:
 
     def test_level_distribution_all_levels(self, mock_env_vars):
         """Test level distribution across all coverage levels."""
-        from src.core.coverage import CoverageAnalyzer, FileCoverage
+        from src.core.coverage import CoverageAnalyzer
 
         analyzer = CoverageAnalyzer(use_llm=False)
 

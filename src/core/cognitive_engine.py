@@ -13,12 +13,12 @@ They automate testing. We THINK about testing.
 """
 
 import json
-import asyncio
-import structlog
-from enum import Enum
-from typing import Optional, AsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from enum import Enum
+
+import structlog
 from anthropic import AsyncAnthropic
 
 from src.config import get_settings
@@ -68,7 +68,7 @@ class ApplicationModel:
 
     # Evolution tracking
     version: str = "1.0"
-    last_learned: Optional[datetime] = None
+    last_learned: datetime | None = None
     confidence_score: float = 0.0
 
 
@@ -80,9 +80,9 @@ class CognitiveInsight:
     title: str
     description: str
     evidence: list[str] = field(default_factory=list)
-    recommended_action: Optional[str] = None
+    recommended_action: str | None = None
     confidence: float = 0.0
-    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class CognitiveTestingEngine:
@@ -97,7 +97,7 @@ class CognitiveTestingEngine:
     5. Evolves continuously without human intervention
     """
 
-    def __init__(self, model: Optional[str] = None):
+    def __init__(self, model: str | None = None):
         self.settings = get_settings()
         api_key = self.settings.anthropic_api_key
         if hasattr(api_key, 'get_secret_value'):
@@ -110,11 +110,11 @@ class CognitiveTestingEngine:
     async def learn_application(
         self,
         app_url: str,
-        source_code_path: Optional[str] = None,
-        production_logs: Optional[list[dict]] = None,
-        user_sessions: Optional[list[dict]] = None,
-        api_specs: Optional[dict] = None,
-        design_docs: Optional[str] = None
+        source_code_path: str | None = None,
+        production_logs: list[dict] | None = None,
+        user_sessions: list[dict] | None = None,
+        api_specs: dict | None = None,
+        design_docs: str | None = None
     ) -> ApplicationModel:
         """
         Learn and build a cognitive model of an application.
@@ -173,7 +173,7 @@ class CognitiveTestingEngine:
         model.invariants = semantic_understanding.get("invariants", [])
         model.state_machine = behavioral_data.get("state_machine", {})
         model.risk_areas = predictions.get("risk_areas", [])
-        model.last_learned = datetime.now(timezone.utc)
+        model.last_learned = datetime.now(UTC)
         model.confidence_score = semantic_understanding.get("confidence", 0.5)
 
         self.app_models[app_id] = model
@@ -225,9 +225,9 @@ Output a JSON object with:
         app_url: str,
         structural_data: dict,
         behavioral_data: dict,
-        source_code: Optional[str],
-        api_specs: Optional[dict],
-        design_docs: Optional[str]
+        source_code: str | None,
+        api_specs: dict | None,
+        design_docs: str | None
     ) -> dict:
         """Use Claude to build deep semantic understanding (cached)."""
 
@@ -298,7 +298,7 @@ Output a JSON object with:
     async def generate_autonomous_tests(
         self,
         app_model: ApplicationModel,
-        focus_areas: Optional[list[str]] = None
+        focus_areas: list[str] | None = None
     ) -> AsyncIterator[dict]:
         """
         Generate tests AUTONOMOUSLY from application understanding.
@@ -381,8 +381,8 @@ Output as JSON array."""
     async def predict_failures(
         self,
         app_model: ApplicationModel,
-        code_changes: Optional[dict] = None,
-        recent_errors: Optional[list[dict]] = None
+        code_changes: dict | None = None,
+        recent_errors: list[dict] | None = None
     ) -> list[CognitiveInsight]:
         """
         PREDICT failures before they happen (cached).
@@ -520,7 +520,7 @@ Be specific and actionable."""
         self,
         app_model: ApplicationModel,
         current_tests: list[dict],
-        coverage_data: Optional[dict] = None
+        coverage_data: dict | None = None
     ) -> list[CognitiveInsight]:
         """
         Suggest how to improve test coverage and quality (cached).

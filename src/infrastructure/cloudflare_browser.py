@@ -13,13 +13,13 @@ global edge network to run browsers. This gives us:
 This is what makes us fundamentally different from self-hosted solutions.
 """
 
-import json
 import asyncio
-import httpx
-from typing import Optional, AsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
+import httpx
 
 
 class CloudflareRegion(str, Enum):
@@ -60,7 +60,7 @@ class BrowserSession:
     viewport: dict
     created_at: datetime
     status: str  # "active", "closed", "error"
-    websocket_url: Optional[str] = None
+    websocket_url: str | None = None
     metrics: dict = field(default_factory=dict)
 
 
@@ -72,7 +72,7 @@ class ExecutionResult:
     latency_ms: float
     ttfb_ms: float
     page_load_ms: float
-    screenshot_base64: Optional[str] = None
+    screenshot_base64: str | None = None
     console_logs: list[str] = field(default_factory=list)
     network_requests: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -102,7 +102,7 @@ class CloudflareBrowserClient:
         self,
         account_id: str,
         api_token: str,
-        workers_url: Optional[str] = None
+        workers_url: str | None = None
     ):
         self.account_id = account_id
         self.api_token = api_token
@@ -156,7 +156,7 @@ class CloudflareBrowserClient:
         - Network waterfall
         - Console logs and errors
         """
-        start_time = datetime.utcnow()
+        datetime.utcnow()
 
         # In production, this would execute via Cloudflare's Puppeteer API
         # The browser runs on Cloudflare Workers with browser binding
@@ -247,7 +247,7 @@ class GlobalEdgeTester:
         self,
         url: str,
         regions: list[CloudflareRegion] = None,
-        test_script: Optional[str] = None
+        test_script: str | None = None
     ) -> GlobalTestResult:
         """
         Execute test from multiple global locations simultaneously.
@@ -306,7 +306,7 @@ class GlobalEdgeTester:
         self,
         url: str,
         region: CloudflareRegion,
-        test_script: Optional[str]
+        test_script: str | None
     ) -> ExecutionResult:
         """Execute test from a specific region."""
         session = await self.cf_client.create_session(region=region)

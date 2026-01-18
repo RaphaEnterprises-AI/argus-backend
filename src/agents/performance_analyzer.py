@@ -10,14 +10,12 @@ Uses Lighthouse-style analysis to evaluate:
 - Resource optimization opportunities
 """
 
-import asyncio
 from dataclasses import dataclass, field
-from typing import Optional
 from enum import Enum
 
-from .base import BaseAgent, AgentResult
-from .prompts import get_enhanced_prompt
 from ..core.model_router import TaskType
+from .base import AgentResult, BaseAgent
+from .prompts import get_enhanced_prompt
 
 
 class PerformanceGrade(str, Enum):

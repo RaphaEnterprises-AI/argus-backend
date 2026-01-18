@@ -1,19 +1,17 @@
 """Tests for RRWeb parser."""
 
-import pytest
 import json
+
+import pytest
+
+from src.recording.models import (
+    ActionType,
+)
 from src.recording.rrweb_parser import (
     RRWebParser,
     parse_rrweb_recording,
     recording_to_test_spec,
 )
-from src.recording.models import (
-    RRWebEventType,
-    RRWebIncrementalSource,
-    MouseInteractionType,
-    ActionType,
-)
-
 
 # =============================================================================
 # Test Fixtures

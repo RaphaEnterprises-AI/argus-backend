@@ -1,11 +1,10 @@
 """Tests for the frontend analyzer module."""
 
-import pytest
-import tempfile
-from pathlib import Path
 
+import pytest
+
+from src.analyzers.base import ComponentType
 from src.analyzers.frontend import FrontendAnalyzer
-from src.analyzers.base import ComponentType, Severity
 
 
 class TestFrontendAnalyzer:
@@ -186,7 +185,7 @@ export default {
         # UserCard has interactive elements but no data-testid
         user_card = next((c for c in result.components if "UserCard" in (c.name or "")), None)
         if user_card:
-            has_testid_warning = any(
+            any(
                 "test selector" in i.message.lower() or "data-testid" in i.message.lower()
                 for i in user_card.issues
             )
@@ -274,7 +273,7 @@ export function List({ items }) {
 
         list_component = next((c for c in result.components if "List" in (c.name or "")), None)
         if list_component:
-            has_key_warning = any(
+            any(
                 "key" in i.message.lower()
                 for i in list_component.issues
             )

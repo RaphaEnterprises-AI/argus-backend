@@ -1,9 +1,8 @@
 """Tests for the Computer Use client module."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import base64
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # Patch targets
 ANTHROPIC_PATCH = "anthropic.Anthropic"
@@ -508,6 +507,7 @@ class TestComputerUseClient:
         """Test handling bash timeout."""
         with patch(ANTHROPIC_PATCH):
             import subprocess
+
             from src.computer_use.client import ComputerUseClient, UsageStats
             from src.config import Settings
 

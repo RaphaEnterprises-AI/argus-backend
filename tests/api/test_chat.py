@@ -1,11 +1,9 @@
 """Tests for the Chat API module (src/api/chat.py)."""
 
-import pytest
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
-from fastapi import HTTPException
 
+import pytest
+from fastapi import HTTPException
 
 # ============================================================================
 # Fixtures
@@ -79,7 +77,7 @@ class TestRequestModels:
 
     def test_chat_request_model(self, mock_env_vars):
         """Test ChatRequest model."""
-        from src.api.chat import ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest
 
         request = ChatRequest(
             messages=[
@@ -96,7 +94,7 @@ class TestRequestModels:
 
     def test_chat_request_minimal(self, mock_env_vars):
         """Test ChatRequest with minimal fields."""
-        from src.api.chat import ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest
 
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Test")]
@@ -247,7 +245,7 @@ class TestSendMessageEndpoint:
     @pytest.mark.asyncio
     async def test_send_message_success(self, mock_env_vars, mock_ai_message):
         """Test successful message send."""
-        from src.api.chat import send_message, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, send_message
 
         mock_app = AsyncMock()
         mock_app.ainvoke = AsyncMock(return_value={
@@ -272,7 +270,7 @@ class TestSendMessageEndpoint:
     @pytest.mark.asyncio
     async def test_send_message_generates_thread_id(self, mock_env_vars, mock_ai_message):
         """Test that thread_id is generated if not provided."""
-        from src.api.chat import send_message, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, send_message
 
         mock_app = AsyncMock()
         mock_app.ainvoke = AsyncMock(return_value={
@@ -298,7 +296,7 @@ class TestSendMessageEndpoint:
         self, mock_env_vars, mock_ai_message_with_tool_calls
     ):
         """Test message response includes tool calls."""
-        from src.api.chat import send_message, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, send_message
 
         mock_app = AsyncMock()
         mock_app.ainvoke = AsyncMock(return_value={
@@ -322,8 +320,9 @@ class TestSendMessageEndpoint:
     @pytest.mark.asyncio
     async def test_send_message_no_response(self, mock_env_vars):
         """Test message when no AI response is generated."""
-        from src.api.chat import send_message, ChatRequest, ChatMessage
         from langchain_core.messages import HumanMessage
+
+        from src.api.chat import ChatMessage, ChatRequest, send_message
 
         mock_app = AsyncMock()
         mock_app.ainvoke = AsyncMock(return_value={
@@ -346,7 +345,7 @@ class TestSendMessageEndpoint:
     @pytest.mark.asyncio
     async def test_send_message_with_app_url(self, mock_env_vars, mock_ai_message):
         """Test message includes app_url in state."""
-        from src.api.chat import send_message, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, send_message
 
         mock_app = AsyncMock()
         captured_state = None
@@ -383,8 +382,9 @@ class TestStreamMessageEndpoint:
     @pytest.mark.asyncio
     async def test_stream_message_returns_streaming_response(self, mock_env_vars):
         """Test that stream endpoint returns StreamingResponse."""
-        from src.api.chat import stream_message, ChatRequest, ChatMessage
         from fastapi.responses import StreamingResponse
+
+        from src.api.chat import ChatMessage, ChatRequest, stream_message
 
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
@@ -400,7 +400,7 @@ class TestStreamMessageEndpoint:
     @pytest.mark.asyncio
     async def test_stream_message_headers(self, mock_env_vars):
         """Test stream response includes correct headers."""
-        from src.api.chat import stream_message, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, stream_message
 
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
@@ -418,7 +418,7 @@ class TestStreamMessageEndpoint:
     @pytest.mark.asyncio
     async def test_stream_generates_thread_id(self, mock_env_vars):
         """Test stream generates thread_id if not provided."""
-        from src.api.chat import stream_message, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, stream_message
 
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
@@ -701,7 +701,7 @@ class TestChatIntegration:
         self, mock_env_vars, mock_human_message, mock_ai_message
     ):
         """Test a complete conversation flow."""
-        from src.api.chat import send_message, get_chat_history, ChatRequest, ChatMessage
+        from src.api.chat import ChatMessage, ChatRequest, get_chat_history, send_message
 
         mock_app = AsyncMock()
         mock_app.ainvoke = AsyncMock(return_value={
@@ -736,8 +736,9 @@ class TestChatIntegration:
     @pytest.mark.asyncio
     async def test_message_conversion(self, mock_env_vars):
         """Test that messages are correctly converted to LangChain format."""
-        from src.api.chat import send_message, ChatRequest, ChatMessage
-        from langchain_core.messages import HumanMessage, AIMessage
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from src.api.chat import ChatMessage, ChatRequest, send_message
 
         captured_state = None
 

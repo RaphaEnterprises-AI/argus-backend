@@ -1,8 +1,9 @@
 """Tests for Cloudflare Browser Rendering module."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import patch
+
+import pytest
 
 
 class TestCloudflareRegion:
@@ -41,9 +42,7 @@ class TestBrowserSession:
 
     def test_browser_session_creation(self, mock_env_vars):
         """Test BrowserSession creation."""
-        from src.infrastructure.cloudflare_browser import (
-            BrowserSession, CloudflareRegion
-        )
+        from src.infrastructure.cloudflare_browser import BrowserSession, CloudflareRegion
 
         session = BrowserSession(
             session_id="cf-us-east-123",
@@ -63,9 +62,7 @@ class TestBrowserSession:
 
     def test_browser_session_with_websocket(self, mock_env_vars):
         """Test BrowserSession with websocket URL."""
-        from src.infrastructure.cloudflare_browser import (
-            BrowserSession, CloudflareRegion
-        )
+        from src.infrastructure.cloudflare_browser import BrowserSession, CloudflareRegion
 
         session = BrowserSession(
             session_id="cf-uk-456",
@@ -85,9 +82,7 @@ class TestExecutionResult:
 
     def test_execution_result_success(self, mock_env_vars):
         """Test successful ExecutionResult."""
-        from src.infrastructure.cloudflare_browser import (
-            ExecutionResult, CloudflareRegion
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareRegion, ExecutionResult
 
         result = ExecutionResult(
             success=True,
@@ -109,9 +104,7 @@ class TestExecutionResult:
 
     def test_execution_result_failure(self, mock_env_vars):
         """Test failed ExecutionResult."""
-        from src.infrastructure.cloudflare_browser import (
-            ExecutionResult, CloudflareRegion
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareRegion, ExecutionResult
 
         result = ExecutionResult(
             success=False,
@@ -177,9 +170,7 @@ class TestCloudflareBrowserClient:
     @pytest.mark.asyncio
     async def test_create_session(self, mock_env_vars):
         """Test create_session method."""
-        from src.infrastructure.cloudflare_browser import (
-            CloudflareBrowserClient, CloudflareRegion
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareBrowserClient, CloudflareRegion
 
         client = CloudflareBrowserClient(
             account_id="abc123",
@@ -213,9 +204,7 @@ class TestCloudflareBrowserClient:
     @pytest.mark.asyncio
     async def test_navigate(self, mock_env_vars):
         """Test navigate method."""
-        from src.infrastructure.cloudflare_browser import (
-            CloudflareBrowserClient, CloudflareRegion
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareBrowserClient
 
         client = CloudflareBrowserClient(
             account_id="abc123",
@@ -293,9 +282,7 @@ class TestGlobalEdgeTester:
 
     def test_tester_init(self, mock_env_vars):
         """Test GlobalEdgeTester initialization."""
-        from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareBrowserClient, GlobalEdgeTester
 
         client = CloudflareBrowserClient("abc", "token")
         tester = GlobalEdgeTester(client)
@@ -306,7 +293,9 @@ class TestGlobalEdgeTester:
     async def test_test_globally(self, mock_env_vars):
         """Test test_globally method."""
         from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient, CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            GlobalEdgeTester,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -325,9 +314,7 @@ class TestGlobalEdgeTester:
     @pytest.mark.asyncio
     async def test_test_globally_default_regions(self, mock_env_vars):
         """Test test_globally with default regions."""
-        from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareBrowserClient, GlobalEdgeTester
 
         client = CloudflareBrowserClient("abc", "token")
         tester = GlobalEdgeTester(client)
@@ -341,7 +328,9 @@ class TestGlobalEdgeTester:
     async def test_test_globally_with_exceptions(self, mock_env_vars):
         """Test test_globally handles exceptions."""
         from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient, CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            GlobalEdgeTester,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -365,8 +354,10 @@ class TestGlobalEdgeTester:
     def test_detect_anomalies_high_latency(self, mock_env_vars):
         """Test _detect_anomalies for high latency."""
         from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient, ExecutionResult,
-            CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            ExecutionResult,
+            GlobalEdgeTester,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -419,8 +410,10 @@ class TestGlobalEdgeTester:
     def test_detect_anomalies_regional_failure(self, mock_env_vars):
         """Test _detect_anomalies for regional failures."""
         from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient, ExecutionResult,
-            CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            ExecutionResult,
+            GlobalEdgeTester,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -448,8 +441,10 @@ class TestGlobalEdgeTester:
     def test_generate_summary(self, mock_env_vars):
         """Test _generate_summary method."""
         from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient, ExecutionResult,
-            CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            ExecutionResult,
+            GlobalEdgeTester,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -483,8 +478,10 @@ class TestGlobalEdgeTester:
     def test_generate_summary_no_success(self, mock_env_vars):
         """Test _generate_summary with no successful results."""
         from src.infrastructure.cloudflare_browser import (
-            GlobalEdgeTester, CloudflareBrowserClient, ExecutionResult,
-            CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            ExecutionResult,
+            GlobalEdgeTester,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -509,9 +506,7 @@ class TestEdgeChaosEngine:
 
     def test_engine_init(self, mock_env_vars):
         """Test EdgeChaosEngine initialization."""
-        from src.infrastructure.cloudflare_browser import (
-            EdgeChaosEngine, CloudflareBrowserClient
-        )
+        from src.infrastructure.cloudflare_browser import CloudflareBrowserClient, EdgeChaosEngine
 
         client = CloudflareBrowserClient("abc", "token")
         engine = EdgeChaosEngine(client)
@@ -522,7 +517,9 @@ class TestEdgeChaosEngine:
     async def test_test_with_latency(self, mock_env_vars):
         """Test test_with_latency method."""
         from src.infrastructure.cloudflare_browser import (
-            EdgeChaosEngine, CloudflareBrowserClient, CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            EdgeChaosEngine,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -540,7 +537,9 @@ class TestEdgeChaosEngine:
     async def test_test_with_network_throttle(self, mock_env_vars):
         """Test test_with_network_throttle method."""
         from src.infrastructure.cloudflare_browser import (
-            EdgeChaosEngine, CloudflareBrowserClient, CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            EdgeChaosEngine,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -560,7 +559,9 @@ class TestEdgeChaosEngine:
     async def test_test_cdn_bypass(self, mock_env_vars):
         """Test test_cdn_bypass method."""
         from src.infrastructure.cloudflare_browser import (
-            EdgeChaosEngine, CloudflareBrowserClient, CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            EdgeChaosEngine,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -577,7 +578,9 @@ class TestEdgeChaosEngine:
     async def test_test_failover_primary_success(self, mock_env_vars):
         """Test test_failover when primary succeeds."""
         from src.infrastructure.cloudflare_browser import (
-            EdgeChaosEngine, CloudflareBrowserClient, CloudflareRegion
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            EdgeChaosEngine,
         )
 
         client = CloudflareBrowserClient("abc", "token")
@@ -596,8 +599,10 @@ class TestEdgeChaosEngine:
     async def test_test_failover_primary_fails(self, mock_env_vars):
         """Test test_failover when primary fails."""
         from src.infrastructure.cloudflare_browser import (
-            EdgeChaosEngine, CloudflareBrowserClient, CloudflareRegion,
-            ExecutionResult
+            CloudflareBrowserClient,
+            CloudflareRegion,
+            EdgeChaosEngine,
+            ExecutionResult,
         )
 
         client = CloudflareBrowserClient("abc", "token")

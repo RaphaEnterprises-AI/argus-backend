@@ -15,12 +15,11 @@ This is what makes us TRULY next-gen.
 """
 
 import asyncio
-import json
 from abc import ABC, abstractmethod
-from typing import Optional, AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+
 import httpx
 
 from src.config import get_settings
@@ -46,7 +45,7 @@ class Platform(str, Enum):
 class RealUserSession:
     """A real user session from RUM data."""
     session_id: str
-    user_id: Optional[str]
+    user_id: str | None
     platform: Platform
     started_at: datetime
     duration_ms: int
@@ -58,7 +57,7 @@ class RealUserSession:
     geo: dict
     frustration_signals: list[dict]  # Rage clicks, dead clicks, etc.
     conversion_events: list[dict]
-    replay_url: Optional[str] = None  # Direct link to session replay
+    replay_url: str | None = None  # Direct link to session replay
 
 
 @dataclass
@@ -67,7 +66,7 @@ class ProductionError:
     error_id: str
     platform: Platform
     message: str
-    stack_trace: Optional[str]
+    stack_trace: str | None
     first_seen: datetime
     last_seen: datetime
     occurrence_count: int
@@ -75,12 +74,12 @@ class ProductionError:
     affected_sessions: list[str]
     tags: dict
     context: dict
-    release: Optional[str]
+    release: str | None
     environment: str
     severity: str
     status: str  # "unresolved", "resolved", "ignored"
-    assignee: Optional[str]
-    issue_url: Optional[str]  # Link to Sentry/Datadog issue
+    assignee: str | None
+    issue_url: str | None  # Link to Sentry/Datadog issue
 
 
 @dataclass
@@ -96,7 +95,7 @@ class PerformanceAnomaly:
     affected_users_percent: float
     started_at: datetime
     detected_at: datetime
-    probable_cause: Optional[str]
+    probable_cause: str | None
 
 
 @dataclass
@@ -123,7 +122,7 @@ class ObservabilityProvider(ABC):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Get recent user sessions with full context."""
         pass
@@ -132,7 +131,7 @@ class ObservabilityProvider(ABC):
     async def get_errors(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Get recent production errors."""
         pass
@@ -140,7 +139,7 @@ class ObservabilityProvider(ABC):
     @abstractmethod
     async def get_performance_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """Get performance anomalies."""
         pass
@@ -185,7 +184,7 @@ class DatadogProvider(ObservabilityProvider):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Fetch RUM sessions from Datadog."""
         since = since or (datetime.utcnow() - timedelta(hours=24))
@@ -247,7 +246,7 @@ class DatadogProvider(ObservabilityProvider):
     async def get_errors(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Fetch RUM errors from Datadog."""
         since = since or (datetime.utcnow() - timedelta(hours=24))
@@ -301,7 +300,7 @@ class DatadogProvider(ObservabilityProvider):
 
     async def get_performance_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """Detect performance anomalies from RUM metrics."""
         # Use Datadog's metrics API to detect anomalies
@@ -342,7 +341,7 @@ class SentryProvider(ObservabilityProvider):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Sentry doesn't have full session replay, but we can get session data."""
         # Sentry Session API
@@ -351,7 +350,7 @@ class SentryProvider(ObservabilityProvider):
     async def get_errors(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Fetch issues from Sentry."""
         params = {
@@ -397,7 +396,7 @@ class SentryProvider(ObservabilityProvider):
 
     async def get_performance_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """Get performance issues from Sentry Performance."""
         return []
@@ -443,7 +442,7 @@ class NewRelicProvider(ObservabilityProvider):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Get browser sessions from New Relic Browser."""
         query = """
@@ -458,14 +457,14 @@ class NewRelicProvider(ObservabilityProvider):
         }
         """ % (self.account_id, limit)
 
-        data = await self._query(query)
+        await self._query(query)
         # Parse and convert to RealUserSession
         return []
 
     async def get_errors(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Get JavaScript errors from New Relic Browser."""
         query = """
@@ -480,12 +479,12 @@ class NewRelicProvider(ObservabilityProvider):
         }
         """ % (self.account_id, limit)
 
-        data = await self._query(query)
+        await self._query(query)
         return []
 
     async def get_performance_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """Get performance anomalies using New Relic's anomaly detection."""
         return []
@@ -516,7 +515,7 @@ class FullStoryProvider(ObservabilityProvider):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Get sessions with replay URLs from FullStory."""
         # FullStory Data Export API
@@ -558,14 +557,14 @@ class FullStoryProvider(ObservabilityProvider):
     async def get_errors(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Get errors with session context from FullStory."""
         return []
 
     async def get_performance_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """FullStory doesn't focus on performance metrics."""
         return []
@@ -596,7 +595,7 @@ class PostHogProvider(ObservabilityProvider):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Get sessions from PostHog with replay."""
         response = await self.http.get(
@@ -634,14 +633,14 @@ class PostHogProvider(ObservabilityProvider):
     async def get_errors(
         self,
         limit: int = 100,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Get errors from PostHog."""
         return []
 
     async def get_performance_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """Get performance data from PostHog."""
         return []
@@ -713,7 +712,7 @@ class ObservabilityHub:
     async def get_all_sessions(
         self,
         limit_per_platform: int = 50,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[RealUserSession]:
         """Get sessions from all connected platforms."""
         all_sessions = []
@@ -736,7 +735,7 @@ class ObservabilityHub:
     async def get_all_errors(
         self,
         limit_per_platform: int = 50,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[ProductionError]:
         """Get errors from all connected platforms."""
         all_errors = []
@@ -758,7 +757,7 @@ class ObservabilityHub:
 
     async def get_all_anomalies(
         self,
-        since: Optional[datetime] = None
+        since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
         """Get performance anomalies from all platforms."""
         all_anomalies = []

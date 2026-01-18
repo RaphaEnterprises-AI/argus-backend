@@ -1,9 +1,9 @@
 """Tests for Visual AI module."""
 
 import base64
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 
 
 class TestVisualComparisonResult:
@@ -28,7 +28,12 @@ class TestVisualComparisonResult:
 
     def test_result_creation_mismatch(self):
         """Test creating a mismatch result."""
-        from src.agents.visual_ai import VisualComparisonResult, VisualDifference, DifferenceType, Severity
+        from src.agents.visual_ai import (
+            DifferenceType,
+            Severity,
+            VisualComparisonResult,
+            VisualDifference,
+        )
 
         result = VisualComparisonResult(
             baseline_path="/path/baseline.png",
@@ -71,7 +76,12 @@ class TestVisualComparisonResult:
 
     def test_has_regressions(self):
         """Test has_regressions method."""
-        from src.agents.visual_ai import VisualComparisonResult, VisualDifference, DifferenceType, Severity
+        from src.agents.visual_ai import (
+            DifferenceType,
+            Severity,
+            VisualComparisonResult,
+            VisualDifference,
+        )
 
         # No regressions
         result1 = VisualComparisonResult(
@@ -311,7 +321,7 @@ class TestVisualDifference:
 
     def test_difference_creation(self):
         """Test creating a visual difference."""
-        from src.agents.visual_ai import VisualDifference, DifferenceType, Severity
+        from src.agents.visual_ai import DifferenceType, Severity, VisualDifference
 
         diff = VisualDifference(
             type=DifferenceType.CONTENT,

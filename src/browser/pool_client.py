@@ -20,8 +20,6 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
-from urllib.parse import urljoin
 
 import httpx
 import structlog
@@ -51,9 +49,9 @@ logger = structlog.get_logger(__name__)
 class UserContext:
     """User context for audit logging."""
     user_id: str
-    org_id: Optional[str] = None
-    email: Optional[str] = None
-    ip: Optional[str] = None
+    org_id: str | None = None
+    email: str | None = None
+    ip: str | None = None
 
 
 def _base64url_encode(data: bytes) -> str:
@@ -156,11 +154,11 @@ class BrowserPoolClient:
 
     def __init__(
         self,
-        pool_url: Optional[str] = None,
-        jwt_secret: Optional[str] = None,
-        api_key: Optional[str] = None,  # Deprecated: Use jwt_secret
-        user_context: Optional[UserContext] = None,
-        config: Optional[BrowserPoolConfig] = None,
+        pool_url: str | None = None,
+        jwt_secret: str | None = None,
+        api_key: str | None = None,  # Deprecated: Use jwt_secret
+        user_context: UserContext | None = None,
+        config: BrowserPoolConfig | None = None,
     ):
         """
         Initialize the browser pool client.
@@ -196,9 +194,9 @@ class BrowserPoolClient:
             vision_fallback_enabled=os.getenv("VISION_FALLBACK_ENABLED", "true").lower() == "true",
         )
 
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
         self._selector_cache: dict[str, str] = {}
-        self._health_cache: Optional[PoolHealth] = None
+        self._health_cache: PoolHealth | None = None
         self._health_cache_time: float = 0
 
         # Vision fallback client (lazy initialized)
@@ -266,8 +264,8 @@ class BrowserPoolClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[dict] = None,
-        retry_count: Optional[int] = None,
+        data: dict | None = None,
+        retry_count: int | None = None,
     ) -> dict:
         """
         Make a request to the browser pool with automatic retries.
@@ -382,7 +380,7 @@ class BrowserPoolClient:
     async def observe(
         self,
         url: str,
-        instruction: Optional[str] = None,
+        instruction: str | None = None,
         use_cache: bool = True,
     ) -> ObserveResult:
         """
@@ -616,7 +614,7 @@ class BrowserPoolClient:
         self,
         url: str,
         schema: dict[str, str],
-        instruction: Optional[str] = None,
+        instruction: str | None = None,
     ) -> ExtractResult:
         """
         Extract structured data from a page.
@@ -657,8 +655,8 @@ class BrowserPoolClient:
         self,
         url: str,
         full_page: bool = False,
-        selector: Optional[str] = None,
-    ) -> Optional[str]:
+        selector: str | None = None,
+    ) -> str | None:
         """
         Capture a screenshot of a page.
 
@@ -737,7 +735,7 @@ class BrowserPoolClient:
 
 
 # Singleton instance for convenience
-_default_client: Optional[BrowserPoolClient] = None
+_default_client: BrowserPoolClient | None = None
 
 
 def get_browser_pool_client() -> BrowserPoolClient:
@@ -754,7 +752,7 @@ def get_browser_pool_client() -> BrowserPoolClient:
     return _default_client
 
 
-async def observe(url: str, instruction: Optional[str] = None) -> ObserveResult:
+async def observe(url: str, instruction: str | None = None) -> ObserveResult:
     """Convenience function for observing a page."""
     return await get_browser_pool_client().observe(url, instruction)
 

@@ -1,8 +1,9 @@
 """Tests for streaming functionality."""
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestStreamTestRequest:
@@ -71,8 +72,9 @@ class TestStreamingEndpoints:
     @pytest.mark.asyncio
     async def test_stream_test_execution_returns_event_source_response(self):
         """Should return an EventSourceResponse."""
-        from src.api.streaming import stream_test_execution, StreamTestRequest
         from sse_starlette.sse import EventSourceResponse
+
+        from src.api.streaming import StreamTestRequest, stream_test_execution
 
         with patch("src.api.streaming.TestingOrchestrator") as mock_orchestrator:
             mock_app = AsyncMock()
@@ -96,8 +98,9 @@ class TestStreamingEndpoints:
     @pytest.mark.asyncio
     async def test_stream_chat_returns_event_source_response(self):
         """Should return SSE response for chat streaming."""
-        from src.api.streaming import stream_chat, StreamChatRequest
         from sse_starlette.sse import EventSourceResponse
+
+        from src.api.streaming import StreamChatRequest, stream_chat
 
         with patch("src.api.streaming.get_checkpointer") as mock_checkpointer:
             mock_checkpointer.return_value = MagicMock()
@@ -171,8 +174,9 @@ class TestStreamingEndpoints:
     @pytest.mark.asyncio
     async def test_cancel_stream_not_found(self):
         """Should raise 404 for unknown thread."""
-        from src.api.streaming import cancel_stream
         from fastapi import HTTPException
+
+        from src.api.streaming import cancel_stream
 
         mock_app = AsyncMock()
         mock_app.aget_state = AsyncMock(return_value=None)
@@ -220,8 +224,9 @@ class TestStreamingEndpoints:
     @pytest.mark.asyncio
     async def test_resume_stream_returns_event_source_response(self):
         """Should return EventSourceResponse for resume."""
-        from src.api.streaming import resume_stream
         from sse_starlette.sse import EventSourceResponse
+
+        from src.api.streaming import resume_stream
 
         mock_state = MagicMock()
         mock_state.values = {"passed_count": 0, "failed_count": 0}
@@ -260,7 +265,6 @@ class TestStreamEventGeneration:
 
     def test_state_summary_extraction(self):
         """Should extract correct state summary fields."""
-        from src.api.streaming import StreamTestRequest
 
         state = {
             "iteration": 10,

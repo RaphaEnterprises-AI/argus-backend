@@ -3,9 +3,7 @@
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
-from uuid import uuid4
+from typing import Any
 
 from .models import SyncEvent, SyncEventType, SyncSource
 
@@ -35,8 +33,8 @@ class DiffResult:
 
     has_changes: bool = False
     changes: list[Change] = field(default_factory=list)
-    old_checksum: Optional[str] = None
-    new_checksum: Optional[str] = None
+    old_checksum: str | None = None
+    new_checksum: str | None = None
 
     @property
     def change_count(self) -> int:
@@ -77,8 +75,8 @@ class ChangeDetector:
 
     def diff(
         self,
-        old_spec: Optional[dict],
-        new_spec: Optional[dict],
+        old_spec: dict | None,
+        new_spec: dict | None,
     ) -> DiffResult:
         """Compute differences between two specs.
 
@@ -359,8 +357,8 @@ class ChangeDetector:
 
 
 def diff_specs(
-    old_spec: Optional[dict],
-    new_spec: Optional[dict],
+    old_spec: dict | None,
+    new_spec: dict | None,
 ) -> DiffResult:
     """Convenience function to diff two specs.
 

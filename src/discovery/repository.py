@@ -14,9 +14,9 @@ Key Design Decisions:
 
 import asyncio
 import hashlib
-import json
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any, TypeVar
 
 import structlog
 
@@ -96,14 +96,14 @@ class DiscoveryRepository:
         self.log = logger.bind(component="discovery_repository")
 
         # In-memory cache (write-through)
-        self._session_cache: Dict[str, DiscoverySession] = {}
-        self._pages_cache: Dict[str, List[DiscoveredPage]] = {}  # session_id -> pages
-        self._flows_cache: Dict[str, List[DiscoveredFlow]] = {}  # session_id -> flows
-        self._elements_cache: Dict[str, List[DiscoveredElement]] = {}  # page_id -> elements
+        self._session_cache: dict[str, DiscoverySession] = {}
+        self._pages_cache: dict[str, list[DiscoveredPage]] = {}  # session_id -> pages
+        self._flows_cache: dict[str, list[DiscoveredFlow]] = {}  # session_id -> flows
+        self._elements_cache: dict[str, list[DiscoveredElement]] = {}  # page_id -> elements
 
         # Track database availability
         self._db_available = True
-        self._last_db_error: Optional[str] = None
+        self._last_db_error: str | None = None
 
     @property
     def is_database_available(self) -> bool:
@@ -195,7 +195,7 @@ class DiscoveryRepository:
 
         return session
 
-    async def get_session(self, session_id: str) -> Optional[DiscoverySession]:
+    async def get_session(self, session_id: str) -> DiscoverySession | None:
         """
         Get a session by ID.
 
@@ -238,11 +238,11 @@ class DiscoveryRepository:
 
     async def list_sessions(
         self,
-        project_id: Optional[str] = None,
-        status: Optional[DiscoveryStatus] = None,
+        project_id: str | None = None,
+        status: DiscoveryStatus | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[DiscoverySession]:
+    ) -> list[DiscoverySession]:
         """
         List sessions with optional filtering.
 
@@ -334,8 +334,8 @@ class DiscoveryRepository:
         self,
         session_id: str,
         project_id: str,
-        pages: List[DiscoveredPage],
-    ) -> List[DiscoveredPage]:
+        pages: list[DiscoveredPage],
+    ) -> list[DiscoveredPage]:
         """
         Save discovered pages to the database.
 
@@ -392,7 +392,7 @@ class DiscoveryRepository:
 
         return pages
 
-    async def get_pages(self, session_id: str) -> List[DiscoveredPage]:
+    async def get_pages(self, session_id: str) -> list[DiscoveredPage]:
         """
         Get all pages for a session.
 
@@ -432,7 +432,7 @@ class DiscoveryRepository:
         # Fall back to cache
         return self._pages_cache.get(session_id, [])
 
-    async def _get_elements_for_page(self, page_id: str) -> List[DiscoveredElement]:
+    async def _get_elements_for_page(self, page_id: str) -> list[DiscoveredElement]:
         """Get elements for a specific page."""
         if self.supabase and self._db_available:
             try:
@@ -461,8 +461,8 @@ class DiscoveryRepository:
         self,
         session_id: str,
         project_id: str,
-        flows: List[DiscoveredFlow],
-    ) -> List[DiscoveredFlow]:
+        flows: list[DiscoveredFlow],
+    ) -> list[DiscoveredFlow]:
         """
         Save discovered flows to the database.
 
@@ -498,7 +498,7 @@ class DiscoveryRepository:
 
         return flows
 
-    async def get_flows(self, session_id: str) -> List[DiscoveredFlow]:
+    async def get_flows(self, session_id: str) -> list[DiscoveredFlow]:
         """
         Get all flows for a session.
 
@@ -538,7 +538,7 @@ class DiscoveryRepository:
 
     async def get_session_with_data(
         self, session_id: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Get a session with all its pages and flows.
 
@@ -561,7 +561,7 @@ class DiscoveryRepository:
             "flows": flows,
         }
 
-    async def refresh_cache_from_db(self, project_id: Optional[str] = None) -> int:
+    async def refresh_cache_from_db(self, project_id: str | None = None) -> int:
         """
         Refresh in-memory cache from database.
 
@@ -594,7 +594,7 @@ class DiscoveryRepository:
     # Data Conversion Helpers
     # =========================================================================
 
-    def _session_to_db_record(self, session: DiscoverySession) -> Dict[str, Any]:
+    def _session_to_db_record(self, session: DiscoverySession) -> dict[str, Any]:
         """Convert session dataclass to database record."""
         data = session.to_dict()
 
@@ -623,7 +623,7 @@ class DiscoveryRepository:
 
         return db_record
 
-    def _db_record_to_session(self, record: Dict[str, Any]) -> DiscoverySession:
+    def _db_record_to_session(self, record: dict[str, Any]) -> DiscoverySession:
         """Convert database record to session dataclass."""
         # Map DB column names back to dataclass fields
         data = {
@@ -646,7 +646,7 @@ class DiscoveryRepository:
 
     def _page_to_db_record(
         self, page: DiscoveredPage, session_id: str, project_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Convert page dataclass to database record."""
         # Generate URL hash for deduplication
         url_hash = hashlib.sha256(page.url.encode()).hexdigest()[:16]
@@ -697,16 +697,16 @@ class DiscoveryRepository:
         return mapping.get(category, "unknown")
 
     def _summarize_element_categories(
-        self, elements: List[DiscoveredElement]
-    ) -> Dict[str, int]:
+        self, elements: list[DiscoveredElement]
+    ) -> dict[str, int]:
         """Summarize element categories for storage."""
-        summary: Dict[str, int] = {}
+        summary: dict[str, int] = {}
         for element in elements:
             cat = element.category.value
             summary[cat] = summary.get(cat, 0) + 1
         return summary
 
-    def _db_record_to_page(self, record: Dict[str, Any]) -> DiscoveredPage:
+    def _db_record_to_page(self, record: dict[str, Any]) -> DiscoveredPage:
         """Convert database record to page dataclass."""
         from src.discovery.models import PageCategory
 
@@ -738,7 +738,7 @@ class DiscoveryRepository:
 
     def _element_to_db_record(
         self, element: DiscoveredElement, page_id: str, session_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Convert element dataclass to database record."""
         return {
             "id": element.id,
@@ -776,7 +776,7 @@ class DiscoveryRepository:
         }
         return mapping.get(category, "other")
 
-    def _db_record_to_element(self, record: Dict[str, Any]) -> DiscoveredElement:
+    def _db_record_to_element(self, record: dict[str, Any]) -> DiscoveredElement:
         """Convert database record to element dataclass."""
         from src.discovery.models import ElementBounds, ElementCategory
 
@@ -835,7 +835,7 @@ class DiscoveryRepository:
 
     def _flow_to_db_record(
         self, flow: DiscoveredFlow, session_id: str, project_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Convert flow dataclass to database record."""
         # Map flow category to DB enum
         flow_type_mapping = {
@@ -868,7 +868,7 @@ class DiscoveryRepository:
             "validated": flow.validated,
         }
 
-    def _db_record_to_flow(self, record: Dict[str, Any]) -> DiscoveredFlow:
+    def _db_record_to_flow(self, record: dict[str, Any]) -> DiscoveredFlow:
         """Convert database record to flow dataclass."""
         from src.discovery.models import FlowCategory, FlowStep
 
@@ -912,7 +912,7 @@ class DiscoveryRepository:
     # Health & Diagnostics
     # =========================================================================
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Check repository health status.
 

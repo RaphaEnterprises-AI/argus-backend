@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class SupportedLanguage(str, Enum):
@@ -95,7 +95,7 @@ class ExportConfig:
     include_comments: bool = True
     include_assertions: bool = True
     base_url_variable: str = "base_url"
-    test_class_name: Optional[str] = None
+    test_class_name: str | None = None
     async_style: bool = True
     page_object_pattern: bool = False
     data_driven: bool = False
@@ -149,12 +149,12 @@ class ExportResult:
 
     success: bool
     code: str = ""
-    language: Optional[SupportedLanguage] = None
-    framework: Optional[SupportedFramework] = None
+    language: SupportedLanguage | None = None
+    framework: SupportedFramework | None = None
     file_extension: str = ".py"
     imports: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:

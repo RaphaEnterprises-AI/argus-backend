@@ -7,7 +7,7 @@ Provides:
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -338,7 +338,7 @@ class PromptBuilder:
         self._parts.append(f"\n{title}:\n{content}")
         return self
 
-    def add_json_block(self, data: Any, title: Optional[str] = None) -> "PromptBuilder":
+    def add_json_block(self, data: Any, title: str | None = None) -> "PromptBuilder":
         """Add a JSON code block."""
         import json
 

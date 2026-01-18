@@ -9,14 +9,13 @@ This module provides a safe way to read code for AI analysis by:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
-from .sanitizer import CodeSanitizer, SanitizationResult
-from .classifier import DataClassifier, SensitivityLevel, Classification
-from .consent import ConsentManager, ConsentScope, CONSENT_REQUIREMENTS
 from .audit import AuditLogger, get_audit_logger, hash_content
+from .classifier import Classification, DataClassifier, SensitivityLevel
+from .consent import CONSENT_REQUIREMENTS, ConsentManager, ConsentScope
+from .sanitizer import CodeSanitizer
 
 logger = structlog.get_logger()
 
@@ -30,7 +29,7 @@ class SecureReadResult:
     was_sanitized: bool
     secrets_redacted: int
     skipped: bool
-    skip_reason: Optional[str] = None
+    skip_reason: str | None = None
 
 
 class SecureCodeReader:
@@ -61,11 +60,11 @@ class SecureCodeReader:
     def __init__(
         self,
         user_id: str,
-        session_id: Optional[str] = None,
-        consent_manager: Optional[ConsentManager] = None,
-        sanitizer: Optional[CodeSanitizer] = None,
-        classifier: Optional[DataClassifier] = None,
-        audit_logger: Optional[AuditLogger] = None,
+        session_id: str | None = None,
+        consent_manager: ConsentManager | None = None,
+        sanitizer: CodeSanitizer | None = None,
+        classifier: DataClassifier | None = None,
+        audit_logger: AuditLogger | None = None,
         require_consent: bool = True,
     ):
         self.user_id = user_id
@@ -170,7 +169,7 @@ class SecureCodeReader:
     def read_codebase(
         self,
         root_path: str | Path,
-        extensions: Optional[set[str]] = None,
+        extensions: set[str] | None = None,
         max_file_size_kb: int = 500,
         max_files: int = 200,
         max_total_size_kb: int = 2000,  # Limit total content size for AI context
@@ -331,8 +330,8 @@ class SecureCodeReader:
 
 def create_secure_reader(
     user_id: str,
-    session_id: Optional[str] = None,
-    auto_consent_mode: Optional[str] = None,  # "minimal", "standard", "full"
+    session_id: str | None = None,
+    auto_consent_mode: str | None = None,  # "minimal", "standard", "full"
 ) -> SecureCodeReader:
     """Factory function for creating a secure code reader."""
     consent = ConsentManager(

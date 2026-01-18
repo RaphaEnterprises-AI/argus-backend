@@ -7,10 +7,10 @@ into a standardized internal format for correlation and analysis.
 
 import hashlib
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
-from dataclasses import dataclass, field
+from typing import Any
 
 import structlog
 
@@ -57,11 +57,11 @@ class Severity(str, Enum):
 @dataclass
 class StackFrame:
     """A single stack frame."""
-    filename: Optional[str] = None
-    function: Optional[str] = None
-    lineno: Optional[int] = None
-    colno: Optional[int] = None
-    context: Optional[str] = None  # Code snippet around the line
+    filename: str | None = None
+    function: str | None = None
+    lineno: int | None = None
+    colno: int | None = None
+    context: str | None = None  # Code snippet around the line
     in_app: bool = True  # Is this app code vs library code?
 
     def to_dict(self) -> dict:
@@ -97,7 +97,7 @@ class NormalizedEvent:
     id: str
     source: EventSource
     external_id: str
-    external_url: Optional[str] = None
+    external_url: str | None = None
 
     # Classification
     event_type: EventType = EventType.ERROR
@@ -105,34 +105,34 @@ class NormalizedEvent:
 
     # Content
     title: str = ""
-    message: Optional[str] = None
-    error_type: Optional[str] = None  # e.g., "TypeError", "ValueError"
+    message: str | None = None
+    error_type: str | None = None  # e.g., "TypeError", "ValueError"
 
     # Stack trace (parsed)
     stack_frames: list[StackFrame] = field(default_factory=list)
-    raw_stack_trace: Optional[str] = None
+    raw_stack_trace: str | None = None
 
     # Location
-    file_path: Optional[str] = None  # Primary file where error occurred
-    function_name: Optional[str] = None  # Primary function
-    line_number: Optional[int] = None
-    component: Optional[str] = None  # UI component (React/Vue/Angular)
+    file_path: str | None = None  # Primary file where error occurred
+    function_name: str | None = None  # Primary function
+    line_number: int | None = None
+    component: str | None = None  # UI component (React/Vue/Angular)
 
     # Context
-    url: Optional[str] = None  # Page URL where error occurred
-    browser: Optional[str] = None
-    os: Optional[str] = None
-    device_type: Optional[str] = None  # desktop, mobile, tablet
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
+    url: str | None = None  # Page URL where error occurred
+    browser: str | None = None
+    os: str | None = None
+    device_type: str | None = None  # desktop, mobile, tablet
+    user_id: str | None = None
+    session_id: str | None = None
 
     # Metrics
     occurrence_count: int = 1
     affected_users: int = 1
 
     # Timing
-    first_seen_at: Optional[datetime] = None
-    last_seen_at: Optional[datetime] = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
 
     # Grouping
@@ -634,7 +634,7 @@ class EventNormalizer:
         """Normalize GitHub Actions webhook payload."""
         import uuid
 
-        action = data.get("action", "")
+        data.get("action", "")
         run = data.get("workflow_run", {})
         repo = data.get("repository", {})
 
@@ -708,7 +708,7 @@ class EventNormalizer:
             return Severity.WARNING
         return Severity.INFO
 
-    def _parse_datetime(self, value: Any) -> Optional[datetime]:
+    def _parse_datetime(self, value: Any) -> datetime | None:
         """Parse datetime from various formats."""
         if not value:
             return None
@@ -728,8 +728,8 @@ class EventNormalizer:
         self,
         error_type: str,
         message: str,
-        component: Optional[str],
-        url: Optional[str],
+        component: str | None,
+        url: str | None,
     ) -> str:
         """Generate fingerprint for error grouping."""
         parts = [error_type, message[:100] if message else ""]
@@ -745,7 +745,7 @@ class EventNormalizer:
         combined = "|".join(parts)
         return hashlib.sha256(combined.encode()).hexdigest()[:12]
 
-    def _extract_component(self, stack_trace: Optional[str]) -> Optional[str]:
+    def _extract_component(self, stack_trace: str | None) -> str | None:
         """Extract UI component name from stack trace."""
         if not stack_trace:
             return None

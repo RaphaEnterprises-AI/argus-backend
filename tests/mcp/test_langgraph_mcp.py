@@ -1,7 +1,8 @@
 """Tests for LangGraph MCP integration module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestMCPServerConfigs:

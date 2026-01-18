@@ -1,8 +1,9 @@
 """Tests for the test impact analyzer module."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestCodeChange:
@@ -159,7 +160,7 @@ class TestTestImpactAnalyzer:
     def test_get_historically_affected_tests(self, mock_env_vars):
         """Test getting historically affected tests."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -189,7 +190,7 @@ class TestTestImpactAnalyzer:
     async def test_analyze_dependencies_python(self, mock_env_vars):
         """Test dependency analysis for Python files."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -213,7 +214,7 @@ class TestTestImpactAnalyzer:
     async def test_analyze_dependencies_javascript(self, mock_env_vars):
         """Test dependency analysis for JavaScript files."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -237,7 +238,7 @@ class TestTestImpactAnalyzer:
     async def test_calculate_risk_score_large_change(self, mock_env_vars):
         """Test risk calculation for large changes."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -263,7 +264,7 @@ class TestTestImpactAnalyzer:
     async def test_calculate_risk_score_risky_paths(self, mock_env_vars):
         """Test risk calculation for risky file paths."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -287,7 +288,7 @@ class TestTestImpactAnalyzer:
     def test_identify_coverage_gaps(self, mock_env_vars):
         """Test coverage gap identification."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -313,7 +314,7 @@ class TestTestImpactAnalyzer:
     def test_generate_recommendations(self, mock_env_vars):
         """Test recommendation generation."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -339,7 +340,7 @@ class TestTestImpactAnalyzer:
     def test_generate_recommendations_no_tests(self, mock_env_vars):
         """Test recommendations when no tests affected."""
         with patch('src.agents.test_impact_analyzer.Anthropic'):
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -369,7 +370,7 @@ class TestTestImpactAnalyzer:
             mock_response.content = [MagicMock(text='[]')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.test_impact_analyzer import TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import CodeChange, TestImpactAnalyzer
 
             analyzer = TestImpactAnalyzer()
 
@@ -417,7 +418,11 @@ class TestSmartTestSelector:
             mock_response.content = [MagicMock(text='[]')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.test_impact_analyzer import SmartTestSelector, TestImpactAnalyzer, CodeChange
+            from src.agents.test_impact_analyzer import (
+                CodeChange,
+                SmartTestSelector,
+                TestImpactAnalyzer,
+            )
 
             analyzer = TestImpactAnalyzer()
             analyzer.update_mapping("src/login.py", "test-critical")

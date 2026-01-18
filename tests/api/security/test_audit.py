@@ -12,12 +12,10 @@ Tests cover:
 - Configuration masking
 """
 
-import asyncio
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
+import pytest
 
 # =============================================================================
 # AuditEventType Enum Tests
@@ -216,9 +214,9 @@ class TestAuditEventModel:
         """Test that AuditEvent timestamps are generated."""
         from src.api.security.audit import AuditEvent, AuditEventType
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         event = AuditEvent(event_type=AuditEventType.DATA_READ, action="Read")
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         assert before <= event.timestamp <= after
 
@@ -579,7 +577,6 @@ class TestSecurityAuditLoggerConvenienceMethods:
     @pytest.mark.asyncio
     async def test_log_config_change_masks_secrets(self, logger):
         """Test that sensitive config values are masked."""
-        from src.api.security.audit import AuditEventType
 
         event = await logger.log_config_change(
             user_id="admin_123",
@@ -627,7 +624,7 @@ class TestGetAuditLogger:
 
     def test_get_audit_logger_returns_instance(self):
         """Test that get_audit_logger returns a SecurityAuditLogger."""
-        from src.api.security.audit import get_audit_logger, SecurityAuditLogger
+        from src.api.security.audit import SecurityAuditLogger, get_audit_logger
 
         logger = get_audit_logger()
         assert isinstance(logger, SecurityAuditLogger)
@@ -648,10 +645,9 @@ class TestAuditLogFunction:
     @pytest.mark.asyncio
     async def test_audit_log_function(self):
         """Test audit_log convenience function."""
-        from src.api.security.audit import audit_log, AuditEventType
-
         # Reset global logger to ensure clean state
         import src.api.security.audit as audit_module
+        from src.api.security.audit import AuditEventType, audit_log
         audit_module._audit_logger = None
 
         with patch.object(
@@ -662,7 +658,7 @@ class TestAuditLogFunction:
             mock_event = MagicMock()
             mock_log.return_value = mock_event
 
-            result = await audit_log(
+            await audit_log(
                 event_type=AuditEventType.DATA_READ,
                 action="Test read",
                 user_id="user_123",
@@ -683,9 +679,8 @@ class TestAuditLoggingIntegration:
     async def test_full_audit_flow(self):
         """Test complete audit logging flow."""
         from src.api.security.audit import (
-            SecurityAuditLogger,
             AuditEventType,
-            AuditSeverity,
+            SecurityAuditLogger,
         )
 
         logger = SecurityAuditLogger(persist_to_db=False)
@@ -720,9 +715,9 @@ class TestAuditLoggingIntegration:
     async def test_audit_severity_logging(self):
         """Test that severity affects logging."""
         from src.api.security.audit import (
-            SecurityAuditLogger,
             AuditEventType,
             AuditSeverity,
+            SecurityAuditLogger,
         )
 
         logger = SecurityAuditLogger(persist_to_db=False)
@@ -773,7 +768,7 @@ class TestAuditLoggingIntegration:
     @pytest.mark.asyncio
     async def test_audit_metadata_preservation(self):
         """Test that metadata is preserved through logging."""
-        from src.api.security.audit import SecurityAuditLogger, AuditEventType
+        from src.api.security.audit import AuditEventType, SecurityAuditLogger
 
         logger = SecurityAuditLogger(persist_to_db=False)
 

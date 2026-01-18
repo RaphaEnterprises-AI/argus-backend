@@ -1,6 +1,6 @@
 """C# Selenium export template."""
 
-from .base import BaseTemplate, TestSpec, TestStep, TestAssertion
+from .base import BaseTemplate, TestAssertion, TestSpec, TestStep
 
 
 class CSharpSeleniumTemplate(BaseTemplate):
@@ -32,7 +32,7 @@ class CSharpSeleniumTemplate(BaseTemplate):
             "",
             "namespace ArgusTests",
             "{",
-            f"    /// <summary>",
+            "    /// <summary>",
             f"    /// Generated from Argus test spec: {test_spec.id}",
         ]
 

@@ -1,22 +1,19 @@
 """Tests for sync models."""
 
-import pytest
-from datetime import datetime, timezone
 
 from src.sync.models import (
-    SyncSource,
-    SyncEventType,
     ConflictResolutionStrategy,
-    SyncStatus,
-    SyncEvent,
-    SyncConflict,
-    TestSyncState,
     ProjectSyncState,
-    SyncPushResult,
+    SyncConflict,
+    SyncEvent,
+    SyncEventType,
     SyncPullResult,
+    SyncPushResult,
+    SyncSource,
+    SyncStatus,
     TestSpec,
+    TestSyncState,
 )
-
 
 # =============================================================================
 # Enum Tests

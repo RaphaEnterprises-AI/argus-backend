@@ -1,8 +1,8 @@
 """Tests for the test planner module."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # Patch target for Anthropic client in base agent
 ANTHROPIC_PATCH = 'anthropic.Anthropic'
@@ -122,7 +122,7 @@ class TestTestSpec:
 
     def test_spec_with_steps(self, mock_env_vars):
         """Test TestSpec with steps."""
-        from src.agents.test_planner import TestSpec, TestStep, TestAssertion
+        from src.agents.test_planner import TestAssertion, TestSpec, TestStep
 
         steps = [
             TestStep(action="goto", target="/login"),
@@ -415,8 +415,8 @@ class TestTestPlannerAgent:
             mock_response.content = [MagicMock(text='{"tests": []}')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.test_planner import TestPlannerAgent
             from src.agents.code_analyzer import TestableSurface
+            from src.agents.test_planner import TestPlannerAgent
 
             agent = TestPlannerAgent()
 

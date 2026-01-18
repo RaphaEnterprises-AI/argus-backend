@@ -19,9 +19,8 @@ Touch Target Requirements:
 """
 
 import re
-import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .models import VisualElement, VisualSnapshot
 
@@ -48,7 +47,7 @@ class ContrastViolation:
     wcag_level: str
     text_size: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "element_id": self.element.element_id,
@@ -112,7 +111,7 @@ class TouchTargetViolation:
     actual_height: float
     required_size: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "element_id": self.element.element_id,
@@ -172,7 +171,7 @@ class ReadabilityIssue:
     current_value: str
     recommended_value: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "element_id": self.element.element_id,
@@ -241,17 +240,17 @@ class AccessibilityReport:
     """
 
     score: float
-    contrast_violations: List[ContrastViolation]
-    touch_target_violations: List[TouchTargetViolation]
-    readability_issues: List[ReadabilityIssue]
-    passed_checks: List[str]
+    contrast_violations: list[ContrastViolation]
+    touch_target_violations: list[TouchTargetViolation]
+    readability_issues: list[ReadabilityIssue]
+    passed_checks: list[str]
     summary: str
     snapshot_id: str = ""
     url: str = ""
     timestamp: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "score": round(self.score, 1),
@@ -278,7 +277,7 @@ class AccessibilityReport:
         )
 
     @property
-    def violations_by_severity(self) -> Dict[str, int]:
+    def violations_by_severity(self) -> dict[str, int]:
         """Count violations by severity level."""
         counts = {"critical": 0, "major": 0, "minor": 0, "info": 0}
 
@@ -307,7 +306,7 @@ class AccessibilityReport:
         ]
         return len(aa_contrast_violations) == 0 and not self.has_critical_issues
 
-    def get_recommendations(self) -> List[str]:
+    def get_recommendations(self) -> list[str]:
         """Get all recommendations for fixing issues."""
         recommendations = []
 
@@ -405,7 +404,7 @@ class AccessibilityAnalyzer:
     async def check_color_contrast(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[ContrastViolation]:
+    ) -> list[ContrastViolation]:
         """Check WCAG AA/AAA contrast ratios for text elements.
 
         Analyzes all text elements in the snapshot and checks their
@@ -485,7 +484,7 @@ class AccessibilityAnalyzer:
         self,
         snapshot: VisualSnapshot,
         min_size: int = 44,
-    ) -> List[TouchTargetViolation]:
+    ) -> list[TouchTargetViolation]:
         """Verify interactive elements meet minimum touch target size.
 
         Checks all interactive elements (buttons, links, inputs, etc.)
@@ -525,7 +524,7 @@ class AccessibilityAnalyzer:
     async def check_text_readability(
         self,
         snapshot: VisualSnapshot,
-    ) -> List[ReadabilityIssue]:
+    ) -> list[ReadabilityIssue]:
         """Check font size, line height, and text contrast for readability.
 
         Analyzes text elements for common readability issues including:
@@ -673,7 +672,7 @@ class AccessibilityAnalyzer:
         self,
         baseline: VisualSnapshot,
         current: VisualSnapshot,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Detect accessibility regressions between two versions.
 
         Compares accessibility reports from baseline and current snapshots
@@ -840,7 +839,7 @@ class AccessibilityAnalyzer:
         # Calculate relative luminance
         return 0.2126 * r_linear + 0.7152 * g_linear + 0.0722 * b_linear
 
-    def _extract_color(self, color_value: str) -> Optional[str]:
+    def _extract_color(self, color_value: str) -> str | None:
         """Extract hex color from CSS color value.
 
         Handles various CSS color formats:
@@ -897,7 +896,7 @@ class AccessibilityAnalyzer:
         self,
         element: VisualElement,
         snapshot: VisualSnapshot,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Extract effective background color for an element.
 
         Traverses up the DOM tree to find the effective background color,
@@ -1031,7 +1030,7 @@ class AccessibilityAnalyzer:
         self,
         line_height: str,
         font_size: float,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Parse CSS line-height value to pixels.
 
         Args:
@@ -1150,9 +1149,9 @@ class AccessibilityAnalyzer:
 
     def _calculate_score(
         self,
-        contrast_violations: List[ContrastViolation],
-        touch_violations: List[TouchTargetViolation],
-        readability_issues: List[ReadabilityIssue],
+        contrast_violations: list[ContrastViolation],
+        touch_violations: list[TouchTargetViolation],
+        readability_issues: list[ReadabilityIssue],
         snapshot: VisualSnapshot,
     ) -> float:
         """Calculate overall accessibility score.
@@ -1205,9 +1204,9 @@ class AccessibilityAnalyzer:
     def _generate_summary(
         self,
         score: float,
-        contrast_violations: List[ContrastViolation],
-        touch_violations: List[TouchTargetViolation],
-        readability_issues: List[ReadabilityIssue],
+        contrast_violations: list[ContrastViolation],
+        touch_violations: list[TouchTargetViolation],
+        readability_issues: list[ReadabilityIssue],
     ) -> str:
         """Generate human-readable summary of findings.
 
@@ -1258,10 +1257,10 @@ class AccessibilityAnalyzer:
 
     def _find_new_violations(
         self,
-        baseline_violations: List,
-        current_violations: List,
+        baseline_violations: list,
+        current_violations: list,
         key_fn,
-    ) -> List:
+    ) -> list:
         """Find violations that are new in current compared to baseline.
 
         Args:
@@ -1277,10 +1276,10 @@ class AccessibilityAnalyzer:
 
     def _find_fixed_violations(
         self,
-        baseline_violations: List,
-        current_violations: List,
+        baseline_violations: list,
+        current_violations: list,
         key_fn,
-    ) -> List:
+    ) -> list:
         """Find violations that were fixed (present in baseline but not current).
 
         Args:

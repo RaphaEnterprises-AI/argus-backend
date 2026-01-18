@@ -6,9 +6,7 @@ flow inference, and result persistence.
 """
 
 import asyncio
-import json
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,10 +17,8 @@ from src.discovery.engine import (
     create_discovery_engine,
 )
 from src.discovery.models import (
-    CrawlError,
     CrawlResult,
     DiscoveredElement,
-    DiscoveredFlow,
     DiscoveredPage,
     DiscoveryConfig,
     DiscoveryMode,
@@ -31,10 +27,8 @@ from src.discovery.models import (
     ElementCategory,
     ExplorationStrategy,
     FlowCategory,
-    FlowStep,
     PageCategory,
 )
-
 
 # ==============================================================================
 # Fixtures
@@ -161,7 +155,7 @@ class TestDiscoveryEngineInit:
             mock_api_key.get_secret_value.return_value = "sk-ant-test-key"
             mock_settings.return_value.anthropic_api_key = mock_api_key
             with patch("src.discovery.engine.anthropic.Anthropic") as mock_anthropic:
-                engine = DiscoveryEngine(repository=mock_repository)
+                DiscoveryEngine(repository=mock_repository)
                 mock_anthropic.assert_called_once_with(api_key="sk-ant-test-key")
 
     def test_init_with_plain_string_api_key(self, mock_repository):
@@ -169,7 +163,7 @@ class TestDiscoveryEngineInit:
         with patch("src.discovery.engine.get_settings") as mock_settings:
             mock_settings.return_value.anthropic_api_key = "sk-ant-test-key-plain"
             with patch("src.discovery.engine.anthropic.Anthropic") as mock_anthropic:
-                engine = DiscoveryEngine(repository=mock_repository)
+                DiscoveryEngine(repository=mock_repository)
                 mock_anthropic.assert_called_once_with(api_key="sk-ant-test-key-plain")
 
 
@@ -293,7 +287,7 @@ class TestRunDiscovery:
             engine._cancellation_flags[session.id] = True
 
             config = DiscoveryConfig()
-            result = await engine.run_discovery(
+            await engine.run_discovery(
                 session, "https://example.com", config
             )
 
@@ -761,7 +755,7 @@ class TestListSessions:
         with patch("src.discovery.engine.get_settings") as mock_settings:
             mock_settings.return_value.anthropic_api_key = None
             engine = DiscoveryEngine(repository=mock_repository)
-            result = await engine.list_sessions(status=DiscoveryStatus.running)
+            await engine.list_sessions(status=DiscoveryStatus.running)
 
             mock_repository.list_sessions.assert_called_with(
                 project_id=None, status="running", limit=50

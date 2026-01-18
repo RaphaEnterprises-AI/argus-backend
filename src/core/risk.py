@@ -15,21 +15,19 @@ Risk signals include:
 """
 
 import json
-import math
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
-from dataclasses import dataclass, field
 from pathlib import Path
-from collections import defaultdict
 
 import structlog
 from anthropic import AsyncAnthropic
 
 from src.config import get_settings
-from src.core.normalizer import NormalizedEvent, Severity
-from src.core.coverage import CoverageSummary, FileCoverage, CoverageLevel
+from src.core.coverage import CoverageLevel, CoverageSummary, FileCoverage
 from src.core.model_registry import get_model_id
+from src.core.normalizer import NormalizedEvent, Severity
 
 logger = structlog.get_logger()
 
@@ -78,16 +76,16 @@ class FileRisk:
     coverage_percent: float = 0.0
     complexity_score: float = 0.0
     churn_count: int = 0  # Changes in last 30 days
-    days_since_test: Optional[int] = None
+    days_since_test: int | None = None
     dependency_count: int = 0
 
     # LLM insights
-    risk_explanation: Optional[str] = None
+    risk_explanation: str | None = None
     recommendations: list[str] = field(default_factory=list)
 
     # Metadata
-    last_error_at: Optional[datetime] = None
-    last_modified_at: Optional[datetime] = None
+    last_error_at: datetime | None = None
+    last_modified_at: datetime | None = None
     calculated_at: datetime = field(default_factory=datetime.utcnow)
 
     def to_dict(self) -> dict:
@@ -137,11 +135,11 @@ class ProjectRisk:
     ci_success_rate: float = 0.0
 
     # Trend
-    previous_score: Optional[float] = None
+    previous_score: float | None = None
     trend: str = "stable"  # "improving", "stable", "declining"
 
     # LLM insights
-    summary: Optional[str] = None
+    summary: str | None = None
     top_recommendations: list[str] = field(default_factory=list)
 
     # Metadata
@@ -208,9 +206,9 @@ class RiskScorer:
 
     def __init__(
         self,
-        codebase_path: Optional[str] = None,
+        codebase_path: str | None = None,
         use_llm: bool = True,
-        weights: Optional[dict[str, float]] = None,
+        weights: dict[str, float] | None = None,
     ):
         self.settings = get_settings()
         self.codebase_path = Path(codebase_path) if codebase_path else None
@@ -235,7 +233,7 @@ class RiskScorer:
         self,
         file_path: str,
         errors: list[NormalizedEvent],
-        coverage: Optional[FileCoverage] = None,
+        coverage: FileCoverage | None = None,
         churn_count: int = 0,
         complexity_score: float = 0.0,
         dependency_count: int = 0,
@@ -422,7 +420,7 @@ class RiskScorer:
         self,
         project_id: str,
         file_risks: list[FileRisk],
-        coverage_summary: Optional[CoverageSummary] = None,
+        coverage_summary: CoverageSummary | None = None,
         ci_success_rate: float = 100.0,
         include_llm: bool = True,
     ) -> ProjectRisk:
@@ -666,7 +664,7 @@ Output as JSON:
     async def get_risk_trends(
         self,
         current_risk: ProjectRisk,
-        previous_risk: Optional[ProjectRisk],
+        previous_risk: ProjectRisk | None,
     ) -> dict:
         """Compare risk over time to identify trends."""
         if not previous_risk:

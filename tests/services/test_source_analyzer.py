@@ -1,14 +1,11 @@
 """Tests for the Source Code Analyzer service."""
 
-import pytest
 import tempfile
-import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from src.services.source_analyzer import (
-    ExtractedSelector,
     ComponentInfo,
+    ExtractedSelector,
     SelectorMapping,
     SourceAnalyzer,
     get_source_analyzer,

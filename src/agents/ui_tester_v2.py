@@ -20,11 +20,12 @@ Migration from ui_tester.py:
 import base64
 import time
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from .base import BaseAgent, AgentResult
+from .base import AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
-from .test_planner import TestSpec, TestStep as PlannerTestStep, TestAssertion
+from .test_planner import TestAssertion, TestSpec
+from .test_planner import TestStep as PlannerTestStep
 
 if TYPE_CHECKING:
     from src.browser.pool_client import BrowserPoolClient
@@ -38,8 +39,8 @@ class StepResult:
     action: str
     success: bool
     duration_ms: int
-    error: Optional[str] = None
-    screenshot: Optional[bytes] = None
+    error: str | None = None
+    screenshot: bytes | None = None
     execution_mode: str = "dom"  # "dom", "vision", "hybrid"
     fallback_triggered: bool = False
 
@@ -61,11 +62,11 @@ class AssertionResult:
     """Result from checking an assertion."""
 
     type: str
-    target: Optional[str]
-    expected: Optional[str]
-    actual: Optional[str]
+    target: str | None
+    expected: str | None
+    actual: str | None
     passed: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -88,9 +89,9 @@ class UITestResult:
     step_results: list[StepResult] = field(default_factory=list)
     assertion_results: list[AssertionResult] = field(default_factory=list)
     total_duration_ms: int = 0
-    error_message: Optional[str] = None
-    final_screenshot: Optional[bytes] = None
-    failure_screenshot: Optional[bytes] = None
+    error_message: str | None = None
+    final_screenshot: bytes | None = None
+    failure_screenshot: bytes | None = None
     execution_mode: str = "pool"  # "pool", "local", "hybrid"
     fallback_count: int = 0
     fallback_rate: float = 0.0
@@ -404,7 +405,7 @@ Respond with JSON containing:
     async def observe(
         self,
         url: str,
-        instruction: Optional[str] = None,
+        instruction: str | None = None,
     ) -> AgentResult[dict]:
         """
         Observe/discover interactive elements on a page.

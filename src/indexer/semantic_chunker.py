@@ -13,12 +13,11 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 from .tree_sitter_parser import (
     ASTNode,
-    ParsedFile,
     Language,
+    ParsedFile,
     get_parser,
 )
 
@@ -63,12 +62,12 @@ class CodeChunk:
     content_hash: str
 
     # Semantic info
-    name: Optional[str] = None
-    signature: Optional[str] = None
-    docstring: Optional[str] = None
+    name: str | None = None
+    signature: str | None = None
+    docstring: str | None = None
 
     # Context for better retrieval
-    parent_name: Optional[str] = None  # Class name for methods
+    parent_name: str | None = None  # Class name for methods
     imports_used: list[str] = field(default_factory=list)
     calls_functions: list[str] = field(default_factory=list)
 
@@ -76,8 +75,8 @@ class CodeChunk:
     language: str = "unknown"
 
     # For overlap/context
-    context_before: Optional[str] = None  # Lines before chunk
-    context_after: Optional[str] = None   # Lines after chunk
+    context_before: str | None = None  # Lines before chunk
+    context_after: str | None = None   # Lines after chunk
 
     # Metadata
     token_estimate: int = 0  # Estimated tokens for embedding
@@ -117,9 +116,9 @@ class CodeChunk:
             parts.append(f"# Signature: {self.signature}")
 
         if self.docstring:
-            parts.append(f'"""')
+            parts.append('"""')
             parts.append(self.docstring)
-            parts.append(f'"""')
+            parts.append('"""')
 
         # Add actual code
         parts.append("")
@@ -184,7 +183,7 @@ class SemanticChunker:
             embedding = embed(chunk.to_embedding_text())
     """
 
-    def __init__(self, config: Optional[ChunkingConfig] = None):
+    def __init__(self, config: ChunkingConfig | None = None):
         """Initialize chunker with configuration."""
         self.config = config or ChunkingConfig()
         self._parser = get_parser()
@@ -257,7 +256,7 @@ class SemanticChunker:
         self,
         parsed: ParsedFile,
         lines: list[str]
-    ) -> Optional[CodeChunk]:
+    ) -> CodeChunk | None:
         """Extract import statements as a single chunk."""
         imports = parsed.get_imports()
 
@@ -296,7 +295,6 @@ class SemanticChunker:
         chunks = []
 
         class_name = self._extract_name(class_node, parsed.language)
-        class_content = class_node.text
 
         # Create class-level chunk (signature + docstring + attributes)
         class_header = self._extract_class_header(class_node, lines, parsed.language)
@@ -335,8 +333,8 @@ class SemanticChunker:
         parsed: ParsedFile,
         func_node: ASTNode,
         lines: list[str],
-        parent_name: Optional[str] = None
-    ) -> Optional[CodeChunk]:
+        parent_name: str | None = None
+    ) -> CodeChunk | None:
         """Process a function into a chunk."""
         func_name = self._extract_name(func_node, parsed.language)
 
@@ -386,7 +384,7 @@ class SemanticChunker:
         method_node: ASTNode,
         lines: list[str],
         class_name: str
-    ) -> Optional[CodeChunk]:
+    ) -> CodeChunk | None:
         """Process a class method into a chunk."""
         chunk = self._process_function(
             parsed, method_node, lines, parent_name=class_name
@@ -603,7 +601,7 @@ class SemanticChunker:
         func_node: ASTNode,
         lines: list[str],
         func_name: str,
-        parent_name: Optional[str],
+        parent_name: str | None,
         chunk_type: ChunkType
     ) -> CodeChunk:
         """Create chunk for large function with truncation warning."""
@@ -619,7 +617,7 @@ class SemanticChunker:
             summary_content += f'"""{docstring}"""\n'
         summary_content += f"# Lines: {func_node.start_line}-{func_node.end_line}\n"
         summary_content += f"# NOTE: Function too large ({self._estimate_tokens(content)} tokens)\n"
-        summary_content += f"# See file for full implementation\n\n"
+        summary_content += "# See file for full implementation\n\n"
 
         # Include first portion
         max_lines = 50
@@ -698,7 +696,7 @@ class SemanticChunker:
 
         return complexity
 
-    def _extract_name(self, node: ASTNode, language: Language) -> Optional[str]:
+    def _extract_name(self, node: ASTNode, language: Language) -> str | None:
         """Extract name from function/class/method node."""
         # Look for identifier child
         for child in node.children:
@@ -715,7 +713,7 @@ class SemanticChunker:
         self,
         node: ASTNode,
         language: Language
-    ) -> Optional[str]:
+    ) -> str | None:
         """Extract function signature."""
         # For Python: def name(params) -> return_type:
         # For JS/TS: function name(params): return_type
@@ -741,7 +739,7 @@ class SemanticChunker:
         self,
         node: ASTNode,
         language: Language
-    ) -> Optional[str]:
+    ) -> str | None:
         """Extract class signature with inheritance."""
         text = node.text
         first_line = text.split("\n")[0].strip()
@@ -761,7 +759,7 @@ class SemanticChunker:
         node: ASTNode,
         lines: list[str],
         language: Language
-    ) -> Optional[str]:
+    ) -> str | None:
         """Extract class header (signature + docstring + attributes)."""
         header_lines = []
         in_class = False
@@ -805,7 +803,7 @@ class SemanticChunker:
         self,
         node: ASTNode,
         language: Language
-    ) -> Optional[str]:
+    ) -> str | None:
         """Extract docstring from function/class."""
         if language == Language.PYTHON:
             # Look for string child at start of block
@@ -846,7 +844,6 @@ class SemanticChunker:
         """Extract function calls within a node."""
         calls = []
 
-        call_types = {"call_expression", "call", "function_call"}
 
         for child in node.find_descendants("call"):
             # Get function name
@@ -857,7 +854,7 @@ class SemanticChunker:
 
         return list(set(calls))
 
-    def _extract_assignment_name(self, node: ASTNode) -> Optional[str]:
+    def _extract_assignment_name(self, node: ASTNode) -> str | None:
         """Extract name from assignment."""
         for child in node.children:
             if child.type == "identifier":
@@ -922,7 +919,7 @@ class SemanticChunker:
         text = node.text
         return "<" in text and ">" in text and ("return" in text or "=>" in text)
 
-    def _get_component_name(self, node: ASTNode) -> Optional[str]:
+    def _get_component_name(self, node: ASTNode) -> str | None:
         """Get React component name from arrow function."""
         # Look for parent const declaration
         if node.parent_type == "variable_declarator":
@@ -936,10 +933,10 @@ class SemanticChunker:
 
 
 # Global instance
-_chunker: Optional[SemanticChunker] = None
+_chunker: SemanticChunker | None = None
 
 
-def get_chunker(config: Optional[ChunkingConfig] = None) -> SemanticChunker:
+def get_chunker(config: ChunkingConfig | None = None) -> SemanticChunker:
     """Get or create global chunker instance."""
     global _chunker
     if _chunker is None or config is not None:

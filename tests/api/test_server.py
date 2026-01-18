@@ -1,8 +1,8 @@
 """Tests for FastAPI server module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+
+import pytest
 
 
 class TestRequestModels:
@@ -190,7 +190,7 @@ class TestTestRunEndpoints:
     @pytest.mark.asyncio
     async def test_start_test_run(self, mock_env_vars):
         """Test /api/v1/tests/run endpoint."""
-        from src.api.server import start_test_run, TestRunRequest, jobs
+        from src.api.server import TestRunRequest, jobs, start_test_run
 
         # Clear any existing jobs
         jobs.clear()
@@ -231,8 +231,9 @@ class TestTestRunEndpoints:
     @pytest.mark.asyncio
     async def test_get_job_status_not_found(self, mock_env_vars):
         """Test /api/v1/jobs/{job_id} when job doesn't exist."""
-        from src.api.server import get_job_status, jobs
         from fastapi import HTTPException
+
+        from src.api.server import get_job_status, jobs
 
         jobs.clear()
 
@@ -245,7 +246,7 @@ class TestTestRunEndpoints:
     @pytest.mark.asyncio
     async def test_list_jobs(self, mock_env_vars):
         """Test /api/v1/jobs endpoint."""
-        from src.api.server import list_jobs, jobs
+        from src.api.server import jobs, list_jobs
 
         jobs.clear()
         jobs["job-1"] = {"status": "completed", "created_at": "2024-01-01T00:00:00"}
@@ -273,7 +274,7 @@ class TestRunTestsBackground:
     @pytest.mark.asyncio
     async def test_run_tests_background_success(self, mock_env_vars):
         """Test successful background test run."""
-        from src.api.server import run_tests_background, jobs
+        from src.api.server import jobs, run_tests_background
 
         job_id = "test-job"
         jobs[job_id] = {
@@ -321,7 +322,7 @@ class TestRunTestsBackground:
     @pytest.mark.asyncio
     async def test_run_tests_background_failure(self, mock_env_vars):
         """Test failed background test run."""
-        from src.api.server import run_tests_background, jobs
+        from src.api.server import jobs, run_tests_background
 
         job_id = "test-job-fail"
         jobs[job_id] = {
@@ -352,7 +353,7 @@ class TestNLPEndpoints:
     @pytest.mark.asyncio
     async def test_create_test_from_nlp_success(self, mock_env_vars):
         """Test /api/v1/tests/create success."""
-        from src.api.server import create_test_from_nlp, NLPTestRequest
+        from src.api.server import NLPTestRequest, create_test_from_nlp
 
         mock_test = MagicMock()
         mock_test.to_dict = MagicMock(return_value={"name": "Login Test", "steps": [], "assertions": []})
@@ -396,8 +397,9 @@ class TestNLPEndpoints:
     @pytest.mark.asyncio
     async def test_create_test_from_nlp_failure(self, mock_env_vars):
         """Test /api/v1/tests/create failure."""
-        from src.api.server import create_test_from_nlp, NLPTestRequest
         from fastapi import HTTPException
+
+        from src.api.server import NLPTestRequest, create_test_from_nlp
 
         nlp_request = NLPTestRequest(description="Test something", project_id="test-project")
         mock_http_request = MagicMock()
@@ -420,7 +422,7 @@ class TestVisualAIEndpoints:
     @pytest.mark.asyncio
     async def test_compare_screenshots_success(self, mock_env_vars):
         """Test /api/v1/visual/compare success."""
-        from src.api.server import compare_screenshots, VisualCompareRequest
+        from src.api.server import VisualCompareRequest, compare_screenshots
 
         mock_result = MagicMock()
         mock_result.to_dict = MagicMock(return_value={
@@ -448,8 +450,9 @@ class TestVisualAIEndpoints:
     @pytest.mark.asyncio
     async def test_compare_screenshots_failure(self, mock_env_vars):
         """Test /api/v1/visual/compare failure."""
-        from src.api.server import compare_screenshots, VisualCompareRequest
         from fastapi import HTTPException
+
+        from src.api.server import VisualCompareRequest, compare_screenshots
 
         request = VisualCompareRequest(
             baseline_b64="invalid",
@@ -498,8 +501,9 @@ class TestAutoDiscoveryEndpoints:
     @pytest.mark.asyncio
     async def test_discover_tests_failure(self, mock_env_vars):
         """Test /api/v1/discover failure."""
-        from src.api.server import discover_tests
         from fastapi import HTTPException
+
+        from src.api.server import discover_tests
 
         with patch(
             "src.agents.auto_discovery.AutoDiscovery",
@@ -583,9 +587,10 @@ class TestReportEndpoints:
     @pytest.mark.asyncio
     async def test_get_report_success(self, mock_env_vars):
         """Test /api/v1/reports/{job_id} success."""
-        from src.api.server import get_report, jobs
-        import tempfile
         import os
+        import tempfile
+
+        from src.api.server import get_report, jobs
 
         # Create a temporary report file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -608,8 +613,9 @@ class TestReportEndpoints:
     @pytest.mark.asyncio
     async def test_get_report_job_not_found(self, mock_env_vars):
         """Test /api/v1/reports/{job_id} job not found."""
-        from src.api.server import get_report, jobs
         from fastapi import HTTPException
+
+        from src.api.server import get_report, jobs
 
         jobs.clear()
 
@@ -622,8 +628,9 @@ class TestReportEndpoints:
     @pytest.mark.asyncio
     async def test_get_report_not_completed(self, mock_env_vars):
         """Test /api/v1/reports/{job_id} when job not completed."""
-        from src.api.server import get_report, jobs
         from fastapi import HTTPException
+
+        from src.api.server import get_report, jobs
 
         job_id = "running-job"
         jobs[job_id] = {"status": "running"}
@@ -637,8 +644,9 @@ class TestReportEndpoints:
     @pytest.mark.asyncio
     async def test_get_report_format_not_available(self, mock_env_vars):
         """Test /api/v1/reports/{job_id} format not available."""
-        from src.api.server import get_report, jobs
         from fastapi import HTTPException
+
+        from src.api.server import get_report, jobs
 
         job_id = "completed-job"
         jobs[job_id] = {
@@ -655,8 +663,9 @@ class TestReportEndpoints:
     @pytest.mark.asyncio
     async def test_get_report_file_not_found(self, mock_env_vars):
         """Test /api/v1/reports/{job_id} when file doesn't exist."""
-        from src.api.server import get_report, jobs
         from fastapi import HTTPException
+
+        from src.api.server import get_report, jobs
 
         job_id = "completed-job"
         jobs[job_id] = {
@@ -741,7 +750,7 @@ class TestAppConfiguration:
 
     def test_app_metadata(self, mock_env_vars):
         """Test FastAPI app metadata."""
-        from src.api.server import app, API_VERSION
+        from src.api.server import API_VERSION, app
 
         assert app.title == "Argus E2E Testing Agent API"
         assert app.version == API_VERSION

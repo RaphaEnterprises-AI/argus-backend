@@ -39,11 +39,8 @@ Configure in Claude Code / Cursor:
 """
 
 import asyncio
-import json
-import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -54,11 +51,11 @@ try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
     from mcp.types import (
-        Tool,
-        TextContent,
-        ImageContent,
         CallToolResult,
+        ImageContent,
         ListToolsResult,
+        TextContent,
+        Tool,
     )
     MCP_AVAILABLE = True
 except ImportError:
@@ -67,12 +64,12 @@ except ImportError:
 
 # Import our indexer components
 from src.indexer import (
-    TreeSitterParser,
-    SemanticChunker,
+    CodeChunk,
     LocalEmbedder,
     MerkleTree,
     ParsedFile,
-    CodeChunk,
+    SemanticChunker,
+    TreeSitterParser,
 )
 
 
@@ -99,7 +96,7 @@ class LocalMCPServer:
         self.parser = TreeSitterParser()
         self.chunker = SemanticChunker()
         self.embedder = LocalEmbedder()
-        self.merkle_tree: Optional[MerkleTree] = None
+        self.merkle_tree: MerkleTree | None = None
 
         # Index cache
         self._chunks: list[CodeChunk] = []
@@ -585,8 +582,8 @@ class LocalMCPServer:
         if chunk.chunk_type.value in ("function", "method"):
             lines.append("### Unit Tests")
             lines.append(f"1. Test normal execution of `{chunk.name}`")
-            lines.append(f"2. Test edge cases (empty input, null values)")
-            lines.append(f"3. Test error handling")
+            lines.append("2. Test edge cases (empty input, null values)")
+            lines.append("3. Test error handling")
 
             if chunk.calls_functions:
                 lines.append("\n### Mock Suggestions")
@@ -607,17 +604,17 @@ class LocalMCPServer:
             lines.append("3. Test state management")
 
         lines.append("\n### Test Template")
-        lines.append(f"```python")
+        lines.append("```python")
         lines.append(f"def test_{chunk.name or 'function'}():")
-        lines.append(f"    # Arrange")
-        lines.append(f"    # TODO: Set up test data")
-        lines.append(f"    ")
-        lines.append(f"    # Act")
-        lines.append(f"    # TODO: Call the function")
-        lines.append(f"    ")
-        lines.append(f"    # Assert")
-        lines.append(f"    # TODO: Verify results")
-        lines.append(f"```")
+        lines.append("    # Arrange")
+        lines.append("    # TODO: Set up test data")
+        lines.append("    ")
+        lines.append("    # Act")
+        lines.append("    # TODO: Call the function")
+        lines.append("    ")
+        lines.append("    # Assert")
+        lines.append("    # TODO: Verify results")
+        lines.append("```")
 
         return "\n".join(lines)
 
@@ -660,7 +657,7 @@ class LocalMCPServer:
             lines.append(f"- ... and {len(sorted_languages) - 15} more extensions")
 
         if self._indexed:
-            lines.append(f"\n### Index Stats")
+            lines.append("\n### Index Stats")
             lines.append(f"- Total Chunks: {len(self._chunks):,}")
             lines.append(f"- Cached Embeddings: {len(self._embeddings):,}")
 
@@ -706,7 +703,7 @@ class LocalMCPServer:
         return "\n".join(lines)
 
 
-async def start_local_mcp_server(repo_path: Optional[str] = None) -> None:
+async def start_local_mcp_server(repo_path: str | None = None) -> None:
     """Start the local MCP server.
 
     Args:

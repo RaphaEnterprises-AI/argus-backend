@@ -5,23 +5,24 @@ color change detection, and text rendering analysis.
 """
 
 import io
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
+
 import numpy as np
+import pytest
 from PIL import Image
 
 from src.visual_ai.perceptual_analyzer import (
-    PerceptualAnalyzer,
     ColorChange,
+    PerceptualAnalyzer,
     TextRenderingDiff,
     _bytes_to_image,
-    _image_to_bytes,
-    _ensure_same_size,
-    _ensure_same_mode,
-    _rgb_to_lab,
     _calculate_delta_e,
+    _ensure_same_mode,
+    _ensure_same_size,
     _hex_to_rgb,
+    _image_to_bytes,
     _rgb_to_hex,
+    _rgb_to_lab,
 )
 
 
@@ -338,8 +339,8 @@ class TestPerceptualAnalyzer:
         diff = await analyzer.analyze_text_rendering(red_image_bytes, red_image_bytes)
         assert isinstance(diff, TextRenderingDiff)
         # Use == instead of 'is' because np.bool_ is not Python bool
-        assert diff.font_changed == False
-        assert diff.size_changed == False
+        assert not diff.font_changed
+        assert not diff.size_changed
 
     @pytest.mark.asyncio
     async def test_analyze_text_rendering_different(
@@ -490,7 +491,7 @@ class TestPerceptualAnalyzerWithMocking:
     def test_ssim_availability_check_when_skimage_missing(self):
         """Test SSIM availability when scikit-image not installed."""
         with patch.dict("sys.modules", {"skimage.metrics": None}):
-            analyzer = PerceptualAnalyzer()
+            PerceptualAnalyzer()
             # Should handle gracefully and fall back
 
     @pytest.mark.asyncio

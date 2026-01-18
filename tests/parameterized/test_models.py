@@ -1,7 +1,8 @@
 """Tests for parameterized testing models."""
 
-import pytest
 from datetime import datetime
+
+import pytest
 from pydantic import ValidationError as PydanticValidationError
 
 
@@ -394,11 +395,11 @@ class TestParameterizedTest:
     def test_parameterized_test_creation(self, mock_env_vars):
         """Test creating a ParameterizedTest."""
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
-            TestStep,
+            ParameterizedTest,
             TestAssertion,
+            TestStep,
         )
 
         test = ParameterizedTest(
@@ -441,9 +442,9 @@ class TestParameterizedTest:
     def test_parameterized_test_cannot_have_both_sources(self, mock_env_vars):
         """Test that both data_source and parameter_sets is rejected."""
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             ParameterSet,
         )
 
@@ -461,8 +462,8 @@ class TestParameterizedTest:
         """Test getting all parameter placeholders."""
         from src.parameterized.models import (
             ParameterizedTest,
-            TestStep,
             TestAssertion,
+            TestStep,
         )
 
         test = ParameterizedTest(
@@ -490,9 +491,9 @@ class TestParameterizedTest:
     def test_parameterized_test_is_parameterized(self, mock_env_vars):
         """Test is_parameterized method."""
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             ParameterSet,
         )
 
@@ -536,7 +537,7 @@ class TestParameterSetResult:
 
     def test_parameter_set_result_creation(self, mock_env_vars):
         """Test creating a ParameterSetResult."""
-        from src.parameterized.models import ParameterSetResult, ParameterSet
+        from src.parameterized.models import ParameterSet, ParameterSetResult
 
         ps = ParameterSet(name="test", values={"a": 1})
 
@@ -554,7 +555,7 @@ class TestParameterSetResult:
 
     def test_parameter_set_result_failed(self, mock_env_vars):
         """Test failed ParameterSetResult."""
-        from src.parameterized.models import ParameterSetResult, ParameterSet
+        from src.parameterized.models import ParameterSet, ParameterSetResult
 
         ps = ParameterSet(name="failed_test", values={"a": 1})
 

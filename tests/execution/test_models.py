@@ -1,6 +1,5 @@
 """Tests for execution data models."""
 
-import pytest
 from datetime import datetime, timedelta
 
 from src.execution.models import (

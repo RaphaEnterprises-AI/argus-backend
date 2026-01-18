@@ -8,11 +8,11 @@ This module tests:
 - Cache health checking
 """
 
-import pytest
 import json
-import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 
 class TestCloudflareKVClient:
@@ -401,8 +401,9 @@ class TestSerializationFunctions:
 
     def test_serialize_with_default_str(self, mock_env_vars):
         """Test serializing objects that need str conversion."""
-        from src.services.cache import _serialize
         from datetime import datetime
+
+        from src.services.cache import _serialize
 
         data = {"timestamp": datetime(2024, 1, 15, 12, 0, 0)}
         result = _serialize(data)

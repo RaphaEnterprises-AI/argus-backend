@@ -14,21 +14,20 @@ Reports include:
 - Quality scores
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Literal
+import io
+import json
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel, Field
 import structlog
-import json
-import io
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
-from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit
-from src.api.projects import verify_project_access
 from src.api.context import get_current_organization_id
+from src.api.projects import verify_project_access
+from src.api.teams import get_current_user, log_audit, verify_org_access
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Reports"])
@@ -75,13 +74,13 @@ class ReportSummary(BaseModel):
     failed_tests: int = 0
     skipped_tests: int = 0
     pass_rate: float = 0.0
-    duration_ms: Optional[int] = None
-    coverage_percentage: Optional[float] = None
+    duration_ms: int | None = None
+    coverage_percentage: float | None = None
 
 
 class ReportMetrics(BaseModel):
     """Report metrics."""
-    avg_duration_ms: Optional[int] = None
+    avg_duration_ms: int | None = None
     flaky_tests: int = 0
     new_failures: int = 0
     regressions: int = 0
@@ -92,19 +91,19 @@ class CreateReportRequest(BaseModel):
     """Request to create/generate a new report."""
     project_id: str = Field(..., description="Project ID for the report")
     name: str = Field(..., min_length=1, max_length=255, description="Report name")
-    description: Optional[str] = Field(None, max_length=2000, description="Report description")
+    description: str | None = Field(None, max_length=2000, description="Report description")
     report_type: ReportType = Field(default=ReportType.TEST_EXECUTION, description="Type of report")
     format: ReportFormat = Field(default=ReportFormat.JSON, description="Output format")
-    test_run_id: Optional[str] = Field(None, description="Specific test run ID to report on")
-    date_from: Optional[datetime] = Field(None, description="Start date for trend reports")
-    date_to: Optional[datetime] = Field(None, description="End date for trend reports")
+    test_run_id: str | None = Field(None, description="Specific test run ID to report on")
+    date_from: datetime | None = Field(None, description="Start date for trend reports")
+    date_to: datetime | None = Field(None, description="End date for trend reports")
     include_details: bool = Field(default=True, description="Include detailed test results")
 
 
 class UpdateReportRequest(BaseModel):
     """Request to update a report."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Report name")
-    description: Optional[str] = Field(None, max_length=2000, description="Report description")
+    name: str | None = Field(None, min_length=1, max_length=255, description="Report name")
+    description: str | None = Field(None, max_length=2000, description="Report description")
 
 
 class ReportResponse(BaseModel):
@@ -112,9 +111,9 @@ class ReportResponse(BaseModel):
     id: str
     organization_id: str
     project_id: str
-    test_run_id: Optional[str]
+    test_run_id: str | None
     name: str
-    description: Optional[str]
+    description: str | None
     report_type: str
     status: str
     format: str
@@ -125,17 +124,17 @@ class ReportResponse(BaseModel):
     passed_tests: int
     failed_tests: int
     skipped_tests: int
-    duration_ms: Optional[int]
-    coverage_percentage: Optional[float]
-    date_from: Optional[str]
-    date_to: Optional[str]
-    file_url: Optional[str]
-    file_size_bytes: Optional[int]
-    created_by: Optional[str]
+    duration_ms: int | None
+    coverage_percentage: float | None
+    date_from: str | None
+    date_to: str | None
+    file_url: str | None
+    file_size_bytes: int | None
+    created_by: str | None
     created_at: str
-    updated_at: Optional[str]
-    generated_at: Optional[str]
-    expires_at: Optional[str]
+    updated_at: str | None
+    generated_at: str | None
+    expires_at: str | None
 
 
 class ReportListResponse(BaseModel):
@@ -150,9 +149,9 @@ class ReportListResponse(BaseModel):
     total_tests: int
     passed_tests: int
     failed_tests: int
-    coverage_percentage: Optional[float]
+    coverage_percentage: float | None
     created_at: str
-    generated_at: Optional[str]
+    generated_at: str | None
 
 
 class ReportListPaginatedResponse(BaseModel):
@@ -207,15 +206,15 @@ async def get_project_org_id(project_id: str) -> str:
 async def generate_report_content(
     project_id: str,
     report_type: ReportType,
-    test_run_id: Optional[str] = None,
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
+    test_run_id: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     include_details: bool = True,
 ) -> dict:
     """Generate report content based on report type."""
     supabase = get_supabase_client()
     content = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "report_type": report_type,
     }
 
@@ -258,9 +257,9 @@ async def generate_report_content(
     elif report_type == ReportType.TREND:
         # Get historical data
         if not date_from:
-            date_from = datetime.now(timezone.utc) - timedelta(days=30)
+            date_from = datetime.now(UTC) - timedelta(days=30)
         if not date_to:
-            date_to = datetime.now(timezone.utc)
+            date_to = datetime.now(UTC)
 
         content["date_range"] = {
             "from": date_from.isoformat(),
@@ -546,11 +545,11 @@ def generate_junit_report(report: dict) -> str:
 @router.get("/reports", response_model=ReportListPaginatedResponse)
 async def list_reports(
     request: Request,
-    project_id: Optional[str] = None,
-    report_type: Optional[ReportType] = None,
-    status: Optional[ReportStatus] = None,
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
+    project_id: str | None = None,
+    report_type: ReportType | None = None,
+    status: ReportStatus | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -712,7 +711,7 @@ async def create_report(
         "date_from": body.date_from.isoformat() if body.date_from else None,
         "date_to": body.date_to.isoformat() if body.date_to else None,
         "created_by": user["user_id"],
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
     }
 
     result = await supabase.insert("reports", report_data)
@@ -822,7 +821,7 @@ async def update_report(report_id: str, body: UpdateReportRequest, request: Requ
     supabase = get_supabase_client()
 
     # Build update data
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.name is not None:
         update_data["name"] = body.name
@@ -896,7 +895,7 @@ async def delete_report(report_id: str, request: Request):
 async def download_report(
     report_id: str,
     request: Request,
-    format: Optional[ReportFormat] = None,
+    format: ReportFormat | None = None,
 ):
     """Download a report in the specified format.
 
@@ -990,8 +989,8 @@ async def download_report(
 async def list_project_reports(
     project_id: str,
     request: Request,
-    report_type: Optional[ReportType] = None,
-    status: Optional[ReportStatus] = None,
+    report_type: ReportType | None = None,
+    status: ReportStatus | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -1013,7 +1012,7 @@ async def list_project_reports(
 async def generate_test_run_report(
     test_run_id: str,
     request: Request,
-    name: Optional[str] = None,
+    name: str | None = None,
     format: ReportFormat = ReportFormat.JSON,
 ):
     """Generate a report from a specific test run.

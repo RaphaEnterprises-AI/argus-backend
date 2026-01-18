@@ -12,14 +12,11 @@ Optional LLM integration for:
 - Explaining why certain code is risky to leave untested
 """
 
-import re
 import json
-from datetime import datetime, timedelta
-from enum import Enum
-from typing import Optional
 from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from collections import defaultdict
 
 import structlog
 from anthropic import AsyncAnthropic
@@ -114,10 +111,10 @@ class CoverageGap:
 
     # Why it matters
     risk_reason: str = ""
-    error_correlation: Optional[str] = None  # If errors have occurred here
+    error_correlation: str | None = None  # If errors have occurred here
 
     # Recommendation
-    test_recommendation: Optional[str] = None
+    test_recommendation: str | None = None
 
     # Metrics
     lines_uncovered: int = 0
@@ -170,11 +167,11 @@ class CoverageSummary:
     gaps: list[CoverageGap] = field(default_factory=list)
 
     # Trend
-    previous_percent: Optional[float] = None
+    previous_percent: float | None = None
     trend: str = "stable"  # "improving", "stable", "declining"
 
     # Metadata
-    commit_sha: Optional[str] = None
+    commit_sha: str | None = None
     branch: str = "main"
     created_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -245,7 +242,7 @@ class CoverageAnalyzer:
 
     def __init__(
         self,
-        codebase_path: Optional[str] = None,
+        codebase_path: str | None = None,
         use_llm: bool = True,
     ):
         self.settings = get_settings()
@@ -526,8 +523,8 @@ class CoverageAnalyzer:
     async def analyze_gaps(
         self,
         summary: CoverageSummary,
-        error_files: Optional[list[str]] = None,
-        critical_paths: Optional[list[str]] = None,
+        error_files: list[str] | None = None,
+        critical_paths: list[str] | None = None,
     ) -> list[CoverageGap]:
         """
         Identify and prioritize coverage gaps.

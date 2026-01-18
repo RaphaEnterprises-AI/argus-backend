@@ -9,15 +9,14 @@ Provides endpoints for:
 
 import hashlib
 import secrets
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-import structlog
 
+from src.api.teams import get_current_user, log_audit, translate_clerk_org_id, verify_org_access
 from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit, translate_clerk_org_id
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/api-keys", tags=["API Keys"])
@@ -39,7 +38,7 @@ class CreateAPIKeyRequest(BaseModel):
     """Request to create a new API key."""
     name: str = Field(..., min_length=1, max_length=100)
     scopes: list[str] = Field(default=["read", "write"])
-    expires_in_days: Optional[int] = Field(None, ge=1, le=365)
+    expires_in_days: int | None = Field(None, ge=1, le=365)
 
     @field_validator("scopes")
     @classmethod
@@ -56,10 +55,10 @@ class APIKeyResponse(BaseModel):
     name: str
     key_prefix: str
     scopes: list[str]
-    last_used_at: Optional[str]
+    last_used_at: str | None
     request_count: int
-    expires_at: Optional[str]
-    revoked_at: Optional[str]
+    expires_at: str | None
+    revoked_at: str | None
     created_at: str
     is_active: bool
 
@@ -209,7 +208,7 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
         logger.error("Supabase error fetching API keys", org_id=supabase_org_id, error=result.get("error"))
         raise HTTPException(status_code=500, detail="Failed to fetch API keys")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return [
         APIKeyResponse(
@@ -277,7 +276,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
     # Calculate expiration
     expires_at = None
     if body.expires_in_days:
-        expires_at = (datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)).isoformat()
+        expires_at = (datetime.now(UTC) + timedelta(days=body.expires_in_days)).isoformat()
 
     # Store the key
     key_result = await supabase.insert("api_keys", {
@@ -412,7 +411,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
         revoke_result = await supabase.update(
             "api_keys",
             {"id": f"eq.{key_id}"},
-            {"revoked_at": datetime.now(timezone.utc).isoformat()}
+            {"revoked_at": datetime.now(UTC).isoformat()}
         )
         if revoke_result.get("error"):
             logger.warning("Failed to revoke old key after rotation, but new key was created",
@@ -499,7 +498,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
         revoke_result = await supabase.update(
             "api_keys",
             {"id": f"eq.{key_id}"},
-            {"revoked_at": datetime.now(timezone.utc).isoformat()}
+            {"revoked_at": datetime.now(UTC).isoformat()}
         )
         if revoke_result.get("error"):
             logger.error("Supabase error revoking API key", key_id=key_id, error=revoke_result.get("error"))
@@ -536,7 +535,7 @@ async def revoke_api_key(org_id: str, key_id: str, request: Request):
 # Key Verification (for auth middleware)
 # ============================================================================
 
-async def verify_api_key(api_key: str) -> Optional[dict]:
+async def verify_api_key(api_key: str) -> dict | None:
     """Verify an API key and return organization/scopes if valid.
 
     Returns:
@@ -561,7 +560,7 @@ async def verify_api_key(api_key: str) -> Optional[dict]:
     # Check expiration
     if key_data.get("expires_at"):
         expires_at = datetime.fromisoformat(key_data["expires_at"].replace("Z", "+00:00"))
-        if expires_at < datetime.now(timezone.utc):
+        if expires_at < datetime.now(UTC):
             return None
 
     # Update last used
@@ -569,7 +568,7 @@ async def verify_api_key(api_key: str) -> Optional[dict]:
         "api_keys",
         {"id": f"eq.{key_data['id']}"},
         {
-            "last_used_at": datetime.now(timezone.utc).isoformat(),
+            "last_used_at": datetime.now(UTC).isoformat(),
             "request_count": (key_data.get("request_count", 0) or 0) + 1,
         }
     )

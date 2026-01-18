@@ -19,12 +19,12 @@ Architecture:
     └─────────────────────────────────────────┘
 """
 
-import uuid
-import json
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
-from dataclasses import dataclass, field
 import hashlib
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
@@ -36,10 +36,10 @@ class Artifact:
     id: str
     type: str  # screenshot, video, html, json
     content: str  # base64 or URL
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
-    def to_reference(self) -> Dict[str, Any]:
+    def to_reference(self) -> dict[str, Any]:
         """Return a lightweight reference for storing in LangGraph state."""
         return {
             "artifact_id": self.id,
@@ -79,14 +79,14 @@ class ArtifactStore:
             backend: Storage backend - "memory", "supabase", or "s3"
         """
         self.backend = backend
-        self._memory_store: Dict[str, Artifact] = {}
+        self._memory_store: dict[str, Artifact] = {}
 
     def store(
         self,
         content: str,
         artifact_type: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Store an artifact and return a lightweight reference.
 
         Args:
@@ -128,16 +128,16 @@ class ArtifactStore:
     def store_screenshot(
         self,
         base64_data: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Convenience method for storing screenshots."""
         return self.store(base64_data, "screenshot", metadata)
 
     def store_test_result(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         extract_artifacts: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Store a test result, extracting large artifacts.
 
         Args:
@@ -151,7 +151,7 @@ class ArtifactStore:
             return result
 
         lightweight = dict(result)
-        artifact_refs: List[Dict[str, Any]] = []
+        artifact_refs: list[dict[str, Any]] = []
 
         # Extract screenshots
         if "screenshot" in lightweight and lightweight["screenshot"]:
@@ -201,7 +201,7 @@ class ArtifactStore:
 
         return lightweight
 
-    def _create_summary(self, result: Dict[str, Any]) -> str:
+    def _create_summary(self, result: dict[str, Any]) -> str:
         """Create a concise summary of a test result for Claude context."""
         parts = []
 
@@ -223,7 +223,7 @@ class ArtifactStore:
 
         return " | ".join(parts) if parts else "No summary available"
 
-    def get(self, artifact_id: str) -> Optional[Artifact]:
+    def get(self, artifact_id: str) -> Artifact | None:
         """Retrieve a full artifact by ID."""
         if self.backend == "memory":
             return self._memory_store.get(artifact_id)
@@ -233,7 +233,7 @@ class ArtifactStore:
             return self._get_s3(artifact_id)
         return None
 
-    def get_content(self, artifact_id: str) -> Optional[str]:
+    def get_content(self, artifact_id: str) -> str | None:
         """Get just the content of an artifact."""
         artifact = self.get(artifact_id)
         return artifact.content if artifact else None
@@ -251,11 +251,11 @@ class ArtifactStore:
         # TODO: Implement S3 storage
         self._memory_store[artifact.id] = artifact
 
-    def _get_supabase(self, artifact_id: str) -> Optional[Artifact]:
+    def _get_supabase(self, artifact_id: str) -> Artifact | None:
         """Retrieve artifact from Supabase Storage."""
         return self._memory_store.get(artifact_id)
 
-    def _get_s3(self, artifact_id: str) -> Optional[Artifact]:
+    def _get_s3(self, artifact_id: str) -> Artifact | None:
         """Retrieve artifact from S3."""
         return self._memory_store.get(artifact_id)
 
@@ -266,7 +266,7 @@ class ArtifactStore:
 
 
 # Global artifact store instance
-_artifact_store: Optional[ArtifactStore] = None
+_artifact_store: ArtifactStore | None = None
 
 
 def get_artifact_store() -> ArtifactStore:

@@ -1,13 +1,13 @@
 """Tests for playwright tools module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import asdict
+
+import pytest
 
 from src.tools.playwright_tools import (
     BrowserConfig,
-    PageInfo,
     BrowserManager,
+    PageInfo,
     PlaywrightTools,
     create_browser_context,
 )

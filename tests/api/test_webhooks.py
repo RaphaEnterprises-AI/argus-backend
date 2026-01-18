@@ -1,11 +1,8 @@
 """Tests for Webhooks API endpoints."""
 
-import pytest
-import json
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 
 
@@ -89,7 +86,7 @@ class TestWebhookModels:
 
     def test_datadog_event_model(self, mock_env_vars):
         """Test DatadogEvent model."""
-        from src.api.webhooks import DatadogEvent, DatadogError, DatadogView
+        from src.api.webhooks import DatadogError, DatadogEvent, DatadogView
 
         event = DatadogEvent(
             id="event-123",
@@ -630,7 +627,7 @@ class TestWebhookSecurityValidation:
         """Test successful project-org validation."""
         from src.api.webhooks import validate_project_org
 
-        with patch("src.api.webhooks.get_supabase_client") as mock_supabase:
+        with patch("src.api.webhooks.get_supabase_client"):
             mock_client = MagicMock()
             mock_client.request = AsyncMock(return_value={
                 "data": [{"id": "project-1"}],
@@ -644,7 +641,7 @@ class TestWebhookSecurityValidation:
         """Test failed project-org validation."""
         from src.api.webhooks import validate_project_org
 
-        with patch("src.api.webhooks.get_supabase_client") as mock_supabase:
+        with patch("src.api.webhooks.get_supabase_client"):
             mock_client = MagicMock()
             mock_client.request = AsyncMock(return_value={
                 "data": [],

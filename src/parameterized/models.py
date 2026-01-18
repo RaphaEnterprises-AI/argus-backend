@@ -9,7 +9,7 @@ This module defines the core data models for parameterized tests:
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -56,10 +56,10 @@ class ParameterSet(BaseModel):
 
     name: str = Field(..., min_length=1, description="Human-readable name for this parameter set")
     values: dict[str, Any] = Field(..., description="Parameter name to value mapping")
-    description: Optional[str] = Field(None, description="Description of this test case")
+    description: str | None = Field(None, description="Description of this test case")
     tags: list[str] = Field(default_factory=list, description="Tags for categorization")
     skip: bool = Field(False, description="Whether to skip this parameter set")
-    skip_reason: Optional[str] = Field(None, description="Reason for skipping")
+    skip_reason: str | None = Field(None, description="Reason for skipping")
 
     @field_validator("name")
     @classmethod
@@ -122,22 +122,22 @@ class DataSource(BaseModel):
     """
 
     type: DataSourceType = Field(..., description="Type of data source")
-    data: Optional[list[dict[str, Any]]] = Field(None, description="Inline data")
-    path: Optional[str] = Field(None, description="Path to data file")
-    mapping: Optional[dict[str, str]] = Field(
+    data: list[dict[str, Any]] | None = Field(None, description="Inline data")
+    path: str | None = Field(None, description="Path to data file")
+    mapping: dict[str, str] | None = Field(
         None, description="Source field to parameter name mapping"
     )
-    filter: Optional[str] = Field(None, description="Filter expression")
-    limit: Optional[int] = Field(None, ge=1, description="Limit number of parameter sets")
+    filter: str | None = Field(None, description="Filter expression")
+    limit: int | None = Field(None, ge=1, description="Limit number of parameter sets")
     encoding: str = Field("utf-8", description="File encoding")
     delimiter: str = Field(",", description="CSV delimiter")
-    env_prefix: Optional[str] = Field(None, description="Environment variable prefix")
-    env_mapping: Optional[dict[str, str]] = Field(
+    env_prefix: str | None = Field(None, description="Environment variable prefix")
+    env_mapping: dict[str, str] | None = Field(
         None, description="Env var to parameter mapping"
     )
     # Database/API specific fields
-    query: Optional[str] = Field(None, description="Database query or API endpoint")
-    headers: Optional[dict[str, str]] = Field(None, description="API headers")
+    query: str | None = Field(None, description="Database query or API endpoint")
+    headers: dict[str, str] | None = Field(None, description="API headers")
 
     @model_validator(mode="after")
     def validate_data_source(self) -> "DataSource":
@@ -186,11 +186,11 @@ class TestStep(BaseModel):
     """
 
     action: str = Field(..., description="Action to perform (click, fill, etc.)")
-    target: Optional[str] = Field(None, description="Target selector")
-    value: Optional[str] = Field(None, description="Value for the action")
-    timeout: Optional[int] = Field(None, ge=0, description="Timeout in milliseconds")
-    wait_after: Optional[int] = Field(None, ge=0, description="Wait time after action")
-    description: Optional[str] = Field(None, description="Step description")
+    target: str | None = Field(None, description="Target selector")
+    value: str | None = Field(None, description="Value for the action")
+    timeout: int | None = Field(None, ge=0, description="Timeout in milliseconds")
+    wait_after: int | None = Field(None, ge=0, description="Wait time after action")
+    description: str | None = Field(None, description="Step description")
 
     def get_parameter_placeholders(self) -> set[str]:
         """Extract all parameter placeholders from this step."""
@@ -214,10 +214,10 @@ class TestAssertion(BaseModel):
     """
 
     type: str = Field(..., description="Assertion type (visible, url_contains, etc.)")
-    target: Optional[str] = Field(None, description="Target selector")
-    expected: Optional[str] = Field(None, description="Expected value")
-    timeout: Optional[int] = Field(None, ge=0, description="Timeout for assertion")
-    description: Optional[str] = Field(None, description="Assertion description")
+    target: str | None = Field(None, description="Target selector")
+    expected: str | None = Field(None, description="Expected value")
+    timeout: int | None = Field(None, ge=0, description="Timeout for assertion")
+    description: str | None = Field(None, description="Assertion description")
     soft: bool = Field(False, description="Whether this is a soft assertion")
 
     def get_parameter_placeholders(self) -> set[str]:
@@ -276,12 +276,12 @@ class ParameterizedTest(BaseModel):
         }
     """
 
-    id: Optional[str] = Field(None, description="Unique test identifier")
+    id: str | None = Field(None, description="Unique test identifier")
     name: str = Field(..., min_length=1, description="Test name")
-    description: Optional[str] = Field(None, description="Test description")
-    base_test: Optional[str] = Field(None, description="Base test ID to extend")
-    data_source: Optional[DataSource] = Field(None, description="Data source configuration")
-    parameter_sets: Optional[list[ParameterSet]] = Field(
+    description: str | None = Field(None, description="Test description")
+    base_test: str | None = Field(None, description="Base test ID to extend")
+    data_source: DataSource | None = Field(None, description="Data source configuration")
+    parameter_sets: list[ParameterSet] | None = Field(
         None, description="Explicit parameter sets"
     )
     iteration_mode: IterationMode = Field(
@@ -348,8 +348,8 @@ class ParameterSetResult(BaseModel):
     parameter_set: ParameterSet = Field(..., description="Parameter set that was executed")
     status: str = Field(..., description="Execution status")
     duration_ms: float = Field(0.0, ge=0, description="Duration in milliseconds")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    error_step: Optional[int] = Field(None, description="Step number where error occurred")
+    error: str | None = Field(None, description="Error message if failed")
+    error_step: int | None = Field(None, description="Step number where error occurred")
     screenshots: list[str] = Field(default_factory=list, description="Base64 screenshots")
     logs: list[str] = Field(default_factory=list, description="Execution logs")
     assertions_passed: int = Field(0, ge=0, description="Passed assertions count")
@@ -374,7 +374,7 @@ class ParameterizedResult(BaseModel):
         completed_at: Completion timestamp
     """
 
-    test_id: Optional[str] = Field(None, description="Test identifier")
+    test_id: str | None = Field(None, description="Test identifier")
     test_name: str = Field(..., description="Test name")
     total_iterations: int = Field(0, ge=0, description="Total iterations")
     passed: int = Field(0, ge=0, description="Passed iterations")
@@ -384,8 +384,8 @@ class ParameterizedResult(BaseModel):
     results: list[ParameterSetResult] = Field(
         default_factory=list, description="Per-iteration results"
     )
-    started_at: Optional[datetime] = Field(None, description="Start timestamp")
-    completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
+    started_at: datetime | None = Field(None, description="Start timestamp")
+    completed_at: datetime | None = Field(None, description="Completion timestamp")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
     @property
@@ -435,7 +435,7 @@ class ValidationError(BaseModel):
 
     parameter: str = Field(..., description="Parameter name")
     message: str = Field(..., description="Error message")
-    location: Optional[str] = Field(None, description="Location of error")
+    location: str | None = Field(None, description="Location of error")
     severity: str = Field("error", description="Error severity")
 
 
@@ -473,7 +473,7 @@ class ParameterValidationResult(BaseModel):
         cls,
         required: set[str],
         provided: set[str],
-        unused: Optional[set[str]] = None,
+        unused: set[str] | None = None,
     ) -> "ParameterValidationResult":
         """Create a valid validation result."""
         warnings = []
@@ -503,7 +503,7 @@ class ParameterValidationResult(BaseModel):
         required: set[str],
         provided: set[str],
         missing: set[str],
-        errors: Optional[list[ValidationError]] = None,
+        errors: list[ValidationError] | None = None,
     ) -> "ParameterValidationResult":
         """Create an invalid validation result."""
         all_errors = errors or []
@@ -535,11 +535,11 @@ class ExpandedTest(BaseModel):
     placeholders replaced by actual values.
     """
 
-    original_test_id: Optional[str] = Field(None, description="Original test ID")
+    original_test_id: str | None = Field(None, description="Original test ID")
     iteration_index: int = Field(..., ge=0, description="Iteration index")
     parameter_set: ParameterSet = Field(..., description="Parameter set used")
     name: str = Field(..., description="Generated test name")
-    description: Optional[str] = Field(None, description="Generated description")
+    description: str | None = Field(None, description="Generated description")
     steps: list[dict[str, Any]] = Field(default_factory=list, description="Expanded steps")
     assertions: list[dict[str, Any]] = Field(
         default_factory=list, description="Expanded assertions"

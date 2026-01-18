@@ -4,18 +4,17 @@ Tests cross-browser visual comparison including multi-browser capture,
 difference detection, and compatibility report generation.
 """
 
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from typing import Dict, List, Any
-from datetime import datetime
 
 from src.visual_ai.cross_browser_analyzer import (
-    CrossBrowserAnalyzer,
+    BrowserCompatibilityReport,
     BrowserConfig,
     BrowserDifference,
-    BrowserCompatibilityReport,
+    CrossBrowserAnalyzer,
 )
-from src.visual_ai.models import VisualSnapshot, VisualElement
+from src.visual_ai.models import VisualElement, VisualSnapshot
 
 
 class TestBrowserConfig:

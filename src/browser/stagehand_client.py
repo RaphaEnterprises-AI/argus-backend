@@ -5,9 +5,10 @@ This module provides a client for interacting with Stagehand-style browser
 automation services that use natural language instructions.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Any
+from typing import Any
+
 import httpx
 
 
@@ -24,8 +25,8 @@ class ActionResult:
     success: bool
     action: StagehandAction
     instruction: str
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
     cached: bool = False
     healed: bool = False
     duration_ms: int = 0
@@ -176,14 +177,14 @@ class StagehandClient:
     def __init__(
         self,
         endpoint: str,
-        api_token: Optional[str] = None,
+        api_token: str | None = None,
         timeout: float = 30.0,
     ):
         self.endpoint = endpoint
         self.api_token = api_token
         self.timeout = timeout
         self._connected = False
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._http_client: httpx.AsyncClient | None = None
 
     def _get_headers(self) -> dict:
         """Get HTTP headers for requests."""
@@ -244,7 +245,7 @@ class StagehandClient:
         page_id: str,
         action: StagehandAction,
         instruction: str,
-        schema: Optional[dict] = None,
+        schema: dict | None = None,
     ) -> dict:
         """Execute an action on a page."""
         payload = {
@@ -282,7 +283,7 @@ class StagehandClient:
         self,
         url: str,
         steps: list[str],
-        assertions: Optional[list[dict]] = None,
+        assertions: list[dict] | None = None,
     ) -> dict:
         """Run a complete test with multiple steps."""
         response = await self._http_client.post(
@@ -300,8 +301,8 @@ class StagehandClient:
 async def run_test_with_stagehand(
     url: str,
     steps: list[str],
-    endpoint: Optional[str] = None,
-    api_token: Optional[str] = None,
+    endpoint: str | None = None,
+    api_token: str | None = None,
 ) -> dict:
     """Convenience function to run a test with Stagehand."""
     endpoint = endpoint or "https://stagehand.workers.dev"

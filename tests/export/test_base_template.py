@@ -1,17 +1,17 @@
 """Comprehensive tests for base template functionality."""
 
 import pytest
-from src.export.templates.base import BaseTemplate, TestSpec, TestStep, TestAssertion
+
 from src.export.templates import (
+    CSharpSeleniumTemplate,
+    GoRodTemplate,
+    JavaSeleniumTemplate,
     PythonPlaywrightTemplate,
     PythonSeleniumTemplate,
-    TypeScriptPlaywrightTemplate,
-    JavaSeleniumTemplate,
-    CSharpSeleniumTemplate,
     RubyCapybaraTemplate,
-    GoRodTemplate,
+    TypeScriptPlaywrightTemplate,
 )
-
+from src.export.templates.base import TestAssertion, TestSpec, TestStep
 
 # =============================================================================
 # BaseTemplate Helper Methods Tests

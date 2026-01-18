@@ -9,26 +9,25 @@ Provides endpoints for:
 Now with Supabase persistence for production use.
 """
 
-import os
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from datetime import UTC, datetime
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field, field_validator, model_validator
 import structlog
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.api.teams import get_current_user
 from src.integrations.slack import (
-    SlackNotifier,
-    SlackConfig,
-    TestResult,
     FailureDetails,
-    ScheduleInfo,
     QualityReport,
+    ScheduleInfo,
+    SlackConfig,
+    SlackNotifier,
+    TestResult,
     create_slack_notifier,
 )
 from src.integrations.supabase import get_supabase, is_supabase_configured
-from src.api.teams import get_current_user
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/notifications", tags=["Notifications"])
@@ -53,8 +52,8 @@ def validate_url(url: str | None, field_name: str) -> str | None:
 
 class SlackConfigureRequest(BaseModel):
     """Request to configure Slack settings."""
-    webhook_url: Optional[str] = Field(None, description="Slack webhook URL")
-    bot_token: Optional[str] = Field(None, description="Slack bot token")
+    webhook_url: str | None = Field(None, description="Slack webhook URL")
+    bot_token: str | None = Field(None, description="Slack bot token")
     default_channel: str = Field("#testing", description="Default notification channel")
 
     @field_validator("webhook_url")
@@ -65,17 +64,17 @@ class SlackConfigureRequest(BaseModel):
 
 class SlackTestRequest(BaseModel):
     """Request to send a test notification."""
-    channel: Optional[str] = Field(None, description="Target channel (optional)")
+    channel: str | None = Field(None, description="Target channel (optional)")
     message_type: Literal["test_result", "failure", "schedule", "quality", "simple"] = Field(
         "simple",
         description="Type of test message to send"
     )
-    custom_message: Optional[str] = Field(None, description="Custom message for simple type")
+    custom_message: str | None = Field(None, description="Custom message for simple type")
 
 
 class TestResultNotificationRequest(BaseModel):
     """Request to send a test result notification."""
-    channel: Optional[str] = Field(None, description="Target channel")
+    channel: str | None = Field(None, description="Target channel")
     title: str = Field("E2E Test Results", description="Notification title")
     total: int = Field(..., ge=0, description="Total tests")
     passed: int = Field(..., ge=0, description="Passed tests")
@@ -84,44 +83,44 @@ class TestResultNotificationRequest(BaseModel):
     duration_seconds: float = Field(..., ge=0, description="Test duration in seconds")
     cost_usd: float = Field(0.0, ge=0, description="AI cost in USD")
     failures: list[dict] = Field(default_factory=list, description="Failure details")
-    report_url: Optional[str] = Field(None, description="URL to full report")
-    pr_url: Optional[str] = Field(None, description="PR URL")
-    pr_number: Optional[int] = Field(None, description="PR number")
-    branch: Optional[str] = Field(None, description="Git branch")
-    commit_sha: Optional[str] = Field(None, description="Git commit SHA")
-    job_id: Optional[str] = Field(None, description="Job ID for rerun")
+    report_url: str | None = Field(None, description="URL to full report")
+    pr_url: str | None = Field(None, description="PR URL")
+    pr_number: int | None = Field(None, description="PR number")
+    branch: str | None = Field(None, description="Git branch")
+    commit_sha: str | None = Field(None, description="Git commit SHA")
+    job_id: str | None = Field(None, description="Job ID for rerun")
 
 
 class FailureAlertRequest(BaseModel):
     """Request to send a failure alert."""
-    channel: Optional[str] = Field(None, description="Target channel")
+    channel: str | None = Field(None, description="Target channel")
     test_id: str = Field(..., description="Test identifier")
     test_name: str = Field(..., description="Human-readable test name")
     error_message: str = Field(..., description="Error message")
-    stack_trace: Optional[str] = Field(None, description="Stack trace")
-    screenshot_url: Optional[str] = Field(None, description="Screenshot URL")
-    root_cause: Optional[str] = Field(None, description="AI-analyzed root cause")
-    component: Optional[str] = Field(None, description="Affected component")
-    url: Optional[str] = Field(None, description="Page URL where error occurred")
-    duration_ms: Optional[int] = Field(None, description="Test duration in milliseconds")
+    stack_trace: str | None = Field(None, description="Stack trace")
+    screenshot_url: str | None = Field(None, description="Screenshot URL")
+    root_cause: str | None = Field(None, description="AI-analyzed root cause")
+    component: str | None = Field(None, description="Affected component")
+    url: str | None = Field(None, description="Page URL where error occurred")
+    duration_ms: int | None = Field(None, description="Test duration in milliseconds")
     retry_count: int = Field(0, ge=0, description="Number of retries attempted")
 
 
 class ScheduleReminderRequest(BaseModel):
     """Request to send a schedule reminder."""
-    channel: Optional[str] = Field(None, description="Target channel")
+    channel: str | None = Field(None, description="Target channel")
     schedule_id: str = Field(..., description="Schedule identifier")
     schedule_name: str = Field(..., description="Schedule name")
     next_run_at: datetime = Field(..., description="Next run time (UTC)")
     test_suite: str = Field(..., description="Test suite name")
     estimated_duration_minutes: int = Field(30, ge=1, description="Estimated duration")
     environment: str = Field("staging", description="Target environment")
-    notify_channel: Optional[str] = Field(None, description="Override notification channel")
+    notify_channel: str | None = Field(None, description="Override notification channel")
 
 
 class QualityReportRequest(BaseModel):
     """Request to send a quality report."""
-    channel: Optional[str] = Field(None, description="Target channel")
+    channel: str | None = Field(None, description="Target channel")
     project_id: str = Field(..., description="Project identifier")
     project_name: str = Field(..., description="Project name")
     overall_score: float = Field(..., ge=0, le=100, description="Overall quality score")
@@ -132,14 +131,14 @@ class QualityReportRequest(BaseModel):
     risk_level: str = Field("medium", description="Risk level (low/medium/high)")
     trends: dict = Field(default_factory=dict, description="Trend data")
     recommendations: list[str] = Field(default_factory=list, description="Recommendations")
-    report_url: Optional[str] = Field(None, description="Full report URL")
+    report_url: str | None = Field(None, description="Full report URL")
 
 
 class NotificationResponse(BaseModel):
     """Response for notification operations."""
     success: bool
     message: str
-    details: Optional[dict] = None
+    details: dict | None = None
 
 
 class SlackStatusResponse(BaseModel):
@@ -150,7 +149,7 @@ class SlackStatusResponse(BaseModel):
     default_channel: str
     webhook_status: str
     api_status: str
-    bot_info: Optional[dict] = None
+    bot_info: dict | None = None
 
 
 # =============================================================================
@@ -160,7 +159,7 @@ class SlackStatusResponse(BaseModel):
 class ChannelCreateRequest(BaseModel):
     """Request to create a notification channel."""
     organization_id: str = Field(..., description="Organization ID")
-    project_id: Optional[str] = Field(None, description="Project ID (null = org-wide)")
+    project_id: str | None = Field(None, description="Project ID (null = org-wide)")
     name: str = Field(..., min_length=1, max_length=100, description="Channel name")
     channel_type: Literal["slack", "email", "webhook", "discord", "teams", "pagerduty", "opsgenie"] = Field(
         ..., description="Channel type"
@@ -181,10 +180,10 @@ class ChannelCreateRequest(BaseModel):
 
 class ChannelUpdateRequest(BaseModel):
     """Request to update a notification channel."""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    config: Optional[dict] = None
-    enabled: Optional[bool] = None
-    rate_limit_per_hour: Optional[int] = Field(None, ge=1, le=1000)
+    name: str | None = Field(None, min_length=1, max_length=100)
+    config: dict | None = None
+    enabled: bool | None = None
+    rate_limit_per_hour: int | None = Field(None, ge=1, le=1000)
 
     @model_validator(mode="after")
     def validate_config_urls(self) -> "ChannelUpdateRequest":
@@ -200,14 +199,14 @@ class ChannelResponse(BaseModel):
     """Notification channel response."""
     id: str
     organization_id: str
-    project_id: Optional[str]
+    project_id: str | None
     name: str
     channel_type: str
     config: dict
     enabled: bool
     verified: bool
     rate_limit_per_hour: int
-    last_sent_at: Optional[str]
+    last_sent_at: str | None
     sent_today: int
     created_at: str
     updated_at: str
@@ -216,10 +215,10 @@ class ChannelResponse(BaseModel):
 class RuleCreateRequest(BaseModel):
     """Request to create a notification rule."""
     channel_id: str = Field(..., description="Channel ID to send notifications to")
-    name: Optional[str] = Field(None, description="Rule name")
+    name: str | None = Field(None, description="Rule name")
     event_type: str = Field(..., description="Event type that triggers this rule")
-    conditions: Optional[dict] = Field(default_factory=dict, description="Conditions for triggering")
-    message_template: Optional[str] = Field(None, description="Custom message template")
+    conditions: dict | None = Field(default_factory=dict, description="Conditions for triggering")
+    message_template: str | None = Field(None, description="Custom message template")
     priority: Literal["low", "normal", "high", "urgent"] = Field("normal", description="Notification priority")
     cooldown_minutes: int = Field(0, ge=0, le=1440, description="Cooldown between notifications")
     enabled: bool = Field(True, description="Whether the rule is enabled")
@@ -229,14 +228,14 @@ class RuleResponse(BaseModel):
     """Notification rule response."""
     id: str
     channel_id: str
-    name: Optional[str]
+    name: str | None
     event_type: str
     conditions: dict
-    message_template: Optional[str]
+    message_template: str | None
     priority: str
     cooldown_minutes: int
     enabled: bool
-    last_triggered_at: Optional[str]
+    last_triggered_at: str | None
     created_at: str
     updated_at: str
 
@@ -245,12 +244,12 @@ class NotificationLogResponse(BaseModel):
     """Notification log entry response."""
     id: str
     channel_id: str
-    rule_id: Optional[str]
+    rule_id: str | None
     event_type: str
     status: str
-    response_code: Optional[int]
-    error_message: Optional[str]
-    sent_at: Optional[str]
+    response_code: int | None
+    error_message: str | None
+    sent_at: str | None
     created_at: str
 
 
@@ -262,16 +261,16 @@ class UserNotification(BaseModel):
     """User notification model."""
     id: str
     user_id: str
-    organization_id: Optional[str] = None
+    organization_id: str | None = None
     type: str = Field(..., description="Notification type: test_result, failure, schedule, quality, system, mention")
     title: str
     message: str
     read: bool = False
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
-    action_url: Optional[str] = Field(None, description="URL to navigate to when clicked")
+    action_url: str | None = Field(None, description="URL to navigate to when clicked")
     metadata: dict = Field(default_factory=dict, description="Additional notification data")
     created_at: str
-    read_at: Optional[str] = None
+    read_at: str | None = None
 
 
 class UserNotificationListResponse(BaseModel):
@@ -303,38 +302,38 @@ class NotificationPreferences(BaseModel):
         description="Notification types to show in-app"
     )
     slack_enabled: bool = False
-    slack_channel: Optional[str] = None
+    slack_channel: str | None = None
     slack_types: list[str] = Field(
         default_factory=lambda: ["failure", "quality"],
         description="Notification types to send to Slack"
     )
     quiet_hours_enabled: bool = False
-    quiet_hours_start: Optional[str] = Field(None, description="Start time in HH:MM format (UTC)")
-    quiet_hours_end: Optional[str] = Field(None, description="End time in HH:MM format (UTC)")
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    quiet_hours_start: str | None = Field(None, description="Start time in HH:MM format (UTC)")
+    quiet_hours_end: str | None = Field(None, description="End time in HH:MM format (UTC)")
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class NotificationPreferencesUpdate(BaseModel):
     """Request to update notification preferences."""
-    email_enabled: Optional[bool] = None
-    email_frequency: Optional[Literal["instant", "hourly", "daily", "weekly"]] = None
-    email_types: Optional[list[str]] = None
-    in_app_enabled: Optional[bool] = None
-    in_app_types: Optional[list[str]] = None
-    slack_enabled: Optional[bool] = None
-    slack_channel: Optional[str] = None
-    slack_types: Optional[list[str]] = None
-    quiet_hours_enabled: Optional[bool] = None
-    quiet_hours_start: Optional[str] = None
-    quiet_hours_end: Optional[str] = None
+    email_enabled: bool | None = None
+    email_frequency: Literal["instant", "hourly", "daily", "weekly"] | None = None
+    email_types: list[str] | None = None
+    in_app_enabled: bool | None = None
+    in_app_types: list[str] | None = None
+    slack_enabled: bool | None = None
+    slack_channel: str | None = None
+    slack_types: list[str] | None = None
+    quiet_hours_enabled: bool | None = None
+    quiet_hours_start: str | None = None
+    quiet_hours_end: str | None = None
 
 
 # =============================================================================
 # In-Memory Configuration Store (fallback when Supabase not configured)
 # =============================================================================
 
-_slack_config: Optional[SlackConfig] = None
+_slack_config: SlackConfig | None = None
 _channels: dict[str, dict] = {}  # In-memory fallback
 _rules: dict[str, dict] = {}  # In-memory fallback
 _logs: list[dict] = []  # In-memory fallback
@@ -346,7 +345,7 @@ _user_preferences: dict[str, dict] = {}  # In-memory fallback for user preferenc
 # Supabase Helper Functions
 # =============================================================================
 
-async def _get_channel_from_db(channel_id: str) -> Optional[dict]:
+async def _get_channel_from_db(channel_id: str) -> dict | None:
     """Get a notification channel from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -362,10 +361,10 @@ async def _get_channel_from_db(channel_id: str) -> Optional[dict]:
 
 
 async def _list_channels_from_db(
-    organization_id: Optional[str] = None,
-    project_id: Optional[str] = None,
-    channel_type: Optional[str] = None,
-    enabled: Optional[bool] = None,
+    organization_id: str | None = None,
+    project_id: str | None = None,
+    channel_type: str | None = None,
+    enabled: bool | None = None,
     limit: int = 50
 ) -> list[dict]:
     """List notification channels from Supabase."""
@@ -436,7 +435,7 @@ async def _delete_channel_from_db(channel_id: str) -> bool:
     return await supabase.delete("notification_channels", {"id": channel_id})
 
 
-async def _get_rule_from_db(rule_id: str) -> Optional[dict]:
+async def _get_rule_from_db(rule_id: str) -> dict | None:
     """Get a notification rule from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -451,7 +450,7 @@ async def _get_rule_from_db(rule_id: str) -> Optional[dict]:
     return result[0] if result else None
 
 
-async def _list_rules_from_db(channel_id: Optional[str] = None, event_type: Optional[str] = None, limit: int = 50) -> list[dict]:
+async def _list_rules_from_db(channel_id: str | None = None, event_type: str | None = None, limit: int = 50) -> list[dict]:
     """List notification rules from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -524,7 +523,7 @@ async def _save_notification_log(log: dict) -> bool:
     return await supabase.insert("notification_logs", [log])
 
 
-async def _list_notification_logs(channel_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50) -> list[dict]:
+async def _list_notification_logs(channel_id: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
     """List notification logs from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -572,7 +571,7 @@ def set_slack_config(config: SlackConfig) -> None:
 # User Notification Helper Functions
 # =============================================================================
 
-async def _get_user_notification_from_db(notification_id: str) -> Optional[dict]:
+async def _get_user_notification_from_db(notification_id: str) -> dict | None:
     """Get a user notification from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -589,8 +588,8 @@ async def _get_user_notification_from_db(notification_id: str) -> Optional[dict]
 
 async def _list_user_notifications_from_db(
     user_id: str,
-    read: Optional[bool] = None,
-    notification_type: Optional[str] = None,
+    read: bool | None = None,
+    notification_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -683,7 +682,7 @@ async def _update_user_notification_in_db(notification_id: str, updates: dict) -
 async def _mark_all_notifications_read(user_id: str) -> int:
     """Mark all notifications as read for a user. Returns count updated."""
     supabase = await get_supabase()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     if not supabase:
         count = 0
@@ -715,7 +714,7 @@ async def _mark_all_notifications_read(user_id: str) -> int:
     return len(unread)
 
 
-async def _get_user_preferences_from_db(user_id: str) -> Optional[dict]:
+async def _get_user_preferences_from_db(user_id: str) -> dict | None:
     """Get user notification preferences from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -828,7 +827,7 @@ async def send_test_notification(request: SlackTestRequest):
             schedule = ScheduleInfo(
                 schedule_id="sched-123",
                 schedule_name="Nightly Regression Suite",
-                next_run_at=datetime.now(timezone.utc),
+                next_run_at=datetime.now(UTC),
                 test_suite="Full E2E Suite",
                 estimated_duration_minutes=45,
                 environment="staging",
@@ -1140,7 +1139,7 @@ async def send_quality_report_notification(request: QualityReportRequest):
 @router.post("/slack/message", response_model=NotificationResponse)
 async def send_custom_message(
     message: str,
-    channel: Optional[str] = None,
+    channel: str | None = None,
 ):
     """
     Send a custom text message to Slack.
@@ -1190,7 +1189,7 @@ async def create_channel(body: ChannelCreateRequest, request: Request):
     """
     user = await get_current_user(request)
     channel_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     user_id = user["user_id"]
 
     channel = {
@@ -1225,10 +1224,10 @@ async def create_channel(body: ChannelCreateRequest, request: Request):
 
 @router.get("/channels", response_model=list[ChannelResponse])
 async def list_channels(
-    organization_id: Optional[str] = Query(None, description="Filter by organization"),
-    project_id: Optional[str] = Query(None, description="Filter by project"),
-    channel_type: Optional[str] = Query(None, description="Filter by channel type"),
-    enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
+    organization_id: str | None = Query(None, description="Filter by organization"),
+    project_id: str | None = Query(None, description="Filter by project"),
+    channel_type: str | None = Query(None, description="Filter by channel type"),
+    enabled: bool | None = Query(None, description="Filter by enabled status"),
     limit: int = Query(50, ge=1, le=100, description="Maximum channels to return"),
 ):
     """
@@ -1267,7 +1266,7 @@ async def update_channel(channel_id: str, body: ChannelUpdateRequest):
         raise HTTPException(status_code=404, detail="Channel not found")
 
     update_data = body.model_dump(exclude_unset=True)
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_at"] = datetime.now(UTC).isoformat()
 
     await _update_channel_in_db(channel_id, update_data)
     channel.update(update_data)
@@ -1325,7 +1324,7 @@ async def test_channel(channel_id: str):
         # Mark channel as verified
         await _update_channel_in_db(channel_id, {
             "verified": True,
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "updated_at": datetime.now(UTC).isoformat()
         })
 
         return NotificationResponse(
@@ -1356,7 +1355,7 @@ async def create_rule(body: RuleCreateRequest, request: Request):
         raise HTTPException(status_code=400, detail="Channel not found")
 
     rule_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     user_id = user["user_id"]
 
     rule = {
@@ -1390,8 +1389,8 @@ async def create_rule(body: RuleCreateRequest, request: Request):
 
 @router.get("/rules", response_model=list[RuleResponse])
 async def list_rules(
-    channel_id: Optional[str] = Query(None, description="Filter by channel"),
-    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    channel_id: str | None = Query(None, description="Filter by channel"),
+    event_type: str | None = Query(None, description="Filter by event type"),
     limit: int = Query(50, ge=1, le=100, description="Maximum rules to return"),
 ):
     """
@@ -1423,7 +1422,7 @@ async def update_rule(rule_id: str, body: RuleCreateRequest):
         raise HTTPException(status_code=404, detail="Rule not found")
 
     update_data = body.model_dump(exclude_unset=True)
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_at"] = datetime.now(UTC).isoformat()
 
     await _update_rule_in_db(rule_id, update_data)
     rule.update(update_data)
@@ -1455,8 +1454,8 @@ async def delete_rule(rule_id: str):
 
 @router.get("/logs", response_model=list[NotificationLogResponse])
 async def list_notification_logs(
-    channel_id: Optional[str] = Query(None, description="Filter by channel"),
-    status: Optional[str] = Query(None, description="Filter by status (sent, failed, pending)"),
+    channel_id: str | None = Query(None, description="Filter by channel"),
+    status: str | None = Query(None, description="Filter by status (sent, failed, pending)"),
     limit: int = Query(50, ge=1, le=100, description="Maximum logs to return"),
 ):
     """
@@ -1503,8 +1502,8 @@ async def list_event_types():
 @router.get("", response_model=UserNotificationListResponse)
 async def list_user_notifications(
     request: Request,
-    read: Optional[bool] = Query(None, description="Filter by read status (true/false)"),
-    notification_type: Optional[str] = Query(None, alias="type", description="Filter by notification type"),
+    read: bool | None = Query(None, description="Filter by read status (true/false)"),
+    notification_type: str | None = Query(None, alias="type", description="Filter by notification type"),
     limit: int = Query(50, ge=1, le=100, description="Maximum notifications to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
 ):
@@ -1586,7 +1585,7 @@ async def mark_notification_as_read(notification_id: str, request: Request):
             details={"notification_id": notification_id},
         )
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     await _update_user_notification_in_db(notification_id, {
         "read": True,
         "read_at": now,
@@ -1643,7 +1642,7 @@ async def get_notification_preferences(request: Request):
         return NotificationPreferences(**preferences)
 
     # Return default preferences for new users
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     default_preferences = NotificationPreferences(
         user_id=user_id,
         email_enabled=True,
@@ -1678,7 +1677,7 @@ async def update_notification_preferences(
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Get existing preferences or create defaults
     existing = await _get_user_preferences_from_db(user_id)

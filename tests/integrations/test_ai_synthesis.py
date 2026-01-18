@@ -1,27 +1,28 @@
 """Tests for AI synthesis module."""
 
-import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta
+
+import pytest
 
 from src.integrations.ai_synthesis import (
-    InsightType,
     ActionPriority,
-    TestSuggestion,
+    AISynthesizer,
+    CoverageGap,
     ErrorInsight,
     FailurePrediction,
-    CoverageGap,
+    InsightType,
     SynthesisReport,
-    AISynthesizer,
+    TestSuggestion,
     create_ai_synthesizer,
 )
 from src.integrations.observability_hub import (
-    Platform,
-    RealUserSession,
-    ProductionError,
-    PerformanceAnomaly,
-    UserJourneyPattern,
     ObservabilityHub,
+    PerformanceAnomaly,
+    Platform,
+    ProductionError,
+    RealUserSession,
+    UserJourneyPattern,
 )
 
 

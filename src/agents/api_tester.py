@@ -10,12 +10,11 @@ This agent:
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import httpx
-from pydantic import BaseModel, ValidationError, create_model
 
-from .base import BaseAgent, AgentResult
+from .base import AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
 
@@ -31,7 +30,7 @@ class APIRequestResult:
     headers: dict
     body: Any
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -52,7 +51,7 @@ class SchemaValidationResult:
 
     valid: bool
     errors: list[str] = field(default_factory=list)
-    schema_used: Optional[dict] = None
+    schema_used: dict | None = None
 
 
 @dataclass
@@ -65,7 +64,7 @@ class APITestResult:
     requests: list[APIRequestResult] = field(default_factory=list)
     schema_validations: list[SchemaValidationResult] = field(default_factory=list)
     total_duration_ms: int = 0
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -94,7 +93,7 @@ class APITesterAgent(BaseAgent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._auth_token: Optional[str] = None
+        self._auth_token: str | None = None
         self._variables: dict[str, Any] = {}
 
     def _get_system_prompt(self) -> str:
@@ -120,7 +119,7 @@ Respond with JSON containing:
         self,
         test_spec: TestSpec | dict,
         app_url: str,
-        auth_token: Optional[str] = None,
+        auth_token: str | None = None,
     ) -> AgentResult[APITestResult]:
         """Execute an API test specification.
 

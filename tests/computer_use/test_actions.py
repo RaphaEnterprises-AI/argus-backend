@@ -1,8 +1,8 @@
 """Tests for the computer_use actions module."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import asyncio
 
 
 class TestActionType:
@@ -186,7 +186,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_goto(self, mock_page):
         """Test GOTO action execution."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.GOTO, target="https://example.com")
@@ -199,7 +199,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_click(self, mock_page):
         """Test CLICK action execution."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.CLICK, target="#button")
@@ -212,7 +212,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_click_with_coordinate(self, mock_page):
         """Test CLICK action with coordinates."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.CLICK, coordinate=(100, 200))
@@ -225,7 +225,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_fill(self, mock_page):
         """Test FILL action execution."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.FILL, target="#email", value="test@test.com")
@@ -238,7 +238,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_type(self, mock_page):
         """Test TYPE action execution."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.TYPE, target="#input", value="hello")
@@ -251,7 +251,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_type_no_target(self, mock_page):
         """Test TYPE action without target uses keyboard."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.TYPE, value="hello")
@@ -264,7 +264,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_wait(self, mock_page):
         """Test WAIT action execution."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.WAIT, value="100")
@@ -276,7 +276,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_wait_for_selector(self, mock_page):
         """Test WAIT_FOR_SELECTOR action."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.WAIT_FOR_SELECTOR, target="#element")
@@ -289,7 +289,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_screenshot(self, mock_page):
         """Test SCREENSHOT action execution."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(type=ActionType.SCREENSHOT)
@@ -302,7 +302,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_assert_visible_success(self, mock_page):
         """Test successful ASSERT_VISIBLE action."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         mock_element = MagicMock()
         mock_element.is_visible = AsyncMock(return_value=True)
@@ -318,7 +318,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_assert_visible_failure(self, mock_page):
         """Test failed ASSERT_VISIBLE action."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         mock_page.query_selector.return_value = None
 
@@ -333,7 +333,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_with_delay(self, mock_page):
         """Test action execution with delays."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         executor = PlaywrightActionExecutor(mock_page)
         action = Action(
@@ -351,7 +351,7 @@ class TestPlaywrightActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_error_handling(self, mock_page):
         """Test action execution error handling."""
-        from src.computer_use.actions import PlaywrightActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, PlaywrightActionExecutor
 
         mock_page.click.side_effect = Exception("Click failed")
 
@@ -419,7 +419,7 @@ class TestComputerUseActionExecutor:
 
     def test_action_to_tool_input_click(self):
         """Test converting click action to tool input."""
-        from src.computer_use.actions import ComputerUseActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, ComputerUseActionExecutor
 
         mock_client = MagicMock()
         executor = ComputerUseActionExecutor(mock_client)
@@ -432,7 +432,7 @@ class TestComputerUseActionExecutor:
 
     def test_action_to_tool_input_type(self):
         """Test converting type action to tool input."""
-        from src.computer_use.actions import ComputerUseActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, ComputerUseActionExecutor
 
         mock_client = MagicMock()
         executor = ComputerUseActionExecutor(mock_client)
@@ -445,7 +445,7 @@ class TestComputerUseActionExecutor:
 
     def test_action_to_tool_input_key(self):
         """Test converting key action to tool input."""
-        from src.computer_use.actions import ComputerUseActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, ComputerUseActionExecutor
 
         mock_client = MagicMock()
         executor = ComputerUseActionExecutor(mock_client)
@@ -458,7 +458,7 @@ class TestComputerUseActionExecutor:
 
     def test_action_to_tool_input_scroll(self):
         """Test converting scroll action to tool input."""
-        from src.computer_use.actions import ComputerUseActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, ComputerUseActionExecutor
 
         mock_client = MagicMock()
         executor = ComputerUseActionExecutor(mock_client)
@@ -477,7 +477,7 @@ class TestComputerUseActionExecutor:
 
     def test_action_to_tool_input_click_no_coordinate(self):
         """Test click action without coordinate raises error."""
-        from src.computer_use.actions import ComputerUseActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, ComputerUseActionExecutor
 
         mock_client = MagicMock()
         executor = ComputerUseActionExecutor(mock_client)
@@ -489,7 +489,7 @@ class TestComputerUseActionExecutor:
 
     def test_action_to_tool_input_unsupported(self):
         """Test unsupported action type raises error."""
-        from src.computer_use.actions import ComputerUseActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, ComputerUseActionExecutor
 
         mock_client = MagicMock()
         executor = ComputerUseActionExecutor(mock_client)
@@ -506,7 +506,7 @@ class TestHybridActionExecutor:
     @pytest.fixture
     def mock_playwright_executor(self):
         """Create mock Playwright executor."""
-        from src.computer_use.actions import ActionResult, Action, ActionType
+        from src.computer_use.actions import Action, ActionResult, ActionType
 
         executor = MagicMock()
         executor.execute = AsyncMock(return_value=ActionResult(
@@ -535,7 +535,7 @@ class TestHybridActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_success(self, mock_playwright_executor):
         """Test successful hybrid execution."""
-        from src.computer_use.actions import HybridActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, HybridActionExecutor
 
         executor = HybridActionExecutor(mock_playwright_executor)
         action = Action(type=ActionType.CLICK, target="#button")
@@ -548,7 +548,7 @@ class TestHybridActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_sequence(self, mock_playwright_executor):
         """Test executing action sequence."""
-        from src.computer_use.actions import HybridActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, HybridActionExecutor
 
         executor = HybridActionExecutor(mock_playwright_executor)
         actions = [
@@ -565,7 +565,7 @@ class TestHybridActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_sequence_stop_on_failure(self, mock_playwright_executor):
         """Test sequence stops on failure."""
-        from src.computer_use.actions import HybridActionExecutor, Action, ActionType, ActionResult
+        from src.computer_use.actions import Action, ActionResult, ActionType, HybridActionExecutor
 
         # Make second action fail
         mock_playwright_executor.execute = AsyncMock(side_effect=[
@@ -588,7 +588,7 @@ class TestHybridActionExecutor:
     @pytest.mark.asyncio
     async def test_execute_sequence_with_screenshots(self, mock_playwright_executor):
         """Test sequence with screenshots after each action."""
-        from src.computer_use.actions import HybridActionExecutor, Action, ActionType
+        from src.computer_use.actions import Action, ActionType, HybridActionExecutor
 
         executor = HybridActionExecutor(mock_playwright_executor)
         actions = [
@@ -606,7 +606,7 @@ class TestParseTestStep:
 
     def test_parse_click_step(self):
         """Test parsing click step."""
-        from src.computer_use.actions import parse_test_step, ActionType
+        from src.computer_use.actions import ActionType, parse_test_step
 
         step = {"action": "click", "target": "#button"}
         action = parse_test_step(step)
@@ -616,7 +616,7 @@ class TestParseTestStep:
 
     def test_parse_fill_step(self):
         """Test parsing fill step."""
-        from src.computer_use.actions import parse_test_step, ActionType
+        from src.computer_use.actions import ActionType, parse_test_step
 
         step = {
             "action": "fill",
@@ -630,7 +630,7 @@ class TestParseTestStep:
 
     def test_parse_step_with_coordinate(self):
         """Test parsing step with coordinates."""
-        from src.computer_use.actions import parse_test_step, ActionType
+        from src.computer_use.actions import parse_test_step
 
         step = {
             "action": "click",

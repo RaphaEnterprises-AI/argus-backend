@@ -7,10 +7,10 @@ This module provides:
 - Merkle tree for efficient change detection
 """
 
-from .tree_sitter_parser import TreeSitterParser, ParsedFile, ASTNode
-from .semantic_chunker import SemanticChunker, CodeChunk, ChunkType
-from .local_embedder import LocalEmbedder, EmbeddingResult
-from .merkle_tree import MerkleTree, MerkleNode
+from .local_embedder import EmbeddingResult, LocalEmbedder
+from .merkle_tree import MerkleNode, MerkleTree
+from .semantic_chunker import ChunkType, CodeChunk, SemanticChunker
+from .tree_sitter_parser import ASTNode, ParsedFile, TreeSitterParser
 
 __all__ = [
     "TreeSitterParser",

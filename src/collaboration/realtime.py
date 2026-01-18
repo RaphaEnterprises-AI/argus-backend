@@ -4,26 +4,23 @@ Coordinates presence, cursors, CRDT edits, and comments across users.
 """
 
 import asyncio
-import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from datetime import UTC, datetime
 from uuid import uuid4
 
+from .crdt import CRDTOperation, TestSpecCRDT, VectorClock
+from .cursors import CursorTracker
 from .models import (
-    UserPresence,
-    PresenceStatus,
-    CursorPosition,
-    SelectionRange,
-    CollaborationEvent,
+    BroadcastMessage,
     CollaborationEventType,
     CollaborativeComment,
-    EditOperation,
-    BroadcastMessage,
+    CursorPosition,
+    PresenceStatus,
+    SelectionRange,
+    UserPresence,
 )
 from .presence import PresenceManager
-from .cursors import CursorTracker
-from .crdt import CRDTDocument, CRDTOperation, VectorClock, TestSpecCRDT
 
 
 @dataclass
@@ -55,9 +52,9 @@ class RealtimeSession:
     id: str = field(default_factory=lambda: str(uuid4()))
     user_id: str = ""
     workspace_id: str = ""
-    test_id: Optional[str] = None
-    connected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_sync: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    test_id: str | None = None
+    connected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_sync: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class RealtimeManager:
@@ -70,7 +67,7 @@ class RealtimeManager:
     - Comments and @mentions
     """
 
-    def __init__(self, config: Optional[RealtimeConfig] = None):
+    def __init__(self, config: RealtimeConfig | None = None):
         """Initialize real-time manager.
 
         Args:
@@ -84,7 +81,7 @@ class RealtimeManager:
         self._comments: dict[str, list[CollaborativeComment]] = {}  # test_id -> comments
         self._broadcast_handlers: list[Callable[[BroadcastMessage], None]] = []
         self._operation_buffer: list[CRDTOperation] = []
-        self._buffer_task: Optional[asyncio.Task] = None
+        self._buffer_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -135,8 +132,8 @@ class RealtimeManager:
         user_name: str,
         user_email: str,
         workspace_id: str,
-        test_id: Optional[str] = None,
-        avatar_url: Optional[str] = None,
+        test_id: str | None = None,
+        avatar_url: str | None = None,
     ) -> RealtimeSession:
         """Connect a user to real-time collaboration.
 
@@ -210,7 +207,7 @@ class RealtimeManager:
     async def switch_test(
         self,
         session_id: str,
-        new_test_id: Optional[str],
+        new_test_id: str | None,
     ) -> None:
         """Switch which test a user is editing.
 
@@ -378,7 +375,7 @@ class RealtimeManager:
         self,
         test_id: str,
         test_spec: dict,
-        node_id: Optional[str] = None,
+        node_id: str | None = None,
     ) -> TestSpecCRDT:
         """Load a test specification for collaborative editing.
 
@@ -440,7 +437,7 @@ class RealtimeManager:
 
             return applied
 
-    async def get_test_spec(self, test_id: str) -> Optional[dict]:
+    async def get_test_spec(self, test_id: str) -> dict | None:
         """Get current test specification.
 
         Args:
@@ -480,9 +477,9 @@ class RealtimeManager:
         session_id: str,
         test_id: str,
         content: str,
-        step_index: Optional[int] = None,
-        parent_id: Optional[str] = None,
-        mentions: Optional[list[str]] = None,
+        step_index: int | None = None,
+        parent_id: str | None = None,
+        mentions: list[str] | None = None,
     ) -> CollaborativeComment:
         """Add a comment to a test.
 
@@ -555,7 +552,7 @@ class RealtimeManager:
                     if comment.id == comment_id:
                         comment.resolved = True
                         comment.resolved_by = session.user_id
-                        comment.resolved_at = datetime.now(timezone.utc)
+                        comment.resolved_at = datetime.now(UTC)
 
                         # Broadcast resolve event
                         self._broadcast(BroadcastMessage(
@@ -572,7 +569,7 @@ class RealtimeManager:
     def get_comments(
         self,
         test_id: str,
-        step_index: Optional[int] = None,
+        step_index: int | None = None,
         include_resolved: bool = False,
     ) -> list[CollaborativeComment]:
         """Get comments for a test.
@@ -669,7 +666,6 @@ class RealtimeManager:
             by_test: dict[str, list[CRDTOperation]] = {}
             for op in operations:
                 # Extract test_id from path if available
-                test_id = None
                 for t_id in self._crdt_docs:
                     # Operations are tracked per test
                     if t_id not in by_test:

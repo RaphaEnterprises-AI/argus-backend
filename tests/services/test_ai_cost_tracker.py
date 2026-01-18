@@ -8,11 +8,11 @@ This module tests:
 - Cost estimation
 """
 
-import pytest
+from datetime import UTC, datetime
 from decimal import Decimal
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-import uuid
+
+import pytest
 
 
 class TestTaskType:
@@ -107,7 +107,7 @@ class TestUsageRecord:
 
     def test_usage_record_creation(self, mock_env_vars):
         """Test creating a UsageRecord instance."""
-        from src.services.ai_cost_tracker import UsageRecord, TaskType
+        from src.services.ai_cost_tracker import TaskType, UsageRecord
 
         record = UsageRecord(
             request_id="test-123",
@@ -133,7 +133,7 @@ class TestUsageRecord:
 
     def test_usage_record_total_tokens(self, mock_env_vars):
         """Test UsageRecord total_tokens property."""
-        from src.services.ai_cost_tracker import UsageRecord, TaskType
+        from src.services.ai_cost_tracker import TaskType, UsageRecord
 
         record = UsageRecord(
             request_id="test-123",
@@ -151,7 +151,7 @@ class TestUsageRecord:
 
     def test_usage_record_default_values(self, mock_env_vars):
         """Test UsageRecord default values."""
-        from src.services.ai_cost_tracker import UsageRecord, TaskType
+        from src.services.ai_cost_tracker import TaskType, UsageRecord
 
         record = UsageRecord(
             request_id="test-123",
@@ -627,8 +627,8 @@ class TestAICostTracker:
             from src.services.ai_cost_tracker import AICostTracker
             tracker = AICostTracker()
 
-            start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
-            end_date = datetime(2024, 1, 31, tzinfo=timezone.utc)
+            start_date = datetime(2024, 1, 1, tzinfo=UTC)
+            end_date = datetime(2024, 1, 31, tzinfo=UTC)
             await tracker.get_usage_summary("org-123", start_date=start_date, end_date=end_date)
 
         mock_supabase.select.assert_called_once()
@@ -688,7 +688,7 @@ class TestConvenienceFunctions:
             import src.services.ai_cost_tracker as module
             module._cost_tracker = None
 
-            from src.services.ai_cost_tracker import record_ai_usage, TaskType
+            from src.services.ai_cost_tracker import TaskType, record_ai_usage
 
             record = await record_ai_usage(
                 organization_id="org-123",

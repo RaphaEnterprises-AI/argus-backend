@@ -4,23 +4,23 @@ Tests structural analysis including DOM diffing, element matching,
 layout shift detection, and structural change tracking.
 """
 
-import pytest
-from typing import Dict, List, Any
 import math
 
-from src.visual_ai.structural_analyzer import (
-    StructuralChangeType,
-    ElementBounds,
-    StructuralElement,
-    StructuralChange,
-    LayoutRegion,
-    StructuralDiff,
-    VisualStructuralDiff,
-    LayoutShift,
-    DOMTreeParser,
-    StructuralAnalyzer,
-)
+import pytest
+
 from src.visual_ai.models import VisualElement, VisualSnapshot
+from src.visual_ai.structural_analyzer import (
+    DOMTreeParser,
+    ElementBounds,
+    LayoutRegion,
+    LayoutShift,
+    StructuralAnalyzer,
+    StructuralChange,
+    StructuralChangeType,
+    StructuralDiff,
+    StructuralElement,
+    VisualStructuralDiff,
+)
 
 
 class TestStructuralChangeType:

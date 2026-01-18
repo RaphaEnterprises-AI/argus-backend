@@ -1,6 +1,6 @@
 """TypeScript Playwright export template."""
 
-from .base import BaseTemplate, TestSpec, TestStep, TestAssertion
+from .base import BaseTemplate, TestAssertion, TestSpec, TestStep
 
 
 class TypeScriptPlaywrightTemplate(BaseTemplate):

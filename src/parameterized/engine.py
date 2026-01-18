@@ -10,10 +10,9 @@ The engine supports {{param}} placeholder syntax for parameter substitution
 in test steps, assertions, and other string fields.
 """
 
-import copy
 import re
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -25,7 +24,6 @@ from src.parameterized.models import (
     ParameterizedResult,
     ParameterizedTest,
     ParameterSet,
-    ParameterSetResult,
     ParameterValidationResult,
     TestAssertion,
     TestStep,
@@ -261,7 +259,7 @@ class ParameterizationEngine:
     def generate_test_matrix(
         self,
         test: ParameterizedTest,
-        data_source: Optional[DataSource] = None,
+        data_source: DataSource | None = None,
     ) -> list[ExpandedTest]:
         """Generate all test combinations from a parameterized test.
 
@@ -350,7 +348,7 @@ class ParameterizationEngine:
     def _get_parameter_sets(
         self,
         test: ParameterizedTest,
-        data_source_override: Optional[DataSource] = None,
+        data_source_override: DataSource | None = None,
     ) -> list[ParameterSet]:
         """Get parameter sets for a test.
 
@@ -668,7 +666,7 @@ class ParameterizationEngine:
 
 def expand_parameterized_test(
     test_spec: dict[str, Any],
-    data_source: Optional[dict[str, Any]] = None,
+    data_source: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Convenience function to expand a parameterized test from dictionaries.
 

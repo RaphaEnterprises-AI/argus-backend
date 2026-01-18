@@ -8,41 +8,39 @@ This module provides intelligent application discovery capabilities including:
 - Cross-project learning
 """
 
+from src.discovery.crawlers.crawlee_bridge import (
+    CrawleeBridge,
+    CrawlProgress,
+    check_crawlee_available,
+    discover_application,
+)
+from src.discovery.engine import (
+    DiscoveryEngine,
+    DiscoveryError,
+    create_discovery_engine,
+)
 from src.discovery.models import (
-    # Enums
-    DiscoveryMode,
-    DiscoveryStatus,
-    ElementCategory,
-    ExplorationStrategy,
-    FlowCategory,
-    PageCategory,
     # Configuration
     AuthConfig,
-    DiscoveryConfig,
     # Discovery Results
     CrawlError,
     CrawlResult,
     DiscoveredElement,
     DiscoveredFlow,
     DiscoveredPage,
+    DiscoveryConfig,
+    # Enums
+    DiscoveryMode,
     DiscoverySession,
+    DiscoveryStatus,
     ElementBounds,
+    ElementCategory,
+    ExplorationStrategy,
+    FlowCategory,
     FlowStep,
+    PageCategory,
     PageGraph,
     PageGraphEdge,
-)
-
-from src.discovery.engine import (
-    DiscoveryEngine,
-    DiscoveryError,
-    create_discovery_engine,
-)
-
-from src.discovery.crawlers.crawlee_bridge import (
-    CrawleeBridge,
-    CrawlProgress,
-    check_crawlee_available,
-    discover_application,
 )
 
 __all__ = [

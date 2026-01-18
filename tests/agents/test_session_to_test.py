@@ -1,8 +1,9 @@
 """Tests for the session to test conversion module."""
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestSessionEventType:
@@ -77,7 +78,7 @@ class TestUserSession:
 
     def test_session_with_events(self, mock_env_vars):
         """Test UserSession with events."""
-        from src.agents.session_to_test import UserSession, SessionEvent, SessionEventType
+        from src.agents.session_to_test import SessionEvent, SessionEventType, UserSession
 
         events = [
             SessionEvent(
@@ -243,7 +244,11 @@ class TestSessionToTestConverter:
     def test_extract_steps(self, mock_env_vars):
         """Test step extraction from events."""
         with patch('src.agents.session_to_test.Anthropic'):
-            from src.agents.session_to_test import SessionToTestConverter, SessionEvent, SessionEventType
+            from src.agents.session_to_test import (
+                SessionEvent,
+                SessionEventType,
+                SessionToTestConverter,
+            )
 
             converter = SessionToTestConverter()
 
@@ -309,7 +314,12 @@ class TestSessionToTestConverter:
     def test_infer_preconditions(self, mock_env_vars):
         """Test precondition inference."""
         with patch('src.agents.session_to_test.Anthropic'):
-            from src.agents.session_to_test import SessionToTestConverter, UserSession, SessionEvent, SessionEventType
+            from src.agents.session_to_test import (
+                SessionEvent,
+                SessionEventType,
+                SessionToTestConverter,
+                UserSession,
+            )
 
             converter = SessionToTestConverter()
 
@@ -366,7 +376,12 @@ class TestSessionToTestConverter:
             ''')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.session_to_test import SessionToTestConverter, UserSession, SessionEvent, SessionEventType
+            from src.agents.session_to_test import (
+                SessionEvent,
+                SessionEventType,
+                SessionToTestConverter,
+                UserSession,
+            )
 
             converter = SessionToTestConverter()
 

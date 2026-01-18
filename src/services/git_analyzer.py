@@ -10,11 +10,9 @@ This service provides:
 import asyncio
 import logging
 import re
-import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +38,13 @@ class GitBlameResult:
     date: datetime
     line_number: int
     line_content: str
-    commit_message: Optional[str] = None
+    commit_message: str | None = None
 
 
 @dataclass
 class SelectorChange:
     """Tracks a selector change in git history."""
-    old_selector: Optional[str]
+    old_selector: str | None
     new_selector: str
     commit: GitCommit
     file_path: str
@@ -150,7 +148,7 @@ class GitAnalyzer:
                 stderr.decode("utf-8", errors="replace"),
                 process.returncode or 0
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"Git command timed out: git {' '.join(args)}")
             return "", "Command timed out", 1
         except Exception as e:
@@ -160,8 +158,8 @@ class GitAnalyzer:
     async def get_blame(
         self,
         file_path: str,
-        line_number: Optional[int] = None,
-        line_range: Optional[tuple[int, int]] = None
+        line_number: int | None = None,
+        line_range: tuple[int, int] | None = None
     ) -> list[GitBlameResult]:
         """Get git blame for a file or specific lines.
 
@@ -234,7 +232,7 @@ class GitAnalyzer:
                 commit_sha=sha,
                 author=author,
                 author_email=author_email,
-                date=datetime.fromtimestamp(author_time, tz=timezone.utc) if author_time else datetime.now(timezone.utc),
+                date=datetime.fromtimestamp(author_time, tz=UTC) if author_time else datetime.now(UTC),
                 line_number=line_num,
                 line_content=content,
             ))
@@ -243,7 +241,7 @@ class GitAnalyzer:
 
     async def get_recent_commits(
         self,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
         days: int = 7,
         max_commits: int = 50
     ) -> list[GitCommit]:
@@ -302,7 +300,7 @@ class GitAnalyzer:
                 short_sha=parts[1],
                 author=parts[2],
                 author_email=parts[3],
-                date=datetime.fromtimestamp(int(parts[4]), tz=timezone.utc),
+                date=datetime.fromtimestamp(int(parts[4]), tz=UTC),
                 message=parts[5],
                 files_changed=files_changed,
             ))
@@ -312,7 +310,7 @@ class GitAnalyzer:
     async def get_commit_diff(
         self,
         commit_sha: str,
-        file_path: Optional[str] = None
+        file_path: str | None = None
     ) -> str:
         """Get the diff for a specific commit.
 
@@ -340,7 +338,7 @@ class GitAnalyzer:
         self,
         selector: str,
         days: int = 30,
-        search_pattern: Optional[str] = None
+        search_pattern: str | None = None
     ) -> list[SelectorChange]:
         """Find commits that changed a specific selector.
 
@@ -358,7 +356,7 @@ class GitAnalyzer:
             List of selector changes found
         """
         # Search for the selector in git log
-        pattern = search_pattern or re.escape(selector)
+        search_pattern or re.escape(selector)
 
         args = [
             "log",
@@ -399,7 +397,7 @@ class GitAnalyzer:
                         short_sha=parts[1],
                         author=parts[2],
                         author_email=parts[3],
-                        date=datetime.fromtimestamp(int(parts[4]), tz=timezone.utc),
+                        date=datetime.fromtimestamp(int(parts[4]), tz=UTC),
                         message=parts[5],
                     )
 
@@ -449,9 +447,9 @@ class GitAnalyzer:
     async def find_replacement_selector(
         self,
         broken_selector: str,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
         days: int = 14
-    ) -> Optional[SelectorChange]:
+    ) -> SelectorChange | None:
         """Find what a broken selector was replaced with.
 
         THE MAGIC METHOD: When a selector breaks, this finds:
@@ -502,7 +500,7 @@ class GitAnalyzer:
         self,
         diff: str,
         old_selector: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Find a replacement selector in a diff.
 
         Heuristics:
@@ -609,7 +607,7 @@ class GitAnalyzer:
 
         return list(selectors)
 
-    async def get_commit_details(self, commit_sha: str) -> Optional[GitCommit]:
+    async def get_commit_details(self, commit_sha: str) -> GitCommit | None:
         """Get details for a specific commit.
 
         Args:
@@ -636,7 +634,7 @@ class GitAnalyzer:
 
 
 # Global instance (lazy initialized)
-_git_analyzer: Optional[GitAnalyzer] = None
+_git_analyzer: GitAnalyzer | None = None
 
 
 def get_git_analyzer(repo_path: str = ".") -> GitAnalyzer:

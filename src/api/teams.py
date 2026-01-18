@@ -6,16 +6,13 @@ Provides endpoints for:
 - RBAC operations
 """
 
-import hashlib
 import re
 import secrets
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import UUID
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field, EmailStr
 import structlog
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 
 from src.services.supabase_client import get_supabase_client
 
@@ -30,15 +27,15 @@ router = APIRouter(prefix="/api/v1/teams", tags=["Team Management"])
 class CreateOrganizationRequest(BaseModel):
     """Request to create a new organization."""
     name: str = Field(..., min_length=2, max_length=100)
-    slug: Optional[str] = Field(None, min_length=2, max_length=50, pattern="^[a-z0-9-]+$")
+    slug: str | None = Field(None, min_length=2, max_length=50, pattern="^[a-z0-9-]+$")
 
 
 class UpdateOrganizationRequest(BaseModel):
     """Request to update organization settings."""
-    name: Optional[str] = Field(None, min_length=2, max_length=100)
-    ai_budget_daily: Optional[float] = Field(None, ge=0, le=10000)
-    ai_budget_monthly: Optional[float] = Field(None, ge=0, le=100000)
-    settings: Optional[dict] = None
+    name: str | None = Field(None, min_length=2, max_length=100)
+    ai_budget_daily: float | None = Field(None, ge=0, le=10000)
+    ai_budget_monthly: float | None = Field(None, ge=0, le=100000)
+    settings: dict | None = None
 
 
 class InviteMemberRequest(BaseModel):
@@ -74,8 +71,8 @@ class MemberResponse(BaseModel):
     email: str
     role: str
     status: str
-    invited_at: Optional[str]
-    accepted_at: Optional[str]
+    invited_at: str | None
+    accepted_at: str | None
     created_at: str
 
 
@@ -183,7 +180,7 @@ async def ensure_clerk_org_synced(
         "email": user_email or "",
         "role": "owner",
         "status": "active",
-        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_at": datetime.now(UTC).isoformat(),
     })
 
     if member_result.get("error"):
@@ -266,7 +263,6 @@ async def verify_org_access(
         translated_org_id is the Supabase UUID (translated from Clerk org ID if needed).
     """
     # Store original for reference
-    original_org_id = organization_id
 
     # Handle API key authentication - trust the API key's organization_id
     if request and hasattr(request.state, "user") and request.state.user:
@@ -471,7 +467,7 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
         "email": user["email"] or "",
         "role": "owner",
         "status": "active",
-        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_at": datetime.now(UTC).isoformat(),
     })
 
     # Create default healing config
@@ -551,7 +547,7 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
 
     supabase = get_supabase_client()
 
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.name is not None:
         update_data["name"] = body.name
@@ -651,7 +647,7 @@ async def invite_member(org_id: str, body: InviteMemberRequest, request: Request
         "role": body.role,
         "status": "pending",
         "invited_by": inviter_id,
-        "invited_at": datetime.now(timezone.utc).isoformat(),
+        "invited_at": datetime.now(UTC).isoformat(),
     })
 
     if member_result.get("error"):
@@ -721,7 +717,7 @@ async def update_member_role(
     await supabase.update(
         "organization_members",
         {"id": f"eq.{member_id}"},
-        {"role": body.role, "updated_at": datetime.now(timezone.utc).isoformat()}
+        {"role": body.role, "updated_at": datetime.now(UTC).isoformat()}
     )
 
     # Audit log

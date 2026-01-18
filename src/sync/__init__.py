@@ -1,29 +1,29 @@
 """Two-way IDE synchronization module."""
 
-from .models import (
-    SyncSource,
-    SyncEventType,
-    ConflictResolutionStrategy,
-    SyncStatus,
-    SyncEvent,
-    SyncConflict,
-    TestSyncState,
-    ProjectSyncState,
-    SyncPushResult,
-    SyncPullResult,
-    TestSpec,
-)
 from .change_detector import (
     Change,
-    DiffResult,
     ChangeDetector,
-    diff_specs,
+    DiffResult,
     calculate_checksum,
+    diff_specs,
 )
 from .conflict_resolver import (
-    MergeResult,
     ConflictResolver,
+    MergeResult,
     resolve_conflicts,
+)
+from .models import (
+    ConflictResolutionStrategy,
+    ProjectSyncState,
+    SyncConflict,
+    SyncEvent,
+    SyncEventType,
+    SyncPullResult,
+    SyncPushResult,
+    SyncSource,
+    SyncStatus,
+    TestSpec,
+    TestSyncState,
 )
 from .sync_manager import (
     SyncConfig,

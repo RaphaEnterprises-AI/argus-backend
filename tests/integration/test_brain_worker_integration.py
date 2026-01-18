@@ -15,11 +15,10 @@ Prerequisites:
 - Network access to test target sites
 """
 
-import pytest
-import asyncio
 import os
-from unittest.mock import patch, AsyncMock, MagicMock
-from datetime import datetime
+
+import pytest
+
 
 # Skip if no real API key (test keys start with "sk-ant-test")
 def _has_real_api_key() -> bool:
@@ -275,7 +274,7 @@ class TestSelfHealingScenarios:
     @pytest.mark.asyncio
     async def test_self_healing_on_selector_failure(self):
         """Test that self-healer can diagnose selector failures."""
-        from src.agents.self_healer import SelfHealerAgent, FailureDiagnosis, FailureType
+        from src.agents.self_healer import SelfHealerAgent
 
         healer = SelfHealerAgent()
 
@@ -326,8 +325,9 @@ class TestRootCauseAnalysis:
     @pytest.mark.asyncio
     async def test_root_cause_analysis_timing_issue(self):
         """Analyze a timing-related failure."""
-        from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
         from anthropic import AuthenticationError
+
+        from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
         analyzer = RootCauseAnalyzer()
 
@@ -355,7 +355,7 @@ class TestRootCauseAnalysis:
         except AuthenticationError:
             pytest.skip("API key not valid for integration test")
 
-        print(f"Root cause analysis:")
+        print("Root cause analysis:")
         print(f"  Category: {result.category}")
         print(f"  Confidence: {result.confidence}")
         print(f"  Summary: {result.summary}")
@@ -372,8 +372,8 @@ class TestEndToEndTestExecution:
     @pytest.mark.asyncio
     async def test_e2e_simple_navigation_test(self):
         """Execute a simple navigation test end-to-end."""
+        from src.agents.test_planner import TestAssertion, TestSpec, TestStep
         from src.agents.ui_tester import UITesterAgent
-        from src.agents.test_planner import TestSpec, TestStep, TestAssertion
 
         # Create a simple test spec
         test_spec = TestSpec(
@@ -438,9 +438,10 @@ class TestMultiAgentOrchestration:
     @pytest.mark.asyncio
     async def test_quality_audit_workflow(self):
         """Run a quality audit that combines multiple agents."""
-        from src.agents.quality_auditor import QualityAuditor
-        from anthropic import AuthenticationError
         import httpx
+        from anthropic import AuthenticationError
+
+        from src.agents.quality_auditor import QualityAuditor
 
         auditor = QualityAuditor()
 
@@ -459,7 +460,7 @@ class TestMultiAgentOrchestration:
         except AuthenticationError:
             pytest.skip("API key not valid for integration test")
 
-        print(f"Quality audit:")
+        print("Quality audit:")
         print(f"  Accessibility score: {result.accessibility.score}")
         print(f"  Performance score: {result.performance.overall_score}")
         print(f"  Best Practices: {result.best_practices_score}")
@@ -471,9 +472,9 @@ class TestMultiAgentOrchestration:
     @pytest.mark.asyncio
     async def test_full_test_run_orchestration(self):
         """Test the full orchestration pipeline."""
-        from src.orchestrator.state import create_initial_state
-        from src.orchestrator.graph import create_testing_graph
         from src.config import get_settings
+        from src.orchestrator.graph import create_testing_graph
+        from src.orchestrator.state import create_initial_state
 
         # Create initial state
         state = create_initial_state(
@@ -481,7 +482,7 @@ class TestMultiAgentOrchestration:
             app_url="https://example.com",
         )
 
-        print(f"Initial state created:")
+        print("Initial state created:")
         print(f"  App URL: {state['app_url']}")
         print(f"  Codebase: {state['codebase_path']}")
 
@@ -489,7 +490,7 @@ class TestMultiAgentOrchestration:
         settings = get_settings()
         graph = create_testing_graph(settings)
 
-        print(f"Graph created successfully")
+        print("Graph created successfully")
 
         assert graph is not None
 
@@ -500,8 +501,9 @@ class TestReporterWithRealData:
     @pytest.mark.asyncio
     async def test_generate_report_from_results(self):
         """Generate a report from test results."""
-        from src.agents.reporter import ReporterAgent
         from anthropic import AuthenticationError
+
+        from src.agents.reporter import ReporterAgent
 
         reporter = ReporterAgent()
 

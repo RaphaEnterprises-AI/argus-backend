@@ -1,9 +1,8 @@
 """Tests for the database tester module."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # Patch target for Anthropic client in base agent
 ANTHROPIC_PATCH = 'anthropic.Anthropic'
@@ -159,7 +158,7 @@ class TestDBTestResult:
 
     def test_db_test_result_to_dict(self, mock_env_vars):
         """Test DBTestResult to_dict method."""
-        from src.agents.db_tester import DBTestResult, QueryResult, DataValidationResult
+        from src.agents.db_tester import DataValidationResult, DBTestResult, QueryResult
 
         result = DBTestResult(
             test_id="test-003",
@@ -300,7 +299,7 @@ class TestDBTesterAgent:
     async def test_execute_validate_exists_action(self, mock_env_vars):
         """Test execute with validate_exists action."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.db_tester import DBTesterAgent, DataValidationResult
+            from src.agents.db_tester import DataValidationResult, DBTesterAgent
 
             agent = DBTesterAgent()
             agent._engine = MagicMock()
@@ -335,7 +334,7 @@ class TestDBTesterAgent:
     async def test_execute_validate_count_action(self, mock_env_vars):
         """Test execute with validate_count action."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.db_tester import DBTesterAgent, DataValidationResult
+            from src.agents.db_tester import DataValidationResult, DBTesterAgent
 
             agent = DBTesterAgent()
             agent._engine = MagicMock()
@@ -370,7 +369,7 @@ class TestDBTesterAgent:
     async def test_execute_validate_relationship_action(self, mock_env_vars):
         """Test execute with validate_relationship action."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.db_tester import DBTesterAgent, DataValidationResult
+            from src.agents.db_tester import DataValidationResult, DBTesterAgent
 
             agent = DBTesterAgent()
             agent._engine = MagicMock()
@@ -413,7 +412,7 @@ class TestDBTesterAgent:
         """Test execute with TestSpec object."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.db_tester import DBTesterAgent
-            from src.agents.test_planner import TestSpec, TestStep
+            from src.agents.test_planner import TestSpec
 
             agent = DBTesterAgent()
             agent._engine = MagicMock()
@@ -466,7 +465,7 @@ class TestDBTesterAgent:
     async def test_check_db_assertion_row_exists(self, mock_env_vars):
         """Test _check_db_assertion with row_exists type."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.db_tester import DBTesterAgent, DataValidationResult
+            from src.agents.db_tester import DataValidationResult, DBTesterAgent
 
             agent = DBTesterAgent()
 
@@ -496,7 +495,7 @@ class TestDBTesterAgent:
     async def test_check_db_assertion_row_count(self, mock_env_vars):
         """Test _check_db_assertion with row_count type."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.db_tester import DBTesterAgent, DataValidationResult
+            from src.agents.db_tester import DataValidationResult, DBTesterAgent
 
             agent = DBTesterAgent()
 

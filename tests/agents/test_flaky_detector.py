@@ -1,8 +1,6 @@
 """Tests for the flaky test detector module."""
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
 
 
 class TestFlakinessLevel:
@@ -80,7 +78,7 @@ class TestFlakinessReport:
 
     def test_flakiness_report_creation(self, mock_env_vars):
         """Test FlakinessReport creation."""
-        from src.agents.flaky_detector import FlakinessReport, FlakinessLevel, FlakyCause
+        from src.agents.flaky_detector import FlakinessLevel, FlakinessReport, FlakyCause
 
         report = FlakinessReport(
             test_id="test-001",
@@ -191,7 +189,7 @@ class TestFlakyTestDetector:
 
     def test_analyze_test_no_runs(self, mock_env_vars):
         """Test analyzing a test with no runs."""
-        from src.agents.flaky_detector import FlakyTestDetector, FlakinessLevel
+        from src.agents.flaky_detector import FlakinessLevel, FlakyTestDetector
 
         detector = FlakyTestDetector()
         report = detector.analyze_test("test-001", "Test Name")
@@ -202,7 +200,7 @@ class TestFlakyTestDetector:
 
     def test_analyze_test_stable(self, mock_env_vars):
         """Test analyzing a stable test."""
-        from src.agents.flaky_detector import FlakyTestDetector, TestRun, FlakinessLevel
+        from src.agents.flaky_detector import FlakinessLevel, FlakyTestDetector, TestRun
 
         detector = FlakyTestDetector()
 
@@ -223,7 +221,7 @@ class TestFlakyTestDetector:
 
     def test_analyze_test_flaky(self, mock_env_vars):
         """Test analyzing a flaky test."""
-        from src.agents.flaky_detector import FlakyTestDetector, TestRun, FlakinessLevel
+        from src.agents.flaky_detector import FlakinessLevel, FlakyTestDetector, TestRun
 
         detector = FlakyTestDetector()
 
@@ -320,7 +318,7 @@ class TestFlakyTestDetector:
 
     def test_determine_level(self, mock_env_vars):
         """Test flakiness level determination."""
-        from src.agents.flaky_detector import FlakyTestDetector, FlakinessLevel
+        from src.agents.flaky_detector import FlakinessLevel, FlakyTestDetector
 
         detector = FlakyTestDetector()
 
@@ -331,7 +329,7 @@ class TestFlakyTestDetector:
 
     def test_analyze_patterns_timing(self, mock_env_vars):
         """Test pattern analysis for timing issues."""
-        from src.agents.flaky_detector import FlakyTestDetector, TestRun, FlakyCause
+        from src.agents.flaky_detector import FlakyCause, FlakyTestDetector, TestRun
 
         detector = FlakyTestDetector()
 
@@ -368,7 +366,7 @@ class TestFlakyTestDetector:
 
     def test_generate_recommendation(self, mock_env_vars):
         """Test recommendation generation."""
-        from src.agents.flaky_detector import FlakyTestDetector, FlakinessLevel, FlakyCause
+        from src.agents.flaky_detector import FlakinessLevel, FlakyCause, FlakyTestDetector
 
         detector = FlakyTestDetector()
 
@@ -478,7 +476,7 @@ class TestSmartRetryStrategy:
 
     def test_strategy_creation(self, mock_env_vars):
         """Test SmartRetryStrategy creation."""
-        from src.agents.flaky_detector import SmartRetryStrategy, FlakyTestDetector
+        from src.agents.flaky_detector import FlakyTestDetector, SmartRetryStrategy
 
         detector = FlakyTestDetector()
         strategy = SmartRetryStrategy(detector)
@@ -487,7 +485,7 @@ class TestSmartRetryStrategy:
 
     def test_get_retry_config_stable(self, mock_env_vars):
         """Test retry config for stable test."""
-        from src.agents.flaky_detector import SmartRetryStrategy, FlakyTestDetector, TestRun
+        from src.agents.flaky_detector import FlakyTestDetector, SmartRetryStrategy, TestRun
 
         detector = FlakyTestDetector()
         strategy = SmartRetryStrategy(detector)
@@ -509,8 +507,11 @@ class TestSmartRetryStrategy:
     def test_get_retry_config_timing(self, mock_env_vars):
         """Test retry config for timing-related flakiness."""
         from src.agents.flaky_detector import (
-            SmartRetryStrategy, FlakyTestDetector, TestRun,
-            FlakinessLevel, FlakyCause, FlakinessReport
+            FlakinessLevel,
+            FlakinessReport,
+            FlakyCause,
+            FlakyTestDetector,
+            SmartRetryStrategy,
         )
 
         detector = FlakyTestDetector()
@@ -542,8 +543,11 @@ class TestSmartRetryStrategy:
     def test_get_retry_config_network(self, mock_env_vars):
         """Test retry config for network-related flakiness."""
         from src.agents.flaky_detector import (
-            SmartRetryStrategy, FlakyTestDetector,
-            FlakinessLevel, FlakyCause, FlakinessReport
+            FlakinessLevel,
+            FlakinessReport,
+            FlakyCause,
+            FlakyTestDetector,
+            SmartRetryStrategy,
         )
 
         detector = FlakyTestDetector()
@@ -573,8 +577,11 @@ class TestSmartRetryStrategy:
     def test_get_retry_config_resource(self, mock_env_vars):
         """Test retry config for resource contention."""
         from src.agents.flaky_detector import (
-            SmartRetryStrategy, FlakyTestDetector,
-            FlakinessLevel, FlakyCause, FlakinessReport
+            FlakinessLevel,
+            FlakinessReport,
+            FlakyCause,
+            FlakyTestDetector,
+            SmartRetryStrategy,
         )
 
         detector = FlakyTestDetector()

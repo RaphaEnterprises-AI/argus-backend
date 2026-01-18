@@ -11,15 +11,14 @@ Provides endpoints for:
 
 import re
 import secrets
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-import structlog
 
+from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/organizations", tags=["Organizations"])
@@ -36,14 +35,14 @@ class CreateOrganizationRequest(BaseModel):
 
 class UpdateOrganizationRequest(BaseModel):
     """Request to update organization settings."""
-    name: Optional[str] = Field(None, min_length=2, max_length=100)
-    logo_url: Optional[str] = Field(None, max_length=500)
-    domain: Optional[str] = Field(None, max_length=255)
-    ai_budget_daily: Optional[float] = Field(None, ge=0, le=10000)
-    ai_budget_monthly: Optional[float] = Field(None, ge=0, le=100000)
-    settings: Optional[dict] = None
-    features: Optional[dict] = None
-    sso_enabled: Optional[bool] = None
+    name: str | None = Field(None, min_length=2, max_length=100)
+    logo_url: str | None = Field(None, max_length=500)
+    domain: str | None = Field(None, max_length=255)
+    ai_budget_daily: float | None = Field(None, ge=0, le=10000)
+    ai_budget_monthly: float | None = Field(None, ge=0, le=100000)
+    settings: dict | None = None
+    features: dict | None = None
+    sso_enabled: bool | None = None
 
 
 class TransferOwnershipRequest(BaseModel):
@@ -59,16 +58,16 @@ class OrganizationResponse(BaseModel):
     plan: str
     ai_budget_daily: float
     ai_budget_monthly: float
-    settings: Optional[dict]
-    features: Optional[dict]
-    stripe_customer_id: Optional[str]
-    stripe_subscription_id: Optional[str]
-    logo_url: Optional[str]
-    domain: Optional[str]
+    settings: dict | None
+    features: dict | None
+    stripe_customer_id: str | None
+    stripe_subscription_id: str | None
+    logo_url: str | None
+    domain: str | None
     sso_enabled: bool
     member_count: int
     created_at: str
-    updated_at: Optional[str]
+    updated_at: str | None
 
 
 class OrganizationListResponse(BaseModel):
@@ -77,7 +76,7 @@ class OrganizationListResponse(BaseModel):
     name: str
     slug: str
     plan: str
-    logo_url: Optional[str]
+    logo_url: str | None
     member_count: int
     role: str  # User's role in this organization
     created_at: str
@@ -218,7 +217,7 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
         "email": user.get("email") or "",
         "role": "owner",
         "status": "active",
-        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_at": datetime.now(UTC).isoformat(),
     })
 
     if member_result.get("error"):
@@ -362,7 +361,7 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
     supabase = get_supabase_client()
 
     # Build update data from non-null fields
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.name is not None:
         update_data["name"] = body.name
@@ -480,14 +479,14 @@ async def transfer_ownership(org_id: str, body: TransferOwnershipRequest, reques
     await supabase.update(
         "organization_members",
         {"id": f"eq.{new_owner['id']}"},
-        {"role": "owner", "updated_at": datetime.now(timezone.utc).isoformat()}
+        {"role": "owner", "updated_at": datetime.now(UTC).isoformat()}
     )
 
     # Demote current owner to admin
     await supabase.update(
         "organization_members",
         {"id": f"eq.{current_member['id']}"},
-        {"role": "admin", "updated_at": datetime.now(timezone.utc).isoformat()}
+        {"role": "admin", "updated_at": datetime.now(UTC).isoformat()}
     )
 
     # Audit log

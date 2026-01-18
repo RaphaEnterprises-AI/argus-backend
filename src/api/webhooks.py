@@ -15,12 +15,12 @@ These webhooks create production_events in Supabase for Quality Intelligence ana
 import hashlib
 import re
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from datetime import UTC, datetime
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from src.services.supabase_client import get_supabase_client
 from src.services.vectorize import index_production_event
@@ -34,71 +34,71 @@ router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
 # =============================================================================
 
 class SentryException(BaseModel):
-    type: Optional[str] = None
-    value: Optional[str] = None
+    type: str | None = None
+    value: str | None = None
 
 
 class SentryMetadata(BaseModel):
-    type: Optional[str] = None
-    value: Optional[str] = None
-    filename: Optional[str] = None
-    function: Optional[str] = None
+    type: str | None = None
+    value: str | None = None
+    filename: str | None = None
+    function: str | None = None
 
 
 class SentryIssue(BaseModel):
     id: str
     title: str
-    culprit: Optional[str] = None
+    culprit: str | None = None
     level: str = "error"
-    message: Optional[str] = None
-    metadata: Optional[SentryMetadata] = None
-    platform: Optional[str] = None
-    project: Optional[str] = None
-    url: Optional[str] = None
-    shortId: Optional[str] = None
+    message: str | None = None
+    metadata: SentryMetadata | None = None
+    platform: str | None = None
+    project: str | None = None
+    url: str | None = None
+    shortId: str | None = None
     count: str = "1"
     userCount: int = 1
-    firstSeen: Optional[str] = None
-    lastSeen: Optional[str] = None
+    firstSeen: str | None = None
+    lastSeen: str | None = None
     tags: list[dict[str, str]] = Field(default_factory=list)
 
 
 class SentryWebhookPayload(BaseModel):
     action: str
     data: dict[str, Any]
-    installation: Optional[dict] = None
-    actor: Optional[dict] = None
+    installation: dict | None = None
+    actor: dict | None = None
 
 
 class DatadogError(BaseModel):
-    type: Optional[str] = None
-    message: Optional[str] = None
-    stack: Optional[str] = None
-    source: Optional[str] = None
+    type: str | None = None
+    message: str | None = None
+    stack: str | None = None
+    source: str | None = None
 
 
 class DatadogView(BaseModel):
-    url: Optional[str] = None
-    name: Optional[str] = None
+    url: str | None = None
+    name: str | None = None
 
 
 class DatadogEvent(BaseModel):
-    id: Optional[str] = None
-    event_type: Optional[str] = None
+    id: str | None = None
+    event_type: str | None = None
     title: str
     message: str
-    date_happened: Optional[int] = None
+    date_happened: int | None = None
     priority: str = "normal"
-    host: Optional[str] = None
+    host: str | None = None
     tags: list[str] = Field(default_factory=list)
     alert_type: str = "error"
-    source_type_name: Optional[str] = None
-    aggregation_key: Optional[str] = None
-    url: Optional[str] = None
-    error: Optional[DatadogError] = None
-    view: Optional[DatadogView] = None
-    user: Optional[dict] = None
-    context: Optional[dict] = None
+    source_type_name: str | None = None
+    aggregation_key: str | None = None
+    url: str | None = None
+    error: DatadogError | None = None
+    view: DatadogView | None = None
+    user: dict | None = None
+    context: dict | None = None
 
 
 class ProductionEvent(BaseModel):
@@ -106,22 +106,22 @@ class ProductionEvent(BaseModel):
     project_id: str
     source: Literal["sentry", "datadog", "fullstory", "logrocket", "newrelic", "bugsnag", "rollbar"]
     external_id: str
-    external_url: Optional[str] = None
+    external_url: str | None = None
     event_type: Literal["error", "exception", "performance", "session", "rage_click", "dead_click"]
     severity: Literal["fatal", "error", "warning", "info"]
     title: str
-    message: Optional[str] = None
-    stack_trace: Optional[str] = None
+    message: str | None = None
+    stack_trace: str | None = None
     fingerprint: str
-    url: Optional[str] = None
-    component: Optional[str] = None
-    browser: Optional[str] = None
-    os: Optional[str] = None
-    device_type: Optional[Literal["desktop", "mobile", "tablet"]] = None
+    url: str | None = None
+    component: str | None = None
+    browser: str | None = None
+    os: str | None = None
+    device_type: Literal["desktop", "mobile", "tablet"] | None = None
     occurrence_count: int = 1
     affected_users: int = 1
-    first_seen_at: Optional[str] = None
-    last_seen_at: Optional[str] = None
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
     status: Literal["new", "processing", "resolved", "ignored"] = "new"
     raw_payload: dict = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
@@ -131,8 +131,8 @@ class ProductionEvent(BaseModel):
 class WebhookResponse(BaseModel):
     success: bool
     message: str
-    event_id: Optional[str] = None
-    fingerprint: Optional[str] = None
+    event_id: str | None = None
+    fingerprint: str | None = None
 
 
 # =============================================================================
@@ -151,7 +151,7 @@ def parse_severity(level: str) -> Literal["fatal", "error", "warning", "info"]:
     return "info"
 
 
-def extract_component_from_stack(stack_trace: Optional[str]) -> Optional[str]:
+def extract_component_from_stack(stack_trace: str | None) -> str | None:
     """Extract component name from stack trace."""
     if not stack_trace:
         return None
@@ -177,8 +177,8 @@ def extract_component_from_stack(stack_trace: Optional[str]) -> Optional[str]:
 def generate_fingerprint(
     error_type: str,
     message: str,
-    component: Optional[str],
-    url: Optional[str],
+    component: str | None,
+    url: str | None,
 ) -> str:
     """Generate a fingerprint for error grouping."""
     parts = [error_type, message[:100] if message else ""]
@@ -196,7 +196,7 @@ def generate_fingerprint(
     return hash_value
 
 
-async def get_default_project_id(supabase, organization_id: str) -> Optional[str]:
+async def get_default_project_id(supabase, organization_id: str) -> str | None:
     """Get the first available project ID for a specific organization.
 
     SECURITY: Always filter by organization_id to prevent cross-tenant data access.
@@ -249,10 +249,10 @@ async def log_webhook(
 
 
 async def update_webhook_log(
-    supabase, webhook_id: str, status: str, error_message: Optional[str] = None, event_id: Optional[str] = None
+    supabase, webhook_id: str, status: str, error_message: str | None = None, event_id: str | None = None
 ) -> None:
     """Update webhook log status."""
-    update_data = {"status": status, "processed_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"status": status, "processed_at": datetime.now(UTC).isoformat()}
     if error_message:
         update_data["error_message"] = error_message
     if event_id:
@@ -268,7 +268,7 @@ async def update_webhook_log(
 async def handle_sentry_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Sentry webhook events.
@@ -429,7 +429,7 @@ async def handle_sentry_webhook(
                     {"external_id": f"eq.{issue['id']}", "source": "eq.sentry"},
                     {
                         "status": "resolved" if action == "resolved" else "ignored",
-                        "resolved_at": datetime.now(timezone.utc).isoformat(),
+                        "resolved_at": datetime.now(UTC).isoformat(),
                     },
                 )
             await update_webhook_log(supabase, webhook_id, "processed")
@@ -454,7 +454,7 @@ async def handle_sentry_webhook(
 async def handle_datadog_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Datadog webhook events.
@@ -581,7 +581,7 @@ async def handle_datadog_webhook(
 async def handle_fullstory_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle FullStory webhook events.
@@ -695,7 +695,7 @@ async def handle_fullstory_webhook(
 async def handle_logrocket_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle LogRocket webhook events.
@@ -806,7 +806,7 @@ async def handle_logrocket_webhook(
 async def handle_newrelic_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle NewRelic webhook events.
@@ -921,7 +921,7 @@ async def handle_newrelic_webhook(
 async def handle_bugsnag_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Bugsnag webhook events.
@@ -1047,7 +1047,7 @@ class GitHubWorkflowRun(BaseModel):
     head_branch: str
     head_sha: str
     status: str  # queued, in_progress, completed
-    conclusion: Optional[str] = None  # success, failure, cancelled, skipped
+    conclusion: str | None = None  # success, failure, cancelled, skipped
     html_url: str
     created_at: str
     updated_at: str
@@ -1067,10 +1067,10 @@ class GitHubRepository(BaseModel):
 class GitHubActionsPayload(BaseModel):
     """GitHub Actions webhook payload."""
     action: str  # requested, completed, in_progress
-    workflow_run: Optional[dict] = None
-    workflow_job: Optional[dict] = None
+    workflow_run: dict | None = None
+    workflow_job: dict | None = None
     repository: dict
-    sender: Optional[dict] = None
+    sender: dict | None = None
 
 
 class CIEvent(BaseModel):
@@ -1078,16 +1078,16 @@ class CIEvent(BaseModel):
     project_id: str
     source: Literal["github_actions", "gitlab_ci", "circleci", "jenkins"]
     external_id: str
-    external_url: Optional[str] = None
+    external_url: str | None = None
     event_type: Literal["workflow_run", "workflow_job", "test_run", "coverage_report"]
     status: Literal["pending", "running", "success", "failure", "cancelled", "skipped"]
     workflow_name: str
     branch: str
     commit_sha: str
     run_number: int
-    duration_seconds: Optional[int] = None
-    test_results: Optional[dict] = None  # {passed: X, failed: Y, skipped: Z}
-    coverage_percent: Optional[float] = None
+    duration_seconds: int | None = None
+    test_results: dict | None = None  # {passed: X, failed: Y, skipped: Z}
+    coverage_percent: float | None = None
     raw_payload: dict = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
 
@@ -1096,7 +1096,7 @@ class CIEvent(BaseModel):
 async def handle_github_actions_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle GitHub Actions webhook events.
@@ -1236,12 +1236,12 @@ async def handle_github_actions_webhook(
 class CoverageReport(BaseModel):
     """Coverage report upload."""
     organization_id: str  # SECURITY: Required for multi-tenant isolation
-    project_id: Optional[str] = None
+    project_id: str | None = None
     branch: str = "main"
     commit_sha: str
     format: Literal["lcov", "istanbul", "cobertura", "clover"] = "lcov"
     report_data: str  # Raw coverage report content
-    ci_run_id: Optional[str] = None  # Link to CI event
+    ci_run_id: str | None = None  # Link to CI event
 
 
 class CoverageSummary(BaseModel):
@@ -1395,7 +1395,7 @@ async def upload_coverage_report(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
-    webhook_id = str(uuid.uuid4())
+    str(uuid.uuid4())
     supabase = get_supabase_client()
 
     # SECURITY: Validate project belongs to organization if provided
@@ -1446,7 +1446,7 @@ async def upload_coverage_report(
             "functions_covered": summary.functions_covered,
             "functions_percent": summary.functions_percent,
             "files": summary.files,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         result = await supabase.insert("coverage_reports", coverage_data)
@@ -1484,7 +1484,7 @@ async def upload_coverage_report(
 async def handle_rollbar_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle Rollbar webhook events.
@@ -1609,8 +1609,8 @@ class GitLabPipeline(BaseModel):
     status: str  # pending, running, success, failed, canceled, skipped
     ref: str  # branch name
     sha: str
-    source: Optional[str] = None  # push, web, trigger, schedule, api
-    duration: Optional[int] = None
+    source: str | None = None  # push, web, trigger, schedule, api
+    duration: int | None = None
 
 
 class GitLabProject(BaseModel):
@@ -1626,8 +1626,8 @@ class GitLabPipelinePayload(BaseModel):
     object_kind: str  # pipeline
     object_attributes: dict
     project: dict
-    user: Optional[dict] = None
-    commit: Optional[dict] = None
+    user: dict | None = None
+    commit: dict | None = None
     builds: list[dict] = Field(default_factory=list)
 
 
@@ -1635,7 +1635,7 @@ class GitLabPipelinePayload(BaseModel):
 async def handle_gitlab_ci_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle GitLab CI/CD webhook events.
@@ -1769,7 +1769,7 @@ class CircleCIWorkflow(BaseModel):
     name: str
     status: str
     created_at: str
-    stopped_at: Optional[str] = None
+    stopped_at: str | None = None
 
 
 class CircleCIPayload(BaseModel):
@@ -1777,19 +1777,19 @@ class CircleCIPayload(BaseModel):
     type: str  # workflow-completed, job-completed
     id: str
     happened_at: str
-    webhook: Optional[dict] = None
-    project: Optional[dict] = None
-    organization: Optional[dict] = None
-    pipeline: Optional[dict] = None
-    workflow: Optional[dict] = None
-    job: Optional[dict] = None
+    webhook: dict | None = None
+    project: dict | None = None
+    organization: dict | None = None
+    pipeline: dict | None = None
+    workflow: dict | None = None
+    job: dict | None = None
 
 
 @router.post("/circleci", response_model=WebhookResponse)
 async def handle_circleci_webhook(
     request: Request,
     organization_id: str = Query(..., description="Organization ID (required for security)"),
-    project_id: Optional[str] = Query(None, description="Project ID to associate events with"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
 ):
     """
     Handle CircleCI webhook events.
@@ -1922,12 +1922,12 @@ async def handle_circleci_webhook(
 class TestResultsUpload(BaseModel):
     """Test results upload request."""
     organization_id: str  # SECURITY: Required for multi-tenant isolation
-    project_id: Optional[str] = None
+    project_id: str | None = None
     branch: str = "main"
     commit_sha: str
     format: Literal["junit", "pytest", "jest"] = "junit"
     report_data: str  # XML/JSON content
-    ci_run_id: Optional[str] = None
+    ci_run_id: str | None = None
 
 
 class TestResultSummary(BaseModel):
@@ -2071,7 +2071,7 @@ async def upload_test_results(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
-    webhook_id = str(uuid.uuid4())
+    str(uuid.uuid4())
     supabase = get_supabase_client()
 
     # SECURITY: Validate project belongs to organization if provided

@@ -15,13 +15,14 @@ Architecture:
     └──────────────┴──────────────┴──────────────┴────────────────┘
 """
 
-import os
-import json
 import hashlib
-import httpx
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
+import json
+import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
 import structlog
 
 logger = structlog.get_logger()
@@ -106,8 +107,8 @@ class R2Storage:
     async def store_screenshot(
         self,
         base64_data: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Store a screenshot in R2.
 
         Args:
@@ -119,7 +120,7 @@ class R2Storage:
         """
         # Generate content-based ID for deduplication
         content_hash = hashlib.sha256(base64_data[:2000].encode()).hexdigest()[:16]
-        artifact_id = f"screenshot_{content_hash}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        artifact_id = f"screenshot_{content_hash}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
         # Store in R2
         key = f"screenshots/{artifact_id}.png"
@@ -149,7 +150,7 @@ class R2Storage:
                         "key": key,
                         "url": f"https://{self.config.r2_bucket}.r2.cloudflarestorage.com/{key}",
                         "metadata": metadata or {},
-                        "created_at": datetime.now(timezone.utc).isoformat()
+                        "created_at": datetime.now(UTC).isoformat()
                     }
                 else:
                     logger.error("Failed to store screenshot in R2", status=response.status_code)
@@ -166,7 +167,7 @@ class R2Storage:
                 "error": str(e)
             }
 
-    async def get_screenshot(self, artifact_id: str) -> Optional[str]:
+    async def get_screenshot(self, artifact_id: str) -> str | None:
         """Retrieve a screenshot from R2."""
         key = f"screenshots/{artifact_id}.png"
 
@@ -188,9 +189,9 @@ class R2Storage:
 
     async def store_test_result(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         test_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Store full test result, extracting screenshots to R2.
 
         Returns lightweight result with R2 references.
@@ -261,7 +262,7 @@ class VectorizeMemory:
             "Content-Type": "application/json"
         }
 
-    async def _get_embedding(self, text: str) -> List[float]:
+    async def _get_embedding(self, text: str) -> list[float]:
         """Generate embedding using Workers AI."""
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -281,8 +282,8 @@ class VectorizeMemory:
         self,
         error_message: str,
         failed_selector: str,
-        healed_selector: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
+        healed_selector: str | None = None,
+        context: dict[str, Any] | None = None
     ) -> str:
         """Store a failure pattern for future self-healing.
 
@@ -322,7 +323,7 @@ class VectorizeMemory:
                             "healed": healed_selector is not None,
                             "url": context.get("url", "") if context else "",
                             "element_type": context.get("element_type", "") if context else "",
-                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "created_at": datetime.now(UTC).isoformat(),
                             "success_count": 1 if healed_selector else 0,
                         }
                     }]
@@ -343,7 +344,7 @@ class VectorizeMemory:
         selector: str,
         top_k: int = 5,
         min_score: float = 0.7
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Find similar past failures for self-healing suggestions.
 
         Args:
@@ -424,7 +425,7 @@ class D1Database:
             "Content-Type": "application/json"
         }
 
-    async def execute(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:
+    async def execute(self, sql: str, params: list[Any] | None = None) -> dict[str, Any]:
         """Execute a SQL query."""
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -446,7 +447,7 @@ class D1Database:
         self,
         test_id: str,
         project_id: str,
-        result: Dict[str, Any]
+        result: dict[str, Any]
     ) -> str:
         """Store a test run in the database."""
         await self.execute(
@@ -461,7 +462,7 @@ class D1Database:
                 len(result.get("steps", [])),
                 sum(1 for s in result.get("steps", []) if s.get("success")),
                 result.get("duration_ms", 0),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 json.dumps(result)
             ]
         )
@@ -471,7 +472,7 @@ class D1Database:
         self,
         project_id: str,
         limit: int = 50
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get recent test history for a project."""
         result = await self.execute(
             """
@@ -519,7 +520,7 @@ class KVCache:
             )
             return response.status_code == 200
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get a value from KV."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -534,12 +535,12 @@ class KVCache:
                     return response.text
             return None
 
-    async def cache_page_elements(self, url: str, elements: List[Dict[str, Any]]) -> bool:
+    async def cache_page_elements(self, url: str, elements: list[dict[str, Any]]) -> bool:
         """Cache discovered page elements for faster subsequent access."""
         key = f"elements:{hashlib.sha256(url.encode()).hexdigest()[:16]}"
         return await self.set(key, elements, ttl_seconds=300)  # 5 minute cache
 
-    async def get_cached_elements(self, url: str) -> Optional[List[Dict[str, Any]]]:
+    async def get_cached_elements(self, url: str) -> list[dict[str, Any]] | None:
         """Get cached page elements."""
         key = f"elements:{hashlib.sha256(url.encode()).hexdigest()[:16]}"
         return await self.get(key)
@@ -580,7 +581,7 @@ class AIGateway:
 class CloudflareClient:
     """Unified client for all Cloudflare services."""
 
-    def __init__(self, config: Optional[CloudflareConfig] = None):
+    def __init__(self, config: CloudflareConfig | None = None):
         self.config = config or CloudflareConfig.from_env()
         self.r2 = R2Storage(self.config)
         self.vectorize = VectorizeMemory(self.config)
@@ -590,10 +591,10 @@ class CloudflareClient:
 
     async def store_test_artifacts(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         test_id: str,
         project_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Store all test artifacts across Cloudflare services.
 
         1. Screenshots → R2
@@ -627,7 +628,7 @@ class CloudflareClient:
         self,
         error_message: str,
         selector: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get self-healing suggestions from Vectorize memory."""
         if not self.config.vectorize_index:
             return []
@@ -639,7 +640,7 @@ class CloudflareClient:
 # Global Instance
 # =============================================================================
 
-_cloudflare_client: Optional[CloudflareClient] = None
+_cloudflare_client: CloudflareClient | None = None
 
 
 def get_cloudflare_client() -> CloudflareClient:

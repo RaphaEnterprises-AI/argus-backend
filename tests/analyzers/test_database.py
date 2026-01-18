@@ -1,10 +1,10 @@
 """Tests for the database analyzer module."""
 
-import pytest
-from pathlib import Path
 
-from src.analyzers.database import DatabaseAnalyzer
+import pytest
+
 from src.analyzers.base import ComponentType, Severity
+from src.analyzers.database import DatabaseAnalyzer
 
 
 class TestDatabaseAnalyzer:
@@ -187,7 +187,7 @@ def dangerous_query(name):
             if issue.severity == Severity.CRITICAL
         ]
 
-        has_delete_warning = any(
+        any(
             "DELETE" in i.message.upper() and "WHERE" in i.message.upper()
             for i in critical_issues
         )
@@ -198,7 +198,7 @@ def dangerous_query(name):
         result = analyzer.analyze()
 
         # Find components with SQL injection warnings
-        injection_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues

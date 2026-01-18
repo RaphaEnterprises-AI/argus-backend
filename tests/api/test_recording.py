@@ -1,10 +1,9 @@
 """Tests for Recording API endpoints."""
 
-import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 
 
@@ -41,7 +40,7 @@ class TestRecordingModels:
 
     def test_recording_upload_request_basic(self, mock_env_vars):
         """Test RecordingUploadRequest with basic data."""
-        from src.api.recording import RecordingUploadRequest, RRWebEvent, RecordingMetadata
+        from src.api.recording import RecordingMetadata, RecordingUploadRequest, RRWebEvent
 
         events = [
             RRWebEvent(type=4, data={"href": "https://example.com"}, timestamp=1000),
@@ -64,7 +63,7 @@ class TestRecordingModels:
 
     def test_recording_upload_request_empty_events_validation(self, mock_env_vars):
         """Test that empty events list is allowed."""
-        from src.api.recording import RecordingUploadRequest, RecordingMetadata
+        from src.api.recording import RecordingMetadata, RecordingUploadRequest
 
         metadata = RecordingMetadata(
             duration=0,
@@ -197,7 +196,13 @@ class TestUploadRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_upload_recording_success(self, mock_env_vars):
         """Test successful recording upload."""
-        from src.api.recording import upload_recording, RecordingUploadRequest, RRWebEvent, RecordingMetadata, _recordings
+        from src.api.recording import (
+            RecordingMetadata,
+            RecordingUploadRequest,
+            RRWebEvent,
+            _recordings,
+            upload_recording,
+        )
 
         _recordings.clear()
 
@@ -236,7 +241,7 @@ class TestUploadRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_upload_recording_unauthenticated(self, mock_env_vars):
         """Test upload without authentication."""
-        from src.api.recording import upload_recording, RecordingUploadRequest, RecordingMetadata
+        from src.api.recording import RecordingMetadata, RecordingUploadRequest, upload_recording
 
         body = RecordingUploadRequest(
             events=[],
@@ -254,7 +259,7 @@ class TestUploadRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_upload_recording_error_handling(self, mock_env_vars):
         """Test upload error handling."""
-        from src.api.recording import upload_recording, RecordingUploadRequest, RecordingMetadata
+        from src.api.recording import RecordingMetadata, RecordingUploadRequest, upload_recording
 
         body = RecordingUploadRequest(
             events=[],
@@ -278,7 +283,7 @@ class TestConvertRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_convert_recording_success(self, mock_env_vars):
         """Test successful recording conversion."""
-        from src.api.recording import convert_recording, ConvertRequest, _recordings
+        from src.api.recording import ConvertRequest, _recordings, convert_recording
 
         recording_id = str(uuid4())
         _recordings[recording_id] = {
@@ -302,7 +307,7 @@ class TestConvertRecordingEndpoint:
         try:
             with patch("src.api.recording.get_current_user", AsyncMock(return_value=mock_user)):
                 with patch("src.api.recording._parse_rrweb_events") as mock_parse:
-                    from src.api.recording import TestStepModel, TestAssertionModel
+                    from src.api.recording import TestAssertionModel, TestStepModel
                     mock_parse.return_value = (
                         [TestStepModel(action="click", target="#btn")],
                         [TestAssertionModel(type="visible", target="#result")],
@@ -321,7 +326,7 @@ class TestConvertRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_convert_recording_not_found(self, mock_env_vars):
         """Test converting non-existent recording."""
-        from src.api.recording import convert_recording, ConvertRequest, _recordings
+        from src.api.recording import ConvertRequest, _recordings, convert_recording
 
         _recordings.clear()
 
@@ -339,7 +344,7 @@ class TestConvertRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_convert_recording_unauthenticated(self, mock_env_vars):
         """Test conversion without authentication."""
-        from src.api.recording import convert_recording, ConvertRequest
+        from src.api.recording import ConvertRequest, convert_recording
 
         body = ConvertRequest(recording_id="any-id")
         mock_request = MagicMock()
@@ -357,7 +362,7 @@ class TestGetReplayDataEndpoint:
     @pytest.mark.asyncio
     async def test_get_replay_data_success(self, mock_env_vars):
         """Test successful replay data retrieval."""
-        from src.api.recording import get_replay_data, _recordings
+        from src.api.recording import _recordings, get_replay_data
 
         recording_id = str(uuid4())
         _recordings[recording_id] = {
@@ -383,7 +388,7 @@ class TestGetReplayDataEndpoint:
     @pytest.mark.asyncio
     async def test_get_replay_data_access_denied(self, mock_env_vars):
         """Test replay data access denied for different org."""
-        from src.api.recording import get_replay_data, _recordings
+        from src.api.recording import _recordings, get_replay_data
 
         recording_id = str(uuid4())
         _recordings[recording_id] = {
@@ -409,7 +414,7 @@ class TestGetReplayDataEndpoint:
     @pytest.mark.asyncio
     async def test_get_replay_data_not_found(self, mock_env_vars):
         """Test replay data not found."""
-        from src.api.recording import get_replay_data, _recordings
+        from src.api.recording import _recordings, get_replay_data
 
         _recordings.clear()
 
@@ -429,7 +434,7 @@ class TestGenerateRecorderSnippetEndpoint:
     @pytest.mark.asyncio
     async def test_generate_snippet_success(self, mock_env_vars):
         """Test successful snippet generation."""
-        from src.api.recording import generate_recorder_snippet, RecorderSnippetRequest
+        from src.api.recording import RecorderSnippetRequest, generate_recorder_snippet
 
         body = RecorderSnippetRequest(
             project_id="test-project",
@@ -450,7 +455,7 @@ class TestGenerateRecorderSnippetEndpoint:
     @pytest.mark.asyncio
     async def test_generate_snippet_with_custom_options(self, mock_env_vars):
         """Test snippet generation with custom options."""
-        from src.api.recording import generate_recorder_snippet, RecorderSnippetRequest
+        from src.api.recording import RecorderSnippetRequest, generate_recorder_snippet
 
         body = RecorderSnippetRequest(
             project_id="test-project",
@@ -472,7 +477,7 @@ class TestGenerateRecorderSnippetEndpoint:
     @pytest.mark.asyncio
     async def test_generate_snippet_unauthenticated(self, mock_env_vars):
         """Test snippet generation without authentication."""
-        from src.api.recording import generate_recorder_snippet, RecorderSnippetRequest
+        from src.api.recording import RecorderSnippetRequest, generate_recorder_snippet
 
         body = RecorderSnippetRequest()
         mock_request = MagicMock()
@@ -490,7 +495,7 @@ class TestGetRecordingsEndpoint:
     @pytest.mark.asyncio
     async def test_get_recordings_success(self, mock_env_vars):
         """Test successful recordings list retrieval."""
-        from src.api.recording import get_recordings, _recordings
+        from src.api.recording import _recordings, get_recordings
 
         _recordings.clear()
         _recordings["rec-1"] = {
@@ -532,7 +537,7 @@ class TestGetRecordingsEndpoint:
     @pytest.mark.asyncio
     async def test_get_recordings_filter_by_project(self, mock_env_vars):
         """Test filtering recordings by project."""
-        from src.api.recording import get_recordings, _recordings
+        from src.api.recording import _recordings, get_recordings
 
         _recordings.clear()
         _recordings["rec-1"] = {
@@ -567,7 +572,7 @@ class TestGetRecordingsEndpoint:
     @pytest.mark.asyncio
     async def test_get_recordings_org_isolation(self, mock_env_vars):
         """Test that recordings from other orgs are not visible."""
-        from src.api.recording import get_recordings, _recordings
+        from src.api.recording import _recordings, get_recordings
 
         _recordings.clear()
         _recordings["rec-1"] = {
@@ -596,7 +601,7 @@ class TestListRecordingsEndpoint:
     @pytest.mark.asyncio
     async def test_list_recordings_success(self, mock_env_vars):
         """Test list_recordings endpoint."""
-        from src.api.recording import list_recordings, _recordings
+        from src.api.recording import _recordings, list_recordings
 
         _recordings.clear()
         _recordings["rec-1"] = {
@@ -626,7 +631,7 @@ class TestDeleteRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_delete_recording_success(self, mock_env_vars):
         """Test successful recording deletion."""
-        from src.api.recording import delete_recording, _recordings
+        from src.api.recording import _recordings, delete_recording
 
         recording_id = "rec-1"
         _recordings[recording_id] = {
@@ -650,7 +655,7 @@ class TestDeleteRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_delete_recording_not_found(self, mock_env_vars):
         """Test deleting non-existent recording."""
-        from src.api.recording import delete_recording, _recordings
+        from src.api.recording import _recordings, delete_recording
 
         _recordings.clear()
 
@@ -666,7 +671,7 @@ class TestDeleteRecordingEndpoint:
     @pytest.mark.asyncio
     async def test_delete_recording_access_denied(self, mock_env_vars):
         """Test deleting recording from different org."""
-        from src.api.recording import delete_recording, _recordings
+        from src.api.recording import _recordings, delete_recording
 
         recording_id = "rec-1"
         _recordings[recording_id] = {
@@ -706,7 +711,7 @@ class TestPayloadSizeValidation:
 
     def test_events_payload_size_validation_small(self, mock_env_vars):
         """Test that small payloads pass validation."""
-        from src.api.recording import RecordingUploadRequest, RRWebEvent, RecordingMetadata
+        from src.api.recording import RecordingMetadata, RecordingUploadRequest, RRWebEvent
 
         events = [
             RRWebEvent(type=2, data={"small": "data"}, timestamp=i * 1000)
@@ -720,7 +725,8 @@ class TestPayloadSizeValidation:
     def test_events_max_length_enforced(self, mock_env_vars):
         """Test that max_length constraint is enforced."""
         from pydantic import ValidationError
-        from src.api.recording import RecordingUploadRequest, RRWebEvent, RecordingMetadata
+
+        from src.api.recording import RecordingMetadata, RecordingUploadRequest, RRWebEvent
 
         # Try to create more than 50,000 events (the max_length)
         events = [
@@ -738,7 +744,7 @@ class TestRecordingHelperFunctions:
 
     def test_count_interaction_events(self, mock_env_vars):
         """Test _count_interaction_events helper."""
-        from src.api.recording import _count_interaction_events, RRWebEvent
+        from src.api.recording import RRWebEvent, _count_interaction_events
 
         events = [
             RRWebEvent(type=3, data={"source": 2, "type": 2}, timestamp=1000),  # Click

@@ -11,16 +11,16 @@ This integrates with LangGraph's interrupt_before breakpoints to enable
 human approval workflows for self-healing and test plan validation.
 """
 
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import structlog
 
-from src.orchestrator.checkpointer import get_checkpointer, CheckpointManager
-from src.orchestrator.graph import create_testing_graph, get_interrupt_nodes
 from src.config import get_settings
+from src.orchestrator.checkpointer import CheckpointManager, get_checkpointer
+from src.orchestrator.graph import create_testing_graph, get_interrupt_nodes
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/approvals", tags=["Approvals"])
@@ -36,10 +36,10 @@ class ApprovalRequest(BaseModel):
 
     thread_id: str = Field(..., description="Thread ID of the paused execution")
     approved: bool = Field(..., description="Whether to approve the action")
-    modifications: Optional[Dict[str, Any]] = Field(
+    modifications: dict[str, Any] | None = Field(
         None, description="Optional state modifications to apply before resuming"
     )
-    reason: Optional[str] = Field(None, description="Reason for approval/rejection")
+    reason: str | None = Field(None, description="Reason for approval/rejection")
 
 
 class PendingApproval(BaseModel):
@@ -48,9 +48,9 @@ class PendingApproval(BaseModel):
     thread_id: str
     paused_at: str
     paused_before: str
-    state_summary: Dict[str, Any]
+    state_summary: dict[str, Any]
     action_description: str
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 class ApprovalResponse(BaseModel):
@@ -59,13 +59,13 @@ class ApprovalResponse(BaseModel):
     status: str  # approved, rejected, error
     thread_id: str
     message: str
-    result: Optional[Dict[str, Any]] = None
+    result: dict[str, Any] | None = None
 
 
 class ResumeRequest(BaseModel):
     """Request to resume a paused execution."""
 
-    modifications: Optional[Dict[str, Any]] = Field(
+    modifications: dict[str, Any] | None = Field(
         None, description="Optional state modifications to apply before resuming"
     )
 
@@ -73,16 +73,16 @@ class ResumeRequest(BaseModel):
 class StateModification(BaseModel):
     """State modification request."""
 
-    healing_queue: Optional[List[str]] = Field(
+    healing_queue: list[str] | None = Field(
         None, description="Modified list of test IDs to heal"
     )
-    should_continue: Optional[bool] = Field(
+    should_continue: bool | None = Field(
         None, description="Whether to continue execution"
     )
-    test_plan: Optional[List[Dict[str, Any]]] = Field(
+    test_plan: list[dict[str, Any]] | None = Field(
         None, description="Modified test plan"
     )
-    custom: Optional[Dict[str, Any]] = Field(
+    custom: dict[str, Any] | None = Field(
         None, description="Custom state modifications"
     )
 
@@ -150,7 +150,7 @@ async def _get_compiled_graph():
 # =============================================================================
 
 
-@router.get("/pending", response_model=List[PendingApproval])
+@router.get("/pending", response_model=list[PendingApproval])
 async def list_pending_approvals():
     """
     List all pending approvals across all threads.
@@ -175,7 +175,7 @@ async def list_pending_approvals():
                 result.append(
                     PendingApproval(
                         thread_id=thread_id,
-                        paused_at=datetime.now(timezone.utc).isoformat(),
+                        paused_at=datetime.now(UTC).isoformat(),
                         paused_before=p.get("paused_at", "unknown"),
                         state_summary=_build_state_summary(context),
                         action_description=details.get(
@@ -226,7 +226,7 @@ async def get_pending_approval(thread_id: str):
 
         return PendingApproval(
             thread_id=thread_id,
-            paused_at=datetime.now(timezone.utc).isoformat(),
+            paused_at=datetime.now(UTC).isoformat(),
             paused_before=next_node,
             state_summary=_build_state_summary(values),
             action_description=_build_action_description(next_node, values),
@@ -333,7 +333,7 @@ async def approve_action(request: ApprovalRequest):
 
 
 @router.post("/resume/{thread_id}", response_model=ApprovalResponse)
-async def resume_execution(thread_id: str, request: Optional[ResumeRequest] = None):
+async def resume_execution(thread_id: str, request: ResumeRequest | None = None):
     """
     Resume a paused execution without explicit approval.
 
@@ -508,7 +508,7 @@ async def update_thread_state(thread_id: str, modifications: StateModification):
 
 
 @router.delete("/{thread_id}")
-async def abort_execution(thread_id: str, reason: Optional[str] = None):
+async def abort_execution(thread_id: str, reason: str | None = None):
     """
     Abort a paused execution.
 

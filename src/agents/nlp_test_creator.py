@@ -6,7 +6,6 @@ No coding required - just describe what you want to test.
 
 import json
 from dataclasses import dataclass, field
-from typing import Optional
 
 import anthropic
 import structlog
@@ -21,8 +20,8 @@ logger = structlog.get_logger()
 class TestStep:
     """A single step in a test."""
     action: str  # goto, click, fill, type, wait, assert, etc.
-    target: Optional[str] = None  # Selector, URL, or element description
-    value: Optional[str] = None  # Input value
+    target: str | None = None  # Selector, URL, or element description
+    value: str | None = None  # Input value
     description: str = ""  # Human-readable description
 
 
@@ -139,7 +138,7 @@ class NLPTestCreator:
     def __init__(
         self,
         app_url: str,
-        model: Optional[str] = None,
+        model: str | None = None,
     ):
         settings = get_settings()
         api_key = settings.anthropic_api_key
@@ -154,8 +153,8 @@ class NLPTestCreator:
     async def create(
         self,
         description: str,
-        context: Optional[str] = None,
-        test_data: Optional[dict] = None,
+        context: str | None = None,
+        test_data: dict | None = None,
     ) -> GeneratedTest:
         """
         Create a test from a plain English description.
@@ -302,7 +301,7 @@ ACTION EXAMPLES:
     async def create_multiple(
         self,
         descriptions: list[str],
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> list[GeneratedTest]:
         """Create multiple tests from a list of descriptions."""
         tests = []
@@ -314,7 +313,7 @@ ACTION EXAMPLES:
     async def create_from_story(
         self,
         user_story: str,
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> list[GeneratedTest]:
         """
         Create multiple tests from a user story.

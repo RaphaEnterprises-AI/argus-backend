@@ -11,7 +11,7 @@ This module defines the core data structures used by the HybridExecutor:
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 
 class ExecutionMode(str, Enum):
@@ -125,9 +125,9 @@ class StepExecutionConfig:
     use_vision: bool = False  # Force Vision for this step
     always_vision: bool = False  # ONLY use Vision (skip DOM entirely)
     skip_vision: bool = False  # Never use Vision (even on failure)
-    timeout_ms: Optional[int] = None  # Override timeout
-    retries: Optional[int] = None  # Override retry count
-    description: Optional[str] = None  # Human-readable description for Vision
+    timeout_ms: int | None = None  # Override timeout
+    retries: int | None = None  # Override retry count
+    description: str | None = None  # Human-readable description for Vision
 
 
 @dataclass
@@ -157,15 +157,15 @@ class FallbackEvent:
     # Fallback details
     fallback_level: FallbackLevel = FallbackLevel.NONE
     dom_attempts: int = 0
-    dom_error: Optional[str] = None
+    dom_error: str | None = None
 
     # Vision details
-    vision_description: Optional[str] = None
-    vision_coordinates: Optional[tuple[int, int]] = None
+    vision_description: str | None = None
+    vision_coordinates: tuple[int, int] | None = None
 
     # Result
     success: bool = False
-    final_error: Optional[str] = None
+    final_error: str | None = None
 
     # Timing
     dom_duration_ms: int = 0
@@ -176,8 +176,8 @@ class FallbackEvent:
     estimated_cost: float = 0.0
 
     # Evidence
-    screenshot: Optional[bytes] = None
-    screenshot_base64: Optional[str] = None
+    screenshot: bytes | None = None
+    screenshot_base64: str | None = None
 
     # Metadata
     timestamp: datetime = field(default_factory=datetime.utcnow)
@@ -222,7 +222,7 @@ class HybridStepResult:
 
     # Success/failure
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     # Execution mode
     mode_used: Literal["dom", "vision", "hybrid"] = "dom"
@@ -241,11 +241,11 @@ class HybridStepResult:
     estimated_cost: float = 0.0
 
     # Fallback details
-    fallback_event: Optional[FallbackEvent] = None
+    fallback_event: FallbackEvent | None = None
     fallback_level: FallbackLevel = FallbackLevel.NONE
 
     # Evidence
-    screenshot: Optional[bytes] = None
+    screenshot: bytes | None = None
     action_data: Any = None  # Action-specific return data
 
     def to_dict(self) -> dict[str, Any]:

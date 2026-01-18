@@ -10,18 +10,17 @@ These endpoints allow users to see and manage MCP clients (Claude Code, Cursor, 
 that are connected to their Argus account.
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+import re
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from uuid import UUID
-import re
 
-from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
+from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit, translate_clerk_org_id
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/mcp", tags=["MCP Sessions"])
@@ -100,31 +99,31 @@ class MCPConnectionResponse(BaseModel):
 
     id: str
     user_id: str
-    organization_id: Optional[str]
+    organization_id: str | None
     client_id: str
-    client_name: Optional[str]
+    client_name: str | None
     client_type: str
-    session_id: Optional[str]
-    device_name: Optional[str]
-    ip_address: Optional[str]
-    scopes: List[str]
+    session_id: str | None
+    device_name: str | None
+    ip_address: str | None
+    scopes: list[str]
     status: str
     last_activity_at: str
     request_count: int
-    tools_used: List[str]
+    tools_used: list[str]
     connected_at: str
-    disconnected_at: Optional[str]
-    revoked_at: Optional[str]
+    disconnected_at: str | None
+    revoked_at: str | None
     # Computed fields
     is_active: bool
-    seconds_since_activity: Optional[float]
-    connection_duration_hours: Optional[float]
+    seconds_since_activity: float | None
+    connection_duration_hours: float | None
 
 
 class MCPConnectionListResponse(BaseModel):
     """List of MCP connections."""
 
-    connections: List[MCPConnectionResponse]
+    connections: list[MCPConnectionResponse]
     total: int
     active_count: int
 
@@ -135,18 +134,18 @@ class MCPActivityResponse(BaseModel):
     id: str
     connection_id: str
     activity_type: str
-    tool_name: Optional[str]
-    request_id: Optional[str]
-    duration_ms: Optional[int]
+    tool_name: str | None
+    request_id: str | None
+    duration_ms: int | None
     success: bool
-    error_message: Optional[str]
+    error_message: str | None
     created_at: str
 
 
 class MCPActivityListResponse(BaseModel):
     """List of activity entries."""
 
-    activities: List[MCPActivityResponse]
+    activities: list[MCPActivityResponse]
     total: int
 
 
@@ -157,20 +156,20 @@ class MCPStatsResponse(BaseModel):
     total_connections: int
     total_requests: int
     unique_users: int
-    client_types: List[str]
-    last_activity: Optional[str]
+    client_types: list[str]
+    last_activity: str | None
     # Time-based stats
     connections_today: int
     connections_this_week: int
     requests_today: int
     # Top tools
-    top_tools: List[dict]
+    top_tools: list[dict]
 
 
 class RevokeConnectionRequest(BaseModel):
     """Request to revoke an MCP connection."""
 
-    reason: Optional[str] = Field(default="User revoked", max_length=500)
+    reason: str | None = Field(default="User revoked", max_length=500)
 
 
 class RegisterConnectionRequest(BaseModel):
@@ -178,12 +177,12 @@ class RegisterConnectionRequest(BaseModel):
 
     session_id: str
     client_id: str = "argus-mcp"
-    client_name: Optional[str] = None
+    client_name: str | None = None
     client_type: str = "mcp"
-    device_name: Optional[str] = None
-    scopes: List[str] = Field(default=["read", "write"])
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
+    device_name: str | None = None
+    scopes: list[str] = Field(default=["read", "write"])
+    ip_address: str | None = None
+    user_agent: str | None = None
 
 
 class RecordActivityRequest(BaseModel):
@@ -191,15 +190,15 @@ class RecordActivityRequest(BaseModel):
 
     connection_id: str
     tool_name: str
-    request_id: Optional[str] = None
-    duration_ms: Optional[int] = None
+    request_id: str | None = None
+    duration_ms: int | None = None
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
     # Extended fields for richer activity tracking
-    screenshot_key: Optional[str] = None  # R2 key for screenshot
-    input_tokens: Optional[int] = None    # AI cost tracking
-    output_tokens: Optional[int] = None   # AI cost tracking
-    metadata: Optional[dict] = None       # Tool-specific data
+    screenshot_key: str | None = None  # R2 key for screenshot
+    input_tokens: int | None = None    # AI cost tracking
+    output_tokens: int | None = None   # AI cost tracking
+    metadata: dict | None = None       # Tool-specific data
 
 
 # ============================================================================
@@ -215,7 +214,7 @@ def format_connection(row: dict) -> MCPConnectionResponse:
     if not row:
         raise ValueError("Cannot format empty row")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     last_activity = None
     last_activity_str = row.get("last_activity_at")
     if last_activity_str:
@@ -281,8 +280,8 @@ def format_connection(row: dict) -> MCPConnectionResponse:
 @router.get("/connections", response_model=MCPConnectionListResponse)
 async def list_mcp_connections(
     request: Request,
-    org_id: Optional[str] = Query(None, description="Organization ID"),
-    status: Optional[ConnectionStatus] = Query(None, description="Filter by status"),
+    org_id: str | None = Query(None, description="Organization ID"),
+    status: ConnectionStatus | None = Query(None, description="Filter by status"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -432,7 +431,7 @@ async def revoke_mcp_connection(
             {"id": f"eq.{connection_id}"},
             {
                 "status": "revoked",
-                "revoked_at": datetime.now(timezone.utc).isoformat(),
+                "revoked_at": datetime.now(UTC).isoformat(),
                 "revoked_by": user["user_id"],
                 "revoke_reason": reason,
             },
@@ -489,7 +488,7 @@ async def revoke_mcp_connection(
 async def get_connection_activity(
     request: Request,
     connection_id: str,
-    activity_type: Optional[ActivityType] = Query(None),
+    activity_type: ActivityType | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -575,7 +574,7 @@ async def get_connection_activity(
 @router.get("/stats", response_model=MCPStatsResponse)
 async def get_mcp_stats(
     request: Request,
-    org_id: Optional[str] = Query(None, description="Organization ID"),
+    org_id: str | None = Query(None, description="Organization ID"),
 ):
     """Get MCP connection statistics for the dashboard.
 
@@ -622,7 +621,7 @@ async def get_mcp_stats(
         connections = result.get("data", []) or []
 
         # Calculate stats
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=7)
 
@@ -741,7 +740,7 @@ async def register_mcp_connection(
                     "mcp_connections",
                     {"id": f"eq.{connection_id}"},
                     {
-                        "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                        "last_activity_at": datetime.now(UTC).isoformat(),
                         "ip_address": body.ip_address,
                         "user_agent": body.user_agent,
                     },

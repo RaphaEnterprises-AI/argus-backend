@@ -6,17 +6,15 @@ layout discrepancies, and color variations.
 """
 
 import asyncio
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
 
 import structlog
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright
 
-from .models import VisualSnapshot, VisualElement
 from .capture import EnhancedCapture
-from .perceptual_analyzer import PerceptualAnalyzer, ColorChange, TextRenderingDiff
+from .models import VisualSnapshot
+from .perceptual_analyzer import PerceptualAnalyzer
 
 logger = structlog.get_logger()
 
@@ -33,8 +31,8 @@ class BrowserConfig:
     """
     browser: str  # chromium, firefox, webkit
     name: str  # Chrome, Firefox, Safari
-    version: Optional[str] = None
-    channel: Optional[str] = None  # chrome, msedge, chrome-beta, etc.
+    version: str | None = None
+    channel: str | None = None  # chrome, msedge, chrome-beta, etc.
 
     def __str__(self) -> str:
         version_str = f" {self.version}" if self.version else ""
@@ -57,12 +55,12 @@ class BrowserDifference:
     """
     baseline_browser: str
     comparison_browser: str
-    element_selector: Optional[str]
+    element_selector: str | None
     difference_type: str  # "rendering", "layout", "font", "color"
     description: str
     severity: int  # 1-10
-    screenshot_region: Optional[bytes] = None
-    details: Dict = field(default_factory=dict)
+    screenshot_region: bytes | None = None
+    details: dict = field(default_factory=dict)
 
     def is_critical(self) -> bool:
         """Check if this is a critical difference (severity >= 7)."""
@@ -89,24 +87,24 @@ class BrowserCompatibilityReport:
         duration_ms: How long the analysis took
     """
     url: str
-    browsers_tested: List[str]
+    browsers_tested: list[str]
     baseline_browser: str
     overall_compatibility: float  # 0-100%
-    differences: List[BrowserDifference]
+    differences: list[BrowserDifference]
     summary: str
-    snapshots: Dict[str, VisualSnapshot]
+    snapshots: dict[str, VisualSnapshot]
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     duration_ms: int = 0
 
-    def get_differences_by_type(self, diff_type: str) -> List[BrowserDifference]:
+    def get_differences_by_type(self, diff_type: str) -> list[BrowserDifference]:
         """Get all differences of a specific type."""
         return [d for d in self.differences if d.difference_type == diff_type]
 
-    def get_differences_by_browser(self, browser: str) -> List[BrowserDifference]:
+    def get_differences_by_browser(self, browser: str) -> list[BrowserDifference]:
         """Get all differences for a specific browser comparison."""
         return [d for d in self.differences if d.comparison_browser == browser]
 
-    def get_critical_differences(self) -> List[BrowserDifference]:
+    def get_critical_differences(self) -> list[BrowserDifference]:
         """Get all critical differences."""
         return [d for d in self.differences if d.is_critical()]
 
@@ -114,7 +112,7 @@ class BrowserCompatibilityReport:
         """Check if there are any critical issues."""
         return len(self.get_critical_differences()) > 0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert report to dictionary."""
         return {
             "url": self.url,
@@ -192,9 +190,9 @@ class CrossBrowserAnalyzer:
 
     def __init__(
         self,
-        capture: Optional[EnhancedCapture] = None,
-        perceptual: Optional[PerceptualAnalyzer] = None,
-        default_viewport: Optional[Dict[str, int]] = None,
+        capture: EnhancedCapture | None = None,
+        perceptual: PerceptualAnalyzer | None = None,
+        default_viewport: dict[str, int] | None = None,
         headless: bool = True,
     ):
         """Initialize CrossBrowserAnalyzer.
@@ -214,11 +212,11 @@ class CrossBrowserAnalyzer:
     async def capture_browser_matrix(
         self,
         url: str,
-        browsers: Optional[List[BrowserConfig]] = None,
-        viewport: Optional[Dict[str, int]] = None,
+        browsers: list[BrowserConfig] | None = None,
+        viewport: dict[str, int] | None = None,
         wait_for_idle: bool = True,
         timeout: int = 30000,
-    ) -> Dict[str, VisualSnapshot]:
+    ) -> dict[str, VisualSnapshot]:
         """Capture the same URL in multiple browsers.
 
         Args:
@@ -233,7 +231,7 @@ class CrossBrowserAnalyzer:
         """
         browsers = browsers or self.BROWSER_MATRIX
         viewport = viewport or self.default_viewport
-        snapshots: Dict[str, VisualSnapshot] = {}
+        snapshots: dict[str, VisualSnapshot] = {}
 
         self.log.info(
             "Capturing browser matrix",
@@ -267,7 +265,7 @@ class CrossBrowserAnalyzer:
         playwright,
         browser_config: BrowserConfig,
         url: str,
-        viewport: Dict[str, int],
+        viewport: dict[str, int],
         wait_for_idle: bool,
         timeout: int,
     ) -> VisualSnapshot:
@@ -309,10 +307,10 @@ class CrossBrowserAnalyzer:
 
     async def detect_browser_differences(
         self,
-        snapshots: Dict[str, VisualSnapshot],
+        snapshots: dict[str, VisualSnapshot],
         baseline_browser: str = "chromium",
         similarity_threshold: float = 95.0,
-    ) -> List[BrowserDifference]:
+    ) -> list[BrowserDifference]:
         """Find visual differences between browsers.
 
         Args:
@@ -323,7 +321,7 @@ class CrossBrowserAnalyzer:
         Returns:
             List of detected differences
         """
-        differences: List[BrowserDifference] = []
+        differences: list[BrowserDifference] = []
 
         # Find baseline snapshot
         baseline_snapshot = None
@@ -367,9 +365,9 @@ class CrossBrowserAnalyzer:
         baseline_name: str,
         comparison_name: str,
         similarity_threshold: float,
-    ) -> List[BrowserDifference]:
+    ) -> list[BrowserDifference]:
         """Compare two browser snapshots and return differences."""
-        differences: List[BrowserDifference] = []
+        differences: list[BrowserDifference] = []
 
         # 1. Perceptual hash comparison for overall similarity
         hash_similarity = await self.perceptual.compare_hashes(
@@ -459,7 +457,7 @@ class CrossBrowserAnalyzer:
         self,
         baseline: VisualSnapshot,
         comparison: VisualSnapshot,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Compare layouts between two snapshots."""
         diffs = []
 
@@ -542,8 +540,8 @@ class CrossBrowserAnalyzer:
     async def generate_compatibility_report(
         self,
         url: str,
-        browsers: Optional[List[BrowserConfig]] = None,
-        viewport: Optional[Dict[str, int]] = None,
+        browsers: list[BrowserConfig] | None = None,
+        viewport: dict[str, int] | None = None,
         baseline_browser: str = "chromium",
     ) -> BrowserCompatibilityReport:
         """Generate a full cross-browser compatibility report.
@@ -623,7 +621,7 @@ class CrossBrowserAnalyzer:
 
     def _calculate_overall_compatibility(
         self,
-        differences: List[BrowserDifference],
+        differences: list[BrowserDifference],
         num_comparisons: int,
     ) -> float:
         """Calculate overall compatibility score."""
@@ -654,9 +652,9 @@ class CrossBrowserAnalyzer:
 
     def _generate_summary(
         self,
-        differences: List[BrowserDifference],
+        differences: list[BrowserDifference],
         compatibility: float,
-        browsers: List[str],
+        browsers: list[str],
     ) -> str:
         """Generate human-readable summary."""
         if not differences:
@@ -687,9 +685,9 @@ class CrossBrowserAnalyzer:
 
     async def compare_specific_element(
         self,
-        snapshots: Dict[str, VisualSnapshot],
+        snapshots: dict[str, VisualSnapshot],
         selector: str,
-    ) -> Dict[str, bytes]:
+    ) -> dict[str, bytes]:
         """Compare a specific element's rendering across browsers.
 
         Args:
@@ -699,7 +697,7 @@ class CrossBrowserAnalyzer:
         Returns:
             Dictionary mapping browser names to element screenshot bytes
         """
-        element_screenshots: Dict[str, bytes] = {}
+        element_screenshots: dict[str, bytes] = {}
 
         self.log.info("Comparing specific element", selector=selector)
 
@@ -745,8 +743,8 @@ class CrossBrowserAnalyzer:
         self,
         url: str,
         selector: str,
-        browsers: Optional[List[BrowserConfig]] = None,
-    ) -> Dict[str, Dict[str, str]]:
+        browsers: list[BrowserConfig] | None = None,
+    ) -> dict[str, dict[str, str]]:
         """Get computed styles for an element across browsers.
 
         Useful for debugging browser-specific CSS issues.
@@ -760,7 +758,7 @@ class CrossBrowserAnalyzer:
             Dictionary mapping browser names to computed styles
         """
         browsers = browsers or self.BROWSER_MATRIX
-        styles: Dict[str, Dict[str, str]] = {}
+        styles: dict[str, dict[str, str]] = {}
 
         async with async_playwright() as p:
             for browser_config in browsers:

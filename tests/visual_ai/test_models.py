@@ -6,17 +6,17 @@ and helper methods.
 
 import base64
 import json
+
 import pytest
-from datetime import datetime
 
 from src.visual_ai.models import (
     ChangeCategory,
     ChangeIntent,
     Severity,
-    VisualElement,
     VisualChange,
-    VisualSnapshot,
     VisualComparisonResult,
+    VisualElement,
+    VisualSnapshot,
 )
 
 

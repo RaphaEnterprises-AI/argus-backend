@@ -3,8 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -23,7 +22,7 @@ class BrowserConfig:
     ignore_https_errors: bool = True
     locale: str = "en-US"
     timezone_id: str = "America/Los_Angeles"
-    user_agent: Optional[str] = None
+    user_agent: str | None = None
     extra_http_headers: dict = field(default_factory=dict)
 
 
@@ -43,7 +42,7 @@ class BrowserManager:
     Handles browser lifecycle, context creation, and page management.
     """
 
-    def __init__(self, config: Optional[BrowserConfig] = None):
+    def __init__(self, config: BrowserConfig | None = None):
         self.config = config or BrowserConfig()
         self._playwright = None
         self._browser = None
@@ -125,7 +124,7 @@ class BrowserManager:
 
 @asynccontextmanager
 async def create_browser_context(
-    config: Optional[BrowserConfig] = None,
+    config: BrowserConfig | None = None,
 ):
     """
     Context manager for browser sessions.
@@ -189,12 +188,12 @@ class PlaywrightTools:
         """Reload the current page."""
         await self.page.reload(wait_until=wait_until)
 
-    async def go_back(self) -> Optional[str]:
+    async def go_back(self) -> str | None:
         """Go back in history."""
         response = await self.page.go_back()
         return self.page.url if response else None
 
-    async def go_forward(self) -> Optional[str]:
+    async def go_forward(self) -> str | None:
         """Go forward in history."""
         response = await self.page.go_forward()
         return self.page.url if response else None
@@ -269,7 +268,7 @@ class PlaywrightTools:
         """Clear an input field."""
         await self.page.fill(selector, "")
 
-    async def press_key(self, key: str, selector: Optional[str] = None) -> None:
+    async def press_key(self, key: str, selector: str | None = None) -> None:
         """
         Press a keyboard key.
 
@@ -285,9 +284,9 @@ class PlaywrightTools:
     async def select_option(
         self,
         selector: str,
-        value: Optional[str] = None,
-        label: Optional[str] = None,
-        index: Optional[int] = None,
+        value: str | None = None,
+        label: str | None = None,
+        index: int | None = None,
     ) -> list[str]:
         """
         Select option from dropdown.
@@ -347,7 +346,7 @@ class PlaywrightTools:
 
     async def wait_for_navigation(
         self,
-        url: Optional[str] = None,
+        url: str | None = None,
         timeout_ms: int = 30000,
     ) -> None:
         """
@@ -392,7 +391,7 @@ class PlaywrightTools:
         """Find all elements matching selector."""
         return await self.page.query_selector_all(selector)
 
-    async def get_text(self, selector: str) -> Optional[str]:
+    async def get_text(self, selector: str) -> str | None:
         """Get text content of element."""
         element = await self.page.query_selector(selector)
         if element:
@@ -403,7 +402,7 @@ class PlaywrightTools:
         """Get value of input element."""
         return await self.page.input_value(selector)
 
-    async def get_attribute(self, selector: str, name: str) -> Optional[str]:
+    async def get_attribute(self, selector: str, name: str) -> str | None:
         """Get attribute value of element."""
         return await self.page.get_attribute(selector, name)
 
@@ -437,7 +436,7 @@ class PlaywrightTools:
     async def screenshot(
         self,
         full_page: bool = False,
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> bytes:
         """
         Take a screenshot.
@@ -458,7 +457,7 @@ class PlaywrightTools:
     async def screenshot_element(
         self,
         selector: str,
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> bytes:
         """
         Screenshot a specific element.
@@ -533,7 +532,7 @@ class PlaywrightTools:
     # Frames
     # ==========================================================================
 
-    async def frame(self, name: Optional[str] = None, url: Optional[str] = None):
+    async def frame(self, name: str | None = None, url: str | None = None):
         """
         Get frame by name or URL.
 
@@ -582,7 +581,7 @@ class PlaywrightTools:
     # Dialogs
     # ==========================================================================
 
-    async def accept_dialog(self, prompt_text: Optional[str] = None) -> None:
+    async def accept_dialog(self, prompt_text: str | None = None) -> None:
         """Set up handler to accept next dialog."""
         async def handler(dialog):
             await dialog.accept(prompt_text)

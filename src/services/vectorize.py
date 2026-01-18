@@ -5,7 +5,6 @@ Used for semantic search on error patterns.
 """
 
 import logging
-from typing import Optional
 
 import httpx
 
@@ -27,7 +26,7 @@ class CloudflareVectorizeClient:
         self.base_url = f"{CF_API_BASE}/{account_id}/vectorize/v2/indexes/{index_name}"
         # Use bge-large-en-v1.5 for better quality embeddings (1024 dimensions)
         self.ai_url = f"{CF_API_BASE}/{account_id}/ai/run/@cf/baai/bge-large-en-v1.5"
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     def _get_headers(self) -> dict:
         return {
@@ -40,7 +39,7 @@ class CloudflareVectorizeClient:
             self._client = httpx.AsyncClient(timeout=30.0)
         return self._client
 
-    async def generate_embedding(self, text: str) -> Optional[list[float]]:
+    async def generate_embedding(self, text: str) -> list[float] | None:
         """
         Generate text embedding using Cloudflare Workers AI.
 
@@ -76,7 +75,7 @@ class CloudflareVectorizeClient:
         self,
         vector: list[float],
         top_k: int = 5,
-        filter: Optional[dict] = None,
+        filter: dict | None = None,
         return_values: bool = False,
         return_metadata: bool = True
     ) -> list[dict]:
@@ -216,10 +215,10 @@ class CloudflareVectorizeClient:
 
 
 # Global Vectorize client (lazy initialized)
-_vectorize_client: Optional[CloudflareVectorizeClient] = None
+_vectorize_client: CloudflareVectorizeClient | None = None
 
 
-def get_vectorize_client() -> Optional[CloudflareVectorizeClient]:
+def get_vectorize_client() -> CloudflareVectorizeClient | None:
     """Get or create Cloudflare Vectorize client (lazy initialization)."""
     global _vectorize_client
 
@@ -306,7 +305,7 @@ async def semantic_search_errors(
 async def index_error_pattern(
     error_id: str,
     error_text: str,
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 ) -> bool:
     """
     Index an error pattern for future semantic search.

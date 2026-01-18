@@ -1,7 +1,8 @@
 """Tests for NLP Test Creator module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestGeneratedTest:
@@ -9,7 +10,7 @@ class TestGeneratedTest:
 
     def test_generated_test_creation(self):
         """Test creating a generated test."""
-        from src.agents.nlp_test_creator import GeneratedTest, TestStep, TestAssertion
+        from src.agents.nlp_test_creator import GeneratedTest, TestAssertion, TestStep
 
         test = GeneratedTest(
             id="login-test-1",
@@ -35,7 +36,7 @@ class TestGeneratedTest:
 
     def test_to_spec(self):
         """Test converting to test spec format."""
-        from src.agents.nlp_test_creator import GeneratedTest, TestStep, TestAssertion
+        from src.agents.nlp_test_creator import GeneratedTest, TestAssertion, TestStep
 
         test = GeneratedTest(
             id="test-1",

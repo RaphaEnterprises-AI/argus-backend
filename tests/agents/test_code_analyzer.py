@@ -1,11 +1,10 @@
 """Tests for the code analyzer module."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
 import tempfile
-import os
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # Patch target for Anthropic client in base agent
 ANTHROPIC_PATCH = 'anthropic.Anthropic'

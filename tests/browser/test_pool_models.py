@@ -1,8 +1,6 @@
 """Tests for Browser Pool Models module."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, patch
 
 
 class TestActionType:
@@ -180,7 +178,7 @@ class TestObserveResult:
 
     def test_observe_result_creation(self, mock_env_vars):
         """Test creating ObserveResult."""
-        from src.browser.pool_models import ObserveResult, ElementInfo
+        from src.browser.pool_models import ElementInfo, ObserveResult
 
         elements = [
             ElementInfo(selector="#btn1", type="button", tag_name="button"),
@@ -200,7 +198,7 @@ class TestObserveResult:
 
     def test_observe_result_actions_alias(self, mock_env_vars):
         """Test ObserveResult.actions alias for elements."""
-        from src.browser.pool_models import ObserveResult, ElementInfo
+        from src.browser.pool_models import ElementInfo, ObserveResult
 
         elements = [ElementInfo(selector="#btn", type="button", tag_name="button")]
         result = ObserveResult(success=True, url="https://example.com", elements=elements)
@@ -224,7 +222,7 @@ class TestObserveResult:
 
     def test_observe_result_to_dict(self, mock_env_vars):
         """Test ObserveResult to_dict method."""
-        from src.browser.pool_models import ObserveResult, ElementInfo
+        from src.browser.pool_models import ElementInfo, ObserveResult
 
         result = ObserveResult(
             success=True,
@@ -245,7 +243,7 @@ class TestActResult:
 
     def test_act_result_creation(self, mock_env_vars):
         """Test creating ActResult."""
-        from src.browser.pool_models import ActResult, ActionResult, ExecutionMode
+        from src.browser.pool_models import ActionResult, ActResult, ExecutionMode
 
         actions = [ActionResult(action="click", success=True, selector="#btn")]
 
@@ -295,7 +293,7 @@ class TestStepResult:
 
     def test_step_result_creation(self, mock_env_vars):
         """Test creating StepResult."""
-        from src.browser.pool_models import StepResult, ActionResult
+        from src.browser.pool_models import ActionResult, StepResult
 
         step = StepResult(
             step_index=0,
@@ -326,7 +324,7 @@ class TestStepResult:
 
     def test_step_result_to_dict(self, mock_env_vars):
         """Test StepResult to_dict method."""
-        from src.browser.pool_models import StepResult, ExecutionMode
+        from src.browser.pool_models import ExecutionMode, StepResult
 
         step = StepResult(
             step_index=0,
@@ -348,7 +346,7 @@ class TestTestResult:
 
     def test_test_result_creation(self, mock_env_vars):
         """Test creating TestResult."""
-        from src.browser.pool_models import TestResult, StepResult
+        from src.browser.pool_models import StepResult, TestResult
 
         steps = [
             StepResult(step_index=0, instruction="step1", success=True, duration_ms=100),
@@ -366,7 +364,7 @@ class TestTestResult:
 
     def test_test_result_all_passed(self, mock_env_vars):
         """Test TestResult when all steps pass."""
-        from src.browser.pool_models import TestResult, StepResult
+        from src.browser.pool_models import StepResult, TestResult
 
         steps = [
             StepResult(step_index=0, instruction="step1", success=True, duration_ms=100),
@@ -390,7 +388,7 @@ class TestTestResult:
 
     def test_test_result_to_dict(self, mock_env_vars):
         """Test TestResult to_dict method."""
-        from src.browser.pool_models import TestResult, StepResult
+        from src.browser.pool_models import StepResult, TestResult
 
         steps = [
             StepResult(step_index=0, instruction="step1", success=True, duration_ms=100),
@@ -457,7 +455,7 @@ class TestSessionInfo:
 
     def test_session_info_creation(self, mock_env_vars):
         """Test creating SessionInfo."""
-        from src.browser.pool_models import SessionInfo, BrowserType
+        from src.browser.pool_models import BrowserType, SessionInfo
 
         session = SessionInfo(
             session_id="session-123",
@@ -472,7 +470,7 @@ class TestSessionInfo:
 
     def test_session_info_custom_browser(self, mock_env_vars):
         """Test SessionInfo with custom browser type."""
-        from src.browser.pool_models import SessionInfo, BrowserType
+        from src.browser.pool_models import BrowserType, SessionInfo
 
         session = SessionInfo(
             session_id="session-456",
@@ -580,7 +578,7 @@ class TestBrowserPoolConfig:
 
     def test_config_to_dict(self, mock_env_vars):
         """Test BrowserPoolConfig to_dict method."""
-        from src.browser.pool_models import BrowserPoolConfig, BrowserType
+        from src.browser.pool_models import BrowserPoolConfig
 
         config = BrowserPoolConfig(
             pool_url="http://pool.example.com",

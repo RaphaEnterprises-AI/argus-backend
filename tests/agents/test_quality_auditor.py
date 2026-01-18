@@ -1,8 +1,9 @@
 """Tests for the quality auditor module."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestAccessibilityLevel:
@@ -79,7 +80,7 @@ class TestAccessibilityReport:
 
     def test_report_creation(self, mock_env_vars):
         """Test AccessibilityReport creation."""
-        from src.agents.quality_auditor import AccessibilityReport, AccessibilityLevel
+        from src.agents.quality_auditor import AccessibilityLevel, AccessibilityReport
 
         report = AccessibilityReport(
             url="https://example.com",
@@ -123,7 +124,10 @@ class TestQualityReport:
     def test_report_creation(self, mock_env_vars):
         """Test QualityReport creation."""
         from src.agents.quality_auditor import (
-            QualityReport, AccessibilityReport, PerformanceReport, AccessibilityLevel
+            AccessibilityLevel,
+            AccessibilityReport,
+            PerformanceReport,
+            QualityReport,
         )
 
         accessibility = AccessibilityReport(
@@ -519,7 +523,7 @@ class TestQualityAuditor:
         with patch('src.agents.quality_auditor.Anthropic'):
             from src.agents.quality_auditor import QualityAuditor
 
-            auditor = QualityAuditor()
+            QualityAuditor()
 
             # Test grade thresholds
             # A: >= 90, B: >= 80, C: >= 70, D: >= 60, F: < 60

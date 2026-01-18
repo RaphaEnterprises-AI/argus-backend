@@ -5,12 +5,12 @@ HTTP client for communicating with the Crawlee microservice.
 Handles discovery crawling, visual capture, and test execution.
 """
 
-import os
-import httpx
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
-from datetime import datetime
 import logging
+import os
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,8 @@ class CrawleeResponse:
     success: bool
     request_id: str
     duration: int
-    data: Dict[str, Any]
-    error: Optional[str] = None
+    data: dict[str, Any]
+    error: str | None = None
 
 
 class CrawleeServiceUnavailable(Exception):
@@ -44,10 +44,10 @@ class CrawleeClient:
     - Test execution (running test steps)
     """
 
-    def __init__(self, base_url: Optional[str] = None):
+    def __init__(self, base_url: str | None = None):
         self.base_url = base_url or CRAWLEE_SERVICE_URL
         self.timeout = httpx.Timeout(CRAWLEE_TIMEOUT, connect=10.0)
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client"""
@@ -65,7 +65,7 @@ class CrawleeClient:
             await self._client.aclose()
             self._client = None
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Check if Crawlee service is healthy"""
         try:
             client = await self._get_client()
@@ -96,11 +96,11 @@ class CrawleeClient:
         start_url: str,
         max_pages: int = 50,
         max_depth: int = 3,
-        include_patterns: Optional[List[str]] = None,
-        exclude_patterns: Optional[List[str]] = None,
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
         capture_screenshots: bool = True,
-        viewport: Optional[Dict[str, int]] = None,
-        auth_config: Optional[Dict[str, Any]] = None
+        viewport: dict[str, int] | None = None,
+        auth_config: dict[str, Any] | None = None
     ) -> CrawleeResponse:
         """
         Run a discovery crawl on a website.
@@ -168,10 +168,10 @@ class CrawleeClient:
     async def capture_screenshot(
         self,
         url: str,
-        viewport: Optional[Dict[str, int]] = None,
+        viewport: dict[str, int] | None = None,
         full_page: bool = False,
-        selector: Optional[str] = None,
-        wait_for_selector: Optional[str] = None,
+        selector: str | None = None,
+        wait_for_selector: str | None = None,
         wait_for_timeout: int = 5000,
         capture_dom: bool = True
     ) -> CrawleeResponse:
@@ -236,7 +236,7 @@ class CrawleeClient:
     async def capture_responsive(
         self,
         url: str,
-        viewports: Optional[List[Dict[str, Any]]] = None
+        viewports: list[dict[str, Any]] | None = None
     ) -> CrawleeResponse:
         """
         Capture screenshots at multiple viewport sizes.
@@ -290,9 +290,9 @@ class CrawleeClient:
     async def execute_test(
         self,
         test_id: str,
-        steps: List[Dict[str, Any]],
+        steps: list[dict[str, Any]],
         base_url: str,
-        viewport: Optional[Dict[str, int]] = None,
+        viewport: dict[str, int] | None = None,
         timeout: int = 30000,
         capture_screenshots: bool = True,
         capture_video: bool = False
@@ -359,7 +359,7 @@ class CrawleeClient:
     async def extract_elements(
         self,
         url: str,
-        selectors: Optional[List[str]] = None
+        selectors: list[str] | None = None
     ) -> CrawleeResponse:
         """
         Extract interactive elements from a page.
@@ -412,7 +412,7 @@ class CrawleeClient:
 
 
 # Singleton instance
-_client: Optional[CrawleeClient] = None
+_client: CrawleeClient | None = None
 
 
 def get_crawlee_client() -> CrawleeClient:

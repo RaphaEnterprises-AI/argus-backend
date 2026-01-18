@@ -46,16 +46,16 @@ Usage:
         print(f"Vision fallback used: {result.fallback_event}")
 """
 
+from .fallback_manager import FallbackManager
+from .hybrid_executor import HybridExecutor
 from .models import (
     ExecutionMode,
-    FallbackLevel,
     ExecutionStrategy,
     FallbackEvent,
+    FallbackLevel,
     HybridStepResult,
     StepExecutionConfig,
 )
-from .hybrid_executor import HybridExecutor
-from .fallback_manager import FallbackManager
 
 __all__ = [
     # Models

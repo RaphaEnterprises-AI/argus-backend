@@ -4,9 +4,10 @@ This module provides a Python interface to the Argus Browser Worker,
 which handles all browser automation via Cloudflare's @cloudflare/playwright.
 """
 
-import asyncio
 from dataclasses import dataclass
-from typing import Optional, Any
+from datetime import UTC
+from typing import Any
+
 import httpx
 import structlog
 
@@ -19,39 +20,39 @@ logger = structlog.get_logger()
 class ActionResult:
     """Result of a browser action."""
     success: bool
-    message: Optional[str] = None
-    actions: Optional[list[dict]] = None
-    screenshot: Optional[str] = None  # Base64 encoded
+    message: str | None = None
+    actions: list[dict] | None = None
+    screenshot: str | None = None  # Base64 encoded
     healed: bool = False
-    healing_method: Optional[str] = None
-    error: Optional[str] = None
+    healing_method: str | None = None
+    error: str | None = None
 
 
 @dataclass
 class TestResult:
     """Result of a multi-step test."""
     success: bool
-    steps: Optional[list[dict]] = None
-    screenshots: Optional[list[str]] = None
-    final_screenshot: Optional[str] = None
-    healing_report: Optional[dict] = None
-    error: Optional[str] = None
+    steps: list[dict] | None = None
+    screenshots: list[str] | None = None
+    final_screenshot: str | None = None
+    healing_report: dict | None = None
+    error: str | None = None
 
 
 @dataclass
 class DiscoveryResult:
     """Result of element discovery."""
     success: bool
-    actions: Optional[list[dict]] = None
-    error: Optional[str] = None
+    actions: list[dict] | None = None
+    error: str | None = None
 
 
 @dataclass
 class ExtractionResult:
     """Result of data extraction."""
     success: bool
-    data: Optional[Any] = None
-    error: Optional[str] = None
+    data: Any | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -59,17 +60,17 @@ class AgentResult:
     """Result of autonomous agent task."""
     success: bool
     completed: bool = False
-    message: Optional[str] = None
-    actions: Optional[list[dict]] = None
-    screenshots: Optional[list[str]] = None
-    usage: Optional[dict] = None
-    error: Optional[str] = None
+    message: str | None = None
+    actions: list[dict] | None = None
+    screenshots: list[str] | None = None
+    usage: dict | None = None
+    error: str | None = None
 
 
 class BrowserWorkerClient:
     """Client for the Argus Browser Automation Worker (Cloudflare)."""
 
-    def __init__(self, base_url: Optional[str] = None, timeout: float = 120.0):
+    def __init__(self, base_url: str | None = None, timeout: float = 120.0):
         """Initialize the browser worker client.
 
         Args:
@@ -79,7 +80,7 @@ class BrowserWorkerClient:
         settings = get_settings()
         self.base_url = base_url or settings.browser_worker_url
         self.timeout = timeout
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
@@ -217,7 +218,7 @@ class BrowserWorkerClient:
     async def discover_elements(
         self,
         url: str,
-        instruction: Optional[str] = None,
+        instruction: str | None = None,
     ) -> DiscoveryResult:
         """Discover interactive elements on a page.
 
@@ -261,7 +262,7 @@ class BrowserWorkerClient:
         self,
         url: str,
         instruction: str,
-        schema: Optional[dict] = None,
+        schema: dict | None = None,
     ) -> ExtractionResult:
         """Extract structured data from a web page.
 
@@ -366,9 +367,9 @@ class BrowserWorkerClient:
         viewport_width: int = 1440,
         viewport_height: int = 900,
         full_page: bool = False,
-        wait_for: Optional[str] = None,
+        wait_for: str | None = None,
         timeout: float = 90.0,
-    ) -> tuple[Optional[bytes], dict]:
+    ) -> tuple[bytes | None, dict]:
         """Capture a screenshot of a page using the cloud browser.
 
         Args:
@@ -383,7 +384,7 @@ class BrowserWorkerClient:
             Tuple of (screenshot_bytes, metadata) or (None, error_dict)
         """
         import base64
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         try:
             client = await self._get_client()
@@ -432,7 +433,7 @@ class BrowserWorkerClient:
                 "url": url,
                 "viewport": {"width": viewport_width, "height": viewport_height},
                 "full_page": full_page,
-                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "captured_at": datetime.now(UTC).isoformat(),
                 "source": "browser_worker",
             }
 
@@ -448,7 +449,7 @@ class BrowserWorkerClient:
     async def discover(
         self,
         url: str,
-        task: Optional[str] = None,
+        task: str | None = None,
     ) -> DiscoveryResult:
         """Alias for discover_elements with task parameter."""
         return await self.discover_elements(url=url, instruction=task)
@@ -457,14 +458,14 @@ class BrowserWorkerClient:
         self,
         url: str,
         instruction: str,
-        schema: Optional[dict] = None,
+        schema: dict | None = None,
     ) -> ExtractionResult:
         """Alias for extract_data."""
         return await self.extract_data(url=url, instruction=instruction, schema=schema)
 
 
 # Singleton instance
-_client: Optional[BrowserWorkerClient] = None
+_client: BrowserWorkerClient | None = None
 
 
 def get_browser_client() -> BrowserWorkerClient:

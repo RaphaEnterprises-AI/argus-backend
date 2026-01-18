@@ -8,20 +8,19 @@ Understands:
 - Database interactions
 """
 
-import re
 import logging
-from pathlib import Path
-from typing import Optional
+import re
+
+from src.indexer import ParsedFile
 
 from .base import (
     BaseAnalyzer,
     ComponentInfo,
     ComponentType,
-    RouteInfo,
     Issue,
+    RouteInfo,
     Severity,
 )
-from src.indexer import ParsedFile, ASTNode
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +96,7 @@ class BackendAnalyzer(BaseAnalyzer):
         """Analyze FastAPI routes."""
         components: list[ComponentInfo] = []
         content = parsed.content
-        lines = content.split("\n")
+        content.split("\n")
 
         # Find router instance
         router_name = "router"
@@ -419,7 +418,7 @@ class BackendAnalyzer(BaseAnalyzer):
         if not class_match:
             return components
 
-        class_name = class_match.group(1)
+        class_match.group(1)
 
         # Find route methods
         method_pattern = r'@(Get|Post|Put|Patch|Delete)\s*\(\s*["\']?([^"\')\s]*)["\']?\s*\)'

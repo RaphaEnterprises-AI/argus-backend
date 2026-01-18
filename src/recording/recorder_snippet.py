@@ -5,7 +5,6 @@ user sessions for test generation.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -14,7 +13,7 @@ class RecorderConfig:
 
     # Recording options
     block_class: str = "rr-block"
-    block_selector: Optional[str] = None
+    block_selector: str | None = None
     ignore_class: str = "rr-ignore"
     mask_text_class: str = "rr-mask"
     mask_text_selector: str = "input[type=password]"
@@ -27,7 +26,7 @@ class RecorderConfig:
 
     # Privacy options
     mask_inputs: bool = True
-    mask_input_fn: Optional[str] = None
+    mask_input_fn: str | None = None
 
     # Session options
     auto_start: bool = True
@@ -49,7 +48,7 @@ class RecorderSnippetGenerator:
     RRWEB_CDN = "https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.11/dist/rrweb.min.js"
     RRWEB_CSS_CDN = "https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.11/dist/rrweb.min.css"
 
-    def __init__(self, config: Optional[RecorderConfig] = None):
+    def __init__(self, config: RecorderConfig | None = None):
         """Initialize generator with configuration.
 
         Args:
@@ -401,7 +400,7 @@ def generate_snippet(
     format: str = "inline",
     api_key: str = "",
     project_id: str = "",
-    config: Optional[RecorderConfig] = None,
+    config: RecorderConfig | None = None,
 ) -> str:
     """Generate recording snippet in specified format.
 

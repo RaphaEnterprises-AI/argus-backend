@@ -1,8 +1,8 @@
 """Tests for the Cognitive Testing Engine."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+
+import pytest
 
 
 class TestUnderstandingLevel:
@@ -11,7 +11,7 @@ class TestUnderstandingLevel:
     def test_understanding_levels(self, mock_env_vars):
         """Test UnderstandingLevel enum values."""
         from src.core.cognitive_engine import UnderstandingLevel
-        
+
         assert UnderstandingLevel.STRUCTURAL.value == "structural"
         assert UnderstandingLevel.BEHAVIORAL.value == "behavioral"
         assert UnderstandingLevel.SEMANTIC.value == "semantic"
@@ -24,13 +24,13 @@ class TestApplicationModel:
     def test_application_model_creation(self, mock_env_vars):
         """Test creating an ApplicationModel."""
         from src.core.cognitive_engine import ApplicationModel
-        
+
         model = ApplicationModel(
             app_id="test-app",
             name="Test Application",
             purpose="Testing platform",
         )
-        
+
         assert model.app_id == "test-app"
         assert model.purpose == "Testing platform"
         assert model.user_personas == []
@@ -39,7 +39,7 @@ class TestApplicationModel:
     def test_application_model_with_data(self, mock_env_vars):
         """Test ApplicationModel with full data."""
         from src.core.cognitive_engine import ApplicationModel
-        
+
         model = ApplicationModel(
             app_id="test-app",
             name="Test Application",
@@ -50,7 +50,7 @@ class TestApplicationModel:
             invariants=["Cart total >= 0"],
             confidence_score=0.85,
         )
-        
+
         assert len(model.user_personas) == 1
         assert len(model.core_user_journeys) == 1
         assert model.confidence_score == 0.85
@@ -62,7 +62,7 @@ class TestCognitiveInsight:
     def test_cognitive_insight_creation(self, mock_env_vars):
         """Test creating a CognitiveInsight."""
         from src.core.cognitive_engine import CognitiveInsight
-        
+
         insight = CognitiveInsight(
             type="prediction",
             severity="high",
@@ -72,7 +72,7 @@ class TestCognitiveInsight:
             recommended_action="Add rate limiting",
             confidence=0.75,
         )
-        
+
         assert insight.type == "prediction"
         assert insight.severity == "high"
         assert insight.confidence == 0.75
@@ -266,7 +266,7 @@ class TestCognitiveTestingEngine:
         """Test autonomous test generation."""
         with patch('src.core.cognitive_engine.AsyncAnthropic') as mock_anthropic:
             mock_anthropic.return_value = mock_async_anthropic_client
-            from src.core.cognitive_engine import CognitiveTestingEngine, ApplicationModel
+            from src.core.cognitive_engine import ApplicationModel, CognitiveTestingEngine
 
             app_model = ApplicationModel(
                 app_id="test-app",
@@ -298,7 +298,7 @@ class TestCognitiveTestingEngine:
         """Test failure prediction."""
         with patch('src.core.cognitive_engine.AsyncAnthropic') as mock_anthropic:
             mock_anthropic.return_value = mock_async_anthropic_client
-            from src.core.cognitive_engine import CognitiveTestingEngine, ApplicationModel
+            from src.core.cognitive_engine import ApplicationModel, CognitiveTestingEngine
 
             app_model = ApplicationModel(
                 app_id="test-app",
@@ -327,7 +327,7 @@ class TestCognitiveTestingEngine:
         """Test failure explanation."""
         with patch('src.core.cognitive_engine.AsyncAnthropic') as mock_anthropic:
             mock_anthropic.return_value = mock_async_anthropic_client
-            from src.core.cognitive_engine import CognitiveTestingEngine, ApplicationModel
+            from src.core.cognitive_engine import ApplicationModel, CognitiveTestingEngine
 
             app_model = ApplicationModel(
                 app_id="test-app",
@@ -359,7 +359,7 @@ class TestCognitiveTestingEngine:
         """Test test improvement suggestions."""
         with patch('src.core.cognitive_engine.AsyncAnthropic') as mock_anthropic:
             mock_anthropic.return_value = mock_async_anthropic_client
-            from src.core.cognitive_engine import CognitiveTestingEngine, ApplicationModel
+            from src.core.cognitive_engine import ApplicationModel, CognitiveTestingEngine
 
             app_model = ApplicationModel(
                 app_id="test-app",

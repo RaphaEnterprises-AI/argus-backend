@@ -11,10 +11,10 @@ This is the foundation of Argus's fast indexing.
 
 import hashlib
 import logging
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class ASTNode:
     start_byte: int
     end_byte: int
     children: list["ASTNode"] = field(default_factory=list)
-    parent_type: Optional[str] = None
+    parent_type: str | None = None
 
     @property
     def is_named(self) -> bool:
@@ -140,7 +140,7 @@ class ParsedFile:
     language: Language
     content: str
     content_hash: str
-    root: Optional[ASTNode]
+    root: ASTNode | None
     errors: list[str] = field(default_factory=list)
     parse_time_ms: float = 0.0
 
@@ -367,7 +367,7 @@ class TreeSitterParser:
         self,
         content: str,
         language: Language,
-    ) -> tuple[Optional[ASTNode], list[str]]:
+    ) -> tuple[ASTNode | None, list[str]]:
         """Parse using tree-sitter."""
         if not self._initialized:
             return None, []
@@ -423,7 +423,7 @@ class TreeSitterParser:
         self,
         content: str,
         language: Language,
-    ) -> tuple[Optional[ASTNode], list[str]]:
+    ) -> tuple[ASTNode | None, list[str]]:
         """Fallback regex-based parsing when tree-sitter unavailable.
 
         This is less accurate but ensures we can always parse.
@@ -530,7 +530,7 @@ class TreeSitterParser:
 
 
 # Global instance (lazy initialized)
-_parser: Optional[TreeSitterParser] = None
+_parser: TreeSitterParser | None = None
 
 
 def get_parser() -> TreeSitterParser:

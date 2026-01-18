@@ -3,10 +3,9 @@
 import asyncio
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -41,8 +40,8 @@ class SandboxInfo:
     state: SandboxState
     display: str
     vnc_port: int
-    ip_address: Optional[str] = None
-    error: Optional[str] = None
+    ip_address: str | None = None
+    error: str | None = None
 
 
 class SandboxManager:
@@ -53,7 +52,7 @@ class SandboxManager:
     to prevent unintended system interactions.
     """
 
-    def __init__(self, config: Optional[SandboxConfig] = None):
+    def __init__(self, config: SandboxConfig | None = None):
         self.config = config or SandboxConfig()
         self.container = None
         self._state = SandboxState.STOPPED
@@ -65,8 +64,8 @@ class SandboxManager:
 
     async def start(
         self,
-        codebase_path: Optional[str] = None,
-        app_url: Optional[str] = None,
+        codebase_path: str | None = None,
+        app_url: str | None = None,
     ) -> SandboxInfo:
         """
         Start a sandbox container.
@@ -341,7 +340,7 @@ class LocalSandbox:
             raise RuntimeError(
                 "Xvfb not installed. On Ubuntu: apt-get install xvfb"
             )
-        except Exception as e:
+        except Exception:
             self._state = SandboxState.ERROR
             raise
 
@@ -373,7 +372,7 @@ class LocalSandbox:
 
 
 async def build_sandbox_image(
-    dockerfile_path: Optional[Path] = None,
+    dockerfile_path: Path | None = None,
     tag: str = "e2e-agent:latest",
 ) -> str:
     """

@@ -11,10 +11,10 @@ Tests cover:
 - Expiration handling
 """
 
-from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, AsyncMock, patch
-import pytest
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
+import pytest
 
 # =============================================================================
 # Permission Enum Tests
@@ -122,7 +122,7 @@ class TestRolePermissionMapping:
 
     def test_owner_has_all_org_permissions(self):
         """Test that owner role has all organization permissions."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         owner_perms = ROLE_PERMISSIONS[Role.OWNER]
 
@@ -134,7 +134,7 @@ class TestRolePermissionMapping:
 
     def test_admin_has_write_but_not_delete_org(self):
         """Test that admin can write but not delete organization."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         admin_perms = ROLE_PERMISSIONS[Role.ADMIN]
 
@@ -144,7 +144,7 @@ class TestRolePermissionMapping:
 
     def test_member_permissions(self):
         """Test member role permissions."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         member_perms = ROLE_PERMISSIONS[Role.MEMBER]
 
@@ -157,7 +157,7 @@ class TestRolePermissionMapping:
 
     def test_viewer_read_only(self):
         """Test viewer role has only read permissions."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         viewer_perms = ROLE_PERMISSIONS[Role.VIEWER]
 
@@ -173,7 +173,7 @@ class TestRolePermissionMapping:
 
     def test_billing_admin_permissions(self):
         """Test billing admin has only billing-related permissions."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         billing_perms = ROLE_PERMISSIONS[Role.BILLING_ADMIN]
 
@@ -184,7 +184,7 @@ class TestRolePermissionMapping:
 
     def test_security_admin_permissions(self):
         """Test security admin has audit and key permissions."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         security_perms = ROLE_PERMISSIONS[Role.SECURITY_ADMIN]
 
@@ -197,7 +197,7 @@ class TestRolePermissionMapping:
 
     def test_api_user_minimal_permissions(self):
         """Test API user has minimal execution permissions."""
-        from src.api.security.rbac import ROLE_PERMISSIONS, Role, Permission
+        from src.api.security.rbac import ROLE_PERMISSIONS, Permission, Role
 
         api_user_perms = ROLE_PERMISSIONS[Role.API_USER]
 
@@ -223,7 +223,7 @@ class TestRBACManager:
 
     def test_get_permissions_for_role_owner(self, rbac_manager):
         """Test getting permissions for owner role."""
-        from src.api.security.rbac import Role, Permission
+        from src.api.security.rbac import Permission, Role
 
         perms = rbac_manager.get_permissions_for_role(Role.OWNER)
 
@@ -435,7 +435,7 @@ class TestGetRBACManager:
 
     def test_get_rbac_manager_returns_instance(self):
         """Test that get_rbac_manager returns an RBACManager."""
-        from src.api.security.rbac import get_rbac_manager, RBACManager
+        from src.api.security.rbac import RBACManager, get_rbac_manager
 
         manager = get_rbac_manager()
         assert isinstance(manager, RBACManager)
@@ -460,7 +460,7 @@ class TestRequirePermissionDecorator:
     @pytest.fixture
     def mock_user(self):
         """Create mock user context."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         return UserContext(
             user_id="user_123",
@@ -473,7 +473,7 @@ class TestRequirePermissionDecorator:
     @pytest.fixture
     def admin_user(self):
         """Create admin user context."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         return UserContext(
             user_id="admin_123",
@@ -486,7 +486,7 @@ class TestRequirePermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_permission_has_permission(self, admin_user):
         """Test require_permission when user has permission."""
-        from src.api.security.rbac import require_permission, Permission
+        from src.api.security.rbac import Permission, require_permission
 
         @require_permission(Permission.TEST_WRITE)
         async def protected_endpoint(user=None):
@@ -498,8 +498,9 @@ class TestRequirePermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_permission_missing_permission(self, mock_user):
         """Test require_permission when user lacks permission."""
-        from src.api.security.rbac import require_permission, Permission
         from fastapi import HTTPException
+
+        from src.api.security.rbac import Permission, require_permission
 
         @require_permission(Permission.ORG_DELETE)  # Member doesn't have this
         async def protected_endpoint(user=None):
@@ -513,8 +514,9 @@ class TestRequirePermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_permission_no_user(self):
         """Test require_permission when no user provided."""
-        from src.api.security.rbac import require_permission, Permission
         from fastapi import HTTPException
+
+        from src.api.security.rbac import Permission, require_permission
 
         @require_permission(Permission.TEST_READ)
         async def protected_endpoint(user=None):
@@ -528,7 +530,7 @@ class TestRequirePermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_permission_multiple_permissions(self, admin_user):
         """Test require_permission with multiple required permissions."""
-        from src.api.security.rbac import require_permission, Permission
+        from src.api.security.rbac import Permission, require_permission
 
         @require_permission(Permission.TEST_READ, Permission.TEST_WRITE)
         async def protected_endpoint(user=None):
@@ -540,7 +542,7 @@ class TestRequirePermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_permission_user_from_request(self, admin_user):
         """Test require_permission gets user from request state."""
-        from src.api.security.rbac import require_permission, Permission
+        from src.api.security.rbac import Permission, require_permission
 
         @require_permission(Permission.TEST_READ)
         async def protected_endpoint(request=None):
@@ -560,7 +562,7 @@ class TestRequireAnyPermissionDecorator:
     @pytest.fixture
     def viewer_user(self):
         """Create viewer user context."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         return UserContext(
             user_id="viewer_123",
@@ -572,7 +574,7 @@ class TestRequireAnyPermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_any_permission_has_one(self, viewer_user):
         """Test require_any_permission when user has one of the permissions."""
-        from src.api.security.rbac import require_any_permission, Permission
+        from src.api.security.rbac import Permission, require_any_permission
 
         @require_any_permission(Permission.TEST_READ, Permission.TEST_WRITE)
         async def protected_endpoint(user=None):
@@ -585,8 +587,9 @@ class TestRequireAnyPermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_any_permission_has_none(self, viewer_user):
         """Test require_any_permission when user has none of the permissions."""
-        from src.api.security.rbac import require_any_permission, Permission
         from fastapi import HTTPException
+
+        from src.api.security.rbac import Permission, require_any_permission
 
         @require_any_permission(Permission.TEST_WRITE, Permission.TEST_DELETE)
         async def protected_endpoint(user=None):
@@ -600,8 +603,9 @@ class TestRequireAnyPermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_any_permission_no_user(self):
         """Test require_any_permission when no user provided."""
-        from src.api.security.rbac import require_any_permission, Permission
         from fastapi import HTTPException
+
+        from src.api.security.rbac import Permission, require_any_permission
 
         @require_any_permission(Permission.TEST_READ)
         async def protected_endpoint(user=None):
@@ -622,7 +626,7 @@ class TestResourceAccess:
 
     def test_resource_access_creation(self):
         """Test creating ResourceAccess."""
-        from src.api.security.rbac import ResourceAccess, Permission
+        from src.api.security.rbac import Permission, ResourceAccess
 
         access = ResourceAccess(
             resource_type="test",
@@ -656,7 +660,7 @@ class TestResourceAccess:
         """Test ResourceAccess with expiration."""
         from src.api.security.rbac import ResourceAccess
 
-        expiry = datetime.now(timezone.utc) + timedelta(days=7)
+        expiry = datetime.now(UTC) + timedelta(days=7)
         access = ResourceAccess(
             resource_type="test",
             resource_id="test_123",
@@ -803,7 +807,7 @@ class TestResourceACL:
         """Test that expired access is denied."""
         from src.api.security.rbac import Permission
 
-        past_time = datetime.now(timezone.utc) - timedelta(days=1)
+        past_time = datetime.now(UTC) - timedelta(days=1)
         acl.grant_access(
             resource_type="test",
             resource_id="test_123",
@@ -825,7 +829,7 @@ class TestResourceACL:
         """Test that non-expired access is allowed."""
         from src.api.security.rbac import Permission
 
-        future_time = datetime.now(timezone.utc) + timedelta(days=7)
+        future_time = datetime.now(UTC) + timedelta(days=7)
         acl.grant_access(
             resource_type="test",
             resource_id="test_123",
@@ -886,7 +890,7 @@ class TestGetResourceACL:
 
     def test_get_resource_acl_returns_instance(self):
         """Test that get_resource_acl returns a ResourceACL."""
-        from src.api.security.rbac import get_resource_acl, ResourceACL
+        from src.api.security.rbac import ResourceACL, get_resource_acl
 
         acl = get_resource_acl()
         assert isinstance(acl, ResourceACL)

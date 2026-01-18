@@ -12,8 +12,9 @@ Uses Cloudflare KV via REST API for Python backend on Railway.
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar, ParamSpec
+from typing import Any, ParamSpec, TypeVar
 
 import httpx
 
@@ -37,7 +38,7 @@ class CloudflareKVClient:
         self.namespace_id = namespace_id
         self.api_token = api_token
         self.base_url = f"{CF_API_BASE}/{account_id}/storage/kv/namespaces/{namespace_id}"
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     def _get_headers(self) -> dict:
         return {
@@ -50,7 +51,7 @@ class CloudflareKVClient:
             self._client = httpx.AsyncClient(timeout=10.0)
         return self._client
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         """Get a value from KV."""
         try:
             client = await self._get_client()
@@ -105,10 +106,10 @@ class CloudflareKVClient:
 
 
 # Global KV client (lazy initialized)
-_kv_client: Optional[CloudflareKVClient] = None
+_kv_client: CloudflareKVClient | None = None
 
 
-def get_kv_client() -> Optional[CloudflareKVClient]:
+def get_kv_client() -> CloudflareKVClient | None:
     """Get or create Cloudflare KV client (lazy initialization)."""
     global _kv_client
 
@@ -164,7 +165,7 @@ def _deserialize(value: str) -> Any:
 
 
 def cache_quality_score(
-    ttl_seconds: Optional[int] = None,
+    ttl_seconds: int | None = None,
     key_prefix: str = "score"
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
@@ -218,7 +219,7 @@ def cache_quality_score(
 
 
 def cache_llm_response(
-    ttl_seconds: Optional[int] = None,
+    ttl_seconds: int | None = None,
     key_prefix: str = "llm"
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
@@ -274,7 +275,7 @@ def cache_llm_response(
 
 
 def cache_healing_pattern(
-    ttl_seconds: Optional[int] = None,
+    ttl_seconds: int | None = None,
     key_prefix: str = "heal"
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
@@ -332,7 +333,7 @@ def cache_healing_pattern(
 
 # Direct cache operations for non-decorator usage
 
-async def get_cached(key: str) -> Optional[Any]:
+async def get_cached(key: str) -> Any | None:
     """Get a value from cache directly."""
     kv = get_kv_client()
     if kv is None:

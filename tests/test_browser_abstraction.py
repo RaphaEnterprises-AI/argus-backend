@@ -1,7 +1,8 @@
 """Tests for browser automation abstraction layer."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestAutomationFramework:
@@ -24,7 +25,7 @@ class TestBrowserConfig:
 
     def test_default_config(self):
         """Test default configuration values."""
-        from src.tools.browser_abstraction import BrowserConfig, AutomationFramework
+        from src.tools.browser_abstraction import AutomationFramework, BrowserConfig
 
         config = BrowserConfig()
 
@@ -38,7 +39,7 @@ class TestBrowserConfig:
 
     def test_custom_config(self):
         """Test custom configuration values."""
-        from src.tools.browser_abstraction import BrowserConfig, AutomationFramework
+        from src.tools.browser_abstraction import AutomationFramework, BrowserConfig
 
         config = BrowserConfig(
             framework=AutomationFramework.SELENIUM,
@@ -94,9 +95,9 @@ class TestCreateAutomation:
     def test_create_playwright(self):
         """Test creating Playwright automation."""
         from src.tools.browser_abstraction import (
-            create_automation,
-            PlaywrightAutomation,
             AutomationFramework,
+            PlaywrightAutomation,
+            create_automation,
         )
 
         automation = create_automation("playwright")
@@ -107,8 +108,8 @@ class TestCreateAutomation:
     def test_create_selenium(self):
         """Test creating Selenium automation."""
         from src.tools.browser_abstraction import (
-            create_automation,
             SeleniumAutomation,
+            create_automation,
         )
 
         automation = create_automation("selenium")
@@ -118,8 +119,8 @@ class TestCreateAutomation:
     def test_create_computer_use(self):
         """Test creating Computer Use automation."""
         from src.tools.browser_abstraction import (
-            create_automation,
             ComputerUseAutomation,
+            create_automation,
         )
 
         automation = create_automation("computer_use")
@@ -139,9 +140,9 @@ class TestCreateAutomation:
     def test_create_hybrid(self):
         """Test creating Hybrid automation."""
         from src.tools.browser_abstraction import (
-            create_automation,
             HybridAutomation,
             PlaywrightAutomation,
+            create_automation,
         )
 
         automation = create_automation("hybrid", with_fallback=False)
@@ -152,9 +153,9 @@ class TestCreateAutomation:
     def test_create_from_enum(self):
         """Test creating automation from enum value."""
         from src.tools.browser_abstraction import (
-            create_automation,
-            PlaywrightAutomation,
             AutomationFramework,
+            PlaywrightAutomation,
+            create_automation,
         )
 
         automation = create_automation(AutomationFramework.PLAYWRIGHT)
@@ -292,7 +293,7 @@ class TestHybridAutomation:
     @pytest.mark.asyncio
     async def test_uses_primary_first(self):
         """Test that primary automation is tried first."""
-        from src.tools.browser_abstraction import HybridAutomation, ActionResult
+        from src.tools.browser_abstraction import ActionResult, HybridAutomation
 
         mock_primary = AsyncMock()
         mock_primary.click = AsyncMock(
@@ -312,7 +313,7 @@ class TestHybridAutomation:
     @pytest.mark.asyncio
     async def test_falls_back_on_failure(self):
         """Test fallback is used when primary fails."""
-        from src.tools.browser_abstraction import HybridAutomation, ActionResult
+        from src.tools.browser_abstraction import ActionResult, HybridAutomation
 
         mock_primary = AsyncMock()
         mock_primary.click = AsyncMock(
@@ -338,7 +339,7 @@ class TestHybridAutomation:
     @pytest.mark.asyncio
     async def test_no_fallback_when_disabled(self):
         """Test fallback is not used when disabled."""
-        from src.tools.browser_abstraction import HybridAutomation, ActionResult
+        from src.tools.browser_abstraction import ActionResult, HybridAutomation
 
         mock_primary = AsyncMock()
         mock_primary.click = AsyncMock(
@@ -420,7 +421,7 @@ class TestComputerUseAutomation:
 
     def test_init(self):
         """Test ComputerUseAutomation initialization."""
-        from src.tools.browser_abstraction import ComputerUseAutomation, BrowserConfig
+        from src.tools.browser_abstraction import BrowserConfig, ComputerUseAutomation
 
         config = BrowserConfig(viewport_width=1280, viewport_height=720)
         automation = ComputerUseAutomation(config=config)
@@ -511,12 +512,6 @@ class TestModuleExports:
         from src.tools import (
             BrowserAutomation,
             BrowserConfig,
-            ActionResult,
-            AutomationFramework,
-            PlaywrightAutomation,
-            SeleniumAutomation,
-            ComputerUseAutomation,
-            HybridAutomation,
             create_browser,
         )
 
@@ -528,8 +523,6 @@ class TestModuleExports:
         """Test extension bridge exports are available."""
         from src.tools import (
             ExtensionBridge,
-            ExtensionMessage,
-            ExtensionResponse,
             create_extension_bridge,
         )
 

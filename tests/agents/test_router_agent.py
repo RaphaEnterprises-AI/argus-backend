@@ -1,9 +1,10 @@
 """Tests for RouterAgent - Intelligent Model Routing."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import json
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.agents.router_agent import (
     RouterAgent,
@@ -12,7 +13,7 @@ from src.agents.router_agent import (
     TaskContext,
     route_with_agent,
 )
-from src.core.model_router import TaskType, TaskComplexity, MODELS, ModelProvider
+from src.core.model_router import MODELS, TaskComplexity, TaskType
 
 
 class TestRouterAgentConfig:
@@ -494,7 +495,7 @@ class TestRouteWithAgentHelper:
                 ),
             )
 
-            decision = await route_with_agent(
+            await route_with_agent(
                 router=router,
                 prompt="Analyze this screenshot",
                 images=[b"fake-image-data"],

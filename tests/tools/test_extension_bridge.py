@@ -1,18 +1,18 @@
 """Tests for extension bridge module."""
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 import base64
-import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from src.tools.browser_abstraction import AutomationFramework, BrowserConfig
 from src.tools.extension_bridge import (
+    ExtensionBridge,
     ExtensionMessage,
     ExtensionResponse,
-    ExtensionBridge,
     create_extension_bridge,
 )
-from src.tools.browser_abstraction import BrowserConfig, AutomationFramework
 
 
 class TestExtensionMessage:

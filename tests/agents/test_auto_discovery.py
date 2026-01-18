@@ -1,15 +1,15 @@
 """Tests for auto discovery module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+
+import pytest
 
 from src.agents.auto_discovery import (
-    DiscoveredElement,
-    DiscoveredPage,
-    DiscoveredFlow,
-    DiscoveryResult,
     AutoDiscovery,
+    DiscoveredElement,
+    DiscoveredFlow,
+    DiscoveredPage,
+    DiscoveryResult,
     QuickDiscover,
     create_auto_discovery,
 )
@@ -201,7 +201,6 @@ class TestAutoDiscovery:
     async def test_discover_calls_analysis_methods(self, discovery):
         """Test that discover calls analysis methods after crawling."""
         # Mock internal methods to verify they're called
-        original_crawl = discovery._crawl_page
         crawl_calls = []
 
         async def mock_crawl(page, url, depth):

@@ -35,26 +35,26 @@ Example usage:
     expanded_tests = engine.generate_test_matrix(test_spec, test_spec["parameters"]["data_source"])
 """
 
+from src.parameterized.data_sources import (
+    BaseDataSource,
+    CSVDataSource,
+    DataSourceFactory,
+    EnvironmentDataSource,
+    InlineDataSource,
+    JSONDataSource,
+)
+from src.parameterized.engine import ParameterizationEngine
 from src.parameterized.models import (
-    ParameterSet,
     DataSource,
     DataSourceType,
     IterationMode,
-    ParameterizedTest,
     ParameterizedResult,
+    ParameterizedTest,
+    ParameterSet,
     ParameterSetResult,
-    ValidationError,
     ParameterValidationResult,
+    ValidationError,
 )
-from src.parameterized.data_sources import (
-    BaseDataSource,
-    InlineDataSource,
-    CSVDataSource,
-    JSONDataSource,
-    EnvironmentDataSource,
-    DataSourceFactory,
-)
-from src.parameterized.engine import ParameterizationEngine
 
 __all__ = [
     # Models

@@ -6,7 +6,6 @@ Posts test results as PR comments and creates check runs.
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 import httpx
 import structlog
@@ -59,7 +58,7 @@ class GitHubIntegration:
 
     def __init__(
         self,
-        token: Optional[str] = None,
+        token: str | None = None,
         api_base: str = "https://api.github.com",
     ):
         self.token = token or os.environ.get("GITHUB_TOKEN")
@@ -168,7 +167,7 @@ class GitHubIntegration:
         summary: TestSummary,
         title: str = "E2E Test Results",
         update_existing: bool = True,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Post test results as a PR comment.
 
@@ -235,7 +234,7 @@ class GitHubIntegration:
         repo: str,
         pr_number: int,
         signature: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Find an existing comment with our signature."""
         url = f"{self.api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         try:
@@ -259,7 +258,7 @@ class GitHubIntegration:
         sha: str,
         summary: TestSummary,
         name: str = "E2E Tests",
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Create a check run with test results.
 
@@ -314,8 +313,8 @@ class GitHubIntegration:
         state: str,  # error, failure, pending, success
         description: str,
         context: str = "e2e-tests",
-        target_url: Optional[str] = None,
-    ) -> Optional[dict]:
+        target_url: str | None = None,
+    ) -> dict | None:
         """
         Update commit status.
 
@@ -388,6 +387,6 @@ class GitHubIntegration:
                 return []
 
 
-def create_github_integration(token: Optional[str] = None) -> GitHubIntegration:
+def create_github_integration(token: str | None = None) -> GitHubIntegration:
     """Factory function for GitHubIntegration."""
     return GitHubIntegration(token=token)

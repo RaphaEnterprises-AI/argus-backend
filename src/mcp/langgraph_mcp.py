@@ -18,9 +18,7 @@ Usage:
         })
 """
 
-import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, Optional
 
 import structlog
 from langchain_anthropic import ChatAnthropic
@@ -61,7 +59,7 @@ MCP_SERVER_CONFIGS = {
 async def create_testing_agent_with_mcp(
     servers: list[str] = ["playwright"],
     model: str = "claude-sonnet-4-5",
-    system_prompt: Optional[str] = None,
+    system_prompt: str | None = None,
 ):
     """
     Create a LangGraph agent with MCP tools using langchain-mcp-adapters.

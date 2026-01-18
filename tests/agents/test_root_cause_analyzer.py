@@ -1,8 +1,8 @@
 """Tests for the root cause analyzer module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime
 
 
 class TestFailureCategory:
@@ -27,7 +27,7 @@ class TestRootCauseResult:
 
     def test_result_creation(self, mock_env_vars):
         """Test RootCauseResult creation."""
-        from src.agents.root_cause_analyzer import RootCauseResult, FailureCategory
+        from src.agents.root_cause_analyzer import FailureCategory, RootCauseResult
 
         result = RootCauseResult(
             category=FailureCategory.TIMING_ISSUE,
@@ -44,7 +44,7 @@ class TestRootCauseResult:
 
     def test_result_with_all_fields(self, mock_env_vars):
         """Test RootCauseResult with all fields."""
-        from src.agents.root_cause_analyzer import RootCauseResult, FailureCategory
+        from src.agents.root_cause_analyzer import FailureCategory, RootCauseResult
 
         result = RootCauseResult(
             category=FailureCategory.UI_CHANGE,
@@ -136,7 +136,7 @@ class TestRootCauseAnalyzer:
     def test_build_analysis_prompt(self, mock_env_vars):
         """Test building analysis prompt."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
             context = FailureContext(
@@ -153,7 +153,7 @@ class TestRootCauseAnalyzer:
     def test_build_analysis_prompt_with_stack_trace(self, mock_env_vars):
         """Test building prompt with stack trace."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
             context = FailureContext(
@@ -172,7 +172,7 @@ class TestRootCauseAnalyzer:
     def test_build_analysis_prompt_with_screenshot(self, mock_env_vars):
         """Test building prompt with screenshot."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
             context = FailureContext(
@@ -191,7 +191,7 @@ class TestRootCauseAnalyzer:
     def test_build_analysis_prompt_with_network_logs(self, mock_env_vars):
         """Test building prompt with network logs."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
             context = FailureContext(
@@ -213,7 +213,11 @@ class TestRootCauseAnalyzer:
     def test_parse_analysis_success(self, mock_env_vars):
         """Test parsing successful analysis."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext, FailureCategory
+            from src.agents.root_cause_analyzer import (
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+            )
 
             analyzer = RootCauseAnalyzer()
             context = FailureContext(
@@ -245,7 +249,11 @@ class TestRootCauseAnalyzer:
     def test_parse_analysis_no_json(self, mock_env_vars):
         """Test parsing when no JSON is found."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext, FailureCategory
+            from src.agents.root_cause_analyzer import (
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+            )
 
             analyzer = RootCauseAnalyzer()
             context = FailureContext(
@@ -264,7 +272,7 @@ class TestRootCauseAnalyzer:
     def test_create_failure_fingerprint(self, mock_env_vars):
         """Test failure fingerprint creation."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
 
@@ -290,7 +298,10 @@ class TestRootCauseAnalyzer:
         """Test recording a failure."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, FailureContext, RootCauseResult, FailureCategory
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -319,7 +330,10 @@ class TestRootCauseAnalyzer:
         """Test that failure history is limited to 50 entries."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, FailureContext, RootCauseResult, FailureCategory
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -351,7 +365,10 @@ class TestRootCauseAnalyzer:
         """Test enhancing result with history."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, FailureContext, RootCauseResult, FailureCategory
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -387,7 +404,10 @@ class TestRootCauseAnalyzer:
         """Test auto-healability check for UI change."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, FailureContext, RootCauseResult, FailureCategory
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -415,7 +435,10 @@ class TestRootCauseAnalyzer:
         """Test auto-healability check for timing issue."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, FailureContext, RootCauseResult, FailureCategory
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -443,7 +466,10 @@ class TestRootCauseAnalyzer:
         """Test auto-healability check for real bug (not healable)."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, FailureContext, RootCauseResult, FailureCategory
+                FailureCategory,
+                FailureContext,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -485,7 +511,7 @@ class TestRootCauseAnalyzer:
             ''')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
 
@@ -518,7 +544,7 @@ class TestRootCauseAnalyzer:
             ''')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.root_cause_analyzer import RootCauseAnalyzer, FailureContext
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
 
             analyzer = RootCauseAnalyzer()
 
@@ -541,7 +567,9 @@ class TestRootCauseAnalyzer:
         """Test batch recommendation for timing issues."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, RootCauseResult, FailureCategory
+                FailureCategory,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -575,7 +603,9 @@ class TestRootCauseAnalyzer:
         """Test batch recommendation for UI changes."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, RootCauseResult, FailureCategory
+                FailureCategory,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()
@@ -610,7 +640,9 @@ class TestRootCauseAnalyzer:
         """Test batch recommendation when real bugs found."""
         with patch('src.agents.root_cause_analyzer.Anthropic'):
             from src.agents.root_cause_analyzer import (
-                RootCauseAnalyzer, RootCauseResult, FailureCategory
+                FailureCategory,
+                RootCauseAnalyzer,
+                RootCauseResult,
             )
 
             analyzer = RootCauseAnalyzer()

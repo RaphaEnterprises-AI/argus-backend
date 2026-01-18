@@ -4,7 +4,8 @@ These utilities allow LangGraph nodes to emit custom events during execution
 that are streamed to clients in real-time via SSE.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
@@ -31,7 +32,7 @@ def emit_progress(
     step: int,
     total: int,
     message: str,
-    phase: Optional[str] = None,
+    phase: str | None = None,
     **kwargs
 ) -> bool:
     """
@@ -71,7 +72,7 @@ def emit_screenshot(
     screenshot_base64: str,
     step_index: int,
     step_name: str = "",
-    element_info: Optional[Dict[str, Any]] = None
+    element_info: dict[str, Any] | None = None
 ) -> bool:
     """
     Emit a screenshot event to the stream.
@@ -105,10 +106,10 @@ def emit_screenshot(
 
 def emit_tool_call(
     tool_name: str,
-    tool_input: Dict[str, Any],
+    tool_input: dict[str, Any],
     status: str = "calling",
-    tool_output: Optional[Any] = None,
-    duration_ms: Optional[float] = None
+    tool_output: Any | None = None,
+    duration_ms: float | None = None
 ) -> bool:
     """
     Emit a tool call event to the stream.
@@ -156,7 +157,7 @@ def emit_agent_transition(
     from_agent: str,
     to_agent: str,
     reason: str = "",
-    state_summary: Optional[Dict[str, Any]] = None
+    state_summary: dict[str, Any] | None = None
 ) -> bool:
     """
     Emit an agent transition event to the stream.
@@ -231,7 +232,7 @@ def emit_test_completed(
     test_id: str,
     status: str,
     duration_seconds: float,
-    error_message: Optional[str] = None,
+    error_message: str | None = None,
     assertions_passed: int = 0,
     assertions_failed: int = 0
 ) -> bool:
@@ -308,8 +309,8 @@ def emit_healing_attempt(
 def emit_healing_result(
     test_id: str,
     success: bool,
-    changes_made: Optional[Dict[str, Any]] = None,
-    error: Optional[str] = None
+    changes_made: dict[str, Any] | None = None,
+    error: str | None = None
 ) -> bool:
     """
     Emit a healing result event to the stream.
@@ -410,7 +411,7 @@ def emit_llm_thinking(
         return False
 
 
-def emit_custom_event(event_type: str, data: Dict[str, Any]) -> bool:
+def emit_custom_event(event_type: str, data: dict[str, Any]) -> bool:
     """
     Emit a custom event to the stream.
 

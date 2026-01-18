@@ -1,22 +1,22 @@
 """Tests for observability hub module."""
 
-import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta
+
+import pytest
 
 from src.integrations.observability_hub import (
-    Platform,
-    RealUserSession,
-    ProductionError,
-    PerformanceAnomaly,
-    UserJourneyPattern,
-    ObservabilityProvider,
     DatadogProvider,
-    SentryProvider,
-    NewRelicProvider,
     FullStoryProvider,
-    PostHogProvider,
+    NewRelicProvider,
     ObservabilityHub,
+    PerformanceAnomaly,
+    Platform,
+    PostHogProvider,
+    ProductionError,
+    RealUserSession,
+    SentryProvider,
+    UserJourneyPattern,
 )
 
 

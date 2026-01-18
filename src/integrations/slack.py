@@ -12,9 +12,9 @@ Supports both Webhook URL (simple) and Bot Token (full features).
 
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import structlog
@@ -33,8 +33,8 @@ class NotificationStatus(str, Enum):
 @dataclass
 class SlackConfig:
     """Configuration for Slack integration."""
-    webhook_url: Optional[str] = None
-    bot_token: Optional[str] = None
+    webhook_url: str | None = None
+    bot_token: str | None = None
     default_channel: str = "#testing"
     timeout_seconds: float = 30.0
     retry_attempts: int = 3
@@ -59,12 +59,12 @@ class TestResult:
     duration_seconds: float
     cost_usd: float = 0.0
     failures: list[dict] = field(default_factory=list)
-    report_url: Optional[str] = None
-    pr_url: Optional[str] = None
-    pr_number: Optional[int] = None
-    branch: Optional[str] = None
-    commit_sha: Optional[str] = None
-    job_id: Optional[str] = None
+    report_url: str | None = None
+    pr_url: str | None = None
+    pr_number: int | None = None
+    branch: str | None = None
+    commit_sha: str | None = None
+    job_id: str | None = None
 
     @property
     def pass_rate(self) -> float:
@@ -88,12 +88,12 @@ class FailureDetails:
     test_id: str
     test_name: str
     error_message: str
-    stack_trace: Optional[str] = None
-    screenshot_url: Optional[str] = None
-    root_cause: Optional[str] = None
-    component: Optional[str] = None
-    url: Optional[str] = None
-    duration_ms: Optional[int] = None
+    stack_trace: str | None = None
+    screenshot_url: str | None = None
+    root_cause: str | None = None
+    component: str | None = None
+    url: str | None = None
+    duration_ms: int | None = None
     retry_count: int = 0
 
 
@@ -106,7 +106,7 @@ class ScheduleInfo:
     test_suite: str
     estimated_duration_minutes: int = 30
     environment: str = "staging"
-    notify_channel: Optional[str] = None
+    notify_channel: str | None = None
 
 
 @dataclass
@@ -122,7 +122,7 @@ class QualityReport:
     risk_level: str
     trends: dict = field(default_factory=dict)
     recommendations: list[str] = field(default_factory=list)
-    report_url: Optional[str] = None
+    report_url: str | None = None
 
 
 class SlackNotifier:
@@ -166,10 +166,10 @@ class SlackNotifier:
 
     def __init__(
         self,
-        config: Optional[SlackConfig] = None,
-        webhook_url: Optional[str] = None,
-        bot_token: Optional[str] = None,
-        default_channel: Optional[str] = None,
+        config: SlackConfig | None = None,
+        webhook_url: str | None = None,
+        bot_token: str | None = None,
+        default_channel: str | None = None,
     ):
         """
         Initialize SlackNotifier.
@@ -352,7 +352,7 @@ class SlackNotifier:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f":robot_face: Argus E2E Testing Agent | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+                    "text": f":robot_face: Argus E2E Testing Agent | {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
                 }
             ]
         })
@@ -463,7 +463,7 @@ class SlackNotifier:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f":robot_face: Argus E2E Testing Agent | {datetime.now(timezone.utc).strftime('%H:%M UTC')}"
+                    "text": f":robot_face: Argus E2E Testing Agent | {datetime.now(UTC).strftime('%H:%M UTC')}"
                 }
             ]
         })
@@ -472,7 +472,7 @@ class SlackNotifier:
 
     def _build_schedule_reminder_blocks(self, schedule: ScheduleInfo) -> list[dict]:
         """Build Slack blocks for schedule reminder."""
-        time_until = schedule.next_run_at - datetime.now(timezone.utc)
+        time_until = schedule.next_run_at - datetime.now(UTC)
         minutes_until = int(time_until.total_seconds() / 60)
 
         blocks = [
@@ -540,13 +540,10 @@ class SlackNotifier:
         """Build Slack blocks for quality report."""
         # Determine status based on score
         if report.overall_score >= 80:
-            status = NotificationStatus.SUCCESS
             grade_color = ":large_green_circle:"
         elif report.overall_score >= 60:
-            status = NotificationStatus.WARNING
             grade_color = ":large_yellow_circle:"
         else:
-            status = NotificationStatus.FAILURE
             grade_color = ":red_circle:"
 
         blocks = [
@@ -624,7 +621,7 @@ class SlackNotifier:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f":robot_face: Argus Quality Intelligence | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+                    "text": f":robot_face: Argus Quality Intelligence | {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
                 }
             ]
         })
@@ -633,11 +630,11 @@ class SlackNotifier:
 
     async def send_message(
         self,
-        channel: Optional[str] = None,
+        channel: str | None = None,
         message: str = "",
-        blocks: Optional[list[dict]] = None,
-        attachments: Optional[list[dict]] = None,
-        thread_ts: Optional[str] = None,
+        blocks: list[dict] | None = None,
+        attachments: list[dict] | None = None,
+        thread_ts: str | None = None,
         reply_broadcast: bool = False,
     ) -> bool:
         """
@@ -683,8 +680,8 @@ class SlackNotifier:
         self,
         client: httpx.AsyncClient,
         text: str,
-        blocks: Optional[list[dict]],
-        attachments: Optional[list[dict]],
+        blocks: list[dict] | None,
+        attachments: list[dict] | None,
     ) -> bool:
         """Send message via webhook URL."""
         payload: dict[str, Any] = {"text": text}
@@ -726,9 +723,9 @@ class SlackNotifier:
         client: httpx.AsyncClient,
         channel: str,
         text: str,
-        blocks: Optional[list[dict]],
-        attachments: Optional[list[dict]],
-        thread_ts: Optional[str],
+        blocks: list[dict] | None,
+        attachments: list[dict] | None,
+        thread_ts: str | None,
         reply_broadcast: bool,
     ) -> bool:
         """Send message via Slack API with Bot Token."""
@@ -838,7 +835,7 @@ class SlackNotifier:
     async def send_test_result(
         self,
         result: TestResult,
-        channel: Optional[str] = None,
+        channel: str | None = None,
         title: str = "E2E Test Results",
     ) -> bool:
         """
@@ -870,7 +867,7 @@ class SlackNotifier:
     async def send_failure_alert(
         self,
         failure: FailureDetails,
-        channel: Optional[str] = None,
+        channel: str | None = None,
     ) -> bool:
         """
         Send immediate failure alert notification.
@@ -899,7 +896,7 @@ class SlackNotifier:
     async def send_schedule_reminder(
         self,
         schedule: ScheduleInfo,
-        channel: Optional[str] = None,
+        channel: str | None = None,
     ) -> bool:
         """
         Send scheduled run reminder notification.
@@ -917,7 +914,7 @@ class SlackNotifier:
         # Blue attachment for info
         attachments = [{"color": self.COLOR_INFO, "blocks": []}]
 
-        fallback_text = f"Scheduled test run '{schedule.schedule_name}' starting in {int((schedule.next_run_at - datetime.now(timezone.utc)).total_seconds() / 60)} minutes"
+        fallback_text = f"Scheduled test run '{schedule.schedule_name}' starting in {int((schedule.next_run_at - datetime.now(UTC)).total_seconds() / 60)} minutes"
 
         return await self.send_message(
             channel=target_channel,
@@ -929,7 +926,7 @@ class SlackNotifier:
     async def send_quality_report(
         self,
         report: QualityReport,
-        channel: Optional[str] = None,
+        channel: str | None = None,
     ) -> bool:
         """
         Send quality score summary notification.
@@ -1023,9 +1020,9 @@ class SlackNotifier:
 
 # Factory function for easy instantiation
 def create_slack_notifier(
-    webhook_url: Optional[str] = None,
-    bot_token: Optional[str] = None,
-    default_channel: Optional[str] = None,
+    webhook_url: str | None = None,
+    bot_token: str | None = None,
+    default_channel: str | None = None,
 ) -> SlackNotifier:
     """
     Create a SlackNotifier instance.

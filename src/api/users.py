@@ -7,16 +7,16 @@ Provides endpoints for:
 - Listing user's organizations
 """
 
-from datetime import datetime, timezone
-from typing import Optional
 import secrets
+from datetime import UTC, datetime
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, EmailStr
 import structlog
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
-from src.services.supabase_client import get_supabase_client
 from src.api.teams import get_current_user
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/users", tags=["User Profile"])
@@ -55,39 +55,39 @@ class NotificationPreferences(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     """Request to update user profile."""
-    display_name: Optional[str] = Field(None, min_length=1, max_length=100)
-    avatar_url: Optional[str] = Field(None, max_length=500)
-    bio: Optional[str] = Field(None, max_length=500)
-    timezone: Optional[str] = Field(None, max_length=50)
-    language: Optional[str] = Field(None, max_length=10)
-    theme: Optional[str] = Field(None, pattern="^(light|dark|system)$")
+    display_name: str | None = Field(None, min_length=1, max_length=100)
+    avatar_url: str | None = Field(None, max_length=500)
+    bio: str | None = Field(None, max_length=500)
+    timezone: str | None = Field(None, max_length=50)
+    language: str | None = Field(None, max_length=10)
+    theme: str | None = Field(None, pattern="^(light|dark|system)$")
 
 
 class UpdateNotificationPreferencesRequest(BaseModel):
     """Request to update notification preferences."""
     # Master toggles
-    email_notifications: Optional[bool] = None
-    slack_notifications: Optional[bool] = None
-    in_app_notifications: Optional[bool] = None
+    email_notifications: bool | None = None
+    slack_notifications: bool | None = None
+    in_app_notifications: bool | None = None
 
     # Email-specific settings
-    email_test_failures: Optional[bool] = None
-    email_test_completions: Optional[bool] = None
-    email_weekly_digest: Optional[bool] = None
+    email_test_failures: bool | None = None
+    email_test_completions: bool | None = None
+    email_weekly_digest: bool | None = None
 
     # Slack-specific settings
-    slack_test_failures: Optional[bool] = None
-    slack_test_completions: Optional[bool] = None
+    slack_test_failures: bool | None = None
+    slack_test_completions: bool | None = None
 
     # In-app specific settings
-    in_app_test_failures: Optional[bool] = None
-    in_app_test_completions: Optional[bool] = None
+    in_app_test_failures: bool | None = None
+    in_app_test_completions: bool | None = None
 
     # Alert settings
-    test_failure_alerts: Optional[bool] = None
-    daily_digest: Optional[bool] = None
-    weekly_report: Optional[bool] = None
-    alert_threshold: Optional[int] = None
+    test_failure_alerts: bool | None = None
+    daily_digest: bool | None = None
+    weekly_report: bool | None = None
+    alert_threshold: int | None = None
 
 
 class TestDefaults(BaseModel):
@@ -103,40 +103,40 @@ class TestDefaults(BaseModel):
 
 class UpdateTestDefaultsRequest(BaseModel):
     """Request to update test defaults."""
-    default_browser: Optional[str] = Field(None, pattern="^(chromium|firefox|webkit)$")
-    default_timeout: Optional[int] = Field(None, ge=1000, le=300000)
-    parallel_execution: Optional[bool] = None
-    retry_failed_tests: Optional[bool] = None
-    max_retries: Optional[int] = Field(None, ge=0, le=10)
-    screenshot_on_failure: Optional[bool] = None
-    video_recording: Optional[bool] = None
+    default_browser: str | None = Field(None, pattern="^(chromium|firefox|webkit)$")
+    default_timeout: int | None = Field(None, ge=1000, le=300000)
+    parallel_execution: bool | None = None
+    retry_failed_tests: bool | None = None
+    max_retries: int | None = Field(None, ge=0, le=10)
+    screenshot_on_failure: bool | None = None
+    video_recording: bool | None = None
 
 
 class SetDefaultOrganizationRequest(BaseModel):
     """Request to set default organization."""
     organization_id: str = Field(..., min_length=1)
-    project_id: Optional[str] = Field(None, min_length=1)
+    project_id: str | None = Field(None, min_length=1)
 
 
 class UserProfileResponse(BaseModel):
     """User profile response."""
     id: str
     user_id: str
-    email: Optional[str]
-    display_name: Optional[str]
-    avatar_url: Optional[str]
-    bio: Optional[str]
-    timezone: Optional[str]
-    language: Optional[str]
-    theme: Optional[str]
+    email: str | None
+    display_name: str | None
+    avatar_url: str | None
+    bio: str | None
+    timezone: str | None
+    language: str | None
+    theme: str | None
     notification_preferences: NotificationPreferences
     test_defaults: TestDefaults
-    default_organization_id: Optional[str]
-    default_project_id: Optional[str]
+    default_organization_id: str | None
+    default_project_id: str | None
     onboarding_completed: bool
-    onboarding_step: Optional[int]
-    last_login_at: Optional[str]
-    last_active_at: Optional[str]
+    onboarding_step: int | None
+    last_login_at: str | None
+    last_active_at: str | None
     login_count: int
     created_at: str
     updated_at: str
@@ -158,9 +158,9 @@ class UserPreferencesResponse(BaseModel):
     """User preferences response."""
     notification_preferences: NotificationPreferences
     test_defaults: TestDefaults
-    theme: Optional[str]
-    timezone: Optional[str]
-    language: Optional[str]
+    theme: str | None
+    timezone: str | None
+    language: str | None
 
 
 # ============================================================================
@@ -205,7 +205,7 @@ def get_default_test_defaults() -> dict:
     }
 
 
-async def get_or_create_profile(user_id: str, email: Optional[str] = None) -> dict:
+async def get_or_create_profile(user_id: str, email: str | None = None) -> dict:
     """Get user profile, creating it if it doesn't exist.
 
     Args:
@@ -226,7 +226,7 @@ async def get_or_create_profile(user_id: str, email: Optional[str] = None) -> di
         return result["data"][0]
 
     # Profile doesn't exist, create it
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     new_profile = {
         "user_id": user_id,
@@ -275,7 +275,7 @@ async def get_my_profile(request: Request):
     await supabase.update(
         "user_profiles",
         {"id": f"eq.{profile['id']}"},
-        {"last_active_at": datetime.now(timezone.utc).isoformat()}
+        {"last_active_at": datetime.now(UTC).isoformat()}
     )
 
     # Parse notification preferences and test defaults
@@ -317,7 +317,7 @@ async def update_my_profile(body: UpdateProfileRequest, request: Request):
     supabase = get_supabase_client()
 
     # Build update data
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.display_name is not None:
         update_data["display_name"] = body.display_name
@@ -362,7 +362,7 @@ async def patch_my_profile(body: UpdateProfileRequest, request: Request):
     supabase = get_supabase_client()
 
     # Build update data - only include fields that were explicitly provided
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.display_name is not None:
         update_data["display_name"] = body.display_name
@@ -474,7 +474,7 @@ async def update_notification_preferences(
         {"id": f"eq.{profile['id']}"},
         {
             "notification_preferences": current_prefs,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
     )
 
@@ -524,7 +524,7 @@ async def update_test_defaults(
         {"id": f"eq.{profile['id']}"},
         {
             "test_defaults": current_defaults,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
     )
 
@@ -582,7 +582,7 @@ async def set_default_organization(
     # Update profile
     update_data = {
         "default_organization_id": body.organization_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
 
     if body.project_id:
@@ -610,7 +610,7 @@ async def set_default_organization(
 
 async def _create_personal_organization(
     user_id: str,
-    user_email: Optional[str] = None
+    user_email: str | None = None
 ) -> Optional["OrganizationSummary"]:
     """Auto-create a personal organization for users without any org membership.
 
@@ -701,7 +701,7 @@ async def _create_personal_organization(
             "email": user_email or "",
             "role": "owner",
             "status": "active",
-            "accepted_at": datetime.now(timezone.utc).isoformat(),
+            "accepted_at": datetime.now(UTC).isoformat(),
         })
 
         if member_result.get("error"):
@@ -898,7 +898,7 @@ async def switch_organization(org_id: str, request: Request):
         {"id": f"eq.{profile['id']}"},
         {
             "default_organization_id": org_id,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
     )
 

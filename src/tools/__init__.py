@@ -20,40 +20,41 @@ Usage:
     browser = await create_browser(framework=AutomationFramework.HYBRID)
 """
 
-from .playwright_tools import (
-    BrowserManager,
-    PlaywrightTools,
-    create_browser_context,
-)
-
 from .browser_abstraction import (
-    BrowserAutomation,
-    BrowserConfig,
     ActionResult,
     AutomationFramework,
-    PlaywrightAutomation,
-    SeleniumAutomation,
+    BrowserAutomation,
+    BrowserConfig,
     ComputerUseAutomation,
     HybridAutomation,
+    PlaywrightAutomation,
+    SeleniumAutomation,
     create_browser,
 )
-
+from .browser_worker_client import (
+    ActionResult as WorkerActionResult,
+)
+from .browser_worker_client import (
+    AgentResult,
+    BrowserWorkerClient,
+    DiscoveryResult,
+    ExtractionResult,
+    cleanup_browser_client,
+    get_browser_client,
+)
+from .browser_worker_client import (
+    TestResult as WorkerTestResult,
+)
 from .extension_bridge import (
     ExtensionBridge,
     ExtensionMessage,
     ExtensionResponse,
     create_extension_bridge,
 )
-
-from .browser_worker_client import (
-    BrowserWorkerClient,
-    ActionResult as WorkerActionResult,
-    TestResult as WorkerTestResult,
-    DiscoveryResult,
-    ExtractionResult,
-    AgentResult,
-    get_browser_client,
-    cleanup_browser_client,
+from .playwright_tools import (
+    BrowserManager,
+    PlaywrightTools,
+    create_browser_context,
 )
 
 __all__ = [

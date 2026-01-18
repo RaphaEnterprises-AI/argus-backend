@@ -15,8 +15,7 @@ import asyncio
 import json
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -47,7 +46,7 @@ class MCPToolResult:
     """Result from an MCP tool call."""
     success: bool
     content: Any
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class PlaywrightMCPClient:
@@ -70,9 +69,9 @@ class PlaywrightMCPClient:
             screenshot = await client.screenshot()
     """
 
-    def __init__(self, config: Optional[MCPServerConfig] = None):
+    def __init__(self, config: MCPServerConfig | None = None):
         self.config = config or MCPServerConfig()
-        self._process: Optional[subprocess.Popen] = None
+        self._process: subprocess.Popen | None = None
         self._reader = None
         self._writer = None
         self.log = logger.bind(component="playwright_mcp")

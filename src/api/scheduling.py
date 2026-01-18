@@ -10,14 +10,13 @@ Now with Supabase persistence for production use.
 """
 
 import asyncio
-import re
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Literal
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Query, BackgroundTasks
-from pydantic import BaseModel, Field, field_validator
 import structlog
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator
 
 from src.integrations.supabase import get_supabase, is_supabase_configured
 
@@ -37,7 +36,7 @@ schedule_runs: dict[str, list[dict]] = {}  # schedule_id -> list of runs
 # Supabase Helper Functions
 # ============================================================================
 
-async def _get_schedule_from_db(schedule_id: str) -> Optional[dict]:
+async def _get_schedule_from_db(schedule_id: str) -> dict | None:
     """Get a schedule from Supabase by ID."""
     supabase = await get_supabase()
     if not supabase:
@@ -52,7 +51,7 @@ async def _get_schedule_from_db(schedule_id: str) -> Optional[dict]:
     return result[0] if result else None
 
 
-async def _get_schedule_runs_from_db(schedule_id: str, status: Optional[str] = None, limit: int = 20, offset: int = 0) -> list[dict]:
+async def _get_schedule_runs_from_db(schedule_id: str, status: str | None = None, limit: int = 20, offset: int = 0) -> list[dict]:
     """Get schedule runs from Supabase."""
     supabase = await get_supabase()
     if not supabase:
@@ -227,7 +226,7 @@ CRON_FIELD_PATTERNS = {
 }
 
 
-def validate_cron_expression(cron_expression: str) -> tuple[bool, Optional[str]]:
+def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
     """
     Validate a cron expression syntax.
 
@@ -255,7 +254,6 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, Optional[str]]
     if len(parts) != 5:
         return False, f"Invalid cron expression: expected 5 fields, got {len(parts)}"
 
-    field_names = ["minute", "hour", "day_of_month", "month", "day_of_week"]
     field_ranges = [
         (0, 59, "minute"),
         (0, 23, "hour"),
@@ -313,7 +311,7 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, Optional[str]]
     return True, None
 
 
-def calculate_next_run(cron_expression: str, from_time: Optional[datetime] = None) -> Optional[datetime]:
+def calculate_next_run(cron_expression: str, from_time: datetime | None = None) -> datetime | None:
     """
     Calculate the next run time based on cron expression.
 
@@ -334,7 +332,7 @@ def calculate_next_run(cron_expression: str, from_time: Optional[datetime] = Non
         return None
 
     if from_time is None:
-        from_time = datetime.now(timezone.utc)
+        from_time = datetime.now(UTC)
 
     parts = cron_expression.strip().split()
     minute, hour, day_of_month, month, day_of_week = parts
@@ -394,7 +392,7 @@ def calculate_next_run(cron_expression: str, from_time: Optional[datetime] = Non
 
 def calculate_previous_runs(
     cron_expression: str,
-    from_time: Optional[datetime] = None,
+    from_time: datetime | None = None,
     count: int = 5
 ) -> list[datetime]:
     """
@@ -417,19 +415,19 @@ class ScheduleCreateRequest(BaseModel):
     project_id: str = Field(..., description="Project ID to associate the schedule with")
     name: str = Field(..., min_length=1, max_length=100, description="Schedule name")
     cron_expression: str = Field(..., description="Cron expression (5 fields: min hour day month dow)")
-    test_ids: Optional[list[str]] = Field(None, description="Specific test IDs to run (None = all tests)")
+    test_ids: list[str] | None = Field(None, description="Specific test IDs to run (None = all tests)")
     app_url: str = Field(..., description="Application URL to test")
     enabled: bool = Field(True, description="Whether the schedule is enabled")
     notify_on_failure: bool = Field(True, description="Send notifications on test failures")
-    notification_channels: Optional[dict] = Field(
+    notification_channels: dict | None = Field(
         default_factory=lambda: {"email": True, "slack": False},
         description="Notification channel settings"
     )
-    description: Optional[str] = Field(None, max_length=500, description="Schedule description")
+    description: str | None = Field(None, max_length=500, description="Schedule description")
     timeout_minutes: int = Field(60, ge=5, le=480, description="Maximum run duration in minutes")
     retry_count: int = Field(0, ge=0, le=3, description="Number of retries on failure")
-    environment_variables: Optional[dict] = Field(None, description="Environment variables for test runs")
-    tags: Optional[list[str]] = Field(None, description="Tags for categorization")
+    environment_variables: dict | None = Field(None, description="Environment variables for test runs")
+    tags: list[str] | None = Field(None, description="Tags for categorization")
 
     @field_validator("cron_expression")
     @classmethod
@@ -442,22 +440,22 @@ class ScheduleCreateRequest(BaseModel):
 
 class ScheduleUpdateRequest(BaseModel):
     """Request to update an existing schedule."""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    cron_expression: Optional[str] = None
-    test_ids: Optional[list[str]] = None
-    app_url: Optional[str] = None
-    enabled: Optional[bool] = None
-    notify_on_failure: Optional[bool] = None
-    notification_channels: Optional[dict] = None
-    description: Optional[str] = Field(None, max_length=500)
-    timeout_minutes: Optional[int] = Field(None, ge=5, le=480)
-    retry_count: Optional[int] = Field(None, ge=0, le=3)
-    environment_variables: Optional[dict] = None
-    tags: Optional[list[str]] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    cron_expression: str | None = None
+    test_ids: list[str] | None = None
+    app_url: str | None = None
+    enabled: bool | None = None
+    notify_on_failure: bool | None = None
+    notification_channels: dict | None = None
+    description: str | None = Field(None, max_length=500)
+    timeout_minutes: int | None = Field(None, ge=5, le=480)
+    retry_count: int | None = Field(None, ge=0, le=3)
+    environment_variables: dict | None = None
+    tags: list[str] | None = None
 
     @field_validator("cron_expression")
     @classmethod
-    def validate_cron(cls, v: Optional[str]) -> Optional[str]:
+    def validate_cron(cls, v: str | None) -> str | None:
         if v is not None:
             is_valid, error = validate_cron_expression(v)
             if not is_valid:
@@ -472,27 +470,27 @@ class ScheduleResponse(BaseModel):
     name: str
     cron_expression: str
     cron_readable: str  # Human-readable description
-    test_ids: Optional[list[str]]
+    test_ids: list[str] | None
     app_url: str
     enabled: bool
     status: Literal["active", "paused", "running", "error"]
     notify_on_failure: bool
     notification_channels: dict
-    description: Optional[str]
+    description: str | None
     timeout_minutes: int
     retry_count: int
-    environment_variables: Optional[dict]
-    tags: Optional[list[str]]
-    next_run_at: Optional[str]
-    last_run_at: Optional[str]
-    last_run_status: Optional[Literal["success", "failure", "running", "cancelled"]]
+    environment_variables: dict | None
+    tags: list[str] | None
+    next_run_at: str | None
+    last_run_at: str | None
+    last_run_status: Literal["success", "failure", "running", "cancelled"] | None
     run_count: int
     success_count: int
     failure_count: int
-    avg_duration_seconds: Optional[float]
+    avg_duration_seconds: float | None
     created_at: str
     updated_at: str
-    created_by: Optional[str]
+    created_by: str | None
 
 
 class ScheduleRunResponse(BaseModel):
@@ -501,14 +499,14 @@ class ScheduleRunResponse(BaseModel):
     schedule_id: str
     status: Literal["pending", "running", "success", "failure", "cancelled", "timeout"]
     started_at: str
-    completed_at: Optional[str]
-    duration_seconds: Optional[int]
+    completed_at: str | None
+    duration_seconds: int | None
     trigger_type: Literal["scheduled", "manual"]
-    triggered_by: Optional[str]
-    test_results: Optional[dict]
-    error_message: Optional[str]
+    triggered_by: str | None
+    test_results: dict | None
+    error_message: str | None
     retry_attempt: int
-    logs_url: Optional[str]
+    logs_url: str | None
 
 
 class ScheduleListResponse(BaseModel):
@@ -668,7 +666,7 @@ def _build_schedule_response(schedule: dict, runs: list[dict]) -> ScheduleRespon
     )
 
 
-async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: Optional[str] = None):
+async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: str | None = None):
     """
     Background task to run scheduled tests.
 
@@ -698,7 +696,7 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: Optio
         await asyncio.sleep(2)  # Simulate work
 
         # Update run with results
-        completed_at = datetime.now(timezone.utc)
+        completed_at = datetime.now(UTC)
         duration_ms = 2000  # Would be calculated from actual run
 
         await _update_schedule_run_in_db(run_id, {
@@ -724,7 +722,7 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: Optio
 
         await _update_schedule_run_in_db(run_id, {
             "status": "failed",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
             "error_message": str(e),
         })
 
@@ -755,7 +753,7 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request):
     - "*/30 * * * *" - Every 30 minutes
     """
     schedule_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_iso = now.isoformat()
 
     # Get user from request headers (set by auth middleware)
@@ -828,9 +826,9 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request):
 
 @router.get("", response_model=ScheduleListResponse)
 async def list_schedules(
-    project_id: Optional[str] = Query(None, description="Filter by project ID"),
-    enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
-    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated)"),
+    project_id: str | None = Query(None, description="Filter by project ID"),
+    enabled: bool | None = Query(None, description="Filter by enabled status"),
+    tags: str | None = Query(None, description="Filter by tags (comma-separated)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
 ):
@@ -936,7 +934,7 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateRequest):
 
     # Update only provided fields
     update_data = body.model_dump(exclude_unset=True)
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_at"] = datetime.now(UTC).isoformat()
 
     # Recalculate next_run if cron changed
     if "cron_expression" in update_data:
@@ -1024,7 +1022,7 @@ async def trigger_schedule(
     triggered_by = user_email or user_id or "api"
 
     run_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     run = {
         "id": run_id,
@@ -1072,7 +1070,7 @@ async def trigger_schedule(
 @router.get("/{schedule_id}/runs", response_model=list[ScheduleRunResponse])
 async def get_schedule_runs(
     schedule_id: str,
-    status: Optional[str] = Query(None, description="Filter by status"),
+    status: str | None = Query(None, description="Filter by status"),
     limit: int = Query(20, ge=1, le=100, description="Maximum runs to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
 ):
@@ -1166,7 +1164,7 @@ async def cancel_run(schedule_id: str, run_id: str):
         )
 
     run["status"] = "cancelled"
-    run["completed_at"] = datetime.now(timezone.utc).isoformat()
+    run["completed_at"] = datetime.now(UTC).isoformat()
 
     logger.info("Run cancelled", schedule_id=schedule_id, run_id=run_id)
 
@@ -1200,7 +1198,7 @@ async def validate_cron_endpoint(cron_expression: str = Query(..., description="
 
     # Calculate next 5 run times
     next_runs = []
-    current = datetime.now(timezone.utc)
+    current = datetime.now(UTC)
     for _ in range(5):
         next_run = calculate_next_run(cron_expression, current)
         if next_run:

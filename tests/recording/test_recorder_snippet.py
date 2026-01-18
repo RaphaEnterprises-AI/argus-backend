@@ -1,12 +1,12 @@
 """Tests for recorder snippet generator."""
 
 import pytest
+
 from src.recording.recorder_snippet import (
     RecorderConfig,
     RecorderSnippetGenerator,
     generate_snippet,
 )
-
 
 # =============================================================================
 # RecorderConfig Tests

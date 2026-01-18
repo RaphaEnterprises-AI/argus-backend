@@ -1,10 +1,11 @@
 """Tests for main.py entry point."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import tempfile
 import json
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestRunTests:
@@ -212,7 +213,7 @@ class TestCli:
                 cli()
 
                 # Check the coroutine was called with correct output_dir
-                call_coro = mock_run.call_args[0][0]
+                mock_run.call_args[0][0]
                 # Coroutine should be the run_tests call
                 assert mock_run.called
 
@@ -292,7 +293,7 @@ class TestModuleLevelConfig:
     def test_structlog_configured(self, mock_env_vars):
         """Test that structlog is configured at module level."""
         import structlog
-        from src import main  # Import triggers configuration
+
 
         # Should have a configured logger
         logger = structlog.get_logger()

@@ -9,15 +9,13 @@ receives artifact IDs in tool results.
 """
 
 import base64
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response, Request, Depends
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field
 
+from src.api.security.auth import UserContext, get_current_user
 from src.orchestrator.artifact_store import get_artifact_store
-from src.api.security.auth import get_current_user, UserContext
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
 logger = structlog.get_logger()
@@ -30,7 +28,7 @@ class ArtifactResponse(BaseModel):
     type: str
     content: str = Field(..., description="Base64 encoded content or URL")
     content_type: str = Field(default="base64", description="Either 'base64' or 'url'")
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 class ArtifactListResponse(BaseModel):
@@ -183,7 +181,7 @@ async def get_artifact_raw(
 
 
 @router.get("/")
-async def list_recent_artifacts(limit: int = 20, type: Optional[str] = None):
+async def list_recent_artifacts(limit: int = 20, type: str | None = None):
     """
     List recent artifacts from the memory store.
 

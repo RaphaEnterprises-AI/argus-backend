@@ -11,9 +11,10 @@ This module tests:
 - Health checking
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 
 class TestCrawleeResponse:
@@ -87,7 +88,7 @@ class TestCrawleeClient:
 
     def test_client_initialization_default(self, mock_env_vars):
         """Test CrawleeClient initialization with defaults."""
-        from src.services.crawlee_client import CrawleeClient, CRAWLEE_SERVICE_URL
+        from src.services.crawlee_client import CRAWLEE_SERVICE_URL, CrawleeClient
 
         client = CrawleeClient()
 
@@ -831,6 +832,7 @@ class TestCrawleeClientConfiguration:
 
         # Reload module to pick up new env vars
         import importlib
+
         import src.services.crawlee_client as module
         importlib.reload(module)
 
@@ -843,6 +845,7 @@ class TestCrawleeClientConfiguration:
         monkeypatch.delenv("CRAWLEE_TIMEOUT", raising=False)
 
         import importlib
+
         import src.services.crawlee_client as module
         importlib.reload(module)
 

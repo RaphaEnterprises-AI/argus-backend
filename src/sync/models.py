@@ -1,9 +1,9 @@
 """Data models for two-way IDE synchronization."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 
@@ -67,15 +67,15 @@ class SyncEvent:
     type: SyncEventType = SyncEventType.TEST_UPDATED
     source: SyncSource = SyncSource.IDE
     project_id: str = ""
-    test_id: Optional[str] = None
+    test_id: str | None = None
     path: list[str] = field(default_factory=list)  # JSON path for partial updates
-    content: Optional[dict] = None  # Full or partial content
-    previous_content: Optional[dict] = None  # For undo/conflict detection
+    content: dict | None = None  # Full or partial content
+    previous_content: dict | None = None  # For undo/conflict detection
     local_version: int = 0
     remote_version: int = 0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    user_id: Optional[str] = None
-    checksum: Optional[str] = None  # Content hash for validation
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    user_id: str | None = None
+    checksum: str | None = None  # Content hash for validation
 
     def to_dict(self) -> dict:
         """Convert to dictionary for transmission."""
@@ -111,7 +111,7 @@ class SyncEvent:
             remote_version=data.get("remote_version", 0),
             timestamp=datetime.fromisoformat(data["timestamp"])
             if data.get("timestamp")
-            else datetime.now(timezone.utc),
+            else datetime.now(UTC),
             user_id=data.get("user_id"),
             checksum=data.get("checksum"),
         )
@@ -128,12 +128,12 @@ class SyncConflict:
     remote_value: Any = None
     local_version: int = 0
     remote_version: int = 0
-    local_timestamp: Optional[datetime] = None
-    remote_timestamp: Optional[datetime] = None
+    local_timestamp: datetime | None = None
+    remote_timestamp: datetime | None = None
     resolved: bool = False
-    resolution: Optional[ConflictResolutionStrategy] = None
+    resolution: ConflictResolutionStrategy | None = None
     resolved_value: Any = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -166,12 +166,12 @@ class TestSyncState:
     local_version: int = 0
     remote_version: int = 0
     status: SyncStatus = SyncStatus.SYNCED
-    last_synced: Optional[datetime] = None
-    last_local_change: Optional[datetime] = None
-    last_remote_change: Optional[datetime] = None
+    last_synced: datetime | None = None
+    last_local_change: datetime | None = None
+    last_remote_change: datetime | None = None
     pending_changes: list[SyncEvent] = field(default_factory=list)
     conflicts: list[SyncConflict] = field(default_factory=list)
-    checksum: Optional[str] = None
+    checksum: str | None = None
 
     @property
     def has_conflicts(self) -> bool:
@@ -210,7 +210,7 @@ class ProjectSyncState:
 
     project_id: str
     tests: dict[str, TestSyncState] = field(default_factory=dict)
-    last_full_sync: Optional[datetime] = None
+    last_full_sync: datetime | None = None
     sync_enabled: bool = True
 
     @property
@@ -272,7 +272,7 @@ class SyncPushResult:
     events_pushed: int = 0
     new_version: int = 0
     conflicts: list[SyncConflict] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -293,7 +293,7 @@ class SyncPullResult:
     events: list[SyncEvent] = field(default_factory=list)
     new_version: int = 0
     has_more: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -317,8 +317,8 @@ class TestSpec:
     assertions: list[dict] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
     version: int = 0
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""

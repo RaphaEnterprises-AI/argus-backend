@@ -8,7 +8,6 @@ These replace the fragmented models across multiple clients.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
 
 
 class ActionType(str, Enum):
@@ -53,8 +52,8 @@ class ElementInfo:
     placeholder: str = ""
     description: str = ""
     confidence: float = 0.5
-    bounds: Optional[dict] = None
-    attributes: Optional[dict] = None
+    bounds: dict | None = None
+    attributes: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -76,11 +75,11 @@ class ActionResult:
     """Result of a single browser action."""
     action: str
     success: bool
-    selector: Optional[str] = None
-    value: Optional[str] = None
-    url: Optional[str] = None
-    error: Optional[str] = None
-    duration_ms: Optional[int] = None
+    selector: str | None = None
+    value: str | None = None
+    url: str | None = None
+    error: str | None = None
+    duration_ms: int | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -101,7 +100,7 @@ class ObserveResult:
     url: str
     title: str = ""
     elements: list[ElementInfo] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
     @property
@@ -127,8 +126,8 @@ class ActResult:
     message: str = ""
     actions: list[ActionResult] = field(default_factory=list)
     url: str = ""
-    screenshot: Optional[str] = None  # Base64 encoded
-    error: Optional[str] = None
+    screenshot: str | None = None  # Base64 encoded
+    error: str | None = None
     execution_mode: ExecutionMode = ExecutionMode.DOM
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -153,8 +152,8 @@ class StepResult:
     success: bool
     actions: list[ActionResult] = field(default_factory=list)
     duration_ms: int = 0
-    screenshot: Optional[str] = None
-    error: Optional[str] = None
+    screenshot: str | None = None
+    error: str | None = None
     execution_mode: ExecutionMode = ExecutionMode.DOM
 
     def to_dict(self) -> dict:
@@ -178,9 +177,9 @@ class TestResult:
     total_steps: int = 0
     passed_steps: int = 0
     failed_steps: int = 0
-    final_screenshot: Optional[str] = None
+    final_screenshot: str | None = None
     total_duration_ms: int = 0
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
     def __post_init__(self):
@@ -212,8 +211,8 @@ class ExtractResult:
     success: bool
     data: dict = field(default_factory=dict)
     url: str = ""
-    screenshot: Optional[str] = None
-    error: Optional[str] = None
+    screenshot: str | None = None
+    error: str | None = None
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
     def to_dict(self) -> dict:

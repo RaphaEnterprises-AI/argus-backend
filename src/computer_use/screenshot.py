@@ -3,11 +3,9 @@
 import asyncio
 import base64
 import io
-import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import structlog
 from PIL import Image
@@ -90,7 +88,7 @@ class ScreenshotCapture:
         self,
         page,
         full_page: bool = False,
-        clip: Optional[dict] = None,
+        clip: dict | None = None,
     ) -> Screenshot:
         """
         Capture screenshot from Playwright page.
@@ -208,8 +206,8 @@ class ScreenshotCapture:
         Returns:
             Screenshot object
         """
-        import time
         import tempfile
+        import time
 
         start = time.time()
 

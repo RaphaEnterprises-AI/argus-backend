@@ -16,9 +16,9 @@ never the actual code content.
 import hashlib
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+
 import numpy as np
 
 from .semantic_chunker import CodeChunk
@@ -110,7 +110,7 @@ class LocalEmbedder:
         "jinaai/jina-embeddings-v2-base-code": {"dim": 768, "size_mb": 550},
     }
 
-    def __init__(self, config: Optional[EmbeddingConfig] = None):
+    def __init__(self, config: EmbeddingConfig | None = None):
         """Initialize embedder with optional configuration."""
         self.config = config or EmbeddingConfig()
         self._model = None
@@ -127,8 +127,8 @@ class LocalEmbedder:
             return True
 
         try:
-            from sentence_transformers import SentenceTransformer
             import torch
+            from sentence_transformers import SentenceTransformer
 
             # Determine device
             if self.config.use_gpu and torch.cuda.is_available():
@@ -181,8 +181,8 @@ class LocalEmbedder:
     def embed(
         self,
         text: str,
-        chunk_id: Optional[str] = None
-    ) -> Optional[EmbeddingResult]:
+        chunk_id: str | None = None
+    ) -> EmbeddingResult | None:
         """Embed a single text string.
 
         Args:
@@ -241,7 +241,7 @@ class LocalEmbedder:
             logger.error(f"Embedding failed: {e}")
             return None
 
-    def embed_chunk(self, chunk: CodeChunk) -> Optional[EmbeddingResult]:
+    def embed_chunk(self, chunk: CodeChunk) -> EmbeddingResult | None:
         """Embed a code chunk.
 
         Args:
@@ -362,7 +362,7 @@ class LocalEmbedder:
         self,
         texts: list[str],
         show_progress: bool = False
-    ) -> list[Optional[list[float]]]:
+    ) -> list[list[float] | None]:
         """Embed multiple text strings directly.
 
         Args:
@@ -447,7 +447,7 @@ class LocalEmbedder:
 
         return results[:top_k]
 
-    def save_cache(self, path: Optional[str] = None) -> bool:
+    def save_cache(self, path: str | None = None) -> bool:
         """Save embedding cache to disk.
 
         Args:
@@ -477,7 +477,7 @@ class LocalEmbedder:
             logger.error(f"Failed to save cache: {e}")
             return False
 
-    def load_cache(self, path: Optional[str] = None) -> bool:
+    def load_cache(self, path: str | None = None) -> bool:
         """Load embedding cache from disk.
 
         Args:
@@ -545,9 +545,9 @@ class CodeEmbedder(LocalEmbedder):
     def embed(
         self,
         text: str,
-        chunk_id: Optional[str] = None,
+        chunk_id: str | None = None,
         is_query: bool = False
-    ) -> Optional[EmbeddingResult]:
+    ) -> EmbeddingResult | None:
         """Embed code with appropriate prefix.
 
         Args:
@@ -565,7 +565,7 @@ class CodeEmbedder(LocalEmbedder):
 
         return super().embed(text, chunk_id)
 
-    def embed_query(self, query: str) -> Optional[list[float]]:
+    def embed_query(self, query: str) -> list[float] | None:
         """Embed a search query.
 
         Args:
@@ -579,11 +579,11 @@ class CodeEmbedder(LocalEmbedder):
 
 
 # Global instances
-_embedder: Optional[LocalEmbedder] = None
-_code_embedder: Optional[CodeEmbedder] = None
+_embedder: LocalEmbedder | None = None
+_code_embedder: CodeEmbedder | None = None
 
 
-def get_embedder(config: Optional[EmbeddingConfig] = None) -> LocalEmbedder:
+def get_embedder(config: EmbeddingConfig | None = None) -> LocalEmbedder:
     """Get or create global embedder instance."""
     global _embedder
     if _embedder is None or config is not None:
@@ -591,7 +591,7 @@ def get_embedder(config: Optional[EmbeddingConfig] = None) -> LocalEmbedder:
     return _embedder
 
 
-def get_code_embedder(config: Optional[EmbeddingConfig] = None) -> CodeEmbedder:
+def get_code_embedder(config: EmbeddingConfig | None = None) -> CodeEmbedder:
     """Get or create global code embedder instance."""
     global _code_embedder
     if _code_embedder is None or config is not None:

@@ -27,16 +27,15 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
-from .base import BaseAgent, AgentResult
-from .prompts import get_enhanced_prompt
 from ..config import ModelName
-from ..core.model_router import TaskType, TaskComplexity
-from ..services.cache import cache_healing_pattern, get_cached, set_cached
-from ..services.git_analyzer import GitAnalyzer, GitCommit, SelectorChange, get_git_analyzer
-from ..services.source_analyzer import SourceAnalyzer, ExtractedSelector, get_source_analyzer
-from ..orchestrator.memory_store import get_memory_store, MemoryStore
+from ..core.model_router import TaskType
+from ..orchestrator.memory_store import MemoryStore, get_memory_store
+from ..services.cache import get_cached, set_cached
+from ..services.git_analyzer import SelectorChange, get_git_analyzer
+from ..services.source_analyzer import get_source_analyzer
+from .base import AgentResult, BaseAgent
+from .prompts import get_enhanced_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -74,20 +73,20 @@ class CodeAwareContext:
     """
 
     # Git information
-    commit_sha: Optional[str] = None
-    commit_message: Optional[str] = None
-    commit_author: Optional[str] = None
-    commit_date: Optional[str] = None
+    commit_sha: str | None = None
+    commit_message: str | None = None
+    commit_author: str | None = None
+    commit_date: str | None = None
 
     # What changed
-    old_selector: Optional[str] = None
-    new_selector: Optional[str] = None
-    file_changed: Optional[str] = None
-    line_number: Optional[int] = None
+    old_selector: str | None = None
+    new_selector: str | None = None
+    file_changed: str | None = None
+    line_number: int | None = None
 
     # Source code context
-    code_context: Optional[str] = None  # Surrounding code
-    component_name: Optional[str] = None
+    code_context: str | None = None  # Surrounding code
+    component_name: str | None = None
 
     # Analysis confidence
     code_confidence: float = 0.0  # Confidence from code analysis
@@ -115,11 +114,11 @@ class FailureDiagnosis:
     failure_type: FailureType
     confidence: float  # 0.0 to 1.0
     explanation: str
-    affected_step: Optional[int] = None
+    affected_step: int | None = None
     evidence: list[str] = field(default_factory=list)
 
     # Code-aware context (the Argus advantage)
-    code_context: Optional[CodeAwareContext] = None
+    code_context: CodeAwareContext | None = None
 
 
 @dataclass
@@ -127,8 +126,8 @@ class FixSuggestion:
     """A suggested fix for a failure."""
 
     fix_type: FixType
-    old_value: Optional[str] = None
-    new_value: Optional[str] = None
+    old_value: str | None = None
+    new_value: str | None = None
     confidence: float = 0.0
     explanation: str = ""
     requires_review: bool = True
@@ -152,7 +151,7 @@ class HealingResult:
     diagnosis: FailureDiagnosis
     suggested_fixes: list[FixSuggestion]
     auto_healed: bool = False
-    healed_test_spec: Optional[dict] = None
+    healed_test_spec: dict | None = None
 
     def to_dict(self) -> dict:
         result = {
@@ -212,7 +211,7 @@ class SelfHealerAgent(BaseAgent):
         repo_path: str = ".",
         enable_code_aware: bool = True,
         enable_memory_store: bool = True,
-        embeddings: Optional[object] = None,
+        embeddings: object | None = None,
         **kwargs,
     ):
         """Initialize healer with configuration.
@@ -240,7 +239,7 @@ class SelfHealerAgent(BaseAgent):
 
         # Initialize long-term memory store for cross-session learning
         if enable_memory_store:
-            self.memory_store: Optional[MemoryStore] = get_memory_store(embeddings=embeddings)
+            self.memory_store: MemoryStore | None = get_memory_store(embeddings=embeddings)
         else:
             self.memory_store = None
 
@@ -260,7 +259,7 @@ class SelfHealerAgent(BaseAgent):
         self,
         original_selector: str,
         error_type: str,
-    ) -> Optional[FixSuggestion]:
+    ) -> FixSuggestion | None:
         """Look up a cached healing pattern from previous successful fixes."""
         fingerprint = self._generate_healing_fingerprint(original_selector, error_type)
         cache_key = f"heal:{fingerprint}"
@@ -286,9 +285,9 @@ class SelfHealerAgent(BaseAgent):
     async def _lookup_memory_store_healing(
         self,
         error_message: str,
-        original_selector: Optional[str] = None,
-        error_type: Optional[str] = None,
-    ) -> Optional[tuple[FixSuggestion, str]]:
+        original_selector: str | None = None,
+        error_type: str | None = None,
+    ) -> tuple[FixSuggestion, str] | None:
         """Look up similar failures from the long-term memory store using semantic search.
 
         This enables cross-session learning by finding similar past failures
@@ -377,9 +376,9 @@ class SelfHealerAgent(BaseAgent):
         healed_selector: str,
         error_type: str,
         healing_method: str,
-        test_id: Optional[str] = None,
-        metadata: Optional[dict] = None,
-    ) -> Optional[str]:
+        test_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> str | None:
         """Store a successful healing pattern in the long-term memory store.
 
         This enables future healing attempts to benefit from this solution.
@@ -505,8 +504,8 @@ class SelfHealerAgent(BaseAgent):
     async def _code_aware_heal(
         self,
         broken_selector: str,
-        file_hint: Optional[str] = None,
-    ) -> Optional[tuple[FixSuggestion, CodeAwareContext]]:
+        file_hint: str | None = None,
+    ) -> tuple[FixSuggestion, CodeAwareContext] | None:
         """Attempt code-aware healing by analyzing git history and source code.
 
         This is the MAGIC that makes Argus better than competitors:
@@ -568,7 +567,7 @@ class SelfHealerAgent(BaseAgent):
     async def _find_similar_in_source(
         self,
         broken_selector: str,
-    ) -> Optional[tuple[FixSuggestion, CodeAwareContext]]:
+    ) -> tuple[FixSuggestion, CodeAwareContext] | None:
         """Find similar selectors in the current source code.
 
         Fallback when git history doesn't have the change.
@@ -738,8 +737,8 @@ Output must be valid JSON."""
         self,
         test_spec: dict,
         failure_details: dict,
-        screenshot: Optional[bytes] = None,
-        error_logs: Optional[str] = None,
+        screenshot: bytes | None = None,
+        error_logs: str | None = None,
     ) -> AgentResult[HealingResult]:
         """Analyze a test failure and suggest fixes.
 
@@ -1067,7 +1066,7 @@ Output must be valid JSON."""
         self,
         test_spec: dict,
         failure_details: dict,
-        error_logs: Optional[str],
+        error_logs: str | None,
     ) -> str:
         """Build the analysis prompt."""
         import json
@@ -1212,7 +1211,7 @@ Output must be valid JSON."""
 
     async def batch_analyze(
         self,
-        failures: list[tuple[dict, dict, Optional[bytes]]],
+        failures: list[tuple[dict, dict, bytes | None]],
     ) -> list[AgentResult[HealingResult]]:
         """Analyze multiple failures.
 
@@ -1244,7 +1243,7 @@ Output must be valid JSON."""
         estimated_config: dict,
         actual_duration: float,
         success: bool,
-        error_type: Optional[str] = None,
+        error_type: str | None = None,
     ) -> None:
         """Learn from test execution to improve future session config estimates.
 
@@ -1460,7 +1459,7 @@ Output must be valid JSON."""
             )
             return base_estimate
 
-    async def get_learning_stats(self, test_id: Optional[str] = None) -> dict:
+    async def get_learning_stats(self, test_id: str | None = None) -> dict:
         """Get learning statistics for session config optimization.
 
         Args:

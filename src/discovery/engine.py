@@ -12,28 +12,26 @@ import asyncio
 import json
 import re
 import uuid
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
 
 import anthropic
 import structlog
 
 from src.config import get_settings
+from src.discovery.crawlers.crawlee_bridge import CrawleeBridge, CrawlProgress
 from src.discovery.models import (
-    CrawlError,
     CrawlResult,
-    DiscoveredElement,
     DiscoveredFlow,
     DiscoveredPage,
     DiscoveryConfig,
-    DiscoveryMode,
     DiscoverySession,
     DiscoveryStatus,
     FlowCategory,
     FlowStep,
     PageCategory,
 )
-from src.discovery.crawlers.crawlee_bridge import CrawleeBridge, CrawlProgress
 from src.discovery.repository import DiscoveryRepository
 
 logger = structlog.get_logger()
@@ -79,7 +77,7 @@ class DiscoveryEngine:
         self,
         supabase_client=None,
         use_crawlee: bool = False,
-        repository: Optional[DiscoveryRepository] = None,
+        repository: DiscoveryRepository | None = None,
     ):
         """Initialize the Discovery Engine.
 
@@ -91,7 +89,7 @@ class DiscoveryEngine:
                        one will be created using the supabase_client.
         """
         self.bridge = CrawleeBridge(use_crawlee=use_crawlee)
-        self.current_session: Optional[DiscoverySession] = None
+        self.current_session: DiscoverySession | None = None
         self.log = logger.bind(component="discovery_engine")
 
         # Initialize repository for persistence
@@ -102,8 +100,8 @@ class DiscoveryEngine:
         self.supabase = supabase_client
 
         # Event streaming
-        self._event_subscribers: Dict[str, List[asyncio.Queue]] = {}
-        self._cancellation_flags: Dict[str, bool] = {}
+        self._event_subscribers: dict[str, list[asyncio.Queue]] = {}
+        self._cancellation_flags: dict[str, bool] = {}
 
         # Initialize Claude client for flow inference
         settings = get_settings()
@@ -120,7 +118,7 @@ class DiscoveryEngine:
         self,
         project_id: str,
         app_url: str,
-        config: Optional[DiscoveryConfig] = None,
+        config: DiscoveryConfig | None = None,
     ) -> DiscoverySession:
         """Start a new discovery session.
 
@@ -158,7 +156,7 @@ class DiscoveryEngine:
             strategy=config.strategy,
             config=config,
             progress_percentage=0.0,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
 
         # Store session using repository (database-first)
@@ -207,7 +205,7 @@ class DiscoveryEngine:
                 error=str(e),
             )
             session.status = DiscoveryStatus.failed
-            session.completed_at = datetime.now(timezone.utc)
+            session.completed_at = datetime.now(UTC)
             await self.repository.save_session(session)
             await self._emit_event(
                 session.id,
@@ -258,7 +256,7 @@ class DiscoveryEngine:
         if self._cancellation_flags.get(session.id, False):
             self.log.info("Discovery cancelled", session_id=session.id)
             session.status = DiscoveryStatus.cancelled
-            session.completed_at = datetime.now(timezone.utc)
+            session.completed_at = datetime.now(UTC)
             await self.repository.save_session(session)
             await self._emit_event(session.id, "cancelled", {})
             return result
@@ -318,7 +316,7 @@ class DiscoveryEngine:
         # Update session as completed
         session.status = DiscoveryStatus.completed
         session.progress_percentage = 100.0
-        session.completed_at = datetime.now(timezone.utc)
+        session.completed_at = datetime.now(UTC)
         await self.repository.save_session(session)
 
         await self._emit_event(
@@ -367,7 +365,7 @@ class DiscoveryEngine:
         await self._emit_event(
             session_id,
             "paused",
-            {"paused_at": datetime.now(timezone.utc).isoformat()},
+            {"paused_at": datetime.now(UTC).isoformat()},
         )
 
         self.log.info("Discovery paused", session_id=session_id)
@@ -401,7 +399,7 @@ class DiscoveryEngine:
         await self._emit_event(
             session_id,
             "resumed",
-            {"resumed_at": datetime.now(timezone.utc).isoformat()},
+            {"resumed_at": datetime.now(UTC).isoformat()},
         )
 
         # TODO: Resume crawl from last checkpoint
@@ -431,19 +429,19 @@ class DiscoveryEngine:
         self._cancellation_flags[session_id] = True
 
         session.status = DiscoveryStatus.cancelled
-        session.completed_at = datetime.now(timezone.utc)
+        session.completed_at = datetime.now(UTC)
         await self.repository.save_session(session)
 
         await self._emit_event(
             session_id,
             "cancelled",
-            {"cancelled_at": datetime.now(timezone.utc).isoformat()},
+            {"cancelled_at": datetime.now(UTC).isoformat()},
         )
 
         self.log.info("Discovery cancelled", session_id=session_id)
         return True
 
-    async def get_session_status(self, session_id: str) -> Optional[DiscoverySession]:
+    async def get_session_status(self, session_id: str) -> DiscoverySession | None:
         """Get current session status.
 
         Uses the repository for database-first access with caching.
@@ -459,7 +457,7 @@ class DiscoveryEngine:
     async def get_session_pages(
         self,
         session_id: str,
-    ) -> List[DiscoveredPage]:
+    ) -> list[DiscoveredPage]:
         """Get pages discovered in a session.
 
         Uses the repository for database-first access with caching.
@@ -475,7 +473,7 @@ class DiscoveryEngine:
     async def get_session_flows(
         self,
         session_id: str,
-    ) -> List[DiscoveredFlow]:
+    ) -> list[DiscoveredFlow]:
         """Get flows discovered in a session.
 
         Uses the repository for database-first access with caching.
@@ -494,8 +492,8 @@ class DiscoveryEngine:
 
     async def _infer_flows(
         self,
-        pages: List[DiscoveredPage],
-    ) -> List[DiscoveredFlow]:
+        pages: list[DiscoveredPage],
+    ) -> list[DiscoveredFlow]:
         """Use AI to infer user flows from discovered pages.
 
         Analyzes page structure, elements, and relationships to identify
@@ -518,8 +516,8 @@ class DiscoveryEngine:
 
     async def _infer_flows_with_ai(
         self,
-        pages: List[DiscoveredPage],
-    ) -> List[DiscoveredFlow]:
+        pages: list[DiscoveredPage],
+    ) -> list[DiscoveredFlow]:
         """Use Claude to infer user flows from pages.
 
         Args:
@@ -649,8 +647,8 @@ Prioritize:
 
     def _infer_flows_heuristic(
         self,
-        pages: List[DiscoveredPage],
-    ) -> List[DiscoveredFlow]:
+        pages: list[DiscoveredPage],
+    ) -> list[DiscoveredFlow]:
         """Infer flows using heuristic rules when AI is not available.
 
         Args:
@@ -748,7 +746,7 @@ Prioritize:
 
         return flows
 
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
         """Parse JSON from LLM response with error handling.
 
         Args:
@@ -832,7 +830,7 @@ Prioritize:
         self,
         session_id: str,
         event_type: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> None:
         """Emit an event to all subscribers.
 
@@ -845,7 +843,7 @@ Prioritize:
             "event": event_type,
             "data": {
                 "session_id": session_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 **data,
             },
         }
@@ -861,7 +859,7 @@ Prioritize:
     async def discovery_events(
         self,
         session_id: str,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Generate SSE events for discovery progress.
 
         Creates an async generator that yields events as they occur
@@ -916,13 +914,13 @@ Prioritize:
                     if event.get("event") in ["complete", "cancelled", "error"]:
                         break
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Send keepalive
                     yield {
                         "event": "keepalive",
                         "data": {
                             "session_id": session_id,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         },
                     }
 
@@ -952,10 +950,10 @@ Prioritize:
 
     async def list_sessions(
         self,
-        project_id: Optional[str] = None,
-        status: Optional[DiscoveryStatus] = None,
+        project_id: str | None = None,
+        status: DiscoveryStatus | None = None,
         limit: int = 50,
-    ) -> List[DiscoverySession]:
+    ) -> list[DiscoverySession]:
         """List discovery sessions with optional filtering.
 
         Uses the repository for database-first access with caching.

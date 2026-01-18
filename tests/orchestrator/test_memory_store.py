@@ -1,9 +1,9 @@
 """Tests for the memory store module."""
 
-import pytest
-import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestMemoryStoreInit:
@@ -89,7 +89,7 @@ class TestMemoryStoreGetPool:
         """Test _get_pool raises ImportError when asyncpg missing."""
         from src.orchestrator.memory_store import MemoryStore
 
-        store = MemoryStore(database_url="postgresql://localhost/test")
+        MemoryStore(database_url="postgresql://localhost/test")
 
         with patch.dict("sys.modules", {"asyncpg": None}):
             # This should raise when asyncpg is not available

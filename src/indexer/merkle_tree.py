@@ -15,10 +15,11 @@ This enables:
 import hashlib
 import json
 import logging
+import time
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Generator
-import time
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ class MerkleTree:
     def __init__(
         self,
         root_path: str,
-        config: Optional[MerkleTreeConfig] = None
+        config: MerkleTreeConfig | None = None
     ):
         """Initialize Merkle tree for a directory.
 
@@ -163,7 +164,7 @@ class MerkleTree:
         """
         self.root_path = Path(root_path).resolve()
         self.config = config or MerkleTreeConfig()
-        self.root: Optional[MerkleNode] = None
+        self.root: MerkleNode | None = None
         self._file_index: dict[str, MerkleNode] = {}  # path -> node for fast lookup
 
         # Stats
@@ -378,7 +379,7 @@ class MerkleTree:
 
         return ChangeSet(added=added, modified=modified, deleted=deleted)
 
-    def get_file_hash(self, file_path: str) -> Optional[str]:
+    def get_file_hash(self, file_path: str) -> str | None:
         """Get hash for a specific file.
 
         Args:
@@ -517,7 +518,7 @@ class IncrementalIndexer:
         self,
         root_path: str,
         state_dir: str = ".argus",
-        config: Optional[MerkleTreeConfig] = None
+        config: MerkleTreeConfig | None = None
     ):
         """Initialize incremental indexer.
 
@@ -530,7 +531,7 @@ class IncrementalIndexer:
         self.state_dir = self.root_path / state_dir
         self.config = config
 
-        self.tree: Optional[MerkleTree] = None
+        self.tree: MerkleTree | None = None
         self._state_file = self.state_dir / "merkle.json"
 
     def full_index(self, callback=None) -> dict:
@@ -542,8 +543,8 @@ class IncrementalIndexer:
         Returns:
             Index statistics
         """
-        from .tree_sitter_parser import get_parser
         from .semantic_chunker import get_chunker
+        from .tree_sitter_parser import get_parser
 
         parser = get_parser()
         chunker = get_chunker()
@@ -589,8 +590,8 @@ class IncrementalIndexer:
         Returns:
             ChangeSet with what changed
         """
-        from .tree_sitter_parser import get_parser
         from .semantic_chunker import get_chunker
+        from .tree_sitter_parser import get_parser
 
         # Load previous state if exists
         if self.tree is None:
@@ -619,7 +620,7 @@ class IncrementalIndexer:
 
             try:
                 parsed = parser.parse_file(str(full_path))
-                chunks = chunker.chunk(parsed)
+                chunker.chunk(parsed)
 
                 if callback:
                     callback(file_path, "updated")
@@ -670,10 +671,10 @@ class IncrementalIndexer:
 
 
 # Global instance
-_tree: Optional[MerkleTree] = None
+_tree: MerkleTree | None = None
 
 
-def get_tree(root_path: str, config: Optional[MerkleTreeConfig] = None) -> MerkleTree:
+def get_tree(root_path: str, config: MerkleTreeConfig | None = None) -> MerkleTree:
     """Get or create Merkle tree for a path."""
     global _tree
     if _tree is None or str(_tree.root_path) != str(Path(root_path).resolve()):

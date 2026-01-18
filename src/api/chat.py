@@ -1,18 +1,17 @@
 """Chat API endpoint that routes through LangGraph orchestrator."""
 
-from typing import Any, Optional, List
-from datetime import datetime, timezone
 import json
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel, Field
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
-import structlog
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from pydantic import BaseModel
 
-from src.orchestrator.chat_graph import create_chat_graph, ChatState
+from src.orchestrator.chat_graph import ChatState, create_chat_graph
 from src.orchestrator.checkpointer import get_checkpointer
 
 logger = structlog.get_logger()
@@ -27,16 +26,16 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     """Request to send a chat message."""
-    messages: List[ChatMessage]
-    thread_id: Optional[str] = None
-    app_url: Optional[str] = None
+    messages: list[ChatMessage]
+    thread_id: str | None = None
+    app_url: str | None = None
 
 
 class ChatResponse(BaseModel):
     """Response from chat."""
     message: str
     thread_id: str
-    tool_calls: Optional[List[dict]] = None
+    tool_calls: list[dict] | None = None
 
 
 @router.post("/message")
@@ -399,7 +398,7 @@ async def cancel_chat(thread_id: str):
             "success": True,
             "thread_id": thread_id,
             "message": "Chat execution cancelled",
-            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+            "cancelled_at": datetime.now(UTC).isoformat(),
         }
 
     except HTTPException:

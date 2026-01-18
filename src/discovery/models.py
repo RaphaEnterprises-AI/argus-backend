@@ -8,8 +8,7 @@ element discovery, page classification, and flow detection.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
-
+from typing import Any
 
 # =============================================================================
 # Enums
@@ -179,17 +178,17 @@ class AuthConfig:
         cookies: Pre-authenticated cookies to use
         headers: Authentication headers (e.g., Bearer tokens)
     """
-    login_url: Optional[str] = None
-    username_selector: Optional[str] = None
-    password_selector: Optional[str] = None
-    submit_selector: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    success_indicator: Optional[str] = None
-    cookies: Dict[str, str] = field(default_factory=dict)
-    headers: Dict[str, str] = field(default_factory=dict)
+    login_url: str | None = None
+    username_selector: str | None = None
+    password_selector: str | None = None
+    submit_selector: str | None = None
+    username: str | None = None
+    password: str | None = None
+    success_indicator: str | None = None
+    cookies: dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "login_url": self.login_url,
@@ -204,7 +203,7 @@ class AuthConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AuthConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "AuthConfig":
         """Create from dictionary representation."""
         return cls(
             login_url=data.get("login_url"),
@@ -248,11 +247,11 @@ class DiscoveryConfig:
     max_pages: int = 100
     max_depth: int = 5
     max_duration_seconds: int = 3600
-    include_patterns: List[str] = field(default_factory=list)
-    exclude_patterns: List[str] = field(default_factory=list)
-    focus_areas: List[str] = field(default_factory=list)
+    include_patterns: list[str] = field(default_factory=list)
+    exclude_patterns: list[str] = field(default_factory=list)
+    focus_areas: list[str] = field(default_factory=list)
     auth_required: bool = False
-    auth_config: Optional[AuthConfig] = None
+    auth_config: AuthConfig | None = None
     capture_screenshots: bool = True
     capture_dom: bool = True
     capture_network: bool = False
@@ -261,7 +260,7 @@ class DiscoveryConfig:
     use_cross_project_learning: bool = True
     learn_from_session: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "mode": self.mode.value,
@@ -284,7 +283,7 @@ class DiscoveryConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DiscoveryConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "DiscoveryConfig":
         """Create from dictionary representation."""
         auth_config_data = data.get("auth_config")
         return cls(
@@ -328,7 +327,7 @@ class ElementBounds:
     width: float
     height: float
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary representation."""
         return {
             "x": self.x,
@@ -338,7 +337,7 @@ class ElementBounds:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, float]) -> "ElementBounds":
+    def from_dict(cls, data: dict[str, float]) -> "ElementBounds":
         """Create from dictionary representation."""
         return cls(
             x=data.get("x", 0),
@@ -376,23 +375,23 @@ class DiscoveredElement:
     id: str
     page_url: str
     selector: str
-    xpath: Optional[str] = None
+    xpath: str | None = None
     category: ElementCategory = ElementCategory.content
-    purpose: Optional[str] = None
-    label: Optional[str] = None
-    bounds: Optional[ElementBounds] = None
+    purpose: str | None = None
+    label: str | None = None
+    bounds: ElementBounds | None = None
     importance_score: float = 0.5
     stability_score: float = 0.5
-    alternative_selectors: List[str] = field(default_factory=list)
+    alternative_selectors: list[str] = field(default_factory=list)
     tag_name: str = "div"
-    html_attributes: Dict[str, str] = field(default_factory=dict)
+    html_attributes: dict[str, str] = field(default_factory=dict)
     is_visible: bool = True
     is_enabled: bool = True
     is_required: bool = False
-    aria_label: Optional[str] = None
-    role: Optional[str] = None
+    aria_label: str | None = None
+    role: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": self.id,
@@ -416,7 +415,7 @@ class DiscoveredElement:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DiscoveredElement":
+    def from_dict(cls, data: dict[str, Any]) -> "DiscoveredElement":
         """Create from dictionary representation."""
         bounds_data = data.get("bounds")
         return cls(
@@ -466,22 +465,22 @@ class DiscoveredPage:
     """
     id: str
     url: str
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: str | None = None
+    description: str | None = None
     category: PageCategory = PageCategory.other
-    elements: List[DiscoveredElement] = field(default_factory=list)
-    outgoing_links: Set[str] = field(default_factory=set)
-    incoming_links: Set[str] = field(default_factory=set)
+    elements: list[DiscoveredElement] = field(default_factory=list)
+    outgoing_links: set[str] = field(default_factory=set)
+    incoming_links: set[str] = field(default_factory=set)
     importance_score: float = 0.5
     coverage_score: float = 0.0
     risk_score: float = 0.5
     depth: int = 0
-    screenshot_base64: Optional[str] = None
-    dom_snapshot_url: Optional[str] = None
-    load_time_ms: Optional[int] = None
+    screenshot_base64: str | None = None
+    dom_snapshot_url: str | None = None
+    load_time_ms: int | None = None
     requires_auth: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": self.id,
@@ -503,7 +502,7 @@ class DiscoveredPage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DiscoveredPage":
+    def from_dict(cls, data: dict[str, Any]) -> "DiscoveredPage":
         """Create from dictionary representation."""
         return cls(
             id=data["id"],
@@ -542,12 +541,12 @@ class FlowStep:
     order: int
     page_url: str
     action: str
-    element_selector: Optional[str] = None
-    input_value: Optional[str] = None
-    expected_result: Optional[str] = None
-    wait_condition: Optional[str] = None
+    element_selector: str | None = None
+    input_value: str | None = None
+    expected_result: str | None = None
+    wait_condition: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "order": self.order,
@@ -560,7 +559,7 @@ class FlowStep:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FlowStep":
+    def from_dict(cls, data: dict[str, Any]) -> "FlowStep":
         """Create from dictionary representation."""
         return cls(
             order=data["order"],
@@ -597,14 +596,14 @@ class DiscoveredFlow:
     """
     id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     category: FlowCategory = FlowCategory.navigation
     priority: int = 5
-    start_url: Optional[str] = None
-    pages: List[str] = field(default_factory=list)
-    steps: List[FlowStep] = field(default_factory=list)
-    success_criteria: List[str] = field(default_factory=list)
-    failure_indicators: List[str] = field(default_factory=list)
+    start_url: str | None = None
+    pages: list[str] = field(default_factory=list)
+    steps: list[FlowStep] = field(default_factory=list)
+    success_criteria: list[str] = field(default_factory=list)
+    failure_indicators: list[str] = field(default_factory=list)
     complexity_score: float = 0.5
     business_value_score: float = 0.5
     confidence_score: float = 0.5
@@ -615,7 +614,7 @@ class DiscoveredFlow:
         """Update step_count after initialization."""
         self.step_count = len(self.steps)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": self.id,
@@ -636,7 +635,7 @@ class DiscoveredFlow:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DiscoveredFlow":
+    def from_dict(cls, data: dict[str, Any]) -> "DiscoveredFlow":
         """Create from dictionary representation."""
         flow = cls(
             id=data["id"],
@@ -671,11 +670,11 @@ class PageGraphEdge:
     """
     source: str
     target: str
-    link_text: Optional[str] = None
-    link_selector: Optional[str] = None
+    link_text: str | None = None
+    link_selector: str | None = None
     weight: float = 1.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "source": self.source,
@@ -686,7 +685,7 @@ class PageGraphEdge:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PageGraphEdge":
+    def from_dict(cls, data: dict[str, Any]) -> "PageGraphEdge":
         """Create from dictionary representation."""
         return cls(
             source=data["source"],
@@ -707,9 +706,9 @@ class PageGraph:
         edges: List of graph edges
         adjacency_list: Adjacency list representation
     """
-    nodes: List[str] = field(default_factory=list)
-    edges: List[PageGraphEdge] = field(default_factory=list)
-    adjacency_list: Dict[str, List[str]] = field(default_factory=dict)
+    nodes: list[str] = field(default_factory=list)
+    edges: list[PageGraphEdge] = field(default_factory=list)
+    adjacency_list: dict[str, list[str]] = field(default_factory=dict)
 
     def add_edge(self, source: str, target: str, **kwargs) -> None:
         """Add an edge to the graph."""
@@ -725,7 +724,7 @@ class PageGraph:
         if target not in self.adjacency_list[source]:
             self.adjacency_list[source].append(target)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "nodes": self.nodes,
@@ -734,7 +733,7 @@ class PageGraph:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PageGraph":
+    def from_dict(cls, data: dict[str, Any]) -> "PageGraph":
         """Create from dictionary representation."""
         return cls(
             nodes=data.get("nodes", []),
@@ -761,7 +760,7 @@ class CrawlError:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     recoverable: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "url": self.url,
@@ -772,7 +771,7 @@ class CrawlError:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CrawlError":
+    def from_dict(cls, data: dict[str, Any]) -> "CrawlError":
         """Create from dictionary representation."""
         timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
@@ -801,17 +800,17 @@ class CrawlResult:
         duration_ms: Total crawl duration in milliseconds
         errors: List of errors encountered
     """
-    pages: Dict[str, DiscoveredPage] = field(default_factory=dict)
+    pages: dict[str, DiscoveredPage] = field(default_factory=dict)
     total_pages: int = 0
-    graph: Optional[PageGraph] = None
+    graph: PageGraph | None = None
     duration_ms: int = 0
-    errors: List[CrawlError] = field(default_factory=list)
+    errors: list[CrawlError] = field(default_factory=list)
 
     def __post_init__(self):
         """Update total_pages after initialization."""
         self.total_pages = len(self.pages)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "pages": {url: page.to_dict() for url, page in self.pages.items()},
@@ -822,7 +821,7 @@ class CrawlResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CrawlResult":
+    def from_dict(cls, data: dict[str, Any]) -> "CrawlResult":
         """Create from dictionary representation."""
         graph_data = data.get("graph")
         return cls(
@@ -858,16 +857,16 @@ class DiscoverySession:
     status: DiscoveryStatus = DiscoveryStatus.pending
     mode: DiscoveryMode = DiscoveryMode.standard_crawl
     strategy: ExplorationStrategy = ExplorationStrategy.breadth_first
-    config: Optional[DiscoveryConfig] = None
+    config: DiscoveryConfig | None = None
     progress_percentage: float = 0.0
-    current_page: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    current_page: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     pages_found: int = 0
     flows_found: int = 0
     elements_found: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": self.id,
@@ -886,7 +885,7 @@ class DiscoverySession:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DiscoverySession":
+    def from_dict(cls, data: dict[str, Any]) -> "DiscoverySession":
         """Create from dictionary representation."""
         config_data = data.get("config")
         started_at = data.get("started_at")

@@ -3,14 +3,12 @@
 Handles screenshot registration and retrieval for MCP sessions.
 """
 
-from datetime import datetime, timezone
-from typing import Optional
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-import structlog
 
-from src.services.supabase_client import get_supabase_client
 from src.api.teams import get_current_user
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/mcp/screenshots", tags=["MCP Screenshots"])
@@ -18,13 +16,13 @@ router = APIRouter(prefix="/api/v1/mcp/screenshots", tags=["MCP Screenshots"])
 
 class RegisterScreenshotRequest(BaseModel):
     connection_id: str
-    activity_id: Optional[str] = None
+    activity_id: str | None = None
     r2_key: str
-    step_index: Optional[int] = None
+    step_index: int | None = None
     screenshot_type: str = "step"
-    tool_name: Optional[str] = None
-    url_tested: Optional[str] = None
-    file_size_bytes: Optional[int] = None
+    tool_name: str | None = None
+    url_tested: str | None = None
+    file_size_bytes: int | None = None
 
 
 class RegisterScreenshotResponse(BaseModel):
@@ -36,7 +34,7 @@ class RegisterScreenshotResponse(BaseModel):
 @router.post("/register", response_model=RegisterScreenshotResponse)
 async def register_screenshot(request: Request, body: RegisterScreenshotRequest):
     """Register a screenshot in the database (called by MCP server)."""
-    user = await get_current_user(request)
+    await get_current_user(request)
     supabase = get_supabase_client()
 
     # Get connection to find org_id
@@ -76,7 +74,7 @@ async def register_screenshot(request: Request, body: RegisterScreenshotRequest)
 @router.get("/{screenshot_id}")
 async def get_screenshot(request: Request, screenshot_id: str):
     """Get screenshot metadata."""
-    user = await get_current_user(request)
+    await get_current_user(request)
     supabase = get_supabase_client()
 
     result = await supabase.request(

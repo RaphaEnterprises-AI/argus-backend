@@ -1,6 +1,6 @@
 """Python Playwright export template."""
 
-from .base import BaseTemplate, TestSpec, TestStep, TestAssertion
+from .base import BaseTemplate, TestAssertion, TestSpec, TestStep
 
 
 class PythonPlaywrightTemplate(BaseTemplate):
@@ -61,7 +61,7 @@ class PythonPlaywrightTemplate(BaseTemplate):
         code_line = ""
 
         if action == "goto":
-            url = target if target.startswith("http") else f'f"{{base_url}}{target}"'
+            target if target.startswith("http") else f'f"{{base_url}}{target}"'
             if target.startswith("http"):
                 code_line = f'        {await_prefix}page.goto("{self.escape_string(target)}")'
             else:

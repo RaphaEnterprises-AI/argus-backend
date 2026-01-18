@@ -7,7 +7,6 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -48,7 +47,7 @@ class SanitizationResult:
     was_modified: bool = False
     is_binary: bool = False
     should_skip: bool = False
-    skip_reason: Optional[str] = None
+    skip_reason: str | None = None
 
 
 # Files that should NEVER be read or sent
@@ -171,9 +170,9 @@ class CodeSanitizer:
 
     def __init__(
         self,
-        additional_patterns: Optional[dict[SecretType, list[str]]] = None,
-        additional_forbidden_files: Optional[set[str]] = None,
-        additional_forbidden_dirs: Optional[set[str]] = None,
+        additional_patterns: dict[SecretType, list[str]] | None = None,
+        additional_forbidden_files: set[str] | None = None,
+        additional_forbidden_dirs: set[str] | None = None,
         redaction_placeholder: str = "[REDACTED]",
     ):
         self.patterns = {**SECRET_PATTERNS}
@@ -192,7 +191,7 @@ class CodeSanitizer:
         self.redaction = redaction_placeholder
         self.log = logger.bind(component="sanitizer")
 
-    def should_skip_path(self, path: Path) -> tuple[bool, Optional[str]]:
+    def should_skip_path(self, path: Path) -> tuple[bool, str | None]:
         """Check if a path should be skipped entirely."""
         # Check forbidden directories
         for part in path.parts:
@@ -292,7 +291,7 @@ class CodeSanitizer:
     def sanitize_codebase(
         self,
         root_path: str | Path,
-        extensions: Optional[set[str]] = None,
+        extensions: set[str] | None = None,
         max_file_size_kb: int = 500,
     ) -> dict[str, SanitizationResult]:
         """
@@ -360,7 +359,7 @@ class CodeSanitizer:
         return results
 
 
-def create_sanitizer(config: Optional[dict] = None) -> CodeSanitizer:
+def create_sanitizer(config: dict | None = None) -> CodeSanitizer:
     """Factory function for creating configured sanitizer."""
     config = config or {}
     return CodeSanitizer(

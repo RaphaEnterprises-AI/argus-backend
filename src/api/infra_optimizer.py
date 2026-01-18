@@ -10,22 +10,18 @@ Provides endpoints for AI-driven infrastructure optimization:
 - GET /api/v1/infra/snapshot - Get current infrastructure state
 """
 
-from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
+from src.api.context import require_organization_id
 from src.services.infra_optimizer import (
     AIInfraOptimizer,
-    create_infra_optimizer,
-    RecommendationType,
     RecommendationPriority,
-    ApprovalStatus,
+    RecommendationType,
+    create_infra_optimizer,
 )
-from src.services.prometheus_collector import create_prometheus_collector
-from src.api.context import require_organization_id
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/infra", tags=["Infrastructure Optimization"])
@@ -138,9 +134,9 @@ class ApplyRecommendationResponse(BaseModel):
     """Response from applying a recommendation."""
 
     success: bool
-    action_applied: Optional[dict] = None
-    status: Optional[str] = None
-    error: Optional[str] = None
+    action_applied: dict | None = None
+    status: str | None = None
+    error: str | None = None
 
 
 # ============================================================================
@@ -159,8 +155,8 @@ def get_optimizer() -> AIInfraOptimizer:
 @router.get("/recommendations", response_model=RecommendationListResponse)
 async def get_recommendations(
     org_id: str = Depends(require_organization_id),
-    type_filter: Optional[RecommendationType] = Query(None, alias="type"),
-    priority_filter: Optional[RecommendationPriority] = Query(None, alias="priority"),
+    type_filter: RecommendationType | None = Query(None, alias="type"),
+    priority_filter: RecommendationPriority | None = Query(None, alias="priority"),
     optimizer: AIInfraOptimizer = Depends(get_optimizer),
 ):
     """Get AI-generated infrastructure optimization recommendations.

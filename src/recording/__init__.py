@@ -8,18 +8,18 @@ This module provides DOM-based recording conversion that is:
 """
 
 from .models import (
+    ActionType,
+    ParsedAction,
+    RecordingMetadata,
+    RecordingSession,
+    RRWebEvent,
     RRWebEventType,
     RRWebIncrementalSource,
-    RRWebEvent,
-    RRWebSnapshot,
     RRWebMutation,
-    RecordingSession,
-    RecordingMetadata,
-    ParsedAction,
-    ActionType,
+    RRWebSnapshot,
 )
-from .rrweb_parser import RRWebParser
 from .recorder_snippet import RecorderSnippetGenerator
+from .rrweb_parser import RRWebParser
 
 __all__ = [
     # Models

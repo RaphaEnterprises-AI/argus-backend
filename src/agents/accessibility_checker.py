@@ -9,12 +9,11 @@ Tests for WCAG 2.1 Level AA compliance:
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Literal
 from enum import Enum
 
-from .base import BaseAgent, AgentResult
-from .prompts import get_enhanced_prompt
 from ..core.model_router import TaskType
+from .base import AgentResult, BaseAgent
+from .prompts import get_enhanced_prompt
 
 
 class WCAGLevel(str, Enum):
@@ -100,7 +99,7 @@ class AccessibilityCheckResult:
     issues: list[AccessibilityIssue]
     color_contrast: list[ColorContrastResult]
     keyboard_navigation: KeyboardNavigationResult
-    wcag_level_achieved: Optional[WCAGLevel]
+    wcag_level_achieved: WCAGLevel | None
     score: int  # 0-100
     summary: str
     recommendations: list[str]
@@ -446,7 +445,7 @@ You are a certified accessibility specialist (CPACC, WAS) with WCAG 2.1 expertis
         total_deduction = sum(deductions[i.impact] for i in issues)
         return max(0, 100 - total_deduction)
 
-    def _determine_wcag_level(self, issues: list[AccessibilityIssue]) -> Optional[WCAGLevel]:
+    def _determine_wcag_level(self, issues: list[AccessibilityIssue]) -> WCAGLevel | None:
         """Determine the highest WCAG level achieved."""
         # Check for Level A failures
         level_a_failures = [

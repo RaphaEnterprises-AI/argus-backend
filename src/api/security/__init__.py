@@ -10,27 +10,27 @@ This module provides enterprise-grade security features:
 - Request Encryption
 """
 
-from src.api.security.middleware import (
-    SecurityMiddleware,
-    RateLimitMiddleware,
-    AuditLogMiddleware,
-    AuthenticationMiddleware,
-)
+from src.api.security.audit import SecurityAuditLogger
 from src.api.security.auth import (
     get_current_user,
     require_auth,
     require_roles,
     require_scopes,
 )
+from src.api.security.device_auth import router as device_auth_router
+from src.api.security.headers import SecurityHeadersMiddleware
+from src.api.security.middleware import (
+    AuditLogMiddleware,
+    AuthenticationMiddleware,
+    RateLimitMiddleware,
+    SecurityMiddleware,
+)
 from src.api.security.rbac import (
     Permission,
-    Role,
     RBACManager,
+    Role,
 )
-from src.api.security.headers import SecurityHeadersMiddleware
 from src.api.security.validation import InputValidator, sanitize_input
-from src.api.security.audit import SecurityAuditLogger
-from src.api.security.device_auth import router as device_auth_router
 
 __all__ = [
     # Middleware

@@ -1,10 +1,9 @@
 """Tests for Scheduling API endpoints."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 
 
@@ -56,6 +55,7 @@ class TestSchedulingModels:
     def test_schedule_create_request_invalid_cron(self, mock_env_vars):
         """Test ScheduleCreateRequest with invalid cron expression."""
         from pydantic import ValidationError
+
         from src.api.scheduling import ScheduleCreateRequest
 
         with pytest.raises(ValidationError) as exc_info:
@@ -229,7 +229,7 @@ class TestCronCalculation:
         from src.api.scheduling import calculate_next_run
 
         # Every minute
-        from_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        from_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         next_run = calculate_next_run("* * * * *", from_time)
         assert next_run is not None
         assert next_run > from_time
@@ -245,7 +245,7 @@ class TestCronCalculation:
         """Test calculate_next_run for daily schedule."""
         from src.api.scheduling import calculate_next_run
 
-        from_time = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+        from_time = datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)
         next_run = calculate_next_run("0 9 * * *", from_time)
         assert next_run is not None
         assert next_run.hour == 9
@@ -255,7 +255,7 @@ class TestCronCalculation:
         """Test calculate_next_run with step values."""
         from src.api.scheduling import calculate_next_run
 
-        from_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        from_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         next_run = calculate_next_run("*/15 * * * *", from_time)
         assert next_run is not None
         assert next_run.minute in [0, 15, 30, 45]
@@ -327,7 +327,7 @@ class TestScheduleHelperFunctions:
 
     def test_schedule_to_response(self, mock_env_vars):
         """Test schedule_to_response function."""
-        from src.api.scheduling import schedule_to_response, schedule_runs
+        from src.api.scheduling import schedule_runs, schedule_to_response
 
         schedule = {
             "id": "schedule-123",
@@ -480,7 +480,7 @@ class TestScheduleEndpoints:
     @pytest.mark.asyncio
     async def test_create_schedule_success(self, mock_env_vars):
         """Test create_schedule endpoint."""
-        from src.api.scheduling import create_schedule, ScheduleCreateRequest, schedules
+        from src.api.scheduling import ScheduleCreateRequest, create_schedule, schedules
 
         schedules.clear()
 
@@ -504,7 +504,7 @@ class TestScheduleEndpoints:
     @pytest.mark.asyncio
     async def test_list_schedules(self, mock_env_vars):
         """Test list_schedules endpoint."""
-        from src.api.scheduling import list_schedules, schedules, schedule_runs
+        from src.api.scheduling import list_schedules, schedules
 
         schedules.clear()
         schedules["schedule-1"] = {
@@ -570,7 +570,7 @@ class TestScheduleEndpoints:
     @pytest.mark.asyncio
     async def test_update_schedule(self, mock_env_vars):
         """Test update_schedule endpoint."""
-        from src.api.scheduling import update_schedule, ScheduleUpdateRequest, schedules
+        from src.api.scheduling import ScheduleUpdateRequest, schedules, update_schedule
 
         schedules["schedule-123"] = {
             "id": "schedule-123",
@@ -620,7 +620,7 @@ class TestScheduleEndpoints:
     @pytest.mark.asyncio
     async def test_trigger_schedule_manual(self, mock_env_vars):
         """Test trigger_schedule endpoint."""
-        from src.api.scheduling import trigger_schedule, schedules
+        from src.api.scheduling import schedules, trigger_schedule
 
         schedules["schedule-123"] = {
             "id": "schedule-123",
@@ -648,7 +648,7 @@ class TestScheduleEndpoints:
     @pytest.mark.asyncio
     async def test_trigger_disabled_schedule(self, mock_env_vars):
         """Test triggering a disabled schedule."""
-        from src.api.scheduling import trigger_schedule, schedules
+        from src.api.scheduling import schedules, trigger_schedule
 
         schedules["disabled-schedule"] = {
             "id": "disabled-schedule",
@@ -679,7 +679,7 @@ class TestScheduleRunEndpoints:
     @pytest.mark.asyncio
     async def test_get_schedule_runs(self, mock_env_vars):
         """Test get_schedule_runs endpoint."""
-        from src.api.scheduling import get_schedule_runs, schedules, schedule_runs
+        from src.api.scheduling import get_schedule_runs, schedule_runs, schedules
 
         schedules["schedule-123"] = {
             "id": "schedule-123",
@@ -707,7 +707,7 @@ class TestScheduleRunEndpoints:
     @pytest.mark.asyncio
     async def test_get_schedule_runs_filtered(self, mock_env_vars):
         """Test get_schedule_runs with status filter."""
-        from src.api.scheduling import get_schedule_runs, schedules, schedule_runs
+        from src.api.scheduling import get_schedule_runs, schedule_runs, schedules
 
         schedules["schedule-123"] = {
             "id": "schedule-123",
@@ -751,7 +751,7 @@ class TestBackgroundTask:
     @pytest.mark.asyncio
     async def test_run_scheduled_tests_success(self, mock_env_vars):
         """Test run_scheduled_tests executes successfully."""
-        from src.api.scheduling import run_scheduled_tests, schedules, schedule_runs
+        from src.api.scheduling import run_scheduled_tests, schedule_runs, schedules
 
         schedules["schedule-123"] = {
             "id": "schedule-123",

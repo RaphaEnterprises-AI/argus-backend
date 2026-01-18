@@ -11,21 +11,21 @@ Provides comprehensive endpoints for:
 
 import asyncio
 import json
-from datetime import datetime, timezone
-from typing import Optional, AsyncGenerator
-from uuid import uuid4
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from enum import Enum
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
+import structlog
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-import structlog
 
-from src.services.supabase_client import get_supabase_client, get_raw_supabase_client
 from src.agents.auto_discovery import AutoDiscovery, DiscoveryResult
-from src.services.crawlee_client import get_crawlee_client, CrawleeServiceUnavailable
 from src.discovery.engine import DiscoveryEngine, create_discovery_engine
 from src.discovery.repository import DiscoveryRepository
+from src.services.crawlee_client import get_crawlee_client
+from src.services.supabase_client import get_raw_supabase_client, get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/discovery", tags=["Discovery"])
@@ -35,8 +35,8 @@ router = APIRouter(prefix="/api/v1/discovery", tags=["Discovery"])
 # Singleton Discovery Engine (uses Supabase for persistence)
 # =============================================================================
 
-_discovery_engine: Optional[DiscoveryEngine] = None
-_discovery_repository: Optional[DiscoveryRepository] = None
+_discovery_engine: DiscoveryEngine | None = None
+_discovery_repository: DiscoveryRepository | None = None
 
 
 def get_discovery_engine() -> DiscoveryEngine:
@@ -109,8 +109,8 @@ class AuthConfig(BaseModel):
     """Authentication configuration for discovery."""
     type: str = Field(..., description="Auth type: basic, bearer, cookie, oauth")
     credentials: dict = Field(..., description="Auth credentials")
-    login_url: Optional[str] = Field(None, description="URL for login flow")
-    login_steps: Optional[list[dict]] = Field(None, description="Steps to perform login")
+    login_url: str | None = Field(None, description="URL for login flow")
+    login_steps: list[dict] | None = Field(None, description="Steps to perform login")
 
 
 class StartDiscoveryRequest(BaseModel):
@@ -126,8 +126,8 @@ class StartDiscoveryRequest(BaseModel):
     focus_areas: list[str] = Field(default_factory=list, description="Areas to focus on")
     capture_screenshots: bool = Field(default=True, description="Capture page screenshots")
     use_vision_ai: bool = Field(default=True, description="Use AI vision for analysis")
-    auth_config: Optional[AuthConfig] = Field(None, description="Authentication config")
-    custom_headers: Optional[dict] = Field(None, description="Custom HTTP headers")
+    auth_config: AuthConfig | None = Field(None, description="Authentication config")
+    custom_headers: dict | None = Field(None, description="Custom HTTP headers")
     timeout_seconds: int = Field(default=30, ge=5, le=120, description="Page timeout")
 
 
@@ -143,16 +143,16 @@ class DiscoverySessionResponse(BaseModel):
     forms_found: int
     errors_count: int
     started_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
     app_url: str
     mode: str
     strategy: str
     max_pages: int
     max_depth: int
-    current_url: Optional[str] = None
+    current_url: str | None = None
     current_depth: int = 0
-    estimated_time_remaining: Optional[int] = None
-    coverage_score: Optional[float] = None
+    estimated_time_remaining: int | None = None
+    coverage_score: float | None = None
 
 
 class DiscoveredPageResponse(BaseModel):
@@ -163,13 +163,13 @@ class DiscoveredPageResponse(BaseModel):
     title: str
     description: str
     page_type: str
-    screenshot_url: Optional[str] = None
+    screenshot_url: str | None = None
     elements_count: int
     forms_count: int
     links_count: int
     discovered_at: str
-    load_time_ms: Optional[int] = None
-    ai_analysis: Optional[dict] = None
+    load_time_ms: int | None = None
+    ai_analysis: dict | None = None
 
 
 class DiscoveredFlowResponse(BaseModel):
@@ -183,22 +183,22 @@ class DiscoveredFlowResponse(BaseModel):
     start_url: str
     steps: list[dict]
     pages_involved: list[str]
-    estimated_duration: Optional[int] = None
-    complexity_score: Optional[float] = None
+    estimated_duration: int | None = None
+    complexity_score: float | None = None
     test_generated: bool = False
     validated: bool = False
-    validation_result: Optional[dict] = None
+    validation_result: dict | None = None
     created_at: str
-    updated_at: Optional[str] = None
+    updated_at: str | None = None
 
 
 class UpdateFlowRequest(BaseModel):
     """Request to update a discovered flow."""
-    name: Optional[str] = Field(None, description="Flow name")
-    description: Optional[str] = Field(None, description="Flow description")
-    priority: Optional[str] = Field(None, description="Flow priority")
-    steps: Optional[list[dict]] = Field(None, description="Flow steps")
-    category: Optional[str] = Field(None, description="Flow category")
+    name: str | None = Field(None, description="Flow name")
+    description: str | None = Field(None, description="Flow description")
+    priority: str | None = Field(None, description="Flow priority")
+    steps: list[dict] | None = Field(None, description="Flow steps")
+    category: str | None = Field(None, description="Flow category")
 
 
 class FlowValidationRequest(BaseModel):
@@ -225,9 +225,9 @@ class DiscoveryHistoryResponse(BaseModel):
     pages_found: int
     flows_found: int
     started_at: str
-    completed_at: Optional[str]
-    duration_seconds: Optional[int]
-    coverage_score: Optional[float]
+    completed_at: str | None
+    duration_seconds: int | None
+    coverage_score: float | None
 
 
 class DiscoveryComparisonResponse(BaseModel):
@@ -318,10 +318,10 @@ class DiscoveryPatternResponse(BaseModel):
     pattern_signature: str
     pattern_data: dict
     times_seen: int
-    test_success_rate: Optional[float]
-    self_heal_success_rate: Optional[float]
+    test_success_rate: float | None
+    self_heal_success_rate: float | None
     created_at: str
-    updated_at: Optional[str]
+    updated_at: str | None
 
 
 class DiscoveryPatternListResponse(BaseModel):
@@ -332,8 +332,8 @@ class DiscoveryPatternListResponse(BaseModel):
 
 @router.get("/sessions", response_model=DiscoverySessionListResponse)
 async def list_discovery_sessions(
-    project_id: Optional[str] = None,
-    status: Optional[str] = None,
+    project_id: str | None = None,
+    status: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -424,7 +424,7 @@ async def list_discovery_sessions(
 
 @router.get("/patterns", response_model=DiscoveryPatternListResponse)
 async def list_discovery_patterns(
-    pattern_type: Optional[str] = None,
+    pattern_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -485,11 +485,11 @@ async def start_discovery(
     Use SSE streaming endpoint to receive real-time progress updates.
     """
     session_id = str(uuid4())
-    started_at = datetime.now(timezone.utc).isoformat()
+    started_at = datetime.now(UTC).isoformat()
 
     # Validate mode and strategy
     try:
-        mode = DiscoveryMode(request.mode)
+        DiscoveryMode(request.mode)
     except ValueError:
         raise HTTPException(
             status_code=400,
@@ -497,7 +497,7 @@ async def start_discovery(
         )
 
     try:
-        strategy = DiscoveryStrategy(request.strategy)
+        DiscoveryStrategy(request.strategy)
     except ValueError:
         raise HTTPException(
             status_code=400,
@@ -609,12 +609,12 @@ async def stream_discovery(session_id: str):
                     if event.get("event") in ["complete", "cancelled", "failed"]:
                         break
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Send keepalive
                     yield {
                         "event": "keepalive",
                         "data": json.dumps({
-                            "timestamp": datetime.now(timezone.utc).isoformat()
+                            "timestamp": datetime.now(UTC).isoformat()
                         })
                     }
 
@@ -633,7 +633,7 @@ async def stream_discovery(session_id: str):
                 "event": "error",
                 "data": json.dumps({
                     "error": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
             }
 
@@ -652,7 +652,7 @@ async def pause_discovery(session_id: str):
         )
 
     session["status"] = SessionStatus.PAUSED.value
-    session["paused_at"] = datetime.now(timezone.utc).isoformat()
+    session["paused_at"] = datetime.now(UTC).isoformat()
 
     # Emit event
     events_queue = session.get("events_queue")
@@ -688,7 +688,7 @@ async def resume_discovery(session_id: str, background_tasks: BackgroundTasks):
         )
 
     session["status"] = SessionStatus.RUNNING.value
-    session["resumed_at"] = datetime.now(timezone.utc).isoformat()
+    session["resumed_at"] = datetime.now(UTC).isoformat()
 
     # Resume discovery in background
     background_tasks.add_task(run_discovery_session, session_id, resume=True)
@@ -726,7 +726,7 @@ async def cancel_discovery(session_id: str):
         )
 
     session["status"] = SessionStatus.CANCELLED.value
-    session["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+    session["cancelled_at"] = datetime.now(UTC).isoformat()
 
     # Emit event
     events_queue = session.get("events_queue")
@@ -761,7 +761,7 @@ async def cancel_discovery(session_id: str):
 @router.get("/sessions/{session_id}/pages", response_model=list[DiscoveredPageResponse])
 async def get_discovered_pages(
     session_id: str,
-    page_type: Optional[str] = None,
+    page_type: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -820,9 +820,9 @@ async def get_page_details(session_id: str, page_id: str):
 @router.get("/sessions/{session_id}/flows", response_model=list[DiscoveredFlowResponse])
 async def get_discovered_flows(
     session_id: str,
-    category: Optional[str] = None,
-    priority: Optional[str] = None,
-    validated: Optional[bool] = None,
+    category: str | None = None,
+    priority: str | None = None,
+    validated: bool | None = None,
 ):
     """Get flows discovered in a session."""
     session = await get_session_or_404(session_id)
@@ -880,7 +880,7 @@ async def update_flow(flow_id: str, request: UpdateFlowRequest):
     if request.category is not None:
         flow["category"] = request.category
 
-    flow["updated_at"] = datetime.now(timezone.utc).isoformat()
+    flow["updated_at"] = datetime.now(UTC).isoformat()
 
     logger.info("Flow updated", flow_id=flow_id)
 
@@ -933,12 +933,12 @@ async def validate_flow(flow_id: str, request: FlowValidationRequest):
         "duration_ms": 1500,
         "errors": [],
         "screenshots": [],
-        "validated_at": datetime.now(timezone.utc).isoformat(),
+        "validated_at": datetime.now(UTC).isoformat(),
     }
 
     flow["validated"] = True
     flow["validation_result"] = validation_result
-    flow["updated_at"] = datetime.now(timezone.utc).isoformat()
+    flow["updated_at"] = datetime.now(UTC).isoformat()
 
     logger.info("Flow validated", flow_id=flow_id, success=validation_result["success"])
 
@@ -992,7 +992,7 @@ async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest):
             "flow_name": flow.get("name"),
             "flow_category": flow.get("category"),
             "flow_priority": flow.get("priority"),
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "parameterized": request.parameterize,
         },
     }
@@ -1000,7 +1000,7 @@ async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest):
     # Mark flow as having test generated
     flow["test_generated"] = True
     flow["generated_test_id"] = test_id
-    flow["updated_at"] = datetime.now(timezone.utc).isoformat()
+    flow["updated_at"] = datetime.now(UTC).isoformat()
 
     logger.info(
         "Test generated from flow",
@@ -1025,7 +1025,7 @@ async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest):
 @router.get("/projects/{project_id}/history", response_model=list[DiscoveryHistoryResponse])
 async def get_discovery_history(
     project_id: str,
-    status: Optional[str] = None,
+    status: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ):
@@ -1218,7 +1218,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 "data": json.dumps({
                     "session_id": session_id,
                     "status": "running",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
             })
 
@@ -1267,7 +1267,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     "forms_count": len(page.get("forms", [])),
                     "links_count": len(page.get("links", [])),
                     "screenshot": page.get("screenshot"),
-                    "discovered_at": datetime.now(timezone.utc).isoformat(),
+                    "discovered_at": datetime.now(UTC).isoformat(),
                 }
                 session["pages"].append(page_data)
 
@@ -1321,7 +1321,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                         "start_url": flow.start_url if hasattr(flow, 'start_url') else flow.get("start_url", session["app_url"]),
                         "steps": flow.steps if hasattr(flow, 'steps') else flow.get("steps", []),
                         "pages_involved": [],
-                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_at": datetime.now(UTC).isoformat(),
                         "validated": False,
                         "test_generated": False,
                     }
@@ -1378,7 +1378,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     "elements_count": len(page.elements),
                     "forms_count": len(page.forms),
                     "links_count": len(page.links),
-                    "discovered_at": datetime.now(timezone.utc).isoformat(),
+                    "discovered_at": datetime.now(UTC).isoformat(),
                 }
                 session["pages"].append(page_data)
 
@@ -1406,7 +1406,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     "start_url": flow.start_url,
                     "steps": flow.steps,
                     "pages_involved": [],
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                     "validated": False,
                     "test_generated": False,
                 }
@@ -1429,7 +1429,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
         # Mark session as completed
         session["status"] = SessionStatus.COMPLETED.value
-        session["completed_at"] = datetime.now(timezone.utc).isoformat()
+        session["completed_at"] = datetime.now(UTC).isoformat()
 
         # Emit completion event
         if events_queue:
@@ -1457,7 +1457,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
         session["status"] = SessionStatus.FAILED.value
         session["error"] = str(e)
-        session["completed_at"] = datetime.now(timezone.utc).isoformat()
+        session["completed_at"] = datetime.now(UTC).isoformat()
 
         if events_queue:
             await events_queue.put({
@@ -1465,7 +1465,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 "data": json.dumps({
                     "session_id": session_id,
                     "error": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
             })
 
@@ -1477,7 +1477,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
 class PatternSearchRequest(BaseModel):
     """Request for similarity search on patterns."""
-    pattern_type: Optional[str] = Field(None, description="Filter by pattern type")
+    pattern_type: str | None = Field(None, description="Filter by pattern type")
     pattern_name: str = Field(..., description="Pattern name to search for")
     pattern_data: dict = Field(default_factory=dict, description="Pattern data for embedding")
     threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum similarity")
@@ -1486,7 +1486,7 @@ class PatternSearchRequest(BaseModel):
 
 class PatternInsightsRequest(BaseModel):
     """Request for pattern insights."""
-    pattern_type: Optional[str] = Field(None, description="Filter by pattern type")
+    pattern_type: str | None = Field(None, description="Filter by pattern type")
 
 
 class PatternSuccessUpdateRequest(BaseModel):
@@ -1502,7 +1502,7 @@ class PatternCreateRequest(BaseModel):
     pattern_name: str = Field(..., description="Human-readable pattern name")
     pattern_signature: str = Field(..., description="Unique signature for deduplication")
     pattern_data: dict = Field(default_factory=dict, description="Pattern configuration data")
-    project_id: Optional[str] = Field(None, description="Optional project ID to associate")
+    project_id: str | None = Field(None, description="Optional project ID to associate")
 
 
 @router.get("/sessions/{session_id}/patterns", response_model=DiscoveryPatternListResponse)
@@ -1554,9 +1554,10 @@ async def create_pattern(request: PatternCreateRequest):
     Patterns are used for cross-project learning and self-healing.
     They capture common UI patterns that can be matched in future discoveries.
     """
-    from src.discovery.pattern_service import get_pattern_service
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from src.discovery.pattern_service import get_pattern_service
 
     try:
         pattern_service = get_pattern_service()
@@ -1571,7 +1572,7 @@ async def create_pattern(request: PatternCreateRequest):
             "times_seen": 1,
             "test_success_rate": None,
             "self_heal_success_rate": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         if request.project_id:
@@ -1656,7 +1657,7 @@ async def search_similar_patterns(request: PatternSearchRequest):
     - Suggesting selectors that worked before
     - Identifying common UI patterns
     """
-    from src.discovery.pattern_service import get_pattern_service, DiscoveryPattern, PatternType
+    from src.discovery.pattern_service import DiscoveryPattern, PatternType, get_pattern_service
 
     pattern_service = get_pattern_service()
 
@@ -1698,13 +1699,13 @@ async def search_similar_patterns(request: PatternSearchRequest):
 
 
 @router.get("/patterns/insights")
-async def get_pattern_insights(pattern_type: Optional[str] = None):
+async def get_pattern_insights(pattern_type: str | None = None):
     """Get insights about stored patterns.
 
     Returns statistics about pattern distribution, success rates,
     and cross-project learning metrics.
     """
-    from src.discovery.pattern_service import get_pattern_service, PatternType
+    from src.discovery.pattern_service import PatternType, get_pattern_service
 
     pattern_service = get_pattern_service()
 
@@ -1790,11 +1791,11 @@ async def process_feature_mesh(
     These integrations create a feedback loop where discovery insights
     flow to other Argus systems automatically.
     """
-    from src.discovery.feature_mesh import get_feature_mesh, FeatureMeshConfig
+    from src.discovery.feature_mesh import FeatureMeshConfig, get_feature_mesh
 
     try:
         # Get session data
-        session = await get_session_with_pages(request.session_id)
+        session = await get_session_or_404(request.session_id)
         if not session:
             raise HTTPException(
                 status_code=404,
@@ -1853,7 +1854,7 @@ async def create_visual_baselines(
 
     try:
         # Get session data
-        session = await get_session_with_pages(session_id)
+        session = await get_session_or_404(session_id)
         if not session:
             raise HTTPException(
                 status_code=404,
@@ -1902,7 +1903,7 @@ async def share_selectors(
 
     try:
         # Get session data
-        session = await get_session_with_pages(session_id)
+        session = await get_session_or_404(session_id)
         if not session:
             raise HTTPException(
                 status_code=404,
@@ -1991,7 +1992,7 @@ async def get_selector_alternatives(
     try:
         # Query using the database function
         result = await supabase.request(
-            f"/rpc/get_best_alternatives",
+            "/rpc/get_best_alternatives",
             method="POST",
             data={
                 "p_project_id": project_id,

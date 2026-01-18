@@ -1,10 +1,9 @@
 """Tests for the Tests CRUD API module (src/api/tests.py)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
-from fastapi import HTTPException
 
+import pytest
+from fastapi import HTTPException
 
 # ============================================================================
 # Fixtures
@@ -122,8 +121,9 @@ class TestRequestModels:
 
     def test_create_test_request_name_length_validation(self, mock_env_vars):
         """Test CreateTestRequest name length validation."""
-        from src.api.tests import CreateTestRequest
         from pydantic import ValidationError
+
+        from src.api.tests import CreateTestRequest
 
         # Empty name should fail
         with pytest.raises(ValidationError):
@@ -170,8 +170,9 @@ class TestRequestModels:
 
     def test_bulk_delete_request_empty_fails(self, mock_env_vars):
         """Test BulkDeleteRequest with empty list fails."""
-        from src.api.tests import BulkDeleteRequest
         from pydantic import ValidationError
+
+        from src.api.tests import BulkDeleteRequest
 
         with pytest.raises(ValidationError):
             BulkDeleteRequest(test_ids=[])
@@ -616,7 +617,7 @@ class TestCreateTestEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_test_data
     ):
         """Test successful test creation."""
-        from src.api.tests import create_test, CreateTestRequest
+        from src.api.tests import CreateTestRequest, create_test
 
         mock_supabase.insert = AsyncMock(return_value={
             "data": [sample_test_data],
@@ -650,7 +651,7 @@ class TestCreateTestEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test create test handles insert errors."""
-        from src.api.tests import create_test, CreateTestRequest
+        from src.api.tests import CreateTestRequest, create_test
 
         mock_supabase.insert = AsyncMock(return_value={
             "data": None,
@@ -719,7 +720,7 @@ class TestUpdateTestEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_test_data
     ):
         """Test successful test update."""
-        from src.api.tests import update_test, UpdateTestRequest
+        from src.api.tests import UpdateTestRequest, update_test
 
         updated_data = {**sample_test_data, "name": "Updated Test"}
         mock_supabase.request = AsyncMock(side_effect=[
@@ -744,7 +745,7 @@ class TestUpdateTestEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_test_data
     ):
         """Test partial update only updates provided fields."""
-        from src.api.tests import update_test, UpdateTestRequest
+        from src.api.tests import UpdateTestRequest, update_test
 
         mock_supabase.request = AsyncMock(side_effect=[
             {"data": [sample_test_data], "error": None},
@@ -772,7 +773,7 @@ class TestUpdateTestEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_test_data
     ):
         """Test update test handles errors."""
-        from src.api.tests import update_test, UpdateTestRequest
+        from src.api.tests import UpdateTestRequest, update_test
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [sample_test_data],
@@ -864,7 +865,7 @@ class TestBulkDeleteEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test successful bulk delete."""
-        from src.api.tests import bulk_delete_tests, BulkDeleteRequest
+        from src.api.tests import BulkDeleteRequest, bulk_delete_tests
 
         mock_supabase.request = AsyncMock(side_effect=[
             # Tests query
@@ -901,7 +902,7 @@ class TestBulkDeleteEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test bulk delete with some tests not accessible."""
-        from src.api.tests import bulk_delete_tests, BulkDeleteRequest
+        from src.api.tests import BulkDeleteRequest, bulk_delete_tests
 
         mock_supabase.request = AsyncMock(side_effect=[
             # Tests query - only test-1 exists
@@ -935,7 +936,7 @@ class TestBulkDeleteEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test bulk delete when no tests are accessible."""
-        from src.api.tests import bulk_delete_tests, BulkDeleteRequest
+        from src.api.tests import BulkDeleteRequest, bulk_delete_tests
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
 
@@ -957,7 +958,7 @@ class TestBulkUpdateEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test bulk update without tag modifications."""
-        from src.api.tests import bulk_update_tests, BulkUpdateRequest
+        from src.api.tests import BulkUpdateRequest, bulk_update_tests
 
         mock_supabase.request = AsyncMock(side_effect=[
             # Tests query
@@ -997,7 +998,7 @@ class TestBulkUpdateEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test bulk update with tag modifications."""
-        from src.api.tests import bulk_update_tests, BulkUpdateRequest
+        from src.api.tests import BulkUpdateRequest, bulk_update_tests
 
         mock_supabase.request = AsyncMock(side_effect=[
             # Tests query
@@ -1025,7 +1026,7 @@ class TestBulkUpdateEndpoint:
 
         with patch("src.api.tests.get_supabase_client", return_value=mock_supabase), \
              patch("src.api.tests.get_current_user", AsyncMock(return_value=mock_user)):
-            response = await bulk_update_tests(body, mock_request)
+            await bulk_update_tests(body, mock_request)
 
             # Verify tags were updated correctly
             call_args = mock_supabase.update.call_args
@@ -1038,7 +1039,7 @@ class TestBulkUpdateEndpoint:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test bulk update when no tests are accessible."""
-        from src.api.tests import bulk_update_tests, BulkUpdateRequest
+        from src.api.tests import BulkUpdateRequest, bulk_update_tests
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
 

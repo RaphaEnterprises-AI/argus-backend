@@ -1,6 +1,6 @@
 """Java Selenium export template."""
 
-from .base import BaseTemplate, TestSpec, TestStep, TestAssertion
+from .base import BaseTemplate, TestAssertion, TestSpec, TestStep
 
 
 class JavaSeleniumTemplate(BaseTemplate):
@@ -39,7 +39,7 @@ class JavaSeleniumTemplate(BaseTemplate):
 
         lines = [
             "",
-            f"/**",
+            "/**",
             f" * Generated from Argus test spec: {test_spec.id}",
         ]
 
@@ -155,7 +155,7 @@ class JavaSeleniumTemplate(BaseTemplate):
             code_line = f'        driver.switchTo().activeElement().sendKeys(Keys.{key.upper()});'
 
         elif action == "screenshot":
-            code_line = f'        // Screenshot capture requires additional setup'
+            code_line = '        // Screenshot capture requires additional setup'
 
         elif action == "double_click":
             code_line = f"""        WebElement element{index} = wait.until(

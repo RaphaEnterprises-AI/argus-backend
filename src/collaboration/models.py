@@ -1,9 +1,9 @@
 """Models for real-time collaboration features."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 
@@ -66,9 +66,9 @@ class CursorPosition:
 
     x: float = 0
     y: float = 0
-    element_id: Optional[str] = None  # ID of element cursor is over
-    step_index: Optional[int] = None  # Index if in test step editor
-    field_name: Optional[str] = None  # Field being edited
+    element_id: str | None = None  # ID of element cursor is over
+    step_index: int | None = None  # Index if in test step editor
+    field_name: str | None = None  # Field being edited
 
 
 @dataclass
@@ -77,7 +77,7 @@ class SelectionRange:
 
     start: int = 0
     end: int = 0
-    element_id: Optional[str] = None
+    element_id: str | None = None
 
 
 @dataclass
@@ -88,18 +88,18 @@ class UserPresence:
     user_id: str = ""
     user_name: str = ""
     user_email: str = ""
-    avatar_url: Optional[str] = None
+    avatar_url: str | None = None
     workspace_id: str = ""
-    test_id: Optional[str] = None
+    test_id: str | None = None
     status: PresenceStatus = PresenceStatus.ONLINE
     color: str = ""
-    cursor: Optional[CursorPosition] = None
-    selection: Optional[SelectionRange] = None
+    cursor: CursorPosition | None = None
+    selection: SelectionRange | None = None
     last_active: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     connected_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
 
     def __post_init__(self):
@@ -170,10 +170,10 @@ class CollaborationEvent:
     type: CollaborationEventType = CollaborationEventType.USER_JOINED
     user_id: str = ""
     workspace_id: str = ""
-    test_id: Optional[str] = None
+    test_id: str | None = None
     payload: dict = field(default_factory=dict)
     timestamp: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
 
     def to_dict(self) -> dict:
@@ -195,20 +195,20 @@ class CollaborativeComment:
 
     id: str = field(default_factory=lambda: str(uuid4()))
     test_id: str = ""
-    step_index: Optional[int] = None  # Which step (null = test level)
+    step_index: int | None = None  # Which step (null = test level)
     author_id: str = ""
     author_name: str = ""
-    author_avatar: Optional[str] = None
+    author_avatar: str | None = None
     content: str = ""
     mentions: list[str] = field(default_factory=list)  # User IDs
     resolved: bool = False
-    resolved_by: Optional[str] = None
-    resolved_at: Optional[datetime] = None
-    parent_id: Optional[str] = None  # For threaded comments
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    parent_id: str | None = None  # For threaded comments
     created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -242,7 +242,7 @@ class EditOperation:
     value: Any = None
     previous_value: Any = None
     timestamp: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     vector_clock: dict[str, int] = field(default_factory=dict)
 

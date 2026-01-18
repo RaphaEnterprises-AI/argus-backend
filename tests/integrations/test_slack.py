@@ -1,9 +1,9 @@
 """Tests for Slack integration module (slack.py)."""
 
-import pytest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone, timedelta
-import httpx
+
+import pytest
 
 
 class TestNotificationStatus:
@@ -103,7 +103,7 @@ class TestTestResult:
 
     def test_test_result_status_success(self, mock_env_vars):
         """Test TestResult status when all pass."""
-        from src.integrations.slack import TestResult, NotificationStatus
+        from src.integrations.slack import NotificationStatus, TestResult
 
         result = TestResult(
             total=10,
@@ -117,7 +117,7 @@ class TestTestResult:
 
     def test_test_result_status_failure(self, mock_env_vars):
         """Test TestResult status when many fail."""
-        from src.integrations.slack import TestResult, NotificationStatus
+        from src.integrations.slack import NotificationStatus, TestResult
 
         result = TestResult(
             total=10,
@@ -131,7 +131,7 @@ class TestTestResult:
 
     def test_test_result_status_warning(self, mock_env_vars):
         """Test TestResult status when some fail."""
-        from src.integrations.slack import TestResult, NotificationStatus
+        from src.integrations.slack import NotificationStatus, TestResult
 
         result = TestResult(
             total=10,
@@ -176,7 +176,7 @@ class TestScheduleInfo:
         """Test creating ScheduleInfo."""
         from src.integrations.slack import ScheduleInfo
 
-        next_run = datetime.now(timezone.utc) + timedelta(minutes=30)
+        next_run = datetime.now(UTC) + timedelta(minutes=30)
 
         schedule = ScheduleInfo(
             schedule_id="sched-123",
@@ -222,7 +222,7 @@ class TestSlackNotifierInit:
 
     def test_notifier_with_config(self, mock_env_vars):
         """Test creating notifier with config."""
-        from src.integrations.slack import SlackNotifier, SlackConfig
+        from src.integrations.slack import SlackConfig, SlackNotifier
 
         config = SlackConfig(
             webhook_url="https://hooks.slack.com/test",
@@ -406,7 +406,7 @@ class TestSlackNotifierBuildBlocks:
         """Test _build_schedule_reminder_blocks method."""
         from src.integrations.slack import ScheduleInfo
 
-        next_run = datetime.now(timezone.utc) + timedelta(minutes=30)
+        next_run = datetime.now(UTC) + timedelta(minutes=30)
 
         schedule = ScheduleInfo(
             schedule_id="sched-123",

@@ -1,9 +1,9 @@
 """Tests for the email service."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import os
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestConsoleEmailProvider:
@@ -170,8 +170,9 @@ class TestResendEmailProvider:
     @pytest.mark.asyncio
     async def test_send_request_error(self, mock_env_vars):
         """Test handling request error."""
-        from src.services.email_service import ResendEmailProvider
         import httpx
+
+        from src.services.email_service import ResendEmailProvider
 
         provider = ResendEmailProvider("test-api-key")
 
@@ -330,8 +331,9 @@ class TestSendGridEmailProvider:
     @pytest.mark.asyncio
     async def test_send_request_error(self, mock_env_vars):
         """Test handling request error."""
-        from src.services.email_service import SendGridEmailProvider
         import httpx
+
+        from src.services.email_service import SendGridEmailProvider
 
         provider = SendGridEmailProvider("sg-api-key")
 
@@ -409,7 +411,7 @@ class TestSMTPEmailProvider:
             port=587,
         )
 
-        with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+        with patch("aiosmtplib.send", new_callable=AsyncMock):
             result = await provider.send(
                 to="test@example.com",
                 subject="Test Subject",
@@ -468,7 +470,7 @@ class TestEmailServiceInit:
 
     def test_init_with_provider(self, mock_env_vars):
         """Test init with custom provider."""
-        from src.services.email_service import EmailService, ConsoleEmailProvider
+        from src.services.email_service import ConsoleEmailProvider, EmailService
 
         custom_provider = ConsoleEmailProvider()
         service = EmailService(provider=custom_provider)
@@ -515,7 +517,7 @@ class TestEmailServiceInit:
 
     def test_init_auto_detect_console(self, mock_env_vars, monkeypatch):
         """Test auto-detecting Console provider as fallback."""
-        from src.services.email_service import EmailService, ConsoleEmailProvider
+        from src.services.email_service import ConsoleEmailProvider, EmailService
 
         monkeypatch.delenv("RESEND_API_KEY", raising=False)
         monkeypatch.delenv("SENDGRID_API_KEY", raising=False)
@@ -739,8 +741,8 @@ class TestGetEmailService:
 
     def test_get_email_service_creates_singleton(self, mock_env_vars, monkeypatch):
         """Test that get_email_service creates singleton."""
-        from src.services.email_service import get_email_service
         import src.services.email_service as module
+        from src.services.email_service import get_email_service
 
         # Clear any environment keys
         monkeypatch.delenv("RESEND_API_KEY", raising=False)
@@ -760,8 +762,8 @@ class TestGetEmailService:
 
     def test_get_email_service_returns_service(self, mock_env_vars, monkeypatch):
         """Test that get_email_service returns EmailService instance."""
-        from src.services.email_service import get_email_service, EmailService
         import src.services.email_service as module
+        from src.services.email_service import EmailService, get_email_service
 
         # Clear any environment keys
         monkeypatch.delenv("RESEND_API_KEY", raising=False)

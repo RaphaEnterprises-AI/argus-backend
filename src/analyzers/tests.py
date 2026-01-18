@@ -8,10 +8,10 @@ Understands:
 - E2E test selectors
 """
 
-import re
 import logging
-from pathlib import Path
-from typing import Optional
+import re
+
+from src.indexer import ParsedFile
 
 from .base import (
     BaseAnalyzer,
@@ -20,7 +20,6 @@ from .base import (
     Issue,
     Severity,
 )
-from src.indexer import ParsedFile
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +99,6 @@ class TestAnalyzer(BaseAnalyzer):
     def _analyze_pytest(self, parsed: ParsedFile) -> list[ComponentInfo]:
         """Analyze pytest test files."""
         components: list[ComponentInfo] = []
-        content = parsed.content
 
         # Find test functions
         for func in parsed.get_functions():

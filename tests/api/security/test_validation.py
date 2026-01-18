@@ -15,7 +15,6 @@ Tests cover:
 
 import pytest
 
-
 # =============================================================================
 # String Sanitization Tests
 # =============================================================================
@@ -676,7 +675,7 @@ class TestInputValidator:
 
         validator = InputValidator(check_sql=False)
         # SQL injection should pass when check is disabled
-        result = validator.validate("SELECT * FROM users")
+        validator.validate("SELECT * FROM users")
         # Other checks might still catch it if they match patterns
         # The point is SQL-specific check is disabled
 

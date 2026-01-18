@@ -16,18 +16,17 @@ When breakpoints are enabled, execution will pause before the specified nodes,
 allowing external systems to approve/reject/modify state before resuming.
 """
 
-from typing import Literal, Optional, Any
-from dataclasses import dataclass
 import asyncio
+from dataclasses import dataclass
+from typing import Literal
+
 import structlog
+from langgraph.graph import END, StateGraph
+from langgraph.types import Command, Send, interrupt
 
-from langgraph.graph import StateGraph, END, START
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.types import Send, Command, interrupt
-
-from .state import TestingState, TestStatus, TestType
-from .checkpointer import get_checkpointer
 from ..config import Settings, get_settings
+from .checkpointer import get_checkpointer
+from .state import TestingState, TestType
 
 logger = structlog.get_logger()
 
@@ -110,20 +109,20 @@ def route_after_execution(
     # Check for errors
     if state.get("error"):
         return "report"
-    
+
     # Check if we need to heal any failures
     if state.get("healing_queue") and state["should_continue"]:
         settings = get_settings()
         if settings.self_heal_enabled:
             return "self_heal"
-    
+
     # Check if more tests to run
     current_idx = state.get("current_test_index", 0)
     test_plan = state.get("test_plan", [])
-    
+
     if current_idx < len(test_plan):
         return "execute_test"
-    
+
     return "report"
 
 
@@ -134,14 +133,14 @@ def route_after_healing(
     # If healing was successful, retry the test
     if state.get("healing_queue"):
         return "execute_test"
-    
+
     # Check if more tests to run
     current_idx = state.get("current_test_index", 0)
     test_plan = state.get("test_plan", [])
-    
+
     if current_idx < len(test_plan):
         return "execute_test"
-    
+
     return "report"
 
 
@@ -524,10 +523,10 @@ def create_quality_subgraph() -> StateGraph:
     # Import node implementations (may not exist yet, graceful fallback)
     try:
         from .nodes import (
-            performance_analysis_node,
-            security_scan_node,
             accessibility_check_node,
+            performance_analysis_node,
             quality_report_node,
+            security_scan_node,
         )
     except ImportError:
         # Placeholder nodes if not implemented yet
@@ -556,9 +555,9 @@ def create_quality_subgraph() -> StateGraph:
 def create_testing_graph(settings: Settings) -> StateGraph:
     """
     Create the LangGraph state machine for testing orchestration.
-    
+
     Graph structure:
-    
+
         [START]
            │
            ▼
@@ -595,25 +594,25 @@ def create_testing_graph(settings: Settings) -> StateGraph:
     # Import node implementations
     from .nodes import (
         analyze_code_node,
-        plan_tests_node,
         execute_test_node,
-        self_heal_node,
+        plan_tests_node,
         report_node,
+        self_heal_node,
     )
-    
+
     # Create graph
     graph = StateGraph(TestingState)
-    
+
     # Add nodes
     graph.add_node("analyze_code", analyze_code_node)
     graph.add_node("plan_tests", plan_tests_node)
     graph.add_node("execute_test", execute_test_node)
     graph.add_node("self_heal", self_heal_node)
     graph.add_node("report", report_node)
-    
+
     # Define edges
     graph.set_entry_point("analyze_code")
-    
+
     graph.add_conditional_edges(
         "analyze_code",
         route_after_analysis,
@@ -623,7 +622,7 @@ def create_testing_graph(settings: Settings) -> StateGraph:
             "__end__": END,
         }
     )
-    
+
     graph.add_conditional_edges(
         "plan_tests",
         route_after_planning,
@@ -633,7 +632,7 @@ def create_testing_graph(settings: Settings) -> StateGraph:
             "__end__": END,
         }
     )
-    
+
     graph.add_conditional_edges(
         "execute_test",
         route_after_execution,
@@ -644,7 +643,7 @@ def create_testing_graph(settings: Settings) -> StateGraph:
             "__end__": END,
         }
     )
-    
+
     graph.add_conditional_edges(
         "self_heal",
         route_after_healing,
@@ -654,9 +653,9 @@ def create_testing_graph(settings: Settings) -> StateGraph:
             "__end__": END,
         }
     )
-    
+
     graph.add_edge("report", END)
-    
+
     return graph
 
 
@@ -740,34 +739,34 @@ class TestingOrchestrator:
             app_url=app_url,
             breakpoints=interrupt_nodes,
         )
-    
+
     async def run(self, thread_id: str | None = None) -> dict:
         """
         Run the full test suite.
-        
+
         Args:
             thread_id: Optional thread ID for checkpointing
-            
+
         Returns:
             Final state with all test results
         """
         from .state import create_initial_state
-        
+
         initial_state = create_initial_state(
             codebase_path=self.codebase_path,
             app_url=self.app_url,
             pr_number=self.pr_number,
             changed_files=self.changed_files,
         )
-        
+
         config = {"configurable": {"thread_id": thread_id or initial_state["run_id"]}}
-        
+
         self.log.info("Starting test run", run_id=initial_state["run_id"])
-        
+
         try:
             # Run the graph
             final_state = await self.app.ainvoke(initial_state, config)
-            
+
             self.log.info(
                 "Test run completed",
                 passed=final_state["passed_count"],
@@ -775,34 +774,34 @@ class TestingOrchestrator:
                 skipped=final_state["skipped_count"],
                 cost=final_state["total_cost"],
             )
-            
+
             return final_state
-            
+
         except Exception as e:
             self.log.error("Test run failed", error=str(e))
             raise
-    
+
     async def run_single_test(self, test_spec: dict, thread_id: str | None = None) -> dict:
         """Run a single test by ID or spec."""
         from .state import create_initial_state
-        
+
         initial_state = create_initial_state(
             codebase_path=self.codebase_path,
             app_url=self.app_url,
         )
-        
+
         # Skip analysis and planning, go directly to execution
         initial_state["test_plan"] = [test_spec]
         initial_state["next_agent"] = "execute_test"
-        
+
         config = {"configurable": {"thread_id": thread_id or initial_state["run_id"]}}
-        
+
         # Create a modified graph that starts at execute_test
         # For now, use the full graph but with pre-populated state
         final_state = await self.app.ainvoke(initial_state, config)
-        
+
         return final_state
-    
+
     def get_run_summary(self, state: dict) -> dict:
         """Get a summary of the test run."""
         total_tests = state["passed_count"] + state["failed_count"] + state["skipped_count"]
@@ -820,7 +819,7 @@ class TestingOrchestrator:
             "error": state.get("error"),
         }
 
-    async def resume(self, thread_id: str, state_updates: Optional[dict] = None) -> dict:
+    async def resume(self, thread_id: str, state_updates: dict | None = None) -> dict:
         """
         Resume a paused execution.
 
@@ -859,7 +858,7 @@ class TestingOrchestrator:
             self.log.error("Resume failed", thread_id=thread_id, error=str(e))
             raise
 
-    async def get_state(self, thread_id: str) -> Optional[dict]:
+    async def get_state(self, thread_id: str) -> dict | None:
         """
         Get the current state of a paused or completed execution.
 
@@ -1042,10 +1041,10 @@ def create_enhanced_testing_graph(settings: Settings) -> StateGraph:
     """
     from .nodes import (
         analyze_code_node,
-        plan_tests_node,
         execute_test_node,
-        self_heal_node,
+        plan_tests_node,
         report_node,
+        self_heal_node,
     )
 
     graph = StateGraph(TestingState)
@@ -1328,7 +1327,7 @@ class EnhancedTestingOrchestrator:
             self.log.error("Enhanced resume failed", thread_id=thread_id, error=str(e))
             raise
 
-    async def get_state(self, thread_id: str) -> Optional[dict]:
+    async def get_state(self, thread_id: str) -> dict | None:
         """Get the current state of a paused or completed execution."""
         config = {"configurable": {"thread_id": thread_id}}
 

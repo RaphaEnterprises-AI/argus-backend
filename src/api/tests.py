@@ -9,17 +9,17 @@ Provides standard REST endpoints for:
 Note: Test creation via NLP is in server.py at /api/v1/tests/create
 """
 
-from datetime import datetime, timezone
-from typing import Optional, Literal, Annotated
 import urllib.parse
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
-from src.services.supabase_client import get_supabase_client
-from src.api.teams import get_current_user, verify_org_access, log_audit
 from src.api.projects import verify_project_access
+from src.api.teams import get_current_user, log_audit
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Tests"])
@@ -36,9 +36,9 @@ SourceType = Literal["manual", "discovered", "generated", "imported"]
 class TestStep(BaseModel):
     """A single test step."""
     action: str = Field(..., description="Action to perform (e.g., 'click', 'type', 'navigate')")
-    target: Optional[str] = Field(None, description="Target selector or URL")
-    value: Optional[str] = Field(None, description="Value to use (e.g., text to type)")
-    description: Optional[str] = Field(None, description="Human-readable step description")
+    target: str | None = Field(None, description="Target selector or URL")
+    value: str | None = Field(None, description="Value to use (e.g., text to type)")
+    description: str | None = Field(None, description="Human-readable step description")
 
 
 class TestResponse(BaseModel):
@@ -46,15 +46,15 @@ class TestResponse(BaseModel):
     id: str
     project_id: str
     name: str
-    description: Optional[str]
+    description: str | None
     steps: list[dict]
     tags: list[str]
     priority: PriorityType
     is_active: bool
     source: SourceType
-    created_by: Optional[str]
+    created_by: str | None
     created_at: str
-    updated_at: Optional[str]
+    updated_at: str | None
 
 
 class TestListResponse(BaseModel):
@@ -62,7 +62,7 @@ class TestListResponse(BaseModel):
     id: str
     project_id: str
     name: str
-    description: Optional[str]
+    description: str | None
     tags: list[str]
     priority: PriorityType
     is_active: bool
@@ -75,7 +75,7 @@ class CreateTestRequest(BaseModel):
     """Request to create a new test."""
     project_id: str = Field(..., description="Project ID to associate the test with")
     name: str = Field(..., min_length=1, max_length=255, description="Test name")
-    description: Optional[str] = Field(None, max_length=2000, description="Test description")
+    description: str | None = Field(None, max_length=2000, description="Test description")
     steps: list[dict] = Field(default_factory=list, description="Test steps")
     tags: list[str] = Field(default_factory=list, description="Tags for categorization")
     priority: PriorityType = Field(default="medium", description="Test priority")
@@ -85,12 +85,12 @@ class CreateTestRequest(BaseModel):
 
 class UpdateTestRequest(BaseModel):
     """Request to update a test."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Test name")
-    description: Optional[str] = Field(None, max_length=2000, description="Test description")
-    steps: Optional[list[dict]] = Field(None, description="Test steps")
-    tags: Optional[list[str]] = Field(None, description="Tags for categorization")
-    priority: Optional[PriorityType] = Field(None, description="Test priority")
-    is_active: Optional[bool] = Field(None, description="Whether the test is active")
+    name: str | None = Field(None, min_length=1, max_length=255, description="Test name")
+    description: str | None = Field(None, max_length=2000, description="Test description")
+    steps: list[dict] | None = Field(None, description="Test steps")
+    tags: list[str] | None = Field(None, description="Tags for categorization")
+    priority: PriorityType | None = Field(None, description="Test priority")
+    is_active: bool | None = Field(None, description="Whether the test is active")
 
 
 class TestListPaginatedResponse(BaseModel):
@@ -262,12 +262,12 @@ async def batch_insert_audit_logs(audit_entries: list[dict]) -> None:
 @router.get("/tests", response_model=TestListPaginatedResponse)
 async def list_tests(
     request: Request,
-    project_id: Optional[str] = None,
-    is_active: Optional[bool] = None,
-    priority: Optional[PriorityType] = None,
-    source: Optional[SourceType] = None,
-    tags: Annotated[Optional[str], Query(max_length=500, description="Tags to filter by (comma-separated)")] = None,
-    search: Annotated[Optional[str], Query(max_length=200, description="Search term for name/description")] = None,
+    project_id: str | None = None,
+    is_active: bool | None = None,
+    priority: PriorityType | None = None,
+    source: SourceType | None = None,
+    tags: Annotated[str | None, Query(max_length=500, description="Tags to filter by (comma-separated)")] = None,
+    search: Annotated[str | None, Query(max_length=200, description="Search term for name/description")] = None,
     limit: Annotated[int, Query(ge=1, le=500, description="Maximum results to return")] = 50,
     offset: Annotated[int, Query(ge=0, le=10000, description="Offset for pagination")] = 0,
 ):
@@ -490,7 +490,7 @@ async def update_test(test_id: str, body: UpdateTestRequest, request: Request):
     supabase = get_supabase_client()
 
     # Build update data
-    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
     if body.name is not None:
         update_data["name"] = body.name
@@ -583,10 +583,10 @@ class BulkDeleteRequest(BaseModel):
 class BulkUpdateRequest(BaseModel):
     """Request for bulk update operation."""
     test_ids: list[str] = Field(..., min_length=1, max_length=100, description="Test IDs to update")
-    is_active: Optional[bool] = Field(None, description="Set active status for all tests")
-    priority: Optional[PriorityType] = Field(None, description="Set priority for all tests")
-    tags_add: Optional[list[str]] = Field(None, description="Tags to add to all tests")
-    tags_remove: Optional[list[str]] = Field(None, description="Tags to remove from all tests")
+    is_active: bool | None = Field(None, description="Set active status for all tests")
+    priority: PriorityType | None = Field(None, description="Set priority for all tests")
+    tags_add: list[str] | None = Field(None, description="Tags to add to all tests")
+    tags_remove: list[str] | None = Field(None, description="Tags to remove from all tests")
 
 
 @router.post("/tests/bulk-delete")
@@ -644,7 +644,7 @@ async def bulk_delete_tests(body: BulkDeleteRequest, request: Request):
         # Step 4: Build and batch insert audit logs (1 query instead of N)
         client_ip = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         audit_entries = []
         for test_id in deleted:
@@ -711,7 +711,7 @@ async def bulk_update_tests(body: BulkUpdateRequest, request: Request):
         }
 
     accessible_ids = list(accessible_tests.keys())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     updated = []
     update_metadata = {}  # Track changes for audit log
 

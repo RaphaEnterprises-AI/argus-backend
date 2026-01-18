@@ -10,12 +10,11 @@ Tracks all AI interactions for:
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
-import uuid
 
 import structlog
 
@@ -57,13 +56,13 @@ class AuditEventType(str, Enum):
 class AuditEvent:
     """An auditable event in the system."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     event_type: AuditEventType = AuditEventType.AI_REQUEST
 
     # Actor information
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    client_ip: Optional[str] = None
+    user_id: str | None = None
+    session_id: str | None = None
+    client_ip: str | None = None
 
     # Event details
     action: str = ""
@@ -74,17 +73,17 @@ class AuditEvent:
     metadata: dict = field(default_factory=dict)
 
     # For AI interactions
-    model: Optional[str] = None
+    model: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
 
     # Hashes for integrity (not the actual content)
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
 
     # Outcome
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     # Compliance
     data_classification: str = "internal"  # public, internal, confidential, restricted
@@ -160,7 +159,7 @@ class AuditLogger:
 
     def _get_log_file(self) -> Path:
         """Get current log file, rotating if needed."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         base_path = self.output_dir / f"audit-{today}.jsonl"
 
         if self._current_file != base_path:
@@ -200,8 +199,8 @@ class AuditLogger:
         action: str,
         prompt_hash: str,
         input_tokens: int = 0,
-        session_id: Optional[str] = None,
-        metadata: Optional[dict] = None,
+        session_id: str | None = None,
+        metadata: dict | None = None,
     ) -> AuditEvent:
         """Log an AI API request."""
         event = AuditEvent(
@@ -226,7 +225,7 @@ class AuditLogger:
         output_tokens: int,
         cost_usd: float,
         success: bool = True,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> AuditEvent:
         """Log an AI API response."""
         event = AuditEvent(
@@ -246,7 +245,7 @@ class AuditLogger:
         self,
         user_id: str,
         file_path: str,
-        file_hash: Optional[str] = None,
+        file_hash: str | None = None,
         classification: str = "internal",
         was_sanitized: bool = False,
         secrets_redacted: int = 0,
@@ -299,7 +298,7 @@ class AuditLogger:
         test_name: str,
         status: str,
         duration_seconds: float,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> AuditEvent:
         """Log test execution."""
         event_type = AuditEventType.TEST_COMPLETED if status == "passed" else AuditEventType.TEST_FAILED
@@ -348,7 +347,7 @@ class AuditLogger:
         integration: str,
         action: str,
         success: bool,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> AuditEvent:
         """Log integration (GitHub, Slack, etc.) event."""
         event = AuditEvent(
@@ -365,17 +364,17 @@ class AuditLogger:
 
     def query_events(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        event_type: Optional[AuditEventType] = None,
-        user_id: Optional[str] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        event_type: AuditEventType | None = None,
+        user_id: str | None = None,
         limit: int = 1000,
     ) -> list[AuditEvent]:
         """Query audit events (for compliance reporting)."""
         events = []
 
         for log_file in sorted(self.output_dir.glob("audit-*.jsonl")):
-            with open(log_file, "r") as f:
+            with open(log_file) as f:
                 for line in f:
                     if not line.strip():
                         continue
@@ -471,7 +470,7 @@ def hash_content(content: str) -> str:
 
 
 # Global audit logger instance
-_audit_logger: Optional[AuditLogger] = None
+_audit_logger: AuditLogger | None = None
 
 
 def get_audit_logger() -> AuditLogger:

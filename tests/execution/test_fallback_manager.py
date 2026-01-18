@@ -1,17 +1,16 @@
 """Tests for FallbackManager."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
-from src.execution.fallback_manager import FallbackManager, AttemptResult
+import pytest
+
+from src.execution.fallback_manager import FallbackManager
 from src.execution.models import (
     ExecutionMode,
-    ExecutionStats,
     ExecutionStrategy,
     FallbackEvent,
     FallbackLevel,
-    HybridStepResult,
     StepExecutionConfig,
 )
 

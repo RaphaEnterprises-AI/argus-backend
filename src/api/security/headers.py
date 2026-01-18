@@ -6,7 +6,8 @@ Implements security headers recommended by:
 - Security Headers (securityheaders.com)
 """
 
-from typing import Callable, Optional, List
+from collections.abc import Callable
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
@@ -33,8 +34,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         enable_hsts: bool = True,
         hsts_max_age: int = 31536000,  # 1 year
         enable_csp: bool = True,
-        csp_report_uri: Optional[str] = None,
-        allowed_hosts: Optional[List[str]] = None,
+        csp_report_uri: str | None = None,
+        allowed_hosts: list[str] | None = None,
         frame_options: str = "DENY",
     ):
         super().__init__(app)
@@ -141,9 +142,9 @@ class CORSSecurityMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
-        allowed_origins: List[str] = None,
-        allowed_methods: List[str] = None,
-        allowed_headers: List[str] = None,
+        allowed_origins: list[str] = None,
+        allowed_methods: list[str] = None,
+        allowed_headers: list[str] = None,
         allow_credentials: bool = True,
         max_age: int = 600,
     ):

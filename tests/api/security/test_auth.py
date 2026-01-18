@@ -13,12 +13,11 @@ Tests cover:
 
 import hashlib
 import hmac
-import secrets
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
+import pytest
 
 # =============================================================================
 # JWT Token Tests
@@ -143,7 +142,7 @@ class TestJWTTokenVerification:
         import jwt
 
         with patch("src.config.get_settings", return_value=mock_settings):
-            from src.api.security.auth import verify_jwt_token, JWT_ALGORITHM
+            from src.api.security.auth import JWT_ALGORITHM, verify_jwt_token
 
             # Create an expired token manually
             expired_payload = {
@@ -153,8 +152,8 @@ class TestJWTTokenVerification:
                 "name": None,
                 "roles": [],
                 "scopes": [],
-                "iat": int((datetime.now(timezone.utc) - timedelta(hours=25)).timestamp()),
-                "exp": int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp()),
+                "iat": int((datetime.now(UTC) - timedelta(hours=25)).timestamp()),
+                "exp": int((datetime.now(UTC) - timedelta(hours=1)).timestamp()),
                 "jti": "test-jti",
                 "type": "access",
             }
@@ -172,7 +171,7 @@ class TestJWTTokenVerification:
         import jwt
 
         with patch("src.config.get_settings", return_value=mock_settings):
-            from src.api.security.auth import verify_jwt_token, JWT_ALGORITHM
+            from src.api.security.auth import JWT_ALGORITHM, verify_jwt_token
 
             # Create token with different secret
             payload = {
@@ -182,8 +181,8 @@ class TestJWTTokenVerification:
                 "name": None,
                 "roles": [],
                 "scopes": [],
-                "iat": int(datetime.now(timezone.utc).timestamp()),
-                "exp": int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
+                "iat": int(datetime.now(UTC).timestamp()),
+                "exp": int((datetime.now(UTC) + timedelta(hours=24)).timestamp()),
                 "jti": "test-jti",
                 "type": "access",
             }
@@ -221,7 +220,7 @@ class TestAPIKeyGeneration:
 
     def test_generate_api_key(self):
         """Test API key generation."""
-        from src.api.security.auth import generate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, generate_api_key
 
         plaintext_key, key_hash = generate_api_key()
 
@@ -288,10 +287,10 @@ class TestAPIKeyAuthentication:
     @pytest.mark.asyncio
     async def test_authenticate_api_key_valid(self, mock_request, mock_supabase):
         """Test authenticating with a valid API key."""
-        from src.api.security.auth import authenticate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, authenticate_api_key
 
         api_key = f"{API_KEY_PREFIX}test_key_12345"
-        key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+        hashlib.sha256(api_key.encode()).hexdigest()
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [{
@@ -336,7 +335,7 @@ class TestAPIKeyAuthentication:
     @pytest.mark.asyncio
     async def test_authenticate_api_key_not_found(self, mock_request, mock_supabase):
         """Test authenticating with non-existent API key."""
-        from src.api.security.auth import authenticate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, authenticate_api_key
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
 
@@ -347,9 +346,9 @@ class TestAPIKeyAuthentication:
     @pytest.mark.asyncio
     async def test_authenticate_api_key_expired(self, mock_request, mock_supabase):
         """Test authenticating with expired API key."""
-        from src.api.security.auth import authenticate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, authenticate_api_key
 
-        expired_time = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        expired_time = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         mock_supabase.request = AsyncMock(return_value={
             "data": [{
                 "id": "key_123",
@@ -368,7 +367,7 @@ class TestAPIKeyAuthentication:
     @pytest.mark.asyncio
     async def test_authenticate_api_key_empty_scopes(self, mock_request, mock_supabase):
         """Test that API key with empty scopes is rejected."""
-        from src.api.security.auth import authenticate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, authenticate_api_key
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [{
@@ -388,7 +387,7 @@ class TestAPIKeyAuthentication:
     @pytest.mark.asyncio
     async def test_authenticate_api_key_null_scopes(self, mock_request, mock_supabase):
         """Test that API key with null scopes is rejected."""
-        from src.api.security.auth import authenticate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, authenticate_api_key
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [{
@@ -408,7 +407,7 @@ class TestAPIKeyAuthentication:
     @pytest.mark.asyncio
     async def test_authenticate_api_key_supabase_not_configured(self, mock_request):
         """Test API key auth when Supabase is not configured."""
-        from src.api.security.auth import authenticate_api_key, API_KEY_PREFIX
+        from src.api.security.auth import API_KEY_PREFIX, authenticate_api_key
 
         mock_supabase = MagicMock()
         mock_supabase.is_configured = False
@@ -497,6 +496,7 @@ class TestClerkJWTVerification:
     async def test_verify_clerk_jwt_no_kid(self):
         """Test that token without kid is skipped."""
         import jwt as pyjwt
+
         from src.api.security.auth import verify_clerk_jwt
 
         # Create token without kid in header
@@ -515,14 +515,14 @@ class TestClerkJWTVerification:
         from src.api.security.auth import verify_clerk_jwt
 
         # Mock an expired token scenario
-        with patch("src.api.security.auth.get_jwks_for_issuer") as mock_jwks:
+        with patch("src.api.security.auth.get_jwks_for_issuer"):
             with patch("jwt.decode") as mock_decode:
                 mock_decode.side_effect = [
                     {"kid": "test-kid", "alg": "RS256"},  # get_unverified_header
                     {"sub": "user_123", "iss": "https://test.clerk.com", "exp": 0, "iat": 0},  # unverified decode
                 ]
 
-            result = await verify_clerk_jwt("some.expired.token")
+            await verify_clerk_jwt("some.expired.token")
             # Should return None for various error cases
             # The actual behavior depends on the token structure
 
@@ -685,10 +685,9 @@ class TestTokenRevocation:
     @pytest.mark.asyncio
     async def test_revoke_token(self):
         """Test revoking a token."""
-        from src.api.security.auth import revoke_token, is_token_revoked
-
         # Clear revoked tokens
         import src.api.security.auth as auth_module
+        from src.api.security.auth import is_token_revoked, revoke_token
         auth_module._revoked_tokens = set()
 
         jti = "test-jti-12345"
@@ -705,10 +704,9 @@ class TestTokenRevocation:
     @pytest.mark.asyncio
     async def test_is_token_revoked_not_revoked(self):
         """Test checking if non-revoked token is revoked."""
-        from src.api.security.auth import is_token_revoked
-
         # Clear revoked tokens
         import src.api.security.auth as auth_module
+        from src.api.security.auth import is_token_revoked
         auth_module._revoked_tokens = set()
 
         result = await is_token_revoked("never-revoked-jti")
@@ -724,7 +722,7 @@ class TestUserContextModel:
 
     def test_user_context_creation(self):
         """Test creating UserContext."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         user = UserContext(
             user_id="user_123",
@@ -748,7 +746,7 @@ class TestUserContextModel:
 
     def test_user_context_defaults(self):
         """Test UserContext default values."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
 
         user = UserContext(user_id="user_123")
 
@@ -766,7 +764,7 @@ class TestTokenPayloadModel:
         """Test creating TokenPayload."""
         from src.api.security.auth import TokenPayload
 
-        now = int(datetime.now(timezone.utc).timestamp())
+        now = int(datetime.now(UTC).timestamp())
         exp = now + 3600
 
         payload = TokenPayload(
@@ -810,7 +808,7 @@ class TestGetCurrentUserDependency:
     @pytest.mark.asyncio
     async def test_get_current_user_from_request_state(self, mock_request):
         """Test getting user from request state (already authenticated)."""
-        from src.api.security.auth import get_current_user, UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext, get_current_user
 
         existing_user = UserContext(
             user_id="already_authed",
@@ -824,7 +822,7 @@ class TestGetCurrentUserDependency:
     @pytest.mark.asyncio
     async def test_get_current_user_public_endpoint(self, mock_request):
         """Test get_current_user for public endpoint."""
-        from src.api.security.auth import get_current_user, AuthMethod
+        from src.api.security.auth import AuthMethod, get_current_user
 
         mock_request.url.path = "/health"
 
@@ -835,8 +833,9 @@ class TestGetCurrentUserDependency:
     @pytest.mark.asyncio
     async def test_get_current_user_no_auth_raises(self, mock_request):
         """Test that missing auth raises HTTPException."""
-        from src.api.security.auth import get_current_user
         from fastapi import HTTPException
+
+        from src.api.security.auth import get_current_user
 
         mock_request.url.path = "/api/v1/protected"
 
@@ -858,8 +857,9 @@ class TestRequireRolesDecorator:
     @pytest.mark.asyncio
     async def test_require_roles_has_role(self):
         """Test require_roles when user has required role."""
-        from src.api.security.auth import require_roles, UserContext, AuthMethod, get_current_user
         from fastapi import Depends
+
+        from src.api.security.auth import AuthMethod, UserContext, get_current_user, require_roles
 
         @require_roles("admin")
         async def protected_endpoint(user: UserContext = Depends(get_current_user)):
@@ -878,8 +878,9 @@ class TestRequireRolesDecorator:
     @pytest.mark.asyncio
     async def test_require_roles_missing_role(self):
         """Test require_roles when user lacks required role."""
-        from src.api.security.auth import require_roles, UserContext, AuthMethod, get_current_user
-        from fastapi import HTTPException, Depends
+        from fastapi import Depends, HTTPException
+
+        from src.api.security.auth import AuthMethod, UserContext, get_current_user, require_roles
 
         @require_roles("admin")
         async def protected_endpoint(user: UserContext = Depends(get_current_user)):
@@ -903,8 +904,9 @@ class TestRequireScopesDecorator:
     @pytest.mark.asyncio
     async def test_require_scopes_has_scopes(self):
         """Test require_scopes when user has required scopes."""
-        from src.api.security.auth import require_scopes, UserContext, AuthMethod, get_current_user
         from fastapi import Depends
+
+        from src.api.security.auth import AuthMethod, UserContext, get_current_user, require_scopes
 
         @require_scopes("read", "write")
         async def protected_endpoint(user: UserContext = Depends(get_current_user)):
@@ -922,8 +924,9 @@ class TestRequireScopesDecorator:
     @pytest.mark.asyncio
     async def test_require_scopes_missing_scope(self):
         """Test require_scopes when user lacks a required scope."""
-        from src.api.security.auth import require_scopes, UserContext, AuthMethod, get_current_user
-        from fastapi import HTTPException, Depends
+        from fastapi import Depends, HTTPException
+
+        from src.api.security.auth import AuthMethod, UserContext, get_current_user, require_scopes
 
         @require_scopes("read", "write", "admin")
         async def protected_endpoint(user: UserContext = Depends(get_current_user)):

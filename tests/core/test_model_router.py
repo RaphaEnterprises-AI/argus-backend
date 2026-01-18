@@ -1,7 +1,8 @@
 """Tests for the model router module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestModelConfig:
@@ -10,7 +11,7 @@ class TestModelConfig:
     def test_model_config_creation(self, mock_env_vars):
         """Test creating a ModelConfig."""
         from src.core.model_router import ModelConfig, ModelProvider
-        
+
         config = ModelConfig(
             provider=ModelProvider.ANTHROPIC,
             model_id="claude-sonnet-4-5-20250514",
@@ -20,7 +21,7 @@ class TestModelConfig:
             supports_vision=True,
             supports_tools=True,
         )
-        
+
         assert config.provider == ModelProvider.ANTHROPIC
         assert config.model_id == "claude-sonnet-4-5-20250514"
         assert config.supports_vision is True
@@ -28,7 +29,7 @@ class TestModelConfig:
     def test_avg_cost_per_1k(self, mock_env_vars):
         """Test average cost calculation."""
         from src.core.model_router import ModelConfig, ModelProvider
-        
+
         config = ModelConfig(
             provider=ModelProvider.ANTHROPIC,
             model_id="test-model",
@@ -36,7 +37,7 @@ class TestModelConfig:
             output_cost_per_1m=15.00,
             max_tokens=8192,
         )
-        
+
         # Expected: (3.00 * 0.6 + 15.00 * 0.4) / 1000 = 0.0078
         expected = (3.00 * 0.6 + 15.00 * 0.4) / 1000
         assert abs(config.avg_cost_per_1k - expected) < 0.0001
@@ -48,7 +49,7 @@ class TestTaskTypes:
     def test_task_types_exist(self, mock_env_vars):
         """Test that all expected task types exist."""
         from src.core.model_router import TaskType
-        
+
         assert TaskType.ELEMENT_CLASSIFICATION
         assert TaskType.CODE_ANALYSIS
         assert TaskType.VISUAL_COMPARISON
@@ -63,7 +64,7 @@ class TestTaskModelMapping:
     def test_task_model_mapping_exists(self, mock_env_vars):
         """Test that all task types have model mappings."""
         from src.core.model_router import TASK_MODEL_MAPPING, TaskType
-        
+
         for task_type in TaskType:
             assert task_type in TASK_MODEL_MAPPING
             assert len(TASK_MODEL_MAPPING[task_type]) > 0
@@ -87,14 +88,14 @@ class TestModelRouter:
 
     def test_router_initialization(self, mock_env_vars):
         """Test ModelRouter initialization."""
-        from src.core.model_router import ModelRouter, ModelProvider
-        
+        from src.core.model_router import ModelProvider, ModelRouter
+
         router = ModelRouter(
             prefer_provider=ModelProvider.ANTHROPIC,
             cost_limit_per_call=0.10,
             enable_fallback=True,
         )
-        
+
         assert router.prefer_provider == ModelProvider.ANTHROPIC
         assert router.cost_limit == 0.10
         assert router.enable_fallback is True
@@ -102,10 +103,10 @@ class TestModelRouter:
     def test_select_model_for_task(self, mock_env_vars):
         """Test model selection for a task."""
         from src.core.model_router import ModelRouter, TaskType
-        
+
         router = ModelRouter()
         model_name, config = router.select_model(TaskType.ELEMENT_CLASSIFICATION)
-        
+
         assert model_name is not None
         assert config is not None
         assert config.model_id is not None
@@ -113,35 +114,35 @@ class TestModelRouter:
     def test_select_model_with_vision_requirement(self, mock_env_vars):
         """Test model selection when vision is required."""
         from src.core.model_router import ModelRouter, TaskType
-        
+
         router = ModelRouter()
         model_name, config = router.select_model(
             TaskType.VISUAL_COMPARISON,
             requires_vision=True,
         )
-        
+
         assert config.supports_vision is True
 
     def test_select_model_with_tools_requirement(self, mock_env_vars):
         """Test model selection when tools are required."""
         from src.core.model_router import ModelRouter, TaskType
-        
+
         router = ModelRouter()
         model_name, config = router.select_model(
             TaskType.CODE_ANALYSIS,
             requires_tools=True,
         )
-        
+
         assert config.supports_tools is True
 
     def test_select_model_fallback_to_sonnet(self, mock_env_vars):
         """Test that model selection falls back to Sonnet."""
         from src.core.model_router import ModelRouter, TaskType
-        
+
         # Create router with very low cost limit
         router = ModelRouter(cost_limit_per_call=0.00001)
         model_name, config = router.select_model(TaskType.GENERAL)
-        
+
         # Should still return something (fallback)
         assert model_name is not None
 
@@ -149,9 +150,9 @@ class TestModelRouter:
     async def test_complete_basic(self, mock_env_vars):
         """Test basic completion call."""
         from src.core.model_router import ModelRouter, TaskType
-        
+
         router = ModelRouter()
-        
+
         # Mock the client
         with patch.object(router, '_get_client') as mock_get_client:
             mock_client = AsyncMock()
@@ -162,21 +163,21 @@ class TestModelRouter:
                 "model": "test-model",
             })
             mock_get_client.return_value = mock_client
-            
+
             result = await router.complete(
                 task_type=TaskType.GENERAL,
                 messages=[{"role": "user", "content": "Hello"}],
             )
-            
+
             assert "content" in result
             assert "cost" in result
 
     def test_get_cost_report(self, mock_env_vars):
         """Test cost report generation."""
         from src.core.model_router import ModelRouter
-        
+
         router = ModelRouter()
-        
+
         # Manually add some usage stats
         router.usage_stats["sonnet"] = {
             "calls": 10,
@@ -184,9 +185,9 @@ class TestModelRouter:
             "total_output_tokens": 500,
             "total_cost": 0.05,
         }
-        
+
         report = router.get_cost_report()
-        
+
         assert "total_cost" in report
         assert "by_model" in report
         assert "potential_savings" in report
@@ -366,7 +367,7 @@ class TestOpenAIClient:
     @pytest.mark.asyncio
     async def test_openai_client_complete(self, mock_env_vars):
         """Test OpenAIClient.complete method."""
-        from src.core.model_router import OpenAIClient, ModelConfig, ModelProvider
+        from src.core.model_router import ModelConfig, ModelProvider, OpenAIClient
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
@@ -400,7 +401,7 @@ class TestOpenAIClient:
     @pytest.mark.asyncio
     async def test_openai_client_complete_with_json_mode(self, mock_env_vars):
         """Test OpenAIClient.complete with json_mode."""
-        from src.core.model_router import OpenAIClient, ModelConfig, ModelProvider
+        from src.core.model_router import ModelConfig, ModelProvider, OpenAIClient
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content='{"result": "test"}'))]
@@ -433,7 +434,7 @@ class TestOpenAIClient:
     @pytest.mark.asyncio
     async def test_openai_client_complete_with_tools(self, mock_env_vars):
         """Test OpenAIClient.complete with tools."""
-        from src.core.model_router import OpenAIClient, ModelConfig, ModelProvider
+        from src.core.model_router import ModelConfig, ModelProvider, OpenAIClient
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
@@ -468,7 +469,7 @@ class TestOpenAIClient:
     @pytest.mark.asyncio
     async def test_openai_client_complete_with_vision(self, mock_env_vars):
         """Test OpenAIClient.complete_with_vision method."""
-        from src.core.model_router import OpenAIClient, ModelConfig, ModelProvider
+        from src.core.model_router import ModelConfig, ModelProvider, OpenAIClient
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Image description"))]
@@ -621,7 +622,7 @@ class TestModelRouterAdvanced:
 
     def test_get_client_anthropic(self, mock_env_vars):
         """Test _get_client for Anthropic provider."""
-        from src.core.model_router import ModelRouter, ModelProvider, AnthropicClient
+        from src.core.model_router import AnthropicClient, ModelProvider, ModelRouter
 
         with patch("anthropic.AsyncAnthropic"):
             router = ModelRouter()
@@ -634,7 +635,7 @@ class TestModelRouterAdvanced:
     @pytest.mark.skipif(not HAS_OPENAI, reason="openai not installed")
     def test_get_client_openai(self, mock_env_vars):
         """Test _get_client for OpenAI provider."""
-        from src.core.model_router import ModelRouter, ModelProvider, OpenAIClient
+        from src.core.model_router import ModelProvider, ModelRouter, OpenAIClient
 
         with patch("openai.AsyncOpenAI"):
             router = ModelRouter()
@@ -645,7 +646,7 @@ class TestModelRouterAdvanced:
     @pytest.mark.skipif(not HAS_GOOGLE, reason="google-generativeai not installed")
     def test_get_client_google(self, mock_env_vars):
         """Test _get_client for Google provider."""
-        from src.core.model_router import ModelRouter, ModelProvider, GoogleClient
+        from src.core.model_router import GoogleClient, ModelProvider, ModelRouter
 
         with patch("google.generativeai.configure"):
             router = ModelRouter()
@@ -656,7 +657,7 @@ class TestModelRouterAdvanced:
     @pytest.mark.skipif(not HAS_GROQ, reason="groq not installed")
     def test_get_client_groq(self, mock_env_vars):
         """Test _get_client for Groq provider."""
-        from src.core.model_router import ModelRouter, ModelProvider, GroqClient
+        from src.core.model_router import GroqClient, ModelProvider, ModelRouter
 
         with patch("groq.AsyncGroq"):
             router = ModelRouter()
@@ -666,7 +667,7 @@ class TestModelRouterAdvanced:
 
     def test_get_client_unsupported(self, mock_env_vars):
         """Test _get_client for unsupported provider."""
-        from src.core.model_router import ModelRouter, ModelProvider
+        from src.core.model_router import ModelProvider, ModelRouter
 
         router = ModelRouter()
 
@@ -690,7 +691,7 @@ class TestModelRouterAdvanced:
 
     def test_select_model_prefer_provider(self, mock_env_vars):
         """Test model selection with provider preference."""
-        from src.core.model_router import ModelRouter, TaskType, ModelProvider
+        from src.core.model_router import ModelProvider, ModelRouter, TaskType
 
         router = ModelRouter(prefer_provider=ModelProvider.ANTHROPIC)
         model_name, config = router.select_model(TaskType.GENERAL)
@@ -959,7 +960,7 @@ class TestCostEstimation:
 
     def test_create_router(self, mock_env_vars):
         """Test router creation helper."""
-        from src.core.model_router import create_router, ModelProvider
+        from src.core.model_router import ModelProvider, create_router
 
         router = create_router(prefer_anthropic=True, cost_limit=0.05)
 

@@ -1,7 +1,8 @@
 """Tests for Auto-Discovery module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestDiscoveryResult:
@@ -9,7 +10,7 @@ class TestDiscoveryResult:
 
     def test_discovery_result_creation(self):
         """Test creating a discovery result."""
-        from src.agents.auto_discovery import DiscoveryResult, DiscoveredPage, DiscoveredFlow
+        from src.agents.auto_discovery import DiscoveredFlow, DiscoveredPage, DiscoveryResult
 
         result = DiscoveryResult(
             app_url="http://localhost:3000",
@@ -49,7 +50,7 @@ class TestDiscoveredPage:
 
     def test_page_creation(self):
         """Test creating a discovered page."""
-        from src.agents.auto_discovery import DiscoveredPage, DiscoveredElement
+        from src.agents.auto_discovery import DiscoveredElement, DiscoveredPage
 
         page = DiscoveredPage(
             url="/products",
@@ -177,7 +178,7 @@ class TestAutoDiscovery:
 
         # Mock the import to trigger simulation mode
         with patch.dict('sys.modules', {'src.tools.playwright_tools': None}):
-            with patch.object(discovery, '_simulate_discovery', new_callable=AsyncMock) as mock_sim:
+            with patch.object(discovery, '_simulate_discovery', new_callable=AsyncMock):
                 with patch.object(discovery, '_analyze_flows', new_callable=AsyncMock) as mock_flows:
                     with patch.object(discovery, '_generate_test_suggestions', new_callable=AsyncMock) as mock_tests:
                         mock_flows.return_value = []

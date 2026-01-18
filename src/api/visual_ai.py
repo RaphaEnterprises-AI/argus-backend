@@ -13,27 +13,20 @@ Includes:
 """
 
 import base64
-import hashlib
-import os
-import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, BackgroundTasks
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
-from src.config import get_settings
-from src.services.supabase_client import get_supabase_client
 from src.agents.visual_ai import (
     VisualAI,
-    VisualRegressionManager,
-    VisualComparisonResult,
-    DifferenceType,
-    Severity,
 )
+from src.config import get_settings
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/visual", tags=["Visual AI"])
@@ -59,7 +52,7 @@ DEFAULT_BROWSERS = ["chromium", "firefox", "webkit"]
 
 class ViewportConfig(BaseModel):
     """Viewport configuration."""
-    name: Optional[str] = None
+    name: str | None = None
     width: int = Field(1440, ge=320, le=3840)
     height: int = Field(900, ge=480, le=2160)
 
@@ -67,7 +60,7 @@ class ViewportConfig(BaseModel):
 class CaptureRequest(BaseModel):
     """Request to capture a visual snapshot."""
     url: str = Field(..., description="URL to capture")
-    viewport: Optional[ViewportConfig] = Field(
+    viewport: ViewportConfig | None = Field(
         default_factory=lambda: ViewportConfig(width=1440, height=900),
         description="Viewport dimensions"
     )
@@ -75,7 +68,7 @@ class CaptureRequest(BaseModel):
         "chromium",
         description="Browser to use"
     )
-    wait_for: Optional[str] = Field(
+    wait_for: str | None = Field(
         None,
         description="CSS selector to wait for before capture"
     )
@@ -87,11 +80,11 @@ class CaptureRequest(BaseModel):
         False,
         description="Capture full scrollable page"
     )
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         None,
         description="Project ID for organization"
     )
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None,
         description="Name/label for this snapshot"
     )
@@ -101,19 +94,19 @@ class CompareRequest(BaseModel):
     """Request to compare snapshots."""
     baseline_id: str = Field(..., description="ID of baseline snapshot")
     current_url: str = Field(..., description="URL to capture and compare")
-    context: Optional[str] = Field(
+    context: str | None = Field(
         None,
         description="Context about what the page should show"
     )
-    git_diff: Optional[str] = Field(
+    git_diff: str | None = Field(
         None,
         description="Git diff of recent changes (helps AI understand expected changes)"
     )
-    pr_description: Optional[str] = Field(
+    pr_description: str | None = Field(
         None,
         description="PR description (helps AI distinguish intentional changes)"
     )
-    ignore_regions: Optional[List[str]] = Field(
+    ignore_regions: list[str] | None = Field(
         None,
         description="Regions to ignore (e.g., 'header timestamp', 'ad banner')"
     )
@@ -121,40 +114,40 @@ class CompareRequest(BaseModel):
         "medium",
         description="Detection sensitivity"
     )
-    viewport: Optional[ViewportConfig] = None
+    viewport: ViewportConfig | None = None
     browser: Literal["chromium", "firefox", "webkit"] = "chromium"
 
 
 class ResponsiveRequest(BaseModel):
     """Request for responsive testing."""
     url: str = Field(..., description="URL to capture")
-    viewports: Optional[List[ViewportConfig]] = Field(
+    viewports: list[ViewportConfig] | None = Field(
         None,
         description="Custom viewports (uses defaults if not specified)"
     )
-    project_id: Optional[str] = None
-    name: Optional[str] = None
+    project_id: str | None = None
+    name: str | None = None
 
 
 class BrowserMatrixRequest(BaseModel):
     """Request for cross-browser testing."""
     url: str = Field(..., description="URL to capture")
-    browsers: Optional[List[str]] = Field(
+    browsers: list[str] | None = Field(
         None,
         description="Browsers to use (defaults to all)"
     )
-    viewport: Optional[ViewportConfig] = None
-    project_id: Optional[str] = None
-    name: Optional[str] = None
+    viewport: ViewportConfig | None = None
+    project_id: str | None = None
+    name: str | None = None
 
 
 class ApprovalRequest(BaseModel):
     """Request to approve visual changes."""
-    change_ids: Optional[List[str]] = Field(
+    change_ids: list[str] | None = Field(
         None,
         description="Specific change IDs to approve (None = approve all)"
     )
-    notes: Optional[str] = Field(
+    notes: str | None = Field(
         None,
         description="Review notes"
     )
@@ -177,11 +170,11 @@ class SnapshotResponse(BaseModel):
     """Response for a captured snapshot."""
     id: str
     url: str
-    screenshot_url: Optional[str] = None
-    viewport: Dict[str, Any]
+    screenshot_url: str | None = None
+    viewport: dict[str, Any]
     browser: str
     captured_at: str
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 class ComparisonResponse(BaseModel):
@@ -192,9 +185,9 @@ class ComparisonResponse(BaseModel):
     match: bool
     match_percentage: float
     has_regressions: bool
-    differences: List[Dict[str, Any]]
+    differences: list[dict[str, Any]]
     summary: str
-    ai_analysis: Optional[Dict[str, Any]] = None
+    ai_analysis: dict[str, Any] | None = None
     cost_usd: float
     compared_at: str
 
@@ -205,7 +198,7 @@ class BaselineResponse(BaseModel):
     name: str
     url: str
     project_id: str
-    screenshot_url: Optional[str] = None
+    screenshot_url: str | None = None
     version: int
     created_at: str
     updated_at: str
@@ -234,10 +227,10 @@ async def _capture_screenshot(
     url: str,
     viewport: ViewportConfig,
     browser: str = "chromium",
-    wait_for: Optional[str] = None,
+    wait_for: str | None = None,
     wait_timeout: int = 30000,
     full_page: bool = False,
-) -> tuple[bytes, Dict[str, Any]]:
+) -> tuple[bytes, dict[str, Any]]:
     """Capture screenshot using the cloud browser worker.
 
     Uses BrowserWorkerClient which connects to Cloudflare's @cloudflare/playwright
@@ -271,7 +264,7 @@ async def _capture_screenshot(
         "viewport": {"width": viewport.width, "height": viewport.height},
         "browser": browser,
         "full_page": full_page,
-        "captured_at": result.get("captured_at", datetime.now(timezone.utc).isoformat()),
+        "captured_at": result.get("captured_at", datetime.now(UTC).isoformat()),
         "source": "browser_worker",
     }
 
@@ -281,7 +274,7 @@ async def _capture_screenshot(
 async def _store_screenshot(
     screenshot_bytes: bytes,
     snapshot_id: str,
-    project_id: Optional[str] = None,
+    project_id: str | None = None,
 ) -> str:
     """Store screenshot and return URL.
 
@@ -307,12 +300,12 @@ async def _save_snapshot_to_db(
     snapshot_id: str,
     url: str,
     screenshot_path: str,
-    viewport: Dict[str, Any],
+    viewport: dict[str, Any],
     browser: str,
-    metadata: Dict[str, Any],
-    project_id: Optional[str] = None,
-    name: Optional[str] = None,
-) -> Dict[str, Any]:
+    metadata: dict[str, Any],
+    project_id: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
     """Save snapshot record to database."""
     supabase = get_supabase_client()
 
@@ -328,7 +321,7 @@ async def _save_snapshot_to_db(
         "metadata": metadata,
         "project_id": project_id,
         "name": name,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
     }
 
     result = await supabase.insert("visual_snapshots", record)
@@ -467,7 +460,7 @@ async def capture_responsive_matrix(request: ResponsiveRequest):
         "success": all(r["success"] for r in results),
         "url": request.url,
         "results": results,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -527,7 +520,7 @@ async def capture_browser_matrix(request: BrowserMatrixRequest):
         "success": all(r["success"] for r in results),
         "url": request.url,
         "results": results,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -697,7 +690,7 @@ async def compare_snapshots(request: CompareRequest):
             "cost_usd": result.analysis_cost_usd,
             "context": context,
             "status": "pending_review" if result.has_regressions() else "passed",
-            "compared_at": datetime.now(timezone.utc).isoformat(),
+            "compared_at": datetime.now(UTC).isoformat(),
         }
 
         await supabase.insert("visual_comparisons", comparison_record)
@@ -743,7 +736,7 @@ async def compare_snapshots(request: CompareRequest):
 async def compare_responsive(
     baseline_id: str,
     current_url: str,
-    viewports: Optional[List[ViewportConfig]] = None,
+    viewports: list[ViewportConfig] | None = None,
 ):
     """
     Compare responsive behavior against baselines.
@@ -803,7 +796,7 @@ async def compare_responsive(
             "failed": sum(1 for r in successful if r.get("comparison", {}).get("has_regressions", False)),
             "errors": len(results) - len(successful),
         },
-        "compared_at": datetime.now(timezone.utc).isoformat(),
+        "compared_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -910,7 +903,7 @@ async def compare_browsers(request: BrowserMatrixRequest):
         "url": request.url,
         "reference_browser": reference_browser,
         "results": results,
-        "compared_at": datetime.now(timezone.utc).isoformat(),
+        "compared_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -921,8 +914,8 @@ async def compare_browsers(request: BrowserMatrixRequest):
 @router.post("/analyze")
 async def analyze_snapshot(
     snapshot_id: str,
-    expected_elements: Optional[List[str]] = Query(None),
-    context: Optional[str] = Query(None),
+    expected_elements: list[str] | None = Query(None),
+    context: str | None = Query(None),
 ):
     """
     Analyze a single snapshot for quality issues.
@@ -956,7 +949,7 @@ async def analyze_snapshot(
             "success": True,
             "snapshot_id": snapshot_id,
             "analysis": result,
-            "analyzed_at": datetime.now(timezone.utc).isoformat(),
+            "analyzed_at": datetime.now(UTC).isoformat(),
         }
 
     except Exception as e:
@@ -1073,7 +1066,7 @@ Respond with JSON:
             "snapshot_id": snapshot_id,
             "wcag_level": wcag_level,
             "accessibility": result,
-            "analyzed_at": datetime.now(timezone.utc).isoformat(),
+            "analyzed_at": datetime.now(UTC).isoformat(),
         }
 
     except Exception as e:
@@ -1093,7 +1086,7 @@ async def create_baseline(
     url: str,
     name: str,
     project_id: str,
-    viewport: Optional[ViewportConfig] = None,
+    viewport: ViewportConfig | None = None,
     browser: str = "chromium",
 ):
     """
@@ -1135,7 +1128,7 @@ async def create_baseline(
             detail=f"Failed to capture baseline: {str(e)}"
         )
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     baseline_record = {
         "id": baseline_id,
@@ -1155,9 +1148,9 @@ async def create_baseline(
     }
 
     if version == 1:
-        result = await supabase.insert("visual_baselines", baseline_record)
+        await supabase.insert("visual_baselines", baseline_record)
     else:
-        result = await supabase.update(
+        await supabase.update(
             "visual_baselines",
             {"id": f"eq.{baseline_id}"},
             baseline_record
@@ -1367,7 +1360,7 @@ async def approve_changes(
                 "status": "approved",
                 "review_notes": request.notes,
                 "approved_changes": approved_changes,
-                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "reviewed_at": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -1403,7 +1396,7 @@ async def approve_changes(
                             {
                                 "screenshot_path": snapshot.get("screenshot_path"),
                                 "version": new_version,
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "updated_at": datetime.now(UTC).isoformat(),
                             }
                         )
 
@@ -1413,7 +1406,7 @@ async def approve_changes(
                             "version": new_version,
                             "screenshot_path": snapshot.get("screenshot_path"),
                             "metadata": {"approved_from_comparison": comparison_id},
-                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "created_at": datetime.now(UTC).isoformat(),
                         })
 
         logger.info(
@@ -1428,7 +1421,7 @@ async def approve_changes(
             "comparison_id": comparison_id,
             "approved_changes": approved_changes,
             "baseline_updated": request.update_baseline,
-            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "reviewed_at": datetime.now(UTC).isoformat(),
         }
 
     except HTTPException:
@@ -1472,7 +1465,7 @@ async def reject_changes(
         if not result.get("data"):
             raise HTTPException(status_code=404, detail="Comparison not found")
 
-        comparison = result["data"][0]
+        result["data"][0]
 
         # Update comparison status
         await supabase.update(
@@ -1481,7 +1474,7 @@ async def reject_changes(
             {
                 "status": "rejected",
                 "review_notes": request.notes,
-                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "reviewed_at": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -1508,7 +1501,7 @@ async def reject_changes(
             "status": "rejected",
             "notes": request.notes,
             "issue_url": issue_url,
-            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "reviewed_at": datetime.now(UTC).isoformat(),
         }
 
     except HTTPException:
@@ -1571,8 +1564,9 @@ async def explain_changes(comparison_id: str):
         if hasattr(api_key, 'get_secret_value'):
             api_key = api_key.get_secret_value()
 
-        import anthropic
         import json
+
+        import anthropic
         client = anthropic.Anthropic(api_key=api_key)
 
         differences_text = json.dumps(differences, indent=2)
@@ -1633,7 +1627,7 @@ Respond in JSON:
             "success": True,
             "comparison_id": comparison_id,
             "explanation": explanation,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
 
     except HTTPException:
@@ -1652,8 +1646,8 @@ Respond in JSON:
 
 @router.get("/comparisons")
 async def list_comparisons(
-    project_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
+    project_id: str | None = Query(None),
+    status: str | None = Query(None),
     limit: int = Query(50, le=100),
 ):
     """List visual comparisons with optional filtering."""

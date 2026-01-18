@@ -8,14 +8,12 @@ This agent scans codebases to identify:
 - Critical user journeys
 """
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
-from .base import BaseAgent, AgentResult
-from .prompts import get_enhanced_prompt
 from ..core.model_router import TaskType
+from .base import AgentResult, BaseAgent
+from .prompts import get_enhanced_prompt
 
 
 @dataclass
@@ -48,8 +46,8 @@ class CodeAnalysisResult:
 
     summary: str
     testable_surfaces: list[TestableSurface]
-    framework_detected: Optional[str] = None
-    language: Optional[str] = None
+    framework_detected: str | None = None
+    language: str | None = None
     recommendations: list[str] = None
 
 
@@ -98,8 +96,8 @@ Output must be valid JSON."""
         self,
         codebase_path: str,
         app_url: str,
-        changed_files: Optional[list[str]] = None,
-        file_contents: Optional[dict[str, str]] = None,
+        changed_files: list[str] | None = None,
+        file_contents: dict[str, str] | None = None,
     ) -> AgentResult[CodeAnalysisResult]:
         """Analyze a codebase to identify testable surfaces.
 
@@ -196,30 +194,30 @@ Output must be valid JSON."""
         self,
         codebase_path: str,
         app_url: str,
-        changed_files: Optional[list[str]],
-        file_contents: Optional[dict[str, str]],
+        changed_files: list[str] | None,
+        file_contents: dict[str, str] | None,
     ) -> str:
         """Build the analysis prompt."""
         prompt_parts = [
-            f"Analyze this codebase and identify all testable surfaces.",
-            f"",
+            "Analyze this codebase and identify all testable surfaces.",
+            "",
             f"CODEBASE PATH: {codebase_path}",
             f"APP URL: {app_url}",
         ]
 
         if changed_files:
-            prompt_parts.append(f"")
-            prompt_parts.append(f"CHANGED FILES (prioritize testing these):")
+            prompt_parts.append("")
+            prompt_parts.append("CHANGED FILES (prioritize testing these):")
             for f in changed_files[:20]:  # Limit to avoid token overflow
                 prompt_parts.append(f"  - {f}")
 
         if file_contents:
-            prompt_parts.append(f"")
-            prompt_parts.append(f"FILE CONTENTS FOR ANALYSIS:")
+            prompt_parts.append("")
+            prompt_parts.append("FILE CONTENTS FOR ANALYSIS:")
             for path, content in list(file_contents.items())[:10]:
                 # Truncate large files
                 truncated = content[:2000] + "..." if len(content) > 2000 else content
-                prompt_parts.append(f"")
+                prompt_parts.append("")
                 prompt_parts.append(f"=== {path} ===")
                 prompt_parts.append(truncated)
 
@@ -258,7 +256,7 @@ Output must be valid JSON."""
         self,
         codebase_path: str,
         app_url: str,
-        patterns: Optional[list[str]] = None,
+        patterns: list[str] | None = None,
     ) -> AgentResult[CodeAnalysisResult]:
         """Analyze codebase with direct file system access.
 

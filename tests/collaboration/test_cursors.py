@@ -1,16 +1,13 @@
 """Tests for cursor tracking."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
 
 from src.collaboration.cursors import (
     CursorState,
     CursorTracker,
-    interpolate_cursor_position,
     generate_cursor_label,
+    interpolate_cursor_position,
 )
-from src.collaboration.models import CursorPosition, SelectionRange, BroadcastMessage
-
+from src.collaboration.models import CursorPosition, SelectionRange
 
 # =============================================================================
 # CursorState Tests
@@ -154,7 +151,7 @@ class TestCursorTracker:
     def test_get_active_cursors(self):
         """Test getting active (non-stale) cursors."""
         tracker = CursorTracker(test_id="test-1")
-        state = tracker.add_user("user-1", "User 1")
+        tracker.add_user("user-1", "User 1")
 
         # Update to make recent
         tracker.update_position("user-1", CursorPosition(x=0, y=0), broadcast=False)

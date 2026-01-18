@@ -1,12 +1,12 @@
 """Infrastructure for global edge testing."""
 
 from .cloudflare_browser import (
-    CloudflareBrowserClient,
-    GlobalEdgeTester,
-    EdgeChaosEngine,
-    CloudflareRegion,
     BrowserSession,
+    CloudflareBrowserClient,
+    CloudflareRegion,
+    EdgeChaosEngine,
     ExecutionResult,
+    GlobalEdgeTester,
     GlobalTestResult,
 )
 

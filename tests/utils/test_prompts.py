@@ -1,7 +1,7 @@
 """Tests for the prompt templates module."""
 
+
 import pytest
-import json
 
 
 class TestPromptTemplate:
@@ -265,7 +265,7 @@ class TestListPrompts:
 
     def test_list_prompts(self, mock_env_vars):
         """Test list_prompts returns all prompts."""
-        from src.utils.prompts import list_prompts, PROMPTS
+        from src.utils.prompts import PROMPTS, list_prompts
 
         prompts = list_prompts()
 

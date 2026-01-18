@@ -6,7 +6,6 @@ Sends test results to Slack channels via webhooks or API.
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 import httpx
 import structlog
@@ -24,8 +23,8 @@ class TestSummary:
     duration_seconds: float
     cost_usd: float
     failures: list[dict]
-    report_url: Optional[str] = None
-    pr_url: Optional[str] = None
+    report_url: str | None = None
+    pr_url: str | None = None
 
 
 class SlackIntegration:
@@ -57,8 +56,8 @@ class SlackIntegration:
 
     def __init__(
         self,
-        webhook_url: Optional[str] = None,
-        bot_token: Optional[str] = None,
+        webhook_url: str | None = None,
+        bot_token: str | None = None,
         default_channel: str = "#testing",
     ):
         self.webhook_url = webhook_url or os.environ.get("SLACK_WEBHOOK_URL")
@@ -191,8 +190,8 @@ class SlackIntegration:
         self,
         test_id: str,
         error: str,
-        root_cause: Optional[str] = None,
-        screenshot_url: Optional[str] = None,
+        root_cause: str | None = None,
+        screenshot_url: str | None = None,
     ) -> list[dict]:
         """Format a failure alert as Slack blocks."""
         blocks = [
@@ -247,7 +246,7 @@ class SlackIntegration:
     async def send_test_results(
         self,
         summary: TestSummary,
-        channel: Optional[str] = None,
+        channel: str | None = None,
         title: str = "E2E Test Results",
     ) -> bool:
         """
@@ -277,9 +276,9 @@ class SlackIntegration:
         self,
         test_id: str,
         error: str,
-        root_cause: Optional[str] = None,
-        screenshot_url: Optional[str] = None,
-        channel: Optional[str] = None,
+        root_cause: str | None = None,
+        screenshot_url: str | None = None,
+        channel: str | None = None,
     ) -> bool:
         """
         Send immediate failure alert.
@@ -309,7 +308,7 @@ class SlackIntegration:
     async def send_simple_message(
         self,
         message: str,
-        channel: Optional[str] = None,
+        channel: str | None = None,
     ) -> bool:
         """Send a simple text message."""
         if not self.webhook_url and not self.bot_token:
@@ -323,8 +322,8 @@ class SlackIntegration:
     async def _send_message(
         self,
         text: str,
-        channel: Optional[str] = None,
-        blocks: Optional[list] = None,
+        channel: str | None = None,
+        blocks: list | None = None,
     ) -> bool:
         """Send message to Slack."""
         async with httpx.AsyncClient() as client:
@@ -376,8 +375,8 @@ class SlackIntegration:
     async def send_test_started(
         self,
         test_count: int,
-        pr_number: Optional[int] = None,
-        channel: Optional[str] = None,
+        pr_number: int | None = None,
+        channel: str | None = None,
     ) -> bool:
         """Send notification that tests are starting."""
         pr_text = f" for PR #{pr_number}" if pr_number else ""
@@ -388,7 +387,7 @@ class SlackIntegration:
     async def send_test_completed(
         self,
         summary: TestSummary,
-        channel: Optional[str] = None,
+        channel: str | None = None,
     ) -> bool:
         """Send notification that tests completed."""
         return await self.send_test_results(summary, channel)
@@ -401,10 +400,10 @@ class SlackNotifier:
     Wraps SlackIntegration with convenient methods.
     """
 
-    def __init__(self, webhook_url: Optional[str] = None):
+    def __init__(self, webhook_url: str | None = None):
         self.slack = SlackIntegration(webhook_url=webhook_url)
 
-    async def notify_start(self, test_count: int, pr: Optional[int] = None) -> bool:
+    async def notify_start(self, test_count: int, pr: int | None = None) -> bool:
         """Notify that tests are starting."""
         return await self.slack.send_test_started(test_count, pr)
 
@@ -433,15 +432,15 @@ class SlackNotifier:
         self,
         test_id: str,
         error: str,
-        root_cause: Optional[str] = None,
+        root_cause: str | None = None,
     ) -> bool:
         """Notify of immediate failure (for critical tests)."""
         return await self.slack.send_failure_alert(test_id, error, root_cause)
 
 
 def create_slack_integration(
-    webhook_url: Optional[str] = None,
-    bot_token: Optional[str] = None,
+    webhook_url: str | None = None,
+    bot_token: str | None = None,
 ) -> SlackIntegration:
     """Factory function for SlackIntegration."""
     return SlackIntegration(webhook_url=webhook_url, bot_token=bot_token)

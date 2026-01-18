@@ -8,20 +8,20 @@ Understands:
 - SQL injection risks
 """
 
-import re
 import logging
+import re
 from pathlib import Path
-from typing import Optional
+
+from src.indexer import ParsedFile
 
 from .base import (
     BaseAnalyzer,
     ComponentInfo,
     ComponentType,
-    QueryInfo,
     Issue,
+    QueryInfo,
     Severity,
 )
-from src.indexer import ParsedFile
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class DatabaseAnalyzer(BaseAnalyzer):
         """Analyze a raw SQL file."""
         components: list[ComponentInfo] = []
         content = parsed.content
-        lines = content.split("\n")
+        content.split("\n")
 
         # Parse SQL statements
         statements = self._split_sql_statements(content)
@@ -390,7 +390,6 @@ class DatabaseAnalyzer(BaseAnalyzer):
     def _analyze_sqlalchemy(self, parsed: ParsedFile) -> list[ComponentInfo]:
         """Analyze SQLAlchemy models."""
         components: list[ComponentInfo] = []
-        content = parsed.content
 
         # Find model classes
         for cls in parsed.get_classes():

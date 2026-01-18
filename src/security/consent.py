@@ -5,11 +5,10 @@ Required for GDPR, CCPA, and enterprise data governance.
 """
 
 import json
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -52,10 +51,10 @@ class ConsentRecord:
     """A record of user consent."""
     scope: ConsentScope
     status: ConsentStatus
-    granted_at: Optional[str] = None
-    expires_at: Optional[str] = None
-    granted_by: Optional[str] = None  # User ID or "cli", "env", "config"
-    reason: Optional[str] = None  # Why consent was given/denied
+    granted_at: str | None = None
+    expires_at: str | None = None
+    granted_by: str | None = None  # User ID or "cli", "env", "config"
+    reason: str | None = None  # Why consent was given/denied
 
     def is_valid(self) -> bool:
         """Check if consent is currently valid."""
@@ -64,7 +63,7 @@ class ConsentRecord:
 
         if self.expires_at:
             expiry = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > expiry:
+            if datetime.now(UTC) > expiry:
                 return False
 
         return True
@@ -74,33 +73,33 @@ class ConsentRecord:
 class ConsentBundle:
     """Collection of all consents for a session."""
     session_id: str
-    user_id: Optional[str] = None
+    user_id: str | None = None
     consents: dict[str, ConsentRecord] = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def grant(
         self,
         scope: ConsentScope,
         granted_by: str = "cli",
-        expires_in_hours: Optional[int] = None,
-        reason: Optional[str] = None,
+        expires_in_hours: int | None = None,
+        reason: str | None = None,
     ) -> None:
         """Grant consent for a scope."""
         expires_at = None
         if expires_in_hours:
             from datetime import timedelta
-            expires_at = (datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)).isoformat()
+            expires_at = (datetime.now(UTC) + timedelta(hours=expires_in_hours)).isoformat()
 
         self.consents[scope.value] = ConsentRecord(
             scope=scope,
             status=ConsentStatus.GRANTED,
-            granted_at=datetime.now(timezone.utc).isoformat(),
+            granted_at=datetime.now(UTC).isoformat(),
             expires_at=expires_at,
             granted_by=granted_by,
             reason=reason,
         )
 
-    def deny(self, scope: ConsentScope, reason: Optional[str] = None) -> None:
+    def deny(self, scope: ConsentScope, reason: str | None = None) -> None:
         """Explicitly deny consent for a scope."""
         self.consents[scope.value] = ConsentRecord(
             scope=scope,
@@ -108,7 +107,7 @@ class ConsentBundle:
             reason=reason,
         )
 
-    def revoke(self, scope: ConsentScope, reason: Optional[str] = None) -> None:
+    def revoke(self, scope: ConsentScope, reason: str | None = None) -> None:
         """Revoke previously granted consent."""
         if scope.value in self.consents:
             self.consents[scope.value].status = ConsentStatus.REVOKED
@@ -138,7 +137,7 @@ class ConsentBundle:
         bundle = cls(
             session_id=data["session_id"],
             user_id=data.get("user_id"),
-            created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
+            created_at=data.get("created_at", datetime.now(UTC).isoformat()),
         )
         for scope_str, record_data in data.get("consents", {}).items():
             record_data["scope"] = ConsentScope(record_data["scope"])
@@ -195,10 +194,10 @@ class ConsentManager:
 
     def __init__(
         self,
-        session_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        persist_path: Optional[Path] = None,
-        auto_grant_mode: Optional[str] = None,  # "minimal", "standard", "full"
+        session_id: str | None = None,
+        user_id: str | None = None,
+        persist_path: Path | None = None,
+        auto_grant_mode: str | None = None,  # "minimal", "standard", "full"
     ):
         import uuid
         self.session_id = session_id or str(uuid.uuid4())
@@ -209,7 +208,7 @@ class ConsentManager:
         # Load existing consent or create new bundle
         self.bundle = self._load_or_create(auto_grant_mode)
 
-    def _load_or_create(self, auto_grant_mode: Optional[str]) -> ConsentBundle:
+    def _load_or_create(self, auto_grant_mode: str | None) -> ConsentBundle:
         """Load existing consent from disk or create new bundle."""
         if self.persist_path and self.persist_path.exists():
             try:
@@ -245,8 +244,8 @@ class ConsentManager:
         self,
         scope: ConsentScope,
         granted_by: str = "user",
-        expires_in_hours: Optional[int] = None,
-        reason: Optional[str] = None,
+        expires_in_hours: int | None = None,
+        reason: str | None = None,
     ) -> None:
         """Grant consent for a scope."""
         self.bundle.grant(scope, granted_by, expires_in_hours, reason)
@@ -260,19 +259,19 @@ class ConsentManager:
         self.log.info("Multiple consents granted", count=len(scopes), by=granted_by)
         self.save()
 
-    def deny(self, scope: ConsentScope, reason: Optional[str] = None) -> None:
+    def deny(self, scope: ConsentScope, reason: str | None = None) -> None:
         """Explicitly deny consent."""
         self.bundle.deny(scope, reason)
         self.log.info("Consent denied", scope=scope.value, reason=reason)
         self.save()
 
-    def revoke(self, scope: ConsentScope, reason: Optional[str] = None) -> None:
+    def revoke(self, scope: ConsentScope, reason: str | None = None) -> None:
         """Revoke previously granted consent."""
         self.bundle.revoke(scope, reason)
         self.log.warning("Consent revoked", scope=scope.value, reason=reason)
         self.save()
 
-    def revoke_all(self, reason: Optional[str] = None) -> None:
+    def revoke_all(self, reason: str | None = None) -> None:
         """Revoke all consents."""
         for scope_str in list(self.bundle.consents.keys()):
             self.bundle.consents[scope_str].status = ConsentStatus.REVOKED
@@ -444,8 +443,8 @@ CONSENT_REQUIREMENTS = {
 
 
 def get_consent_manager(
-    session_id: Optional[str] = None,
-    auto_mode: Optional[str] = None,
+    session_id: str | None = None,
+    auto_mode: str | None = None,
 ) -> ConsentManager:
     """Factory function for consent manager."""
     import os

@@ -5,23 +5,20 @@ context understanding, and intelligent change categorization.
 """
 
 import json
-import pytest
-from datetime import datetime
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from typing import Dict, List, Any
+from unittest.mock import MagicMock, patch
 
-from src.visual_ai.semantic_analyzer import (
-    SemanticAnalyzer,
-    SemanticAnalysis,
-    create_semantic_analyzer,
-)
+import pytest
+
 from src.visual_ai.models import (
-    VisualChange,
-    VisualSnapshot,
-    VisualElement,
     ChangeCategory,
     ChangeIntent,
     Severity,
+    VisualChange,
+)
+from src.visual_ai.semantic_analyzer import (
+    SemanticAnalysis,
+    SemanticAnalyzer,
+    create_semantic_analyzer,
 )
 from src.visual_ai.structural_analyzer import StructuralDiff
 

@@ -1,6 +1,6 @@
 """Python Selenium export template."""
 
-from .base import BaseTemplate, TestSpec, TestStep, TestAssertion
+from .base import BaseTemplate, TestAssertion, TestSpec, TestStep
 
 
 class PythonSeleniumTemplate(BaseTemplate):
@@ -76,7 +76,7 @@ class PythonSeleniumTemplate(BaseTemplate):
         code_line = ""
 
         if action == "goto":
-            url = target if target.startswith("http") else f'f"{{self.base_url}}{target}"'
+            target if target.startswith("http") else f'f"{{self.base_url}}{target}"'
             if target.startswith("http"):
                 code_line = f'        self.driver.get("{self.escape_string(target)}")'
             else:
@@ -114,7 +114,6 @@ class PythonSeleniumTemplate(BaseTemplate):
         ActionChains(self.driver).move_to_element(element).perform()"""
 
         elif action == "wait":
-            timeout = step.timeout or 10000
             code_line = f"""        self.wait.until(
             EC.presence_of_element_located(({locator}))
         )"""

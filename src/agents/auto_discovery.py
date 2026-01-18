@@ -4,13 +4,11 @@ Like Octomind - automatically explores your app and discovers test scenarios.
 Uses AI to understand user flows and generate comprehensive test coverage.
 """
 
-import asyncio
 import base64
 import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import anthropic
@@ -87,7 +85,7 @@ class DiscoveredPage:
     title: str
     description: str
     elements: list[DiscoveredElement] = field(default_factory=list)
-    screenshot: Optional[str] = None  # Base64
+    screenshot: str | None = None  # Base64
     forms: list[dict] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
     user_flows: list[str] = field(default_factory=list)
@@ -179,7 +177,7 @@ class AutoDiscovery:
         app_url: str,
         max_pages: int = 20,
         max_depth: int = 3,
-        model: Optional[str] = None,
+        model: str | None = None,
     ):
         settings = get_settings()
         api_key = settings.anthropic_api_key
@@ -201,8 +199,8 @@ class AutoDiscovery:
 
     async def discover(
         self,
-        start_paths: Optional[list[str]] = None,
-        focus_areas: Optional[list[str]] = None,
+        start_paths: list[str] | None = None,
+        focus_areas: list[str] | None = None,
     ) -> DiscoveryResult:
         """
         Discover app structure and generate test suggestions.
@@ -219,7 +217,7 @@ class AutoDiscovery:
         start_paths = start_paths or ["/"]
 
         try:
-            from ..tools.playwright_tools import BrowserManager, BrowserConfig
+            from ..tools.playwright_tools import BrowserConfig, BrowserManager
 
             config = BrowserConfig(headless=True, viewport_width=1920, viewport_height=1080)
 
@@ -462,7 +460,7 @@ Focus on identifying:
             self.log.warning("Vision analysis failed", error=str(e))
             return {"description": title, "possible_flows": []}
 
-    async def _analyze_flows(self, focus_areas: Optional[list[str]] = None) -> list[DiscoveredFlow]:
+    async def _analyze_flows(self, focus_areas: list[str] | None = None) -> list[DiscoveredFlow]:
         """Analyze discovered pages and identify user flows."""
         if not self.discovered_pages:
             return []
@@ -549,7 +547,7 @@ Prioritize:
 
     async def _generate_test_suggestions(
         self,
-        focus_areas: Optional[list[str]] = None,
+        focus_areas: list[str] | None = None,
     ) -> list[dict]:
         """Generate test suggestions from discovered flows."""
         if not self.discovered_flows:

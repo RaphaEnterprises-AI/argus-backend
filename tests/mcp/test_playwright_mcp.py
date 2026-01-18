@@ -1,8 +1,9 @@
 """Tests for Playwright MCP client module."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestMCPServerConfig:
@@ -97,7 +98,7 @@ class TestPlaywrightMCPClient:
 
     def test_client_creation_custom_config(self, mock_env_vars):
         """Test PlaywrightMCPClient creation with custom config."""
-        from src.mcp.playwright_mcp import PlaywrightMCPClient, MCPServerConfig
+        from src.mcp.playwright_mcp import MCPServerConfig, PlaywrightMCPClient
 
         config = MCPServerConfig(command="custom", args=["--test"])
         client = PlaywrightMCPClient(config=config)

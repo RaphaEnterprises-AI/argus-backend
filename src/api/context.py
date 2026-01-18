@@ -4,15 +4,14 @@ Provides utilities to extract and manage organization context
 from incoming requests for multi-tenant API operations.
 """
 
-from typing import Optional
 
-from fastapi import Request
 import structlog
+from fastapi import Request
 
 logger = structlog.get_logger()
 
 
-async def get_current_organization_id(request: Request) -> Optional[str]:
+async def get_current_organization_id(request: Request) -> str | None:
     """Get the current organization ID from request context.
 
     Priority:
@@ -90,7 +89,7 @@ def set_organization_context(request: Request, org_id: str) -> None:
         request.state.organization_id = org_id
 
 
-async def get_organization_from_user(request: Request) -> Optional[str]:
+async def get_organization_from_user(request: Request) -> str | None:
     """Get organization ID specifically from the authenticated user's profile.
 
     This ignores headers and query params, useful when you need

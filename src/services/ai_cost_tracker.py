@@ -7,12 +7,12 @@ This service tracks AI usage across the platform, including:
 - Usage analytics and reporting
 """
 
+import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
-import uuid
+
 import structlog
 
 from src.services.supabase_client import get_supabase_client
@@ -216,17 +216,17 @@ class UsageRecord:
 
     request_id: str
     organization_id: str
-    project_id: Optional[str]
+    project_id: str | None
     model: str
     provider: str
     input_tokens: int
     output_tokens: int
     cost_usd: Decimal
     task_type: TaskType
-    latency_ms: Optional[int] = None
+    latency_ms: int | None = None
     cached: bool = False
     metadata: dict = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def total_tokens(self) -> int:
@@ -362,11 +362,11 @@ class AICostTracker:
         input_tokens: int,
         output_tokens: int,
         task_type: TaskType,
-        project_id: Optional[str] = None,
-        latency_ms: Optional[int] = None,
+        project_id: str | None = None,
+        latency_ms: int | None = None,
         cached: bool = False,
-        metadata: Optional[dict] = None,
-        request_id: Optional[str] = None,
+        metadata: dict | None = None,
+        request_id: str | None = None,
     ) -> UsageRecord:
         """Record AI usage and update organization spend.
 
@@ -457,8 +457,8 @@ class AICostTracker:
     async def get_usage_summary(
         self,
         organization_id: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> dict:
         """Get usage summary for an organization.
 
@@ -569,7 +569,7 @@ class AICostTracker:
 
 
 # Global instance
-_cost_tracker: Optional[AICostTracker] = None
+_cost_tracker: AICostTracker | None = None
 
 
 def get_cost_tracker() -> AICostTracker:

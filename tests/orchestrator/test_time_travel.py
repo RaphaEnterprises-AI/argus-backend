@@ -1,8 +1,8 @@
 """Tests for time travel API."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime
 
 
 class TestTimeTravelModels:
@@ -73,7 +73,6 @@ class TestTimeTravelAPI:
     async def test_get_state_history_returns_snapshots(self):
         """Should return list of state snapshots."""
         from src.api.time_travel import get_state_history
-        from datetime import datetime
 
         mock_state = MagicMock()
         mock_state.config = {"configurable": {"checkpoint_id": "cp-1"}}
@@ -177,8 +176,9 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_get_state_at_checkpoint_not_found(self):
         """Should raise 404 for missing checkpoint."""
-        from src.api.time_travel import get_state_at_checkpoint
         from fastapi import HTTPException
+
+        from src.api.time_travel import get_state_at_checkpoint
 
         with patch("src.api.time_travel.get_checkpointer"):
             with patch("src.api.time_travel.create_testing_graph") as mock_graph:
@@ -196,7 +196,7 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_fork_creates_new_thread(self):
         """Should create new thread from checkpoint."""
-        from src.api.time_travel import fork_from_checkpoint, ForkRequest
+        from src.api.time_travel import ForkRequest, fork_from_checkpoint
 
         mock_state = MagicMock()
         mock_state.values = {"iteration": 1, "passed_count": 0}
@@ -225,7 +225,7 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_fork_with_modifications(self):
         """Should apply modifications to forked state."""
-        from src.api.time_travel import fork_from_checkpoint, ForkRequest
+        from src.api.time_travel import ForkRequest, fork_from_checkpoint
 
         mock_state = MagicMock()
         mock_state.values = {
@@ -258,8 +258,9 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_fork_missing_checkpoint(self):
         """Should raise 404 for missing source checkpoint."""
-        from src.api.time_travel import fork_from_checkpoint, ForkRequest
         from fastapi import HTTPException
+
+        from src.api.time_travel import ForkRequest, fork_from_checkpoint
 
         with patch("src.api.time_travel.get_checkpointer"):
             with patch("src.api.time_travel.create_testing_graph") as mock_graph:
@@ -283,7 +284,7 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_replay_from_checkpoint(self):
         """Should replay execution from checkpoint."""
-        from src.api.time_travel import replay_from_checkpoint, ReplayRequest
+        from src.api.time_travel import ReplayRequest, replay_from_checkpoint
 
         mock_state = MagicMock()
         mock_state.values = {"iteration": 1, "passed_count": 0}
@@ -320,7 +321,7 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_replay_to_new_thread(self):
         """Should replay to a new thread if specified."""
-        from src.api.time_travel import replay_from_checkpoint, ReplayRequest
+        from src.api.time_travel import ReplayRequest, replay_from_checkpoint
 
         mock_state = MagicMock()
         mock_state.values = {"iteration": 1}
@@ -393,8 +394,9 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_list_threads(self):
         """Should list all threads."""
-        from src.api.time_travel import list_threads
         from langgraph.checkpoint.memory import MemorySaver
+
+        from src.api.time_travel import list_threads
 
         mock_checkpointer = MemorySaver()
         mock_app = AsyncMock()
@@ -415,9 +417,10 @@ class TestTimeTravelAPI:
     @pytest.mark.asyncio
     async def test_delete_thread_not_found(self):
         """Should raise 404 for missing thread."""
-        from src.api.time_travel import delete_thread_history
         from fastapi import HTTPException
         from langgraph.checkpoint.memory import MemorySaver
+
+        from src.api.time_travel import delete_thread_history
 
         mock_checkpointer = MemorySaver()
 
@@ -435,9 +438,9 @@ class TestTimeTravelIntegration:
     async def test_history_and_fork_workflow(self):
         """Should support full history -> fork workflow."""
         from src.api.time_travel import (
-            get_state_history,
-            fork_from_checkpoint,
             ForkRequest,
+            fork_from_checkpoint,
+            get_state_history,
         )
 
         # Mock multiple history states

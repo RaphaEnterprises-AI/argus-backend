@@ -1,8 +1,8 @@
 """Tests for parameterized testing engine."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestParameterizationError:
@@ -118,8 +118,8 @@ class TestParameterizationEngine:
         from src.parameterized.models import (
             ParameterizedTest,
             ParameterSet,
-            TestStep,
             TestAssertion,
+            TestStep,
         )
 
         engine = ParameterizationEngine()
@@ -291,9 +291,9 @@ class TestParameterizationEngine:
         """Test basic test matrix generation."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -327,9 +327,9 @@ class TestParameterizationEngine:
         """Test matrix generation with data source override."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -398,7 +398,7 @@ class TestParameterizationEngine:
     def test_generate_test_matrix_non_parameterized(self, mock_env_vars):
         """Test matrix generation for non-parameterized test."""
         from src.parameterized.engine import ParameterizationEngine
-        from src.parameterized.models import ParameterizedTest, TestStep, ParameterSet
+        from src.parameterized.models import ParameterizedTest, ParameterSet, TestStep
 
         engine = ParameterizationEngine()
 
@@ -416,12 +416,12 @@ class TestParameterizationEngine:
 
     def test_generate_test_matrix_no_data(self, mock_env_vars):
         """Test matrix generation raises error when parameterized but no data."""
-        from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.data_sources import DataSourceError
+        from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
         )
 
         engine = ParameterizationEngine()
@@ -443,10 +443,10 @@ class TestParameterizationEngine:
         """Test matrix generation with random iteration mode."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
             IterationMode,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -470,9 +470,9 @@ class TestParameterizationEngine:
         """Test test spec validation - valid case."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -495,9 +495,9 @@ class TestParameterizationEngine:
         """Test test spec validation - data missing required params."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -540,11 +540,11 @@ class TestParameterizationEngine:
         """Test preview of expanded tests."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
-            TestStep,
+            ParameterizedTest,
             TestAssertion,
+            TestStep,
         )
 
         engine = ParameterizationEngine()
@@ -612,8 +612,8 @@ class TestParameterizationEngine:
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
             ParameterizedResult,
-            ParameterSetResult,
             ParameterSet,
+            ParameterSetResult,
         )
 
         engine = ParameterizationEngine()
@@ -733,10 +733,10 @@ class TestParameterizationEngineIterationModes:
         """Test sequential mode preserves order."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
             IterationMode,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -762,10 +762,10 @@ class TestParameterizationEngineIterationModes:
         """Test parallel mode generates same tests (just signals execution)."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
             IterationMode,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -789,10 +789,10 @@ class TestParameterizationEngineIterationModes:
         """Test first_failure mode generates same tests (affects execution)."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
             IterationMode,
+            ParameterizedTest,
             TestStep,
         )
 
@@ -890,8 +890,8 @@ class TestParameterizationEngineEdgeCases:
         from src.parameterized.models import (
             ParameterizedTest,
             ParameterSet,
-            TestStep,
             TestAssertion,
+            TestStep,
         )
 
         engine = ParameterizationEngine()
@@ -931,9 +931,9 @@ class TestParameterizationEngineEdgeCases:
         """Test error handling during test expansion with partial data."""
         from src.parameterized.engine import ParameterizationEngine
         from src.parameterized.models import (
-            ParameterizedTest,
             DataSource,
             DataSourceType,
+            ParameterizedTest,
             TestStep,
         )
 

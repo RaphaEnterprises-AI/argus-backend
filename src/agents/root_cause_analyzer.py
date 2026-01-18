@@ -14,16 +14,16 @@ Categories:
 - TEST_DEFECT: Bug in the test itself
 """
 
-import json
 import hashlib
-from enum import Enum
-from typing import Optional
-from datetime import datetime, timezone
+import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
+
 from anthropic import Anthropic
 
-from src.config import get_settings
 from src.agents.prompts import get_enhanced_prompt
+from src.config import get_settings
 
 
 class FailureCategory(str, Enum):
@@ -46,12 +46,12 @@ class RootCauseResult:
     detailed_analysis: str
     suggested_fix: str
     related_failures: list[str] = field(default_factory=list)
-    code_location: Optional[str] = None
+    code_location: str | None = None
     is_flaky: bool = False
     flaky_confidence: float = 0.0
     historical_occurrences: int = 0
     auto_healable: bool = False
-    healing_suggestion: Optional[dict] = None
+    healing_suggestion: dict | None = None
 
 
 @dataclass
@@ -60,16 +60,16 @@ class FailureContext:
     test_id: str
     test_name: str
     error_message: str
-    stack_trace: Optional[str] = None
-    screenshot_base64: Optional[str] = None
-    html_snapshot: Optional[str] = None
-    network_logs: Optional[list[dict]] = None
-    console_logs: Optional[list[str]] = None
-    step_history: Optional[list[dict]] = None
-    expected_vs_actual: Optional[dict] = None
-    previous_runs: Optional[list[dict]] = None
-    code_diff: Optional[str] = None  # Recent code changes
-    environment: Optional[dict] = None
+    stack_trace: str | None = None
+    screenshot_base64: str | None = None
+    html_snapshot: str | None = None
+    network_logs: list[dict] | None = None
+    console_logs: list[str] | None = None
+    step_history: list[dict] | None = None
+    expected_vs_actual: dict | None = None
+    previous_runs: list[dict] | None = None
+    code_diff: str | None = None  # Recent code changes
+    environment: dict | None = None
 
 
 class RootCauseAnalyzer:
@@ -295,7 +295,7 @@ Key analysis patterns to consider:
                 is_flaky=analysis.get("is_flaky", False),
                 flaky_confidence=float(analysis.get("flaky_confidence", 0.0))
             )
-        except (json.JSONDecodeError, ValueError) as e:
+        except (json.JSONDecodeError, ValueError):
             # Fallback if parsing fails
             return RootCauseResult(
                 category=FailureCategory.UNKNOWN,
@@ -376,7 +376,7 @@ Key analysis patterns to consider:
 
         self.failure_history[fingerprint].append({
             "test_id": context.test_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "category": result.category.value,
             "recovered": False  # Updated if test passes on retry
         })

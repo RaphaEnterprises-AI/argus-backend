@@ -1,21 +1,18 @@
 """Tests for recording models."""
 
-import pytest
-from datetime import datetime
 from src.recording.models import (
-    RRWebEventType,
-    RRWebIncrementalSource,
-    MouseInteractionType,
     ActionType,
-    RRWebEvent,
-    RRWebSnapshot,
-    RRWebMutation,
+    MouseInteractionType,
+    NodeLookup,
     ParsedAction,
     RecordingMetadata,
     RecordingSession,
-    NodeLookup,
+    RRWebEvent,
+    RRWebEventType,
+    RRWebIncrementalSource,
+    RRWebMutation,
+    RRWebSnapshot,
 )
-
 
 # =============================================================================
 # Enum Tests

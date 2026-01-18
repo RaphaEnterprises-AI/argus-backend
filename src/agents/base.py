@@ -12,26 +12,31 @@ All specialized agents inherit from BaseAgent which provides:
 import json
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Optional, TypeVar, Generic
+from dataclasses import dataclass
+from typing import Any, TypeVar
 
 import anthropic
 import structlog
-from pydantic import BaseModel
 
-from ..config import get_settings, MODEL_PRICING, MULTI_MODEL_PRICING, AgentConfig, ModelName, MultiModelStrategy
-from ..core.model_router import ModelRouter, TaskType, TaskComplexity
+from ..config import (
+    MODEL_PRICING,
+    AgentConfig,
+    ModelName,
+    MultiModelStrategy,
+    get_settings,
+)
+from ..core.model_router import ModelRouter, TaskComplexity, TaskType
 
 T = TypeVar("T")
 
 
 @dataclass
-class AgentResult(Generic[T]):
+class AgentResult[T]:
     """Result from an agent execution."""
 
     success: bool
-    data: Optional[T] = None
-    error: Optional[str] = None
+    data: T | None = None
+    error: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     cost: float = 0.0
@@ -72,8 +77,8 @@ class BaseAgent(ABC):
 
     def __init__(
         self,
-        config: Optional[AgentConfig] = None,
-        model: Optional[ModelName] = None,
+        config: AgentConfig | None = None,
+        model: ModelName | None = None,
         use_multi_model: bool = True,
     ):
         """Initialize agent with configuration.
@@ -88,8 +93,8 @@ class BaseAgent(ABC):
         self.model = model or self.settings.default_model
         self.use_multi_model = use_multi_model and self.settings.model_strategy != MultiModelStrategy.ANTHROPIC_ONLY
 
-        self._client: Optional[anthropic.Anthropic] = None
-        self._model_router: Optional[ModelRouter] = None
+        self._client: anthropic.Anthropic | None = None
+        self._model_router: ModelRouter | None = None
         self._usage = UsageStats()
         self.log = structlog.get_logger().bind(
             agent=self.__class__.__name__,
@@ -150,8 +155,8 @@ class BaseAgent(ABC):
         messages: list[dict],
         max_tokens: int = 4096,
         temperature: float = 0.0,
-        tools: Optional[list[dict]] = None,
-        system: Optional[str] = None,
+        tools: list[dict] | None = None,
+        system: str | None = None,
     ) -> anthropic.types.Message:
         """Make a Claude API call with retry logic.
 
@@ -235,13 +240,13 @@ class BaseAgent(ABC):
     async def _call_model(
         self,
         messages: list[dict],
-        task_type: Optional[TaskType] = None,
+        task_type: TaskType | None = None,
         complexity: TaskComplexity = TaskComplexity.MODERATE,
         max_tokens: int = 4096,
         temperature: float = 0.0,
-        system: Optional[str] = None,
-        images: Optional[list[bytes]] = None,
-        tools: Optional[list[dict]] = None,
+        system: str | None = None,
+        images: list[bytes] | None = None,
+        tools: list[dict] | None = None,
     ) -> dict:
         """Make an AI model call with intelligent routing.
 
@@ -338,7 +343,7 @@ class BaseAgent(ABC):
         self._usage.total_calls += 1
 
     def _parse_json_response(
-        self, content: str, fallback: Optional[Any] = None
+        self, content: str, fallback: Any | None = None
     ) -> Any:
         """Parse JSON from Claude response, handling code blocks.
 

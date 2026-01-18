@@ -1,10 +1,9 @@
 """Action execution layer for Computer Use and Playwright."""
 
 import asyncio
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 import structlog
 
@@ -61,12 +60,12 @@ class ActionType(str, Enum):
 class Action:
     """Represents a single action to execute."""
     type: ActionType
-    target: Optional[str] = None  # Selector or URL
-    value: Optional[str] = None   # Value for fill/type/select
+    target: str | None = None  # Selector or URL
+    value: str | None = None   # Value for fill/type/select
     options: dict = field(default_factory=dict)  # Additional options
 
     # For coordinate-based actions (Computer Use)
-    coordinate: Optional[tuple[int, int]] = None
+    coordinate: tuple[int, int] | None = None
 
     # Timing
     timeout_ms: int = 5000
@@ -90,8 +89,8 @@ class ActionResult:
     success: bool
     action: Action
     duration_ms: float = 0.0
-    error: Optional[str] = None
-    screenshot: Optional[bytes] = None
+    error: str | None = None
+    screenshot: bytes | None = None
     return_value: Any = None
     metadata: dict = field(default_factory=dict)
 
@@ -380,7 +379,7 @@ class PlaywrightActionExecutor:
         """Capture current page screenshot."""
         return await self.page.screenshot(type="png")
 
-    async def get_element_coordinates(self, selector: str) -> Optional[tuple[int, int]]:
+    async def get_element_coordinates(self, selector: str) -> tuple[int, int] | None:
         """
         Get center coordinates of an element.
 
@@ -502,7 +501,7 @@ class HybridActionExecutor:
     def __init__(
         self,
         playwright_executor: PlaywrightActionExecutor,
-        computer_use_executor: Optional[ComputerUseActionExecutor] = None,
+        computer_use_executor: ComputerUseActionExecutor | None = None,
     ):
         self.playwright = playwright_executor
         self.computer_use = computer_use_executor
@@ -525,7 +524,7 @@ class HybridActionExecutor:
             )
 
             try:
-                tool_input = self.computer_use.action_to_tool_input(action)
+                self.computer_use.action_to_tool_input(action)
                 # Execute via Computer Use client
                 # This would need to be implemented in the ComputerUseClient
                 # For now, return the original failure

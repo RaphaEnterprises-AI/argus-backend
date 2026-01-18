@@ -1,16 +1,17 @@
 """Tests for the PostgreSQL checkpointer."""
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.orchestrator.checkpointer import (
-    get_checkpointer,
-    setup_checkpointer,
-    reset_checkpointer,
     CheckpointManager,
-    list_pending_threads,
+    get_checkpointer,
     get_thread_state,
+    list_pending_threads,
+    reset_checkpointer,
+    setup_checkpointer,
 )
 
 
@@ -246,8 +247,9 @@ class TestCheckpointerIntegration:
     @pytest.mark.asyncio
     async def test_checkpointer_works_with_simple_graph(self):
         """Should be able to use checkpointer with a simple graph."""
-        from langgraph.graph import StateGraph, END
         from typing import TypedDict
+
+        from langgraph.graph import END, StateGraph
 
         class SimpleState(TypedDict):
             count: int
@@ -279,8 +281,9 @@ class TestCheckpointerIntegration:
     @pytest.mark.asyncio
     async def test_checkpointer_preserves_history(self):
         """Should preserve state history across multiple invocations."""
-        from langgraph.graph import StateGraph, END
         from typing import TypedDict
+
+        from langgraph.graph import END, StateGraph
 
         class SimpleState(TypedDict):
             value: str

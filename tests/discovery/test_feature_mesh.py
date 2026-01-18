@@ -4,9 +4,6 @@ This module tests the FeatureMeshIntegration class which connects
 Discovery to Visual AI and Self-Healing systems.
 """
 
-import hashlib
-import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,7 +13,6 @@ from src.discovery.feature_mesh import (
     FeatureMeshIntegration,
     get_feature_mesh,
 )
-
 
 # ==============================================================================
 # Fixtures

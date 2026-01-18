@@ -1,6 +1,6 @@
 """Code formatter for various languages."""
 
-from typing import Optional
+
 from ..models import SupportedLanguage
 
 
@@ -51,7 +51,7 @@ class CodeFormatter:
         else:
             return "    "  # 4 spaces default
 
-    def format_string_literal(self, value: str, single_quotes: Optional[bool] = None) -> str:
+    def format_string_literal(self, value: str, single_quotes: bool | None = None) -> str:
         """Format a string literal for this language.
 
         Args:

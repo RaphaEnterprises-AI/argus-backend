@@ -1,10 +1,10 @@
 """Tests for integration modules (GitHub, Slack, Reporter)."""
 
 import json
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ============================================================================
 # GitHub Integration Tests

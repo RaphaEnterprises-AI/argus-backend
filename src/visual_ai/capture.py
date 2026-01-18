@@ -13,19 +13,18 @@ This module provides:
 - Layout fingerprinting for structural comparison
 """
 
-import base64
 import hashlib
 import json
 import time
 import uuid
 from collections import Counter
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import structlog
 
 try:
-    from playwright.async_api import Page, BrowserContext, Request, Response, async_playwright
+    from playwright.async_api import BrowserContext, Page, Request, Response, async_playwright
 except ImportError:
     # Type hints only - actual import handled at runtime
     Page = Any
@@ -33,7 +32,7 @@ except ImportError:
     Request = Any
     Response = Any
 
-from .models import VisualSnapshot, VisualElement
+from .models import VisualElement, VisualSnapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -509,7 +508,7 @@ class EnhancedCapture:
 
     def __init__(
         self,
-        default_viewport: Optional[Dict[str, int]] = None,
+        default_viewport: dict[str, int] | None = None,
         capture_performance: bool = True,
         capture_network: bool = True,
         max_elements: int = 1000,
@@ -529,20 +528,20 @@ class EnhancedCapture:
         self.log = logger.bind(component="enhanced_capture")
 
         # Network capture state
-        self._network_entries: List[Dict[str, Any]] = []
-        self._har_entries: List[Dict[str, Any]] = []
-        self._request_start_times: Dict[str, float] = {}
+        self._network_entries: list[dict[str, Any]] = []
+        self._har_entries: list[dict[str, Any]] = []
+        self._request_start_times: dict[str, float] = {}
 
     async def capture_snapshot(
         self,
         page: Page,
         url: str,
-        viewport: Dict[str, int],
+        viewport: dict[str, int],
         browser: str,
         full_page: bool = False,
-        device_name: Optional[str] = None,
-        capture_network: Optional[bool] = None,
-        capture_performance: Optional[bool] = None,
+        device_name: str | None = None,
+        capture_network: bool | None = None,
+        capture_performance: bool | None = None,
         extract_colors: bool = True,
         timeout_ms: int = 30000,
     ) -> VisualSnapshot:
@@ -638,7 +637,7 @@ class EnhancedCapture:
         layout_hash = await self.compute_layout_hash(elements_data)
 
         # Extract color palette from screenshot
-        color_palette: List[str] = []
+        color_palette: list[str] = []
         if extract_colors and screenshot:
             color_palette = await self.extract_color_palette(screenshot)
 
@@ -651,7 +650,7 @@ class EnhancedCapture:
             tti = perf_metrics.get("tti") or perf_metrics.get("domInteractive")
 
         # Build network HAR
-        network_har: Optional[Dict] = None
+        network_har: dict | None = None
         if should_capture_network and self._har_entries:
             network_har = {
                 "log": {
@@ -722,7 +721,7 @@ class EnhancedCapture:
             page: Playwright page instance
         """
         async def on_request(request: Request) -> None:
-            request_id = request.url + str(time.time())
+            request.url + str(time.time())
             self._request_start_times[request.url] = time.time()
 
             entry = {
@@ -809,9 +808,9 @@ class EnhancedCapture:
         self,
         url: str,
         browser_type: str = "chromium",
-        viewport: Optional[Dict[str, int]] = None,
+        viewport: dict[str, int] | None = None,
         full_page: bool = False,
-        device_name: Optional[str] = None,
+        device_name: str | None = None,
         headless: bool = True,
     ) -> VisualSnapshot:
         """Capture a snapshot by launching a fresh browser.
@@ -877,7 +876,7 @@ class EnhancedCapture:
             self.log.error("DOM snapshot capture failed", error=str(e))
             return "{}"
 
-    async def extract_elements(self, page: Page) -> List[Dict[str, Any]]:
+    async def extract_elements(self, page: Page) -> list[dict[str, Any]]:
         """Extract all visible elements with bounds and styles.
 
         Extracts comprehensive information about each visible element:
@@ -901,7 +900,7 @@ class EnhancedCapture:
             self.log.error("Element extraction failed", error=str(e))
             return []
 
-    async def capture_performance_metrics(self, page: Page) -> Dict[str, Any]:
+    async def capture_performance_metrics(self, page: Page) -> dict[str, Any]:
         """Get LCP, CLS, TTI and other metrics from Performance API.
 
         Captures Core Web Vitals and additional performance metrics:
@@ -942,7 +941,7 @@ class EnhancedCapture:
             self.log.error("Performance metrics capture failed", error=str(e))
             return {}
 
-    async def compute_layout_hash(self, elements: List[Dict[str, Any]]) -> str:
+    async def compute_layout_hash(self, elements: list[dict[str, Any]]) -> str:
         """Generate structural fingerprint of layout.
 
         Creates a hash based on element positions, sizes, and types
@@ -982,7 +981,7 @@ class EnhancedCapture:
         self.log.debug("Layout hash computed", hash=layout_hash, element_count=len(elements))
         return layout_hash
 
-    async def extract_color_palette(self, screenshot: bytes) -> List[str]:
+    async def extract_color_palette(self, screenshot: bytes) -> list[str]:
         """Extract dominant colors from screenshot.
 
         Uses image processing to find the most prominent colors
@@ -996,8 +995,9 @@ class EnhancedCapture:
         """
         try:
             # Try to use Pillow if available
-            from PIL import Image
             import io
+
+            from PIL import Image
 
             # Load image
             img = Image.open(io.BytesIO(screenshot))
@@ -1049,7 +1049,7 @@ class EnhancedCapture:
             self.log.error("Color extraction failed", error=str(e))
             return []
 
-    async def _extract_text_blocks(self, page: Page) -> List[Dict]:
+    async def _extract_text_blocks(self, page: Page) -> list[dict]:
         """Extract text blocks with their positions and typography.
 
         Args:
@@ -1101,7 +1101,7 @@ class EnhancedCapture:
             self.log.warning("Failed to extract text blocks", error=str(e))
             return []
 
-    def _build_computed_styles_map(self, elements: List[Dict[str, Any]]) -> Dict[str, Dict]:
+    def _build_computed_styles_map(self, elements: list[dict[str, Any]]) -> dict[str, dict]:
         """Build a map of element IDs to computed styles.
 
         Args:
@@ -1117,7 +1117,7 @@ class EnhancedCapture:
                 styles_map[element_id] = el["computed_styles"]
         return styles_map
 
-    def _convert_to_visual_elements(self, elements: List[Dict[str, Any]]) -> List[VisualElement]:
+    def _convert_to_visual_elements(self, elements: list[dict[str, Any]]) -> list[VisualElement]:
         """Convert raw element dictionaries to VisualElement instances.
 
         Args:
@@ -1156,7 +1156,7 @@ class EnhancedCapture:
         self,
         page: Page,
         selector: str,
-    ) -> Optional[bytes]:
+    ) -> bytes | None:
         """Capture screenshot of a specific element.
 
         Args:

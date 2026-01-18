@@ -1,20 +1,14 @@
 """Sync API endpoints for two-way IDE synchronization."""
 
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import uuid4
 
+import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import structlog
 
 from src.sync import (
-    SyncManager,
-    SyncConfig,
-    SyncSource,
-    SyncEventType,
-    SyncStatus,
     ConflictResolutionStrategy,
+    SyncManager,
+    SyncStatus,
     create_sync_manager,
 )
 
@@ -44,25 +38,25 @@ def get_sync_manager(project_id: str) -> SyncManager:
 class TestStepModel(BaseModel):
     """Test step model."""
     action: str
-    target: Optional[str] = None
-    value: Optional[str] = None
+    target: str | None = None
+    value: str | None = None
 
 
 class TestAssertionModel(BaseModel):
     """Test assertion model."""
     type: str
-    target: Optional[str] = None
-    expected: Optional[str] = None
+    target: str | None = None
+    expected: str | None = None
 
 
 class TestContentModel(BaseModel):
     """Test content model for sync."""
     id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     steps: list[TestStepModel]
-    assertions: Optional[list[TestAssertionModel]] = None
-    metadata: Optional[dict] = None
+    assertions: list[TestAssertionModel] | None = None
+    metadata: dict | None = None
 
 
 class SyncPushRequest(BaseModel):
@@ -78,17 +72,17 @@ class SyncPushResponse(BaseModel):
     """Response from push operation."""
     success: bool
     events_pushed: int = 0
-    new_version: Optional[int] = None
-    conflicts: Optional[list[dict]] = None
-    error: Optional[str] = None
+    new_version: int | None = None
+    conflicts: list[dict] | None = None
+    error: str | None = None
 
 
 class SyncPullResponse(BaseModel):
     """Response from pull operation."""
     success: bool
     events: list[dict] = []
-    new_version: Optional[int] = None
-    error: Optional[str] = None
+    new_version: int | None = None
+    error: str | None = None
 
 
 class SyncStatusResponse(BaseModel):
@@ -106,7 +100,7 @@ class SyncResolveRequest(BaseModel):
     project_id: str
     conflict_id: str
     strategy: str = Field(..., description="keep_local, keep_remote, merge, manual")
-    manual_value: Optional[dict] = None
+    manual_value: dict | None = None
 
 
 class SyncResolveResponse(BaseModel):
@@ -114,8 +108,8 @@ class SyncResolveResponse(BaseModel):
     success: bool
     resolved: bool = False
     conflict_id: str
-    resolved_value: Optional[dict] = None
-    error: Optional[str] = None
+    resolved_value: dict | None = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -188,7 +182,7 @@ async def push_changes(request: SyncPushRequest):
 async def pull_changes(
     project_id: str,
     since_version: int = 0,
-    test_id: Optional[str] = None,
+    test_id: str | None = None,
 ):
     """
     Pull test changes from Argus cloud.
@@ -196,7 +190,7 @@ async def pull_changes(
     Fetches the latest test specifications and updates from team members.
     """
     try:
-        manager = get_sync_manager(project_id)
+        get_sync_manager(project_id)
 
         # In production, this would fetch from database
         # For now, return empty (no remote changes)

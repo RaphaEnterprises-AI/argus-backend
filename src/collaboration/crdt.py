@@ -3,12 +3,11 @@
 Implements Last-Write-Wins (LWW) Register and Operation-based CRDT for JSON documents.
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
-from uuid import uuid4
 import copy
-import json
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
 
 
 @dataclass
@@ -94,7 +93,7 @@ class CRDTOperation:
     path: list[str] = field(default_factory=list)  # JSON path
     value: Any = None
     previous_value: Any = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     vector_clock: VectorClock = field(default_factory=VectorClock)
 
     def to_dict(self) -> dict:
@@ -122,7 +121,7 @@ class CRDTOperation:
             previous_value=data.get("previous_value"),
             timestamp=datetime.fromisoformat(data["timestamp"])
             if data.get("timestamp")
-            else datetime.now(timezone.utc),
+            else datetime.now(UTC),
             vector_clock=VectorClock.from_dict(data.get("vector_clock", {})),
         )
 
@@ -142,7 +141,7 @@ class LWWRegister:
         """
         self.node_id = node_id
         self._value = initial_value
-        self._timestamp = datetime.now(timezone.utc)
+        self._timestamp = datetime.now(UTC)
         self._vector_clock = VectorClock()
 
     @property
@@ -166,7 +165,7 @@ class LWWRegister:
         """
         previous_value = self._value
         self._value = value
-        self._timestamp = datetime.now(timezone.utc)
+        self._timestamp = datetime.now(UTC)
         self._vector_clock = self._vector_clock.increment(self.node_id)
 
         return CRDTOperation(
@@ -216,7 +215,7 @@ class CRDTDocument:
     - Automatic conflict resolution
     """
 
-    def __init__(self, node_id: str, initial_doc: Optional[dict] = None):
+    def __init__(self, node_id: str, initial_doc: dict | None = None):
         """Initialize CRDT document.
 
         Args:
@@ -495,7 +494,7 @@ class TestSpecCRDT:
     - Manage assertions
     """
 
-    def __init__(self, node_id: str, test_spec: Optional[dict] = None):
+    def __init__(self, node_id: str, test_spec: dict | None = None):
         """Initialize test spec CRDT.
 
         Args:
@@ -532,7 +531,7 @@ class TestSpecCRDT:
         """Set test description."""
         return self._crdt.set(["description"], description)
 
-    def add_step(self, step: dict, index: Optional[int] = None) -> CRDTOperation:
+    def add_step(self, step: dict, index: int | None = None) -> CRDTOperation:
         """Add a test step.
 
         Args:

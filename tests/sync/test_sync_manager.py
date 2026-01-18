@@ -1,25 +1,23 @@
 """Tests for sync manager."""
 
-import pytest
-import asyncio
-from datetime import datetime, timezone
 
+import pytest
+
+from src.sync.models import (
+    ConflictResolutionStrategy,
+    SyncConflict,
+    SyncEvent,
+    SyncEventType,
+    SyncPullResult,
+    SyncPushResult,
+    SyncSource,
+    SyncStatus,
+)
 from src.sync.sync_manager import (
     SyncConfig,
     SyncManager,
     create_sync_manager,
 )
-from src.sync.models import (
-    SyncSource,
-    SyncEventType,
-    SyncStatus,
-    SyncEvent,
-    SyncConflict,
-    ConflictResolutionStrategy,
-    SyncPushResult,
-    SyncPullResult,
-)
-
 
 # =============================================================================
 # SyncConfig Tests
@@ -74,8 +72,10 @@ class TestSyncManagerInit:
 
     def test_with_handlers(self):
         """Test initialization with handlers."""
-        push_fn = lambda events: SyncPushResult(success=True)
-        pull_fn = lambda pid, v: SyncPullResult(success=True)
+        def push_fn(events):
+            return SyncPushResult(success=True)
+        def pull_fn(pid, v):
+            return SyncPullResult(success=True)
 
         manager = SyncManager(push_fn=push_fn, pull_fn=pull_fn)
         assert manager._push_fn is not None
@@ -93,7 +93,8 @@ class TestHandlerSetup:
     def test_set_push_handler(self):
         """Test setting push handler."""
         manager = SyncManager()
-        push_fn = lambda events: SyncPushResult(success=True)
+        def push_fn(events):
+            return SyncPushResult(success=True)
 
         manager.set_push_handler(push_fn)
         assert manager._push_fn is push_fn
@@ -101,7 +102,8 @@ class TestHandlerSetup:
     def test_set_pull_handler(self):
         """Test setting pull handler."""
         manager = SyncManager()
-        pull_fn = lambda pid, v: SyncPullResult(success=True)
+        def pull_fn(pid, v):
+            return SyncPullResult(success=True)
 
         manager.set_pull_handler(pull_fn)
         assert manager._pull_fn is pull_fn

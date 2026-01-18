@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import IntEnum, Enum
-from typing import Any, Optional
+from enum import Enum, IntEnum
 
 
 class RRWebEventType(IntEnum):
@@ -123,10 +122,10 @@ class ParsedAction:
     """A parsed user action ready for test generation."""
 
     type: ActionType
-    target: Optional[str] = None  # CSS selector
-    value: Optional[str] = None
+    target: str | None = None  # CSS selector
+    value: str | None = None
     timestamp: int = 0  # ms since recording start
-    description: Optional[str] = None
+    description: str | None = None
     metadata: dict = field(default_factory=dict)
 
     def to_step_dict(self) -> dict:
@@ -150,7 +149,7 @@ class RecordingMetadata:
     height: int = 0
     title: str = ""
     user_agent: str = ""
-    recorded_at: Optional[datetime] = None
+    recorded_at: datetime | None = None
 
     @classmethod
     def from_meta_event(cls, data: dict) -> "RecordingMetadata":
@@ -171,8 +170,8 @@ class RecordingSession:
     metadata: RecordingMetadata = field(default_factory=RecordingMetadata)
     parsed_actions: list[ParsedAction] = field(default_factory=list)
     duration_ms: int = 0
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     @property
     def action_count(self) -> int:
@@ -192,7 +191,7 @@ class NodeLookup:
     id_to_tag: dict[int, str] = field(default_factory=dict)
     id_to_attributes: dict[int, dict] = field(default_factory=dict)
 
-    def get_selector(self, node_id: int) -> Optional[str]:
+    def get_selector(self, node_id: int) -> str | None:
         """Get CSS selector for a node ID."""
         return self.id_to_selector.get(node_id)
 

@@ -1,10 +1,10 @@
 """Tests for the test analyzer module."""
 
-import pytest
-from pathlib import Path
 
+import pytest
+
+from src.analyzers.base import ComponentType
 from src.analyzers.tests import TestAnalyzer
-from src.analyzers.base import ComponentType, Severity
 
 
 class TestTestAnalyzer:
@@ -229,7 +229,7 @@ test.describe("Login Page", () => {
         """Test that analysis detects tests without assertions."""
         result = analyzer.analyze()
 
-        no_assertion_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -241,7 +241,7 @@ test.describe("Login Page", () => {
         """Test that analysis detects sleep in tests."""
         result = analyzer.analyze()
 
-        sleep_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -253,7 +253,7 @@ test.describe("Login Page", () => {
         """Test that analysis detects skipped tests."""
         result = analyzer.analyze()
 
-        skip_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -265,7 +265,7 @@ test.describe("Login Page", () => {
         """Test that analysis detects .only focused tests."""
         result = analyzer.analyze()
 
-        only_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -277,7 +277,7 @@ test.describe("Login Page", () => {
         """Test that analysis detects fragile CSS selectors."""
         result = analyzer.analyze()
 
-        selector_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -289,7 +289,7 @@ test.describe("Login Page", () => {
         """Test that analysis detects hardcoded waits in E2E tests."""
         result = analyzer.analyze()
 
-        wait_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues

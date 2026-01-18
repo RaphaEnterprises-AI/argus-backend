@@ -50,7 +50,6 @@ Example:
 
 import time
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
 
 import structlog
 
@@ -78,11 +77,11 @@ class TestStep:
     """
 
     action: str
-    target: Optional[str] = None
-    value: Optional[str] = None
-    timeout_ms: Optional[int] = None
-    description: Optional[str] = None
-    execution: Optional[StepExecutionConfig] = None
+    target: str | None = None
+    value: str | None = None
+    timeout_ms: int | None = None
+    description: str | None = None
+    execution: StepExecutionConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "TestStep":
@@ -116,8 +115,8 @@ class HybridExecutor:
     def __init__(
         self,
         dom_executor: BrowserAutomation,
-        vision_executor: Optional[BrowserAutomation] = None,
-        strategy: Optional[ExecutionStrategy] = None,
+        vision_executor: BrowserAutomation | None = None,
+        strategy: ExecutionStrategy | None = None,
     ):
         """Initialize the HybridExecutor.
 
@@ -190,7 +189,7 @@ class HybridExecutor:
         if isinstance(step, dict):
             step = TestStep.from_dict(step)
 
-        start_time = time.time()
+        time.time()
 
         # Check if this step should always use Vision
         if self._should_use_vision_only(step):
@@ -275,7 +274,7 @@ class HybridExecutor:
         """Execute step using DOM only, no Vision fallback."""
         start_time = time.time()
         dom_attempts = 0
-        last_error: Optional[str] = None
+        last_error: str | None = None
 
         # Get DOM-only escalation levels
         levels = [FallbackLevel.NONE]
@@ -505,7 +504,7 @@ class HybridExecutor:
 
         elif step.action == "scroll":
             # Vision: describe scroll action
-            x, y = 0, 0
+            _x, y = 0, 0
             if step.value:
                 parts = step.value.split(",")
                 y = int(parts[1]) if len(parts) > 1 else 0
@@ -597,7 +596,7 @@ class HybridExecutor:
 async def create_hybrid_executor(
     headless: bool = True,
     vision_enabled: bool = True,
-    strategy: Optional[ExecutionStrategy] = None,
+    strategy: ExecutionStrategy | None = None,
 ) -> HybridExecutor:
     """Create and start a HybridExecutor with default configuration.
 

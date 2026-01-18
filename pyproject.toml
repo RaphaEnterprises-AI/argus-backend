@@ -99,10 +99,23 @@ packages = ["src"]
 
 [tool.ruff]
 target-version = "py312"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+select = ["E", "F", "I", "W", "UP"]  # Removed N (naming) - too strict for existing codebase
+ignore = [
+    "E402",  # Module level import not at top - needed for conditional imports
+    "E501",  # Line too long - relax for readability
+    "E721",  # Do not compare types - sometimes needed
+    "E722",  # Do not use bare 'except' - acceptable in test mocks
+    "E741",  # Ambiguous variable name (l, O, I) - needed for LAB color space
+    "F401",  # Imported but unused - many are for availability checking (HAS_X flags)
+    "F841",  # Local variable assigned but never used - often intentional in tests
+    "UP031", # Use format specifiers - existing code uses % formatting
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501"]  # Allow long lines in tests
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -15,66 +15,64 @@ Security Features (SOC2 Compliant):
 - Input validation and sanitization
 """
 
-import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.openapi.utils import get_openapi
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
-from src.config import get_settings
-from src.orchestrator.graph import TestingOrchestrator
-from src.orchestrator.state import create_initial_state
-from src.orchestrator.checkpointer import setup_checkpointer
-from src.integrations.reporter import create_reporter, create_report_from_state
-
-# API Routers
-from src.api.webhooks import router as webhooks_router
-from src.api.quality import router as quality_router
-from src.api.teams import router as teams_router
 from src.api.api_keys import router as api_keys_router
-from src.api.audit import router as audit_router
-from src.api.healing import router as healing_router
-from src.api.sync import router as sync_router
-from src.api.export import router as export_router
-from src.api.recording import router as recording_router
-from src.api.collaboration import router as collaboration_router
-from src.api.scheduling import router as scheduling_router
-from src.api.notifications import router as notifications_router
-from src.api.parameterized import router as parameterized_router
-from src.api.chat import router as chat_router
-from src.api.streaming import router as streaming_router
 from src.api.approvals import router as approvals_router
-from src.api.time_travel import router as time_travel_router
-from src.api.invitations import router as invitations_router
-from src.api.organizations import router as organizations_router
-from src.api.users import router as users_router
-from src.api.projects import router as projects_router
-from src.api.visual_ai import router as visual_ai_router
-from src.api.discovery import router as discovery_router
 from src.api.artifacts import router as artifacts_router
-from src.api.mcp_sessions import router as mcp_sessions_router
-from src.api.mcp_screenshots import router as mcp_screenshots_router
+from src.api.audit import router as audit_router
+from src.api.chat import router as chat_router
+from src.api.collaboration import router as collaboration_router
+from src.api.discovery import router as discovery_router
+from src.api.export import router as export_router
+from src.api.healing import router as healing_router
 from src.api.infra_optimizer import router as infra_optimizer_router
-from src.api.tests import router as tests_router
+from src.api.invitations import router as invitations_router
+from src.api.mcp_screenshots import router as mcp_screenshots_router
+from src.api.mcp_sessions import router as mcp_sessions_router
+from src.api.notifications import router as notifications_router
+from src.api.organizations import router as organizations_router
+from src.api.parameterized import router as parameterized_router
+from src.api.projects import router as projects_router
+from src.api.quality import router as quality_router
+from src.api.recording import router as recording_router
 from src.api.reports import router as reports_router
+from src.api.scheduling import router as scheduling_router
+from src.api.security.auth import UserContext, get_current_user
+from src.api.security.device_auth import router as device_auth_router
+from src.api.security.headers import SecurityHeadersMiddleware
 
 # Security Module
 from src.api.security.middleware import (
-    SecurityMiddleware,
+    AuditLogMiddleware,
     AuthenticationMiddleware,
     RateLimitMiddleware,
-    AuditLogMiddleware,
+    SecurityMiddleware,
 )
-from src.api.security.headers import SecurityHeadersMiddleware
-from src.api.security.auth import get_current_user, UserContext
-from src.api.security.device_auth import router as device_auth_router
+from src.api.streaming import router as streaming_router
+from src.api.sync import router as sync_router
+from src.api.teams import router as teams_router
+from src.api.tests import router as tests_router
+from src.api.time_travel import router as time_travel_router
+from src.api.users import router as users_router
+from src.api.visual_ai import router as visual_ai_router
+
+# API Routers
+from src.api.webhooks import router as webhooks_router
+from src.config import get_settings
+from src.integrations.reporter import create_report_from_state, create_reporter
+from src.orchestrator.checkpointer import setup_checkpointer
+from src.orchestrator.graph import TestingOrchestrator
+from src.orchestrator.state import create_initial_state
 
 logger = structlog.get_logger()
 
@@ -101,7 +99,7 @@ class AutonomousLoopRequest(BaseModel):
     )
     discovery_depth: int = Field(2, ge=1, le=5, description="Crawl depth")
     auto_create_pr: bool = Field(False, description="Auto-create GitHub PR")
-    github_config: Optional[dict] = Field(None, description="GitHub config for PR")
+    github_config: dict | None = Field(None, description="GitHub config for PR")
 
 
 # ============================================================================
@@ -303,10 +301,10 @@ class TestRunRequest(BaseModel):
 
     codebase_path: str = Field(..., description="Path to codebase to analyze")
     app_url: str = Field(..., description="URL of the application to test")
-    pr_number: Optional[int] = Field(None, description="PR number for GitHub integration")
-    changed_files: Optional[list[str]] = Field(None, description="Specific files to focus on")
-    max_tests: Optional[int] = Field(None, description="Maximum number of tests to run")
-    focus_areas: Optional[list[str]] = Field(None, description="Areas to focus testing on")
+    pr_number: int | None = Field(None, description="PR number for GitHub integration")
+    changed_files: list[str] | None = Field(None, description="Specific files to focus on")
+    max_tests: int | None = Field(None, description="Maximum number of tests to run")
+    focus_areas: list[str] | None = Field(None, description="Areas to focus testing on")
 
 
 class TestRunResponse(BaseModel):
@@ -323,11 +321,11 @@ class JobStatusResponse(BaseModel):
 
     job_id: str
     status: str  # pending, running, completed, failed
-    progress: Optional[dict] = None
-    result: Optional[dict] = None
-    error: Optional[str] = None
+    progress: dict | None = None
+    result: dict | None = None
+    error: str | None = None
     created_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -336,7 +334,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     timestamp: str
-    security: Optional[dict] = None
+    security: dict | None = None
 
 
 class SecurityInfoResponse(BaseModel):
@@ -356,7 +354,7 @@ class NLPTestRequest(BaseModel):
     project_id: str = Field(..., description="Project ID to associate the test with")
     description: str = Field(..., description="Plain English test description")
     app_url: str = Field("http://localhost:3000", description="Application URL to test")
-    context: Optional[str] = Field(None, description="Additional context about the app")
+    context: str | None = Field(None, description="Additional context about the app")
 
 
 class VisualCompareRequest(BaseModel):
@@ -364,7 +362,7 @@ class VisualCompareRequest(BaseModel):
 
     baseline_b64: str = Field(..., description="Base64 encoded baseline screenshot")
     current_b64: str = Field(..., description="Base64 encoded current screenshot")
-    context: Optional[str] = Field(None, description="Context about what's being compared")
+    context: str | None = Field(None, description="Context about what's being compared")
 
 
 class WebhookPayload(BaseModel):
@@ -372,8 +370,8 @@ class WebhookPayload(BaseModel):
 
     action: str  # pr_opened, pr_updated, push
     repository: dict
-    pull_request: Optional[dict] = None
-    commits: Optional[list] = None
+    pull_request: dict | None = None
+    commits: list | None = None
 
 
 # ============================================================================
@@ -387,7 +385,7 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         version=API_VERSION,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         security={
             "authentication": settings.enforce_authentication,
             "rate_limiting": settings.rate_limiting_enabled,
@@ -420,7 +418,6 @@ async def get_current_user_info(request: Request):
 
     Returns the user context from the authenticated JWT token (Clerk or internal).
     """
-    from src.api.security.auth import get_current_user, UserContext
 
     try:
         user: UserContext = await get_current_user(request)
@@ -463,8 +460,8 @@ async def debug_jwt_token(request: Request):
             status_code=403, detail="Debug endpoint is only available in development environments"
         )
 
+
     from src.api.security.auth import verify_clerk_jwt
-    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
     # Get bearer token
     auth_header = request.headers.get("authorization", "")
@@ -535,7 +532,7 @@ async def readiness_check():
         content={
             "ready": all_ready,
             "checks": checks,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -556,7 +553,7 @@ async def start_test_run(request: TestRunRequest, background_tasks: BackgroundTa
 
     jobs[job_id] = {
         "status": "pending",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "request": request.model_dump(),
         "progress": {"phase": "initializing", "tests_completed": 0},
     }
@@ -586,9 +583,9 @@ async def run_tests_background(
     job_id: str,
     codebase_path: str,
     app_url: str,
-    pr_number: Optional[int],
-    changed_files: Optional[list[str]],
-    focus_areas: Optional[list[str]],
+    pr_number: int | None,
+    changed_files: list[str] | None,
+    focus_areas: list[str] | None,
 ):
     """Background task to run tests."""
     try:
@@ -622,7 +619,7 @@ async def run_tests_background(
         summary = orchestrator.get_run_summary(final_state)
 
         jobs[job_id]["status"] = "completed"
-        jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+        jobs[job_id]["completed_at"] = datetime.now(UTC).isoformat()
         jobs[job_id]["result"] = {
             "summary": summary,
             "report_paths": {k: str(v) for k, v in report_paths.items()},
@@ -634,7 +631,7 @@ async def run_tests_background(
         logger.exception("Test run failed", job_id=job_id, error=str(e))
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
-        jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+        jobs[job_id]["completed_at"] = datetime.now(UTC).isoformat()
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse, tags=["Testing"])
@@ -657,7 +654,7 @@ async def get_job_status(job_id: str):
 
 
 @app.get("/api/v1/jobs", tags=["Testing"])
-async def list_jobs(limit: int = 20, status: Optional[str] = None):
+async def list_jobs(limit: int = 20, status: str | None = None):
     """List recent test run jobs."""
     filtered = list(jobs.items())
 
@@ -696,9 +693,9 @@ async def create_test_from_nlp(body: NLPTestRequest, request: Request):
     The test is saved to the database and can be retrieved via GET /api/v1/tests/{id}.
     """
     from src.agents.nlp_test_creator import NLPTestCreator
-    from src.services.supabase_client import get_supabase_client
     from src.api.projects import verify_project_access
     from src.api.teams import get_current_user, log_audit
+    from src.services.supabase_client import get_supabase_client
 
     try:
         # Get current user and verify project access
@@ -845,7 +842,7 @@ async def compare_screenshots(request: VisualCompareRequest):
 @app.post("/api/v1/discover", tags=["Auto-Discovery"])
 async def discover_tests(
     app_url: str,
-    focus_areas: Optional[list[str]] = None,
+    focus_areas: list[str] | None = None,
     max_pages: int = 20,
 ):
     """
@@ -895,7 +892,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 
         jobs[job_id] = {
             "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "trigger": "github_webhook",
             "pr_number": pr.get("number"),
         }
@@ -1042,7 +1039,7 @@ async def frontend_quality_score(project_id: str):
                 f"Risk level: {result.get('risk_level', 'medium')}",
                 f"Test coverage: {result.get('test_coverage', 0):.1f}%",
             ],
-            "calculated_at": datetime.now(timezone.utc).isoformat(),
+            "calculated_at": datetime.now(UTC).isoformat(),
         }
     except Exception as e:
         logger.exception("Quality score calculation failed", error=str(e))
@@ -1055,10 +1052,10 @@ async def frontend_generate_test(
     project_id: str,
     framework: str = "playwright",
     auto_create_pr: bool = False,
-    github_config: Optional[dict] = None,
+    github_config: dict | None = None,
 ):
     """Alias for /api/v1/quality/generate-test."""
-    from src.api.quality import generate_test, TestGenerationRequest
+    from src.api.quality import TestGenerationRequest, generate_test
 
     request = TestGenerationRequest(
         production_event_id=production_event_id,
@@ -1076,7 +1073,7 @@ async def frontend_calculate_risk(
     entity_types: list[str] = ["page", "component"],
 ):
     """Alias for /api/v1/quality/calculate-risk."""
-    from src.api.quality import calculate_risk_scores, RiskScoreRequest
+    from src.api.quality import RiskScoreRequest, calculate_risk_scores
 
     request = RiskScoreRequest(project_id=project_id, entity_types=entity_types)
     return await calculate_risk_scores(request)
@@ -1089,9 +1086,10 @@ async def semantic_search(request: SemanticSearchRequest):
 
     Uses Cloudflare Vectorize for semantic search with fallback to Jaccard similarity.
     """
+    import hashlib
+
     from src.services.supabase_client import get_supabase_client
     from src.services.vectorize import semantic_search_errors
-    import hashlib
 
     similar_patterns = []
 
@@ -1189,7 +1187,7 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
             "project_id": request.project_id,
             "status": "running",
             "job_type": "autonomous_loop",
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
             "metadata": {
                 "stages": request.stages,
                 "url": request.url,
@@ -1232,7 +1230,7 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
                 {"id": f"eq.{job_id}"},
                 {
                     "status": "completed",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                     "metadata": results,
                 },
             )
@@ -1244,7 +1242,7 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
                 {
                     "status": "failed",
                     "error_message": str(e),
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                 },
             )
 
@@ -1350,7 +1348,7 @@ async def predictive_quality(
             "risk_scores_available": len(risk_scores),
             "patterns_learned": 0,
         },
-        "calculated_at": datetime.now(timezone.utc).isoformat(),
+        "calculated_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -1364,9 +1362,9 @@ class SupervisorStartRequest(BaseModel):
 
     codebase_path: str = Field(..., description="Path to codebase to analyze")
     app_url: str = Field(..., description="URL of the application to test")
-    pr_number: Optional[int] = Field(None, description="PR number for GitHub integration")
-    changed_files: Optional[list[str]] = Field(None, description="Specific files to focus on")
-    initial_message: Optional[str] = Field(
+    pr_number: int | None = Field(None, description="PR number for GitHub integration")
+    changed_files: list[str] | None = Field(None, description="Specific files to focus on")
+    initial_message: str | None = Field(
         None, description="Custom initial message to the supervisor"
     )
 
@@ -1390,10 +1388,10 @@ class SupervisorStatusResponse(BaseModel):
     current_phase: str
     iteration: int
     is_complete: bool
-    next_node: Optional[str] = None
-    results: Optional[dict] = None
-    progress: Optional[dict] = None
-    error: Optional[str] = None
+    next_node: str | None = None
+    results: dict | None = None
+    progress: dict | None = None
+    error: str | None = None
     created_at: str
 
 
@@ -1423,14 +1421,14 @@ async def start_supervised_test_run(
     The test run executes in the background. Use the returned thread_id to check status.
     """
     from src.orchestrator.supervisor import (
-        SupervisorOrchestrator,
         AGENTS as SUPERVISOR_AGENTS,
-        AGENT_DESCRIPTIONS as SUPERVISOR_AGENT_DESCRIPTIONS,
-        create_initial_supervisor_state,
+    )
+    from src.orchestrator.supervisor import (
+        SupervisorOrchestrator,
     )
 
     thread_id = str(uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
 
     # Store initial job state
     supervisor_jobs[thread_id] = {
@@ -1471,7 +1469,7 @@ async def start_supervised_test_run(
             supervisor_jobs[thread_id].update(
                 {
                     "status": "completed",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                     "current_phase": final_state.get("current_phase", "complete"),
                     "iteration": final_state.get("iteration", 0),
                     "is_complete": True,
@@ -1500,7 +1498,7 @@ async def start_supervised_test_run(
                 {
                     "status": "failed",
                     "error": str(e),
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                 }
             )
 
@@ -1534,15 +1532,15 @@ class OrchestratorStatusResponse(BaseModel):
     found: bool
     source: str  # "supervisor", "streaming", or "not_found"
     status: str  # running, paused, completed, failed, pending, error
-    current_phase: Optional[str] = None
-    iteration: Optional[int] = None
-    is_complete: Optional[bool] = None
-    next_node: Optional[str] = None
-    results: Optional[dict] = None
-    progress: Optional[dict] = None
-    error: Optional[str] = None
-    created_at: Optional[str] = None
-    state_summary: Optional[dict] = None
+    current_phase: str | None = None
+    iteration: int | None = None
+    is_complete: bool | None = None
+    next_node: str | None = None
+    results: dict | None = None
+    progress: dict | None = None
+    error: str | None = None
+    created_at: str | None = None
+    state_summary: dict | None = None
 
 
 @app.get(
@@ -1678,8 +1676,10 @@ async def list_supervisor_agents():
     List available supervisor agents and their descriptions.
     """
     from src.orchestrator.supervisor import (
-        AGENTS as SUPERVISOR_AGENTS,
         AGENT_DESCRIPTIONS as SUPERVISOR_AGENT_DESCRIPTIONS,
+    )
+    from src.orchestrator.supervisor import (
+        AGENTS as SUPERVISOR_AGENTS,
     )
 
     return {
@@ -1697,7 +1697,7 @@ async def list_supervisor_agents():
 @app.get("/api/v1/orchestrator/supervisor/jobs", tags=["Supervisor"])
 async def list_supervisor_jobs(
     limit: int = 20,
-    status: Optional[str] = None,
+    status: str | None = None,
 ):
     """
     List recent supervised test runs.
@@ -1771,7 +1771,7 @@ async def resume_supervisor_run(thread_id: str, background_tasks: BackgroundTask
             supervisor_jobs[thread_id].update(
                 {
                     "status": "completed",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                     "current_phase": final_state.get("current_phase", "complete"),
                     "iteration": final_state.get("iteration", 0),
                     "is_complete": True,
@@ -1787,7 +1787,7 @@ async def resume_supervisor_run(thread_id: str, background_tasks: BackgroundTask
                 {
                     "status": "failed",
                     "error": str(e),
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                 }
             )
 
@@ -1823,7 +1823,7 @@ async def abort_supervisor_run(thread_id: str, reason: str = "Aborted by user"):
         {
             "status": "failed",
             "error": reason,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
     )
 

@@ -1,12 +1,9 @@
 """Tests for Discovery API endpoints."""
 
 import asyncio
-import json
-import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 
 
@@ -32,7 +29,7 @@ class TestDiscoveryModels:
 
     def test_start_discovery_request_custom_values(self, mock_env_vars):
         """Test StartDiscoveryRequest with custom values."""
-        from src.api.discovery import StartDiscoveryRequest, AuthConfig
+        from src.api.discovery import AuthConfig, StartDiscoveryRequest
 
         auth_config = AuthConfig(
             type="bearer",
@@ -160,7 +157,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_session_or_404_found(self, mock_env_vars):
         """Test get_session_or_404 when session exists."""
-        from src.api.discovery import get_session_or_404, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_session_or_404
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {"id": session_id, "status": "running"}
@@ -174,7 +171,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_session_or_404_not_found(self, mock_env_vars):
         """Test get_session_or_404 when session doesn't exist."""
-        from src.api.discovery import get_session_or_404, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_session_or_404
 
         _discovery_sessions.clear()
 
@@ -187,7 +184,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_flow_or_404_found(self, mock_env_vars):
         """Test get_flow_or_404 when flow exists."""
-        from src.api.discovery import get_flow_or_404, _discovered_flows
+        from src.api.discovery import _discovered_flows, get_flow_or_404
 
         flow_id = "test-flow"
         _discovered_flows[flow_id] = {"id": flow_id, "name": "Test Flow"}
@@ -201,7 +198,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_flow_or_404_not_found(self, mock_env_vars):
         """Test get_flow_or_404 when flow doesn't exist."""
-        from src.api.discovery import get_flow_or_404, _discovered_flows
+        from src.api.discovery import _discovered_flows, get_flow_or_404
 
         _discovered_flows.clear()
 
@@ -248,7 +245,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_list_discovery_sessions_empty(self, mock_env_vars):
         """Test listing sessions when none exist."""
-        from src.api.discovery import list_discovery_sessions, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, list_discovery_sessions
 
         _discovery_sessions.clear()
 
@@ -266,7 +263,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_list_discovery_sessions_with_data(self, mock_env_vars):
         """Test listing sessions with data."""
-        from src.api.discovery import list_discovery_sessions, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, list_discovery_sessions
 
         _discovery_sessions.clear()
         _discovery_sessions["session-1"] = {
@@ -299,7 +296,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_list_discovery_sessions_filter_by_project(self, mock_env_vars):
         """Test filtering sessions by project_id."""
-        from src.api.discovery import list_discovery_sessions, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, list_discovery_sessions
 
         _discovery_sessions.clear()
         _discovery_sessions["session-1"] = {
@@ -341,7 +338,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_start_discovery_invalid_mode(self, mock_env_vars):
         """Test starting discovery with invalid mode."""
-        from src.api.discovery import start_discovery, StartDiscoveryRequest
+        from src.api.discovery import StartDiscoveryRequest, start_discovery
 
         request = StartDiscoveryRequest(
             project_id="test-project",
@@ -360,7 +357,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_start_discovery_invalid_strategy(self, mock_env_vars):
         """Test starting discovery with invalid strategy."""
-        from src.api.discovery import start_discovery, StartDiscoveryRequest
+        from src.api.discovery import StartDiscoveryRequest, start_discovery
 
         request = StartDiscoveryRequest(
             project_id="test-project",
@@ -379,7 +376,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_start_discovery_success(self, mock_env_vars):
         """Test successfully starting a discovery session."""
-        from src.api.discovery import start_discovery, StartDiscoveryRequest, _discovery_sessions
+        from src.api.discovery import StartDiscoveryRequest, _discovery_sessions, start_discovery
 
         _discovery_sessions.clear()
 
@@ -404,7 +401,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_get_session(self, mock_env_vars):
         """Test getting a specific session."""
-        from src.api.discovery import get_session, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_session
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -428,7 +425,7 @@ class TestDiscoverySessionEndpoints:
     @pytest.mark.asyncio
     async def test_get_session_not_found(self, mock_env_vars):
         """Test getting a non-existent session."""
-        from src.api.discovery import get_session, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_session
 
         _discovery_sessions.clear()
 
@@ -444,7 +441,7 @@ class TestDiscoveryControlEndpoints:
     @pytest.mark.asyncio
     async def test_pause_discovery_success(self, mock_env_vars):
         """Test pausing a running discovery session."""
-        from src.api.discovery import pause_discovery, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, pause_discovery
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -464,7 +461,7 @@ class TestDiscoveryControlEndpoints:
     @pytest.mark.asyncio
     async def test_pause_discovery_invalid_status(self, mock_env_vars):
         """Test pausing a session that's not running."""
-        from src.api.discovery import pause_discovery, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, pause_discovery
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -484,7 +481,7 @@ class TestDiscoveryControlEndpoints:
     @pytest.mark.asyncio
     async def test_resume_discovery_success(self, mock_env_vars):
         """Test resuming a paused discovery session."""
-        from src.api.discovery import resume_discovery, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, resume_discovery
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -507,7 +504,7 @@ class TestDiscoveryControlEndpoints:
     @pytest.mark.asyncio
     async def test_resume_discovery_invalid_status(self, mock_env_vars):
         """Test resuming a session that's not paused."""
-        from src.api.discovery import resume_discovery, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, resume_discovery
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -529,7 +526,7 @@ class TestDiscoveryControlEndpoints:
     @pytest.mark.asyncio
     async def test_cancel_discovery_success(self, mock_env_vars):
         """Test cancelling a running discovery session."""
-        from src.api.discovery import cancel_discovery, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, cancel_discovery
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -553,7 +550,7 @@ class TestDiscoveryControlEndpoints:
     @pytest.mark.asyncio
     async def test_cancel_discovery_already_completed(self, mock_env_vars):
         """Test cancelling an already completed session."""
-        from src.api.discovery import cancel_discovery, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, cancel_discovery
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -577,7 +574,7 @@ class TestDiscoveredPagesEndpoints:
     @pytest.mark.asyncio
     async def test_get_discovered_pages(self, mock_env_vars):
         """Test getting pages for a session."""
-        from src.api.discovery import get_discovered_pages, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_discovered_pages
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -619,7 +616,7 @@ class TestDiscoveredPagesEndpoints:
     @pytest.mark.asyncio
     async def test_get_discovered_pages_with_filter(self, mock_env_vars):
         """Test filtering pages by type."""
-        from src.api.discovery import get_discovered_pages, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_discovered_pages
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -643,7 +640,7 @@ class TestDiscoveredPagesEndpoints:
     @pytest.mark.asyncio
     async def test_get_page_details(self, mock_env_vars):
         """Test getting details for a specific page."""
-        from src.api.discovery import get_page_details, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_page_details
 
         session_id = "test-session"
         page_id = "page-1"
@@ -665,7 +662,7 @@ class TestDiscoveredPagesEndpoints:
     @pytest.mark.asyncio
     async def test_get_page_details_not_found(self, mock_env_vars):
         """Test getting details for a non-existent page."""
-        from src.api.discovery import get_page_details, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_page_details
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -688,7 +685,7 @@ class TestDiscoveredFlowsEndpoints:
     @pytest.mark.asyncio
     async def test_get_discovered_flows(self, mock_env_vars):
         """Test getting flows for a session."""
-        from src.api.discovery import get_discovered_flows, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_discovered_flows
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -720,7 +717,7 @@ class TestDiscoveredFlowsEndpoints:
     @pytest.mark.asyncio
     async def test_get_discovered_flows_with_filters(self, mock_env_vars):
         """Test filtering flows by category and priority."""
-        from src.api.discovery import get_discovered_flows, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_discovered_flows
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {
@@ -747,7 +744,7 @@ class TestDiscoveredFlowsEndpoints:
     @pytest.mark.asyncio
     async def test_update_flow(self, mock_env_vars):
         """Test updating a discovered flow."""
-        from src.api.discovery import update_flow, UpdateFlowRequest, _discovered_flows
+        from src.api.discovery import UpdateFlowRequest, _discovered_flows, update_flow
 
         flow_id = "test-flow"
         _discovered_flows[flow_id] = {
@@ -779,7 +776,12 @@ class TestDiscoveredFlowsEndpoints:
     @pytest.mark.asyncio
     async def test_validate_flow(self, mock_env_vars):
         """Test validating a discovered flow."""
-        from src.api.discovery import validate_flow, FlowValidationRequest, _discovered_flows, _discovery_sessions
+        from src.api.discovery import (
+            FlowValidationRequest,
+            _discovered_flows,
+            _discovery_sessions,
+            validate_flow,
+        )
 
         flow_id = "test-flow"
         session_id = "test-session"
@@ -809,7 +811,11 @@ class TestDiscoveredFlowsEndpoints:
     @pytest.mark.asyncio
     async def test_generate_test_from_flow(self, mock_env_vars):
         """Test generating a test from a discovered flow."""
-        from src.api.discovery import generate_test_from_flow, GenerateTestRequest, _discovered_flows
+        from src.api.discovery import (
+            GenerateTestRequest,
+            _discovered_flows,
+            generate_test_from_flow,
+        )
 
         flow_id = "test-flow"
         _discovered_flows[flow_id] = {
@@ -849,7 +855,7 @@ class TestDiscoveryHistoryEndpoints:
     @pytest.mark.asyncio
     async def test_get_discovery_history(self, mock_env_vars):
         """Test getting discovery history for a project."""
-        from src.api.discovery import get_discovery_history, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, get_discovery_history
 
         project_id = "project-1"
         _discovery_sessions["session-1"] = {
@@ -874,7 +880,7 @@ class TestDiscoveryHistoryEndpoints:
     @pytest.mark.asyncio
     async def test_compare_discoveries(self, mock_env_vars):
         """Test comparing two discovery sessions."""
-        from src.api.discovery import compare_discoveries, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, compare_discoveries
 
         project_id = "project-1"
         _discovery_sessions["session-1"] = {
@@ -908,7 +914,7 @@ class TestDiscoveryHistoryEndpoints:
     @pytest.mark.asyncio
     async def test_compare_discoveries_different_projects(self, mock_env_vars):
         """Test comparing sessions from different projects fails."""
-        from src.api.discovery import compare_discoveries, _discovery_sessions
+        from src.api.discovery import _discovery_sessions, compare_discoveries
 
         _discovery_sessions["session-1"] = {"id": "session-1", "project_id": "project-1"}
         _discovery_sessions["session-2"] = {"id": "session-2", "project_id": "project-2"}
@@ -925,7 +931,12 @@ class TestDiscoveryHistoryEndpoints:
     @pytest.mark.asyncio
     async def test_delete_session(self, mock_env_vars):
         """Test deleting a discovery session."""
-        from src.api.discovery import delete_session, _discovery_sessions, _discovered_flows, SessionStatus
+        from src.api.discovery import (
+            SessionStatus,
+            _discovered_flows,
+            _discovery_sessions,
+            delete_session,
+        )
 
         session_id = "test-session"
         flow_id = "test-flow"
@@ -951,7 +962,7 @@ class TestDiscoveryHistoryEndpoints:
     @pytest.mark.asyncio
     async def test_delete_running_session_fails(self, mock_env_vars):
         """Test that deleting a running session fails."""
-        from src.api.discovery import delete_session, _discovery_sessions, SessionStatus
+        from src.api.discovery import SessionStatus, _discovery_sessions, delete_session
 
         session_id = "test-session"
         _discovery_sessions[session_id] = {

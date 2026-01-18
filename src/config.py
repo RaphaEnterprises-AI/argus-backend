@@ -1,8 +1,8 @@
 """Configuration management for E2E Testing Agent."""
 
 from enum import Enum
-from typing import Optional, Literal, Union
-from pydantic import Field, SecretStr, field_validator
+
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,52 +51,52 @@ class Settings(BaseSettings):
 
     # API Keys - Multi-Provider Support
     # Made optional for health checks; validated at runtime when needed
-    anthropic_api_key: Optional[SecretStr] = Field(None, description="Anthropic API key")
-    openai_api_key: Optional[SecretStr] = Field(None, description="OpenAI API key (for GPT-4)")
-    google_api_key: Optional[SecretStr] = Field(None, description="Google API key (for Gemini)")
-    groq_api_key: Optional[SecretStr] = Field(None, description="Groq API key (for fast Llama)")
-    together_api_key: Optional[SecretStr] = Field(None, description="Together API key (for open models)")
+    anthropic_api_key: SecretStr | None = Field(None, description="Anthropic API key")
+    openai_api_key: SecretStr | None = Field(None, description="OpenAI API key (for GPT-4)")
+    google_api_key: SecretStr | None = Field(None, description="Google API key (for Gemini)")
+    groq_api_key: SecretStr | None = Field(None, description="Groq API key (for fast Llama)")
+    together_api_key: SecretStr | None = Field(None, description="Together API key (for open models)")
 
     # Vertex AI Configuration (Claude via Google Cloud)
     # Benefits: Unified GCP billing, committed spend, enterprise features, Computer Use supported
     use_vertex_ai: bool = Field(False, description="Use Vertex AI for Claude models instead of direct API")
-    google_cloud_project: Optional[str] = Field(None, description="GCP project ID for Vertex AI")
+    google_cloud_project: str | None = Field(None, description="GCP project ID for Vertex AI")
     vertex_ai_region: str = Field("global", description="Vertex AI region ('global' or specific like 'us-east1')")
 
     # Integration API Keys
-    github_token: Optional[SecretStr] = Field(None, description="GitHub token for PR integration")
+    github_token: SecretStr | None = Field(None, description="GitHub token for PR integration")
 
     # Inference Gateway Configuration (Cloudflare AI Gateway recommended)
     inference_gateway: InferenceGateway = Field(
         InferenceGateway.CLOUDFLARE,
         description="Which gateway to route AI requests through"
     )
-    cloudflare_account_id: Optional[str] = Field(None, description="Cloudflare account ID for AI Gateway")
-    cloudflare_gateway_id: Optional[str] = Field(None, description="Cloudflare AI Gateway ID")
-    aws_region: Optional[str] = Field("us-east-1", description="AWS region for Bedrock")
+    cloudflare_account_id: str | None = Field(None, description="Cloudflare account ID for AI Gateway")
+    cloudflare_gateway_id: str | None = Field(None, description="Cloudflare AI Gateway ID")
+    aws_region: str | None = Field("us-east-1", description="AWS region for Bedrock")
 
     # Database (optional)
-    database_url: Optional[str] = Field(None, description="PostgreSQL connection string")
+    database_url: str | None = Field(None, description="PostgreSQL connection string")
 
     # Supabase Configuration (for Quality Intelligence)
-    supabase_url: Optional[str] = Field(None, description="Supabase project URL")
-    supabase_service_key: Optional[SecretStr] = Field(None, description="Supabase service role key")
+    supabase_url: str | None = Field(None, description="Supabase project URL")
+    supabase_service_key: SecretStr | None = Field(None, description="Supabase service role key")
 
     # Cloudflare Storage Configuration (for artifacts, caching, memory)
-    cloudflare_api_token: Optional[SecretStr] = Field(None, description="Cloudflare API token for R2/KV/Vectorize access")
-    cloudflare_r2_bucket: Optional[str] = Field(
+    cloudflare_api_token: SecretStr | None = Field(None, description="Cloudflare API token for R2/KV/Vectorize access")
+    cloudflare_r2_bucket: str | None = Field(
         "argus-artifacts",
         description="Cloudflare R2 bucket for screenshots and artifacts"
     )
-    cloudflare_kv_namespace_id: Optional[str] = Field(
+    cloudflare_kv_namespace_id: str | None = Field(
         "e1f3cdefb05c43b88528adb515bde16a",
         description="Cloudflare KV namespace ID (from wrangler.toml)"
     )
-    cloudflare_vectorize_index: Optional[str] = Field(
+    cloudflare_vectorize_index: str | None = Field(
         "argus-patterns",
         description="Cloudflare Vectorize index name for self-healing memory"
     )
-    cloudflare_d1_database_id: Optional[str] = Field(
+    cloudflare_d1_database_id: str | None = Field(
         None,
         description="Cloudflare D1 database ID for test history"
     )
@@ -106,14 +106,14 @@ class Settings(BaseSettings):
     cache_ttl_healing_patterns: int = Field(604800, description="TTL for healing patterns in seconds (default: 7 days)")
 
     # Notifications (optional)
-    slack_webhook_url: Optional[str] = Field(None, description="Slack webhook for notifications")
+    slack_webhook_url: str | None = Field(None, description="Slack webhook for notifications")
 
     # Multi-Model Configuration
     model_strategy: MultiModelStrategy = Field(
         MultiModelStrategy.BALANCED,
         description="Model routing strategy"
     )
-    prefer_provider: Optional[ModelProvider] = Field(
+    prefer_provider: ModelProvider | None = Field(
         None,
         description="Preferred provider (if available)"
     )
@@ -126,17 +126,17 @@ class Settings(BaseSettings):
     default_model: ModelName = Field(ModelName.SONNET, description="Default model for testing")
     verification_model: ModelName = Field(ModelName.HAIKU, description="Fast model for verifications")
     debugging_model: ModelName = Field(ModelName.OPUS, description="Powerful model for complex debugging")
-    
+
     # Computer Use Settings
     screenshot_width: int = Field(1920, description="Screenshot width in pixels")
     screenshot_height: int = Field(1080, description="Screenshot height in pixels")
     max_iterations: int = Field(50, description="Max iterations per test")
     action_timeout_ms: int = Field(10000, description="Timeout for UI actions")
-    
+
     # Cost Control
     cost_limit_per_run: float = Field(10.0, description="Max cost per test run in USD")
     cost_limit_per_test: float = Field(1.0, description="Max cost per individual test in USD")
-    
+
     # Execution Settings
     parallel_tests: int = Field(1, description="Number of tests to run in parallel")
     parallel_threshold: int = Field(5, description="Minimum tests to trigger parallel execution")
@@ -161,11 +161,11 @@ class Settings(BaseSettings):
         default=300,
         description="Timeout in seconds for approval requests"
     )
-    
+
     # Paths
     output_dir: str = Field("./test-results", description="Directory for test outputs")
     screenshot_dir: str = Field("./test-results/screenshots", description="Directory for screenshots")
-    
+
     # Server Settings (for webhook mode)
     server_host: str = Field("0.0.0.0", description="Server host")
     server_port: int = Field(8000, description="Server port")
@@ -185,7 +185,7 @@ class Settings(BaseSettings):
         False,  # Set to True in production
         description="Enforce authentication on all endpoints"
     )
-    jwt_secret_key: Optional[SecretStr] = Field(
+    jwt_secret_key: SecretStr | None = Field(
         None,
         description="Secret key for JWT token signing (required for auth)"
     )

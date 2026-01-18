@@ -1,11 +1,11 @@
 """Tests for the security consent module."""
 
-import pytest
-import json
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
+import pytest
 
 
 class TestConsentScope:
@@ -75,7 +75,7 @@ class TestConsentRecord:
         record = ConsentRecord(
             scope=ConsentScope.SOURCE_CODE,
             status=ConsentStatus.GRANTED,
-            granted_at=datetime.now(timezone.utc).isoformat(),
+            granted_at=datetime.now(UTC).isoformat(),
         )
 
         assert record.is_valid() is True
@@ -95,12 +95,12 @@ class TestConsentRecord:
         """Test ConsentRecord is_valid for expired consent."""
         from src.security.consent import ConsentRecord, ConsentScope, ConsentStatus
 
-        expired_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        expired_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
 
         record = ConsentRecord(
             scope=ConsentScope.SOURCE_CODE,
             status=ConsentStatus.GRANTED,
-            granted_at=datetime.now(timezone.utc).isoformat(),
+            granted_at=datetime.now(UTC).isoformat(),
             expires_at=expired_time,
         )
 
@@ -110,12 +110,12 @@ class TestConsentRecord:
         """Test ConsentRecord is_valid for not expired consent."""
         from src.security.consent import ConsentRecord, ConsentScope, ConsentStatus
 
-        future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        future_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
 
         record = ConsentRecord(
             scope=ConsentScope.SOURCE_CODE,
             status=ConsentStatus.GRANTED,
-            granted_at=datetime.now(timezone.utc).isoformat(),
+            granted_at=datetime.now(UTC).isoformat(),
             expires_at=future_time,
         )
 
@@ -218,7 +218,7 @@ class TestConsentBundle:
 
     def test_consent_bundle_from_dict(self, mock_env_vars):
         """Test ConsentBundle from_dict method."""
-        from src.security.consent import ConsentBundle, ConsentScope, ConsentStatus
+        from src.security.consent import ConsentBundle, ConsentScope
 
         data = {
             "session_id": "session-123",
@@ -494,7 +494,7 @@ class TestGetConsentManager:
 
     def test_get_consent_manager_with_auto_mode(self, mock_env_vars):
         """Test get_consent_manager with auto mode."""
-        from src.security.consent import get_consent_manager, ConsentScope
+        from src.security.consent import ConsentScope, get_consent_manager
 
         manager = get_consent_manager(auto_mode="minimal")
 
@@ -502,7 +502,7 @@ class TestGetConsentManager:
 
     def test_get_consent_manager_env_override(self, mock_env_vars):
         """Test get_consent_manager with environment override."""
-        from src.security.consent import get_consent_manager, ConsentScope
+        from src.security.consent import ConsentScope, get_consent_manager
 
         with patch.dict("os.environ", {"CONSENT_MODE": "standard"}):
             manager = get_consent_manager()

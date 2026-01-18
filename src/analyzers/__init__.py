@@ -12,10 +12,10 @@ frameworks and domains:
 All analysis happens locally - code never leaves.
 """
 
-from .base import BaseAnalyzer, AnalysisResult, ComponentInfo, RouteInfo, QueryInfo
-from .frontend import FrontendAnalyzer
 from .backend import BackendAnalyzer
+from .base import AnalysisResult, BaseAnalyzer, ComponentInfo, QueryInfo, RouteInfo
 from .database import DatabaseAnalyzer
+from .frontend import FrontendAnalyzer
 from .microservices import MicroservicesAnalyzer
 from .tests import TestAnalyzer
 

@@ -1,8 +1,8 @@
 """Import/dependency manager for exports."""
 
 from dataclasses import dataclass, field
-from typing import Optional
-from ..models import SupportedLanguage, SupportedFramework, FRAMEWORK_DEPENDENCIES
+
+from ..models import FRAMEWORK_DEPENDENCIES, SupportedFramework, SupportedLanguage
 
 
 @dataclass
@@ -11,7 +11,7 @@ class ImportSpec:
 
     module: str
     items: list[str] = field(default_factory=list)
-    alias: Optional[str] = None
+    alias: str | None = None
     is_type_import: bool = False  # For TypeScript type imports
 
 
@@ -60,8 +60,8 @@ class ImportsManager:
     def add_import(
         self,
         module: str,
-        items: Optional[list[str]] = None,
-        alias: Optional[str] = None,
+        items: list[str] | None = None,
+        alias: str | None = None,
         is_type_import: bool = False,
     ):
         """Add an import.

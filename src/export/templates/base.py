@@ -1,9 +1,9 @@
 """Base template class for test export."""
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional
-import re
+from typing import Any
 
 
 @dataclass
@@ -11,10 +11,10 @@ class TestStep:
     """A test step for export."""
 
     action: str
-    target: Optional[str] = None
-    value: Optional[str] = None
-    timeout: Optional[int] = None
-    description: Optional[str] = None
+    target: str | None = None
+    value: str | None = None
+    timeout: int | None = None
+    description: str | None = None
 
 
 @dataclass
@@ -22,8 +22,8 @@ class TestAssertion:
     """A test assertion for export."""
 
     type: str
-    target: Optional[str] = None
-    expected: Optional[str] = None
+    target: str | None = None
+    expected: str | None = None
 
 
 @dataclass

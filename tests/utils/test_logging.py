@@ -1,7 +1,7 @@
 """Tests for the logging utility module."""
 
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestConfigureLogging:
@@ -54,7 +54,7 @@ class TestGetLogger:
 
     def test_get_logger_default(self, mock_env_vars):
         """Test get_logger without name."""
-        from src.utils.logging import get_logger, configure_logging
+        from src.utils.logging import configure_logging, get_logger
 
         configure_logging()
         logger = get_logger()
@@ -63,7 +63,7 @@ class TestGetLogger:
 
     def test_get_logger_with_name(self, mock_env_vars):
         """Test get_logger with name."""
-        from src.utils.logging import get_logger, configure_logging
+        from src.utils.logging import configure_logging, get_logger
 
         configure_logging()
         logger = get_logger("test_logger")
@@ -72,7 +72,7 @@ class TestGetLogger:
 
     def test_get_logger_with_context(self, mock_env_vars):
         """Test get_logger with context."""
-        from src.utils.logging import get_logger, configure_logging
+        from src.utils.logging import configure_logging, get_logger
 
         configure_logging()
         logger = get_logger("test_logger", test_id="123", component="ui")
@@ -81,7 +81,7 @@ class TestGetLogger:
 
     def test_get_logger_multiple_context(self, mock_env_vars):
         """Test get_logger with multiple context values."""
-        from src.utils.logging import get_logger, configure_logging
+        from src.utils.logging import configure_logging, get_logger
 
         configure_logging()
         logger = get_logger(
@@ -140,7 +140,7 @@ class TestLogOperation:
 
     def test_log_operation_success(self, mock_env_vars):
         """Test log_operation on success."""
-        from src.utils.logging import log_operation, configure_logging
+        from src.utils.logging import configure_logging, log_operation
 
         configure_logging()
 
@@ -152,7 +152,7 @@ class TestLogOperation:
 
     def test_log_operation_with_context(self, mock_env_vars):
         """Test log_operation with context."""
-        from src.utils.logging import log_operation, configure_logging
+        from src.utils.logging import configure_logging, log_operation
 
         configure_logging()
 
@@ -163,7 +163,7 @@ class TestLogOperation:
 
     def test_log_operation_with_logger(self, mock_env_vars):
         """Test log_operation with custom logger."""
-        from src.utils.logging import log_operation, get_logger, configure_logging
+        from src.utils.logging import configure_logging, get_logger, log_operation
 
         configure_logging()
         logger = get_logger("custom")
@@ -175,12 +175,12 @@ class TestLogOperation:
 
     def test_log_operation_failure(self, mock_env_vars):
         """Test log_operation on failure."""
-        from src.utils.logging import log_operation, configure_logging
+        from src.utils.logging import configure_logging, log_operation
 
         configure_logging()
 
         with pytest.raises(ValueError):
-            with log_operation("failing_op") as op:
+            with log_operation("failing_op"):
                 raise ValueError("Test error")
 
 

@@ -1,14 +1,14 @@
 """Cursor position tracking and rendering for real-time collaboration."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from datetime import UTC, datetime
 
 from .models import (
-    CursorPosition,
-    SelectionRange,
     CURSOR_COLORS,
     BroadcastMessage,
+    CursorPosition,
+    SelectionRange,
 )
 
 
@@ -19,10 +19,10 @@ class CursorState:
     user_id: str
     user_name: str
     color: str
-    position: Optional[CursorPosition] = None
-    selection: Optional[SelectionRange] = None
+    position: CursorPosition | None = None
+    selection: SelectionRange | None = None
     last_updated: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
 
     def to_dict(self) -> dict:
@@ -65,7 +65,7 @@ class CursorTracker:
     def __init__(
         self,
         test_id: str,
-        broadcast_fn: Optional[Callable[[BroadcastMessage], None]] = None,
+        broadcast_fn: Callable[[BroadcastMessage], None] | None = None,
     ):
         """Initialize cursor tracker.
 
@@ -84,7 +84,7 @@ class CursorTracker:
         self,
         user_id: str,
         user_name: str,
-        color: Optional[str] = None,
+        color: str | None = None,
     ) -> CursorState:
         """Add a user to cursor tracking.
 
@@ -139,7 +139,7 @@ class CursorTracker:
 
         cursor_state = self._cursors[user_id]
         cursor_state.position = position
-        cursor_state.last_updated = datetime.now(timezone.utc)
+        cursor_state.last_updated = datetime.now(UTC)
 
         if broadcast:
             return self._maybe_broadcast(user_id, "cursor_move")
@@ -166,7 +166,7 @@ class CursorTracker:
 
         cursor_state = self._cursors[user_id]
         cursor_state.selection = selection
-        cursor_state.last_updated = datetime.now(timezone.utc)
+        cursor_state.last_updated = datetime.now(UTC)
 
         if broadcast:
             return self._maybe_broadcast(user_id, "cursor_select")
@@ -181,7 +181,7 @@ class CursorTracker:
         if user_id in self._cursors:
             self._cursors[user_id].selection = None
 
-    def get_cursor(self, user_id: str) -> Optional[CursorState]:
+    def get_cursor(self, user_id: str) -> CursorState | None:
         """Get a user's cursor state.
 
         Args:
@@ -206,7 +206,7 @@ class CursorTracker:
         Returns:
             List of recently-updated CursorState objects.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         threshold_seconds = self.STALE_THRESHOLD_MS / 1000
 
         return [
@@ -263,7 +263,7 @@ class CursorTracker:
         Returns:
             True if broadcast was sent.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         last = self._last_broadcast.get(user_id)
 
         if last:

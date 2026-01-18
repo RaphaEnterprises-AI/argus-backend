@@ -1,11 +1,10 @@
 """Tests for the Organizations API module (src/api/organizations.py)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+
+import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-
 
 # ============================================================================
 # Fixtures
@@ -366,7 +365,7 @@ class TestCreateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_org_data
     ):
         """Test successful organization creation."""
-        from src.api.organizations import create_organization, CreateOrganizationRequest
+        from src.api.organizations import CreateOrganizationRequest, create_organization
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
         mock_supabase.insert = AsyncMock(side_effect=[
@@ -390,7 +389,7 @@ class TestCreateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test organization creation with invalid name."""
-        from src.api.organizations import create_organization, CreateOrganizationRequest
+        from src.api.organizations import CreateOrganizationRequest, create_organization
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
 
@@ -409,7 +408,7 @@ class TestCreateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test organization creation handles insert failure."""
-        from src.api.organizations import create_organization, CreateOrganizationRequest
+        from src.api.organizations import CreateOrganizationRequest, create_organization
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
         mock_supabase.insert = AsyncMock(return_value={
@@ -431,7 +430,7 @@ class TestCreateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_org_data
     ):
         """Test organization creation rolls back on member insert failure."""
-        from src.api.organizations import create_organization, CreateOrganizationRequest
+        from src.api.organizations import CreateOrganizationRequest, create_organization
 
         mock_supabase.request = AsyncMock(side_effect=[
             {"data": [], "error": None},  # slug check
@@ -567,7 +566,7 @@ class TestUpdateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_org_data
     ):
         """Test successful organization update."""
-        from src.api.organizations import update_organization, UpdateOrganizationRequest
+        from src.api.organizations import UpdateOrganizationRequest, update_organization
 
         updated_data = {**sample_org_data, "name": "Updated Org"}
         mock_supabase.request = AsyncMock(side_effect=[
@@ -592,7 +591,7 @@ class TestUpdateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_org_data
     ):
         """Test partial organization update."""
-        from src.api.organizations import update_organization, UpdateOrganizationRequest
+        from src.api.organizations import UpdateOrganizationRequest, update_organization
 
         mock_supabase.request = AsyncMock(side_effect=[
             {"data": [sample_org_data], "error": None},
@@ -620,7 +619,7 @@ class TestUpdateOrganization:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test organization update handles errors."""
-        from src.api.organizations import update_organization, UpdateOrganizationRequest
+        from src.api.organizations import UpdateOrganizationRequest, update_organization
 
         mock_supabase.update = AsyncMock(return_value={"data": None, "error": "Update failed"})
 
@@ -706,7 +705,7 @@ class TestTransferOwnership:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_member_data
     ):
         """Test successful ownership transfer."""
-        from src.api.organizations import transfer_ownership, TransferOwnershipRequest
+        from src.api.organizations import TransferOwnershipRequest, transfer_ownership
 
         new_owner_member = {
             **sample_member_data,
@@ -739,7 +738,7 @@ class TestTransferOwnership:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_member_data
     ):
         """Test transfer to non-member fails."""
-        from src.api.organizations import transfer_ownership, TransferOwnershipRequest
+        from src.api.organizations import TransferOwnershipRequest, transfer_ownership
 
         mock_supabase.request = AsyncMock(return_value={"data": [], "error": None})
 
@@ -759,7 +758,7 @@ class TestTransferOwnership:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_member_data
     ):
         """Test transfer to self fails."""
-        from src.api.organizations import transfer_ownership, TransferOwnershipRequest
+        from src.api.organizations import TransferOwnershipRequest, transfer_ownership
 
         mock_supabase.request = AsyncMock(return_value={
             "data": [sample_member_data],  # Same user
@@ -790,7 +789,7 @@ class TestAccessControl:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test that update requires admin or owner role."""
-        from src.api.organizations import update_organization, UpdateOrganizationRequest
+        from src.api.organizations import UpdateOrganizationRequest, update_organization
 
         body = UpdateOrganizationRequest(name="Updated")
 
@@ -824,7 +823,7 @@ class TestAccessControl:
         self, mock_env_vars, mock_supabase, mock_request, mock_user
     ):
         """Test that transfer requires owner role."""
-        from src.api.organizations import transfer_ownership, TransferOwnershipRequest
+        from src.api.organizations import TransferOwnershipRequest, transfer_ownership
 
         body = TransferOwnershipRequest(new_owner_user_id="user-456")
 
@@ -851,9 +850,9 @@ class TestOrganizationIntegration:
     ):
         """Test creating and then listing an organization."""
         from src.api.organizations import (
+            CreateOrganizationRequest,
             create_organization,
             list_organizations,
-            CreateOrganizationRequest,
         )
 
         mock_supabase.request = AsyncMock(side_effect=[
@@ -889,7 +888,7 @@ class TestOrganizationIntegration:
         self, mock_env_vars, mock_supabase, mock_request, mock_user, sample_member_data
     ):
         """Test full ownership transfer flow."""
-        from src.api.organizations import transfer_ownership, TransferOwnershipRequest
+        from src.api.organizations import TransferOwnershipRequest, transfer_ownership
 
         current_owner = sample_member_data
         new_owner = {

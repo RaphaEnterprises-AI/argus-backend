@@ -8,13 +8,12 @@ Provides:
 - Content type validation
 """
 
-import re
 import html
+import re
 import unicodedata
-from typing import Any, Optional, List, Dict, Union
+from typing import Any
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator, model_validator
 import structlog
 
 logger = structlog.get_logger()
@@ -101,7 +100,7 @@ def sanitize_string(value: str, max_length: int = 10000) -> str:
     return value
 
 
-def sanitize_html(value: str, allowed_tags: List[str] = None) -> str:
+def sanitize_html(value: str, allowed_tags: list[str] = None) -> str:
     """Sanitize HTML content, allowing only specific tags."""
     if not value:
         return value
@@ -116,14 +115,14 @@ def sanitize_html(value: str, allowed_tags: List[str] = None) -> str:
         # Unescape opening tags
         value = re.sub(
             rf"&lt;({tag})(\s[^&]*)?&gt;",
-            rf"<\1\2>",
+            r"<\1\2>",
             value,
             flags=re.IGNORECASE,
         )
         # Unescape closing tags
         value = re.sub(
             rf"&lt;/({tag})&gt;",
-            rf"</\1>",
+            r"</\1>",
             value,
             flags=re.IGNORECASE,
         )
@@ -154,7 +153,7 @@ def sanitize_filename(filename: str) -> str:
     return filename
 
 
-def sanitize_url(url: str) -> Optional[str]:
+def sanitize_url(url: str) -> str | None:
     """Sanitize and validate a URL."""
     if not url:
         return None
@@ -272,7 +271,7 @@ class InputValidator:
         self.check_xss = check_xss
         self.check_path = check_path
         self.check_command = check_command
-        self._violations: List[str] = []
+        self._violations: list[str] = []
 
     def validate(self, data: Any, path: str = "root", depth: int = 0) -> bool:
         """Validate input data recursively."""
@@ -349,7 +348,7 @@ class InputValidator:
 
         return valid
 
-    def get_violations(self) -> List[str]:
+    def get_violations(self) -> list[str]:
         """Get list of validation violations."""
         return self._violations.copy()
 

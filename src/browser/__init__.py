@@ -48,34 +48,37 @@ Usage (Legacy - Still Supported):
 """
 
 # New unified browser pool client (Primary)
-from .pool_client import BrowserPoolClient
-from .pool_models import (
-    # Enums
-    ActionType,
-    BrowserType,
-    ExecutionMode,
-    # Data classes
-    ElementInfo,
-    ActionResult as PoolActionResult,
-    ObserveResult,
-    ActResult,
-    StepResult as PoolStepResult,
-    TestResult,
-    ExtractResult,
-    SessionInfo,
-    PoolHealth,
-    BrowserPoolConfig,
-)
-
 # Legacy client (Fallback)
 from .e2e_client import (
-    E2EBrowserClient,
-    BrowserPage,
-    BrowserAction,
     ActionResult,
+    BrowserAction,
+    BrowserPage,
+    E2EBrowserClient,
     ExtractionSchema,
     PageState,
     run_test_with_e2e_client,
+)
+from .pool_client import BrowserPoolClient
+from .pool_models import (
+    ActionResult as PoolActionResult,
+)
+from .pool_models import (
+    # Enums
+    ActionType,
+    ActResult,
+    BrowserPoolConfig,
+    BrowserType,
+    # Data classes
+    ElementInfo,
+    ExecutionMode,
+    ExtractResult,
+    ObserveResult,
+    PoolHealth,
+    SessionInfo,
+    TestResult,
+)
+from .pool_models import (
+    StepResult as PoolStepResult,
 )
 
 __all__ = [

@@ -8,11 +8,13 @@ Understands:
 - Service mesh configs (Istio, Linkerd)
 """
 
-import re
 import logging
+import re
 from pathlib import Path
-from typing import Optional
+
 import yaml
+
+from src.indexer import ParsedFile
 
 from .base import (
     BaseAnalyzer,
@@ -21,7 +23,6 @@ from .base import (
     Issue,
     Severity,
 )
-from src.indexer import ParsedFile
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +399,7 @@ class MicroservicesAnalyzer(BaseAnalyzer):
 
         elif kind == "Secret":
             # Check for base64-encoded secrets in plain text
-            data = doc.get("data", {})
+            doc.get("data", {})
             string_data = doc.get("stringData", {})
 
             if string_data:

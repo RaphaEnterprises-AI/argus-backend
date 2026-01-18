@@ -1,10 +1,9 @@
 """Tests for the microservices analyzer module."""
 
+
 import pytest
-from pathlib import Path
 
 from src.analyzers.microservices import MicroservicesAnalyzer
-from src.analyzers.base import ComponentType, Severity
 
 
 class TestMicroservicesAnalyzer:
@@ -182,7 +181,7 @@ bucket_name = "argus-storage"
         """Test that analysis detects hardcoded secrets."""
         result = analyzer.analyze()
 
-        secret_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -194,7 +193,7 @@ bucket_name = "argus-storage"
         """Test that analysis detects privileged containers."""
         result = analyzer.analyze()
 
-        privileged_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -206,7 +205,7 @@ bucket_name = "argus-storage"
         """Test that analysis detects 'latest' image tag."""
         result = analyzer.analyze()
 
-        latest_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -218,7 +217,7 @@ bucket_name = "argus-storage"
         """Test that analysis detects single replica deployment."""
         result = analyzer.analyze()
 
-        replica_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -230,7 +229,7 @@ bucket_name = "argus-storage"
         """Test that analysis detects missing TLS in ingress."""
         result = analyzer.analyze()
 
-        tls_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -287,7 +286,7 @@ CMD ["npm", "start"]
         analyzer = MicroservicesAnalyzer(str(temp_repo))
         result = analyzer.analyze()
 
-        secret_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -300,7 +299,7 @@ CMD ["npm", "start"]
         analyzer = MicroservicesAnalyzer(str(temp_repo))
         result = analyzer.analyze()
 
-        user_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues
@@ -313,7 +312,7 @@ CMD ["npm", "start"]
         analyzer = MicroservicesAnalyzer(str(temp_repo))
         result = analyzer.analyze()
 
-        apt_issues = [
+        [
             issue
             for c in result.components
             for issue in c.issues

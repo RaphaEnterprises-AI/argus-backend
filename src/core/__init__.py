@@ -1,48 +1,48 @@
 """Core cognitive engine for intelligent testing and quality analysis."""
 
 from .cognitive_engine import (
-    CognitiveTestingEngine,
     ApplicationModel,
     CognitiveInsight,
+    CognitiveTestingEngine,
     UnderstandingLevel,
 )
-from .model_router import (
-    ModelRouter,
-    TaskType,
-    TaskComplexity,
-    TASK_MODEL_MAPPING,
-    BudgetExceededError,
-)
-from .normalizer import (
-    EventNormalizer,
-    NormalizedEvent,
-    StackFrame,
-    EventSource,
-    EventType,
-    Severity,
-)
 from .correlator import (
-    ErrorCorrelator,
+    CodeLocation,
+    ConfidenceLevel,
     Correlation,
     CorrelationType,
-    ConfidenceLevel,
-    CodeLocation,
+    ErrorCorrelator,
     ErrorPattern,
 )
 from .coverage import (
     CoverageAnalyzer,
-    CoverageSummary,
-    FileCoverage,
     CoverageGap,
     CoverageLevel,
+    CoverageSummary,
+    FileCoverage,
     GapPriority,
 )
+from .model_router import (
+    TASK_MODEL_MAPPING,
+    BudgetExceededError,
+    ModelRouter,
+    TaskComplexity,
+    TaskType,
+)
+from .normalizer import (
+    EventNormalizer,
+    EventSource,
+    EventType,
+    NormalizedEvent,
+    Severity,
+    StackFrame,
+)
 from .risk import (
-    RiskScorer,
     FileRisk,
     ProjectRisk,
     RiskFactor,
     RiskLevel,
+    RiskScorer,
 )
 
 __all__ = [

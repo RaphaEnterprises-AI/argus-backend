@@ -5,10 +5,13 @@ Uses PostgresSaver when DATABASE_URL is set, otherwise falls back to MemorySaver
 """
 
 import os
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Union
 
-from langgraph.checkpoint.memory import MemorySaver
 import structlog
+from langgraph.checkpoint.memory import MemorySaver
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver as PostgresSaver
 
 logger = structlog.get_logger()
 
@@ -16,7 +19,7 @@ logger = structlog.get_logger()
 CheckpointerType = Union["PostgresSaver", MemorySaver]
 
 # Global checkpointer instance (singleton pattern)
-_checkpointer: Optional[CheckpointerType] = None
+_checkpointer: CheckpointerType | None = None
 
 
 def get_checkpointer() -> CheckpointerType:
@@ -156,7 +159,7 @@ async def list_pending_threads(checkpointer: CheckpointerType) -> list[dict]:
 async def get_thread_state(
     checkpointer: CheckpointerType,
     thread_id: str,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Get the current state of a thread.
 
@@ -200,7 +203,7 @@ class CheckpointManager:
     including approval workflows and state updates.
     """
 
-    def __init__(self, checkpointer: Optional[CheckpointerType] = None):
+    def __init__(self, checkpointer: CheckpointerType | None = None):
         self.checkpointer = checkpointer or get_checkpointer()
         self.log = logger.bind(component="checkpoint_manager")
 
@@ -208,7 +211,7 @@ class CheckpointManager:
         """Get all pending approval requests."""
         return await list_pending_threads(self.checkpointer)
 
-    async def get_approval_details(self, thread_id: str) -> Optional[dict]:
+    async def get_approval_details(self, thread_id: str) -> dict | None:
         """Get detailed information about a pending approval."""
         state = await get_thread_state(self.checkpointer, thread_id)
 
@@ -253,7 +256,7 @@ class CheckpointManager:
             'options': ['resume', 'abort'],
         }
 
-    async def approve(self, thread_id: str, modifications: Optional[dict] = None) -> dict:
+    async def approve(self, thread_id: str, modifications: dict | None = None) -> dict:
         """
         Approve a pending action and prepare for resume.
 
@@ -277,7 +280,7 @@ class CheckpointManager:
             'modifications': modifications,
         }
 
-    async def reject(self, thread_id: str, reason: Optional[str] = None) -> dict:
+    async def reject(self, thread_id: str, reason: str | None = None) -> dict:
         """
         Reject a pending action.
 

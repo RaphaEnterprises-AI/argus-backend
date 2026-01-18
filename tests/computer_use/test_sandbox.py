@@ -1,7 +1,8 @@
 """Tests for the Docker sandbox module."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 class TestSandboxState:
@@ -100,7 +101,7 @@ class TestSandboxManager:
 
     def test_manager_with_config(self, mock_env_vars):
         """Test SandboxManager with custom config."""
-        from src.computer_use.sandbox import SandboxManager, SandboxConfig
+        from src.computer_use.sandbox import SandboxConfig, SandboxManager
 
         config = SandboxConfig(image="custom:latest")
         manager = SandboxManager(config=config)
@@ -541,9 +542,10 @@ class TestBuildSandboxImage:
     @pytest.mark.asyncio
     async def test_build_with_dockerfile_path(self, mock_env_vars):
         """Test build with provided Dockerfile."""
-        from src.computer_use.sandbox import build_sandbox_image
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from src.computer_use.sandbox import build_sandbox_image
 
         mock_docker_client = MagicMock()
         mock_image = MagicMock()
@@ -565,9 +567,10 @@ class TestBuildSandboxImage:
     @pytest.mark.asyncio
     async def test_build_with_logs(self, mock_env_vars):
         """Test build with log output."""
-        from src.computer_use.sandbox import build_sandbox_image
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from src.computer_use.sandbox import build_sandbox_image
 
         mock_docker_client = MagicMock()
         mock_image = MagicMock()

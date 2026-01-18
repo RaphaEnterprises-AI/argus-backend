@@ -8,20 +8,17 @@ Correlates production errors with source code using:
 This is the intelligence layer that connects "what broke" to "why it broke".
 """
 
-import re
 import json
-import asyncio
-from datetime import datetime, timedelta
-from enum import Enum
-from typing import Optional, AsyncIterator
 from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 
 import structlog
 from anthropic import AsyncAnthropic
 
 from src.config import get_settings
-from src.core.normalizer import NormalizedEvent, StackFrame, EventType, Severity
+from src.core.normalizer import NormalizedEvent, Severity
 
 logger = structlog.get_logger()
 
@@ -49,15 +46,15 @@ class ConfidenceLevel(str, Enum):
 class CodeLocation:
     """A specific location in the codebase."""
     file_path: str
-    function_name: Optional[str] = None
-    line_number: Optional[int] = None
-    line_end: Optional[int] = None
-    code_snippet: Optional[str] = None
+    function_name: str | None = None
+    line_number: int | None = None
+    line_end: int | None = None
+    code_snippet: str | None = None
 
     # Git information
-    last_modified: Optional[datetime] = None
-    last_author: Optional[str] = None
-    commit_sha: Optional[str] = None
+    last_modified: datetime | None = None
+    last_author: str | None = None
+    commit_sha: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -90,8 +87,8 @@ class Correlation:
     evidence: list[str] = field(default_factory=list)
 
     # LLM-generated insights (if semantic)
-    semantic_analysis: Optional[str] = None
-    suggested_fix: Optional[str] = None
+    semantic_analysis: str | None = None
+    suggested_fix: str | None = None
 
     # Metadata
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -121,19 +118,19 @@ class ErrorPattern:
     description: str
 
     # Pattern characteristics
-    error_type: Optional[str] = None
+    error_type: str | None = None
     affected_files: list[str] = field(default_factory=list)
     affected_components: list[str] = field(default_factory=list)
 
     # Occurrences
     event_ids: list[str] = field(default_factory=list)
     occurrence_count: int = 0
-    first_seen: Optional[datetime] = None
-    last_seen: Optional[datetime] = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
 
     # Analysis
-    root_cause: Optional[str] = None
-    recommended_fix: Optional[str] = None
+    root_cause: str | None = None
+    recommended_fix: str | None = None
     severity: Severity = Severity.ERROR
 
     def to_dict(self) -> dict:
@@ -183,7 +180,7 @@ class ErrorCorrelator:
 
     def __init__(
         self,
-        codebase_path: Optional[str] = None,
+        codebase_path: str | None = None,
         use_llm: bool = True,
     ):
         self.settings = get_settings()
@@ -326,7 +323,7 @@ class ErrorCorrelator:
 
         return correlations
 
-    async def _correlate_from_file(self, event: NormalizedEvent) -> Optional[Correlation]:
+    async def _correlate_from_file(self, event: NormalizedEvent) -> Correlation | None:
         """Correlate using explicit file path (ALGORITHMIC)."""
         import uuid
 
@@ -403,7 +400,7 @@ class ErrorCorrelator:
                 reason=f"Component '{component_name}' likely defined here",
                 evidence=[
                     f"Component name: {component_name}",
-                    f"File matches component pattern",
+                    "File matches component pattern",
                 ],
             ))
 
@@ -434,7 +431,7 @@ class ErrorCorrelator:
 
         # Gather context for LLM
         context_parts = [
-            f"ERROR DETAILS:",
+            "ERROR DETAILS:",
             f"- Type: {event.error_type or 'Unknown'}",
             f"- Title: {event.title}",
             f"- Message: {event.message or 'No message'}",
@@ -664,9 +661,9 @@ Output as JSON:
     async def _get_code_snippet(
         self,
         file_path: str,
-        line_number: Optional[int],
+        line_number: int | None,
         context_lines: int = 3,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Get code snippet around a line number."""
         if not self.codebase_path or not line_number:
             return None
@@ -700,8 +697,8 @@ Output as JSON:
     async def _get_git_blame(
         self,
         file_path: str,
-        line_number: Optional[int],
-    ) -> Optional[dict]:
+        line_number: int | None,
+    ) -> dict | None:
         """Get git blame info for a file/line."""
         if not self.codebase_path or not line_number:
             return None

@@ -1,10 +1,8 @@
 """Tests for the dependency analyzer service."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 import tempfile
-import os
+from pathlib import Path
+from unittest.mock import MagicMock
 
 
 class TestCodeModule:
@@ -422,7 +420,7 @@ class TestDependencyAnalyzerGetDependents:
 
     def test_get_direct_dependents(self):
         """Test getting direct dependents of a module."""
-        from src.services.dependency_analyzer import DependencyAnalyzer, CodeModule
+        from src.services.dependency_analyzer import CodeModule, DependencyAnalyzer
 
         analyzer = DependencyAnalyzer()
 
@@ -447,7 +445,7 @@ class TestDependencyAnalyzerGetDependents:
 
     def test_get_recursive_dependents(self):
         """Test getting recursive dependents of a module."""
-        from src.services.dependency_analyzer import DependencyAnalyzer, CodeModule
+        from src.services.dependency_analyzer import CodeModule, DependencyAnalyzer
 
         analyzer = DependencyAnalyzer()
 
@@ -491,7 +489,7 @@ class TestDependencyAnalyzerAnalyzeImpact:
 
     def test_analyze_impact_basic(self):
         """Test basic impact analysis."""
-        from src.services.dependency_analyzer import DependencyAnalyzer, CodeModule
+        from src.services.dependency_analyzer import CodeModule, DependencyAnalyzer
 
         analyzer = DependencyAnalyzer()
         analyzer._built = True
@@ -532,9 +530,7 @@ class TestDependencyAnalyzerAnalyzeImpact:
 
     def test_analyze_impact_with_components(self):
         """Test impact analysis populating affected components."""
-        from src.services.dependency_analyzer import (
-            DependencyAnalyzer, CodeModule, ComponentNode
-        )
+        from src.services.dependency_analyzer import CodeModule, ComponentNode, DependencyAnalyzer
 
         analyzer = DependencyAnalyzer()
         analyzer._built = True
@@ -576,7 +572,7 @@ class TestDependencyAnalyzerAnalyzeImpact:
             analyzer = DependencyAnalyzer(tmpdir)
 
             # Should build graph automatically
-            result = analyzer.analyze_impact(["some/file.ts"])
+            analyzer.analyze_impact(["some/file.ts"])
 
             assert analyzer._built is True
 
@@ -634,7 +630,7 @@ class TestDependencyAnalyzerComponentCoverage:
 
     def test_get_component_coverage_existing(self):
         """Test getting coverage for existing component."""
-        from src.services.dependency_analyzer import DependencyAnalyzer, ComponentNode
+        from src.services.dependency_analyzer import ComponentNode, DependencyAnalyzer
 
         analyzer = DependencyAnalyzer()
 
@@ -667,7 +663,7 @@ class TestDependencyAnalyzerComponentCoverage:
 
     def test_get_untested_components(self):
         """Test getting list of untested components."""
-        from src.services.dependency_analyzer import DependencyAnalyzer, ComponentNode
+        from src.services.dependency_analyzer import ComponentNode, DependencyAnalyzer
 
         analyzer = DependencyAnalyzer()
 
@@ -714,7 +710,10 @@ class TestDependencyAnalyzerToDict:
     def test_to_dict_with_data(self):
         """Test serializing analyzer with data."""
         from src.services.dependency_analyzer import (
-            DependencyAnalyzer, CodeModule, ComponentNode, RouteNode
+            CodeModule,
+            ComponentNode,
+            DependencyAnalyzer,
+            RouteNode,
         )
 
         analyzer = DependencyAnalyzer()
@@ -808,10 +807,8 @@ class TestGetDependencyAnalyzer:
 
     def test_get_dependency_analyzer_creates_singleton(self):
         """Test that get_dependency_analyzer creates singleton."""
-        from src.services.dependency_analyzer import (
-            get_dependency_analyzer, _dependency_analyzer
-        )
         import src.services.dependency_analyzer as module
+        from src.services.dependency_analyzer import get_dependency_analyzer
 
         # Reset singleton
         module._dependency_analyzer = None
@@ -827,8 +824,8 @@ class TestGetDependencyAnalyzer:
 
     def test_get_dependency_analyzer_default_path(self):
         """Test get_dependency_analyzer with default path."""
-        from src.services.dependency_analyzer import get_dependency_analyzer
         import src.services.dependency_analyzer as module
+        from src.services.dependency_analyzer import get_dependency_analyzer
 
         # Reset singleton
         module._dependency_analyzer = None

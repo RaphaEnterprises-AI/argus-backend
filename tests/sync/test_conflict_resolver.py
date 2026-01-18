@@ -1,18 +1,16 @@
 """Tests for conflict resolver."""
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.sync.conflict_resolver import (
-    MergeResult,
     ConflictResolver,
+    MergeResult,
     resolve_conflicts,
 )
 from src.sync.models import (
-    SyncConflict,
     ConflictResolutionStrategy,
+    SyncConflict,
 )
-
 
 # =============================================================================
 # MergeResult Tests
@@ -252,8 +250,8 @@ class TestResolveConflict:
             path=["name"],
             local_value="Local",
             remote_value="Remote",
-            local_timestamp=datetime(2026, 1, 8, 12, 0, 0, tzinfo=timezone.utc),
-            remote_timestamp=datetime(2026, 1, 8, 11, 0, 0, tzinfo=timezone.utc),
+            local_timestamp=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+            remote_timestamp=datetime(2026, 1, 8, 11, 0, 0, tzinfo=UTC),
         )
 
         resolved = resolver.resolve(conflict, ConflictResolutionStrategy.LATEST_WINS)
@@ -269,8 +267,8 @@ class TestResolveConflict:
             path=["name"],
             local_value="Local",
             remote_value="Remote",
-            local_timestamp=datetime(2026, 1, 8, 10, 0, 0, tzinfo=timezone.utc),
-            remote_timestamp=datetime(2026, 1, 8, 12, 0, 0, tzinfo=timezone.utc),
+            local_timestamp=datetime(2026, 1, 8, 10, 0, 0, tzinfo=UTC),
+            remote_timestamp=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
         resolved = resolver.resolve(conflict, ConflictResolutionStrategy.LATEST_WINS)
@@ -743,16 +741,16 @@ class TestConvenienceFunctions:
                 path=["name"],
                 local_value="Local 1",
                 remote_value="Remote 1",
-                local_timestamp=datetime(2026, 1, 8, 12, 0, 0, tzinfo=timezone.utc),
-                remote_timestamp=datetime(2026, 1, 8, 10, 0, 0, tzinfo=timezone.utc),
+                local_timestamp=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+                remote_timestamp=datetime(2026, 1, 8, 10, 0, 0, tzinfo=UTC),
             ),
             SyncConflict(
                 test_id="t1",
                 path=["description"],
                 local_value="Local 2",
                 remote_value="Remote 2",
-                local_timestamp=datetime(2026, 1, 8, 9, 0, 0, tzinfo=timezone.utc),
-                remote_timestamp=datetime(2026, 1, 8, 11, 0, 0, tzinfo=timezone.utc),
+                local_timestamp=datetime(2026, 1, 8, 9, 0, 0, tzinfo=UTC),
+                remote_timestamp=datetime(2026, 1, 8, 11, 0, 0, tzinfo=UTC),
             ),
         ]
 

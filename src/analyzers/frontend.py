@@ -8,10 +8,11 @@ Understands:
 - Import/export relationships
 """
 
-import re
 import logging
+import re
 from pathlib import Path
-from typing import Optional
+
+from src.indexer import ASTNode, ParsedFile
 
 from .base import (
     BaseAnalyzer,
@@ -20,7 +21,6 @@ from .base import (
     Issue,
     Severity,
 )
-from src.indexer import ParsedFile, ASTNode
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ class FrontendAnalyzer(BaseAnalyzer):
         """Analyze React components and hooks."""
         components: list[ComponentInfo] = []
         content = parsed.content
-        lines = content.split("\n")
+        content.split("\n")
 
         # Extract imports
         imports = self.extract_imports(parsed)

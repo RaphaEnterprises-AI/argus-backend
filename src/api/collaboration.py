@@ -1,14 +1,13 @@
 """Collaboration API endpoints for real-time collaboration features."""
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional
-from uuid import uuid4
-from enum import Enum
 import random
+from datetime import UTC, datetime, timedelta
+from enum import Enum
+from uuid import uuid4
 
+import structlog
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-import structlog
 
 logger = structlog.get_logger()
 
@@ -75,8 +74,8 @@ class CursorPosition(BaseModel):
     """User cursor position."""
     x: float = Field(..., description="X coordinate")
     y: float = Field(..., description="Y coordinate")
-    element_id: Optional[str] = Field(None, description="ID of element under cursor")
-    step_index: Optional[int] = Field(None, description="Test step index if editing")
+    element_id: str | None = Field(None, description="ID of element under cursor")
+    step_index: int | None = Field(None, description="Test step index if editing")
 
 
 class PresenceUpdateRequest(BaseModel):
@@ -84,10 +83,10 @@ class PresenceUpdateRequest(BaseModel):
     workspace_id: str = Field(..., description="Workspace/project ID")
     user_id: str = Field(..., description="User ID")
     user_name: str = Field(..., description="Display name")
-    user_email: Optional[str] = Field(None, description="User email")
+    user_email: str | None = Field(None, description="User email")
     status: PresenceStatus = Field(PresenceStatus.ONLINE, description="Status")
-    test_id: Optional[str] = Field(None, description="Currently viewing test ID")
-    cursor: Optional[CursorPosition] = Field(None, description="Cursor position")
+    test_id: str | None = Field(None, description="Currently viewing test ID")
+    cursor: CursorPosition | None = Field(None, description="Cursor position")
 
 
 class PresenceResponse(BaseModel):
@@ -96,33 +95,33 @@ class PresenceResponse(BaseModel):
     workspace_id: str
     users: list[dict] = []
     total_online: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class CommentCreateRequest(BaseModel):
     """Request to create a comment."""
     test_id: str = Field(..., description="Test ID to comment on")
-    step_index: Optional[int] = Field(None, description="Specific step index")
+    step_index: int | None = Field(None, description="Specific step index")
     content: str = Field(..., description="Comment content", min_length=1, max_length=5000)
     author_id: str = Field(..., description="Author user ID")
     author_name: str = Field(..., description="Author display name")
-    author_email: Optional[str] = Field(None, description="Author email")
+    author_email: str | None = Field(None, description="Author email")
     comment_type: CommentType = Field(CommentType.GENERAL, description="Comment type")
     mentions: list[str] = Field([], description="Mentioned user IDs")
-    parent_id: Optional[str] = Field(None, description="Parent comment ID for replies")
+    parent_id: str | None = Field(None, description="Parent comment ID for replies")
 
 
 class CommentUpdateRequest(BaseModel):
     """Request to update a comment."""
-    content: Optional[str] = Field(None, description="Updated content")
-    resolved: Optional[bool] = Field(None, description="Mark as resolved")
+    content: str | None = Field(None, description="Updated content")
+    resolved: bool | None = Field(None, description="Mark as resolved")
 
 
 class CommentResponse(BaseModel):
     """Response with comment data."""
     success: bool
-    comment: Optional[dict] = None
-    error: Optional[str] = None
+    comment: dict | None = None
+    error: str | None = None
 
 
 class CommentsListResponse(BaseModel):
@@ -132,7 +131,7 @@ class CommentsListResponse(BaseModel):
     comments: list[dict] = []
     total: int = 0
     unresolved: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class RealtimeMessage(BaseModel):
@@ -175,7 +174,7 @@ async def update_presence(request: PresenceUpdateRequest):
             "test_id": request.test_id,
             "cursor": request.cursor.model_dump() if request.cursor else None,
             "color": color,
-            "last_active": datetime.now(timezone.utc).isoformat(),
+            "last_active": datetime.now(UTC).isoformat(),
         }
 
         # Clean up stale presence
@@ -301,8 +300,8 @@ async def create_comment(request: CommentCreateRequest):
             "mentions": request.mentions,
             "parent_id": request.parent_id,
             "resolved": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "reactions": {},  # emoji -> list of user_ids
         }
 
@@ -331,7 +330,7 @@ async def create_comment(request: CommentCreateRequest):
 @router.get("/comments/{test_id}", response_model=CommentsListResponse)
 async def list_comments(
     test_id: str,
-    step_index: Optional[int] = None,
+    step_index: int | None = None,
     include_resolved: bool = True,
 ):
     """
@@ -385,13 +384,11 @@ async def update_comment(comment_id: str, request: CommentUpdateRequest):
     try:
         # Find comment
         comment = None
-        test_id = None
 
         for tid, comments in _comments.items():
             for c in comments:
                 if c["id"] == comment_id:
                     comment = c
-                    test_id = tid
                     break
             if comment:
                 break
@@ -406,7 +403,7 @@ async def update_comment(comment_id: str, request: CommentUpdateRequest):
         if request.resolved is not None:
             comment["resolved"] = request.resolved
 
-        comment["updated_at"] = datetime.now(timezone.utc).isoformat()
+        comment["updated_at"] = datetime.now(UTC).isoformat()
 
         logger.info("Comment updated", comment_id=comment_id)
 
@@ -556,7 +553,7 @@ async def websocket_endpoint(websocket: WebSocket, workspace_id: str):
 async def acquire_edit_lock(
     test_id: str,
     user_id: str,
-    step_index: Optional[int] = None,
+    step_index: int | None = None,
 ):
     """
     Acquire an edit lock on a test or specific step.
@@ -572,7 +569,7 @@ async def acquire_edit_lock(
         "test_id": test_id,
         "step_index": step_index,
         "user_id": user_id,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
     }
 
 
@@ -597,7 +594,7 @@ def _cleanup_stale_presence(workspace_id: str) -> None:
     if workspace_id not in _presence:
         return
 
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=PRESENCE_TIMEOUT_SECONDS)
+    cutoff = datetime.now(UTC) - timedelta(seconds=PRESENCE_TIMEOUT_SECONDS)
     stale_users = []
 
     for user_id, presence in _presence[workspace_id].items():
@@ -634,7 +631,7 @@ def _organize_threads(comments: list[dict]) -> list[dict]:
 async def _broadcast_to_workspace(
     workspace_id: str,
     message: dict,
-    exclude: Optional[WebSocket] = None,
+    exclude: WebSocket | None = None,
 ) -> None:
     """Broadcast a message to all connected clients in a workspace."""
     if workspace_id not in _connections:

@@ -1,20 +1,20 @@
 """Tests for browser abstraction layer."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from dataclasses import FrozenInstanceError
 
 from src.tools.browser_abstraction import (
-    AutomationFramework,
-    BrowserConfig,
     ActionResult,
+    AutomationFramework,
     BrowserAutomation,
-    PlaywrightAutomation,
-    SeleniumAutomation,
+    BrowserConfig,
     ComputerUseAutomation,
     HybridAutomation,
-    create_browser,
+    PlaywrightAutomation,
+    SeleniumAutomation,
     create_automation,
+    create_browser,
 )
 
 
@@ -226,7 +226,7 @@ class TestBrowserAutomationBase:
             async def wait_for_selector(self, selector, timeout_ms=None): return ActionResult(True, "wait", 0)
             async def get_current_url(self): return ""
 
-        async with ConcreteBrowser() as browser:
+        async with ConcreteBrowser():
             assert started is True
             assert stopped is False
 

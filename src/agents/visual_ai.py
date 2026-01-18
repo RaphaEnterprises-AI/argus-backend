@@ -11,14 +11,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import anthropic
 import structlog
 
-from ..config import get_settings, MultiModelStrategy
-from ..core.model_router import ModelRouter, TaskType, TaskComplexity
+from ..config import MultiModelStrategy, get_settings
 from ..core.model_registry import get_model_id
+from ..core.model_router import ModelRouter
 
 logger = structlog.get_logger()
 
@@ -49,9 +48,9 @@ class VisualDifference:
     severity: Severity
     description: str
     location: str  # Where on the page (e.g., "top-left", "navigation bar")
-    element: Optional[str] = None  # Affected element description
-    expected: Optional[str] = None  # What was expected
-    actual: Optional[str] = None  # What was found
+    element: str | None = None  # Affected element description
+    expected: str | None = None  # What was expected
+    actual: str | None = None  # What was found
     is_regression: bool = True  # True if this is a bug, False if acceptable
 
 
@@ -124,7 +123,7 @@ class VisualAI:
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         ignore_dynamic: bool = True,
         sensitivity: str = "medium",  # low, medium, high
         use_multi_model: bool = True,
@@ -139,7 +138,7 @@ class VisualAI:
         self.ignore_dynamic = ignore_dynamic
         self.sensitivity = sensitivity
         self.use_multi_model = use_multi_model and self.settings.model_strategy != MultiModelStrategy.ANTHROPIC_ONLY
-        self._model_router: Optional[ModelRouter] = None
+        self._model_router: ModelRouter | None = None
         self.log = logger.bind(component="visual_ai", multi_model=self.use_multi_model)
 
     @property
@@ -173,8 +172,8 @@ class VisualAI:
         self,
         baseline: str | Path,
         current: str | Path,
-        context: Optional[str] = None,
-        ignore_regions: Optional[list[str]] = None,
+        context: str | None = None,
+        ignore_regions: list[str] | None = None,
     ) -> VisualComparisonResult:
         """
         Compare two screenshots using Claude Vision.
@@ -354,7 +353,7 @@ is_regression should be false for:
     async def compare_batch(
         self,
         comparisons: list[tuple[str, str]],
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> list[VisualComparisonResult]:
         """Compare multiple screenshot pairs."""
         results = []
@@ -366,8 +365,8 @@ is_regression should be false for:
     async def analyze_single(
         self,
         screenshot: str | Path,
-        expected_elements: Optional[list[str]] = None,
-        context: Optional[str] = None,
+        expected_elements: list[str] | None = None,
+        context: str | None = None,
     ) -> dict:
         """
         Analyze a single screenshot for expected content.
@@ -485,7 +484,7 @@ class VisualRegressionManager:
         test_id: str,
         current_screenshot: bytes,
         step: int = 0,
-        context: Optional[str] = None,
+        context: str | None = None,
         auto_update_baseline: bool = False,
     ) -> VisualComparisonResult:
         """

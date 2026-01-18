@@ -19,19 +19,21 @@ MODEL TIERS:
 - Tier 4 (Expert): Debugging, novel problems → $0.05/call
 """
 
-from enum import Enum
-from dataclasses import dataclass
-from typing import Optional, Literal
 import os
 import time
-import httpx
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Literal
+
 import structlog
 
 from src.services.ai_cost_tracker import (
-    get_cost_tracker,
-    TaskType as CostTaskType,
     BudgetStatus,
+    get_cost_tracker,
+)
+from src.services.ai_cost_tracker import (
+    TaskType as CostTaskType,
 )
 
 logger = structlog.get_logger()
@@ -572,7 +574,7 @@ class BaseModelClient(ABC):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         """Generate a completion."""
         pass
@@ -603,7 +605,7 @@ class AnthropicClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         # Extract system message from messages (Anthropic requires separate system param)
         system_content = None
@@ -684,7 +686,7 @@ class OpenAIClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         kwargs = {
             "model": model_config.model_id,
@@ -824,7 +826,7 @@ class GoogleClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         model = self.genai.GenerativeModel(model_config.model_id)
 
@@ -902,8 +904,8 @@ class GoogleClient(BaseModelClient):
         task: str,
         screenshot: bytes,
         model_config: ModelConfig,
-        previous_actions: Optional[list[dict]] = None,
-        excluded_actions: Optional[list[str]] = None,
+        previous_actions: list[dict] | None = None,
+        excluded_actions: list[str] | None = None,
     ) -> dict:
         """
         Execute a Gemini Computer Use request.
@@ -1018,7 +1020,7 @@ class GoogleClient(BaseModelClient):
         action_fn,
         model_config: ModelConfig,
         max_iterations: int = 30,
-        excluded_actions: Optional[list[str]] = None,
+        excluded_actions: list[str] | None = None,
     ) -> dict:
         """
         Run a complete Computer Use agent loop.
@@ -1112,7 +1114,7 @@ class GroqClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         kwargs = {
             "model": model_config.model_id,
@@ -1174,7 +1176,7 @@ class CerebrasClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         kwargs = {
             "model": model_config.model_id,
@@ -1236,7 +1238,7 @@ class DeepSeekClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         kwargs = {
             "model": model_config.model_id,
@@ -1325,7 +1327,7 @@ class OpenRouterClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         kwargs = {
             "model": model_config.model_id,
@@ -1426,7 +1428,7 @@ class VertexAIClient(BaseModelClient):
         "claude-3-haiku-20240307": "claude-3-haiku@20240307",
     }
 
-    def __init__(self, project_id: Optional[str] = None, region: str = "global"):
+    def __init__(self, project_id: str | None = None, region: str = "global"):
         """
         Initialize Vertex AI client.
 
@@ -1457,7 +1459,7 @@ class VertexAIClient(BaseModelClient):
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
     ) -> dict:
         vertex_model_id = self._get_vertex_model_id(model_config.model_id)
 
@@ -1573,11 +1575,11 @@ class ModelRouter:
 
     def __init__(
         self,
-        prefer_provider: Optional[ModelProvider] = None,
+        prefer_provider: ModelProvider | None = None,
         cost_limit_per_call: float = 0.10,
         enable_fallback: bool = True,
-        organization_id: Optional[str] = None,
-        project_id: Optional[str] = None,
+        organization_id: str | None = None,
+        project_id: str | None = None,
         enforce_budget: bool = True,
     ):
         self.prefer_provider = prefer_provider
@@ -1665,7 +1667,7 @@ class ModelRouter:
         task_type: TaskType,
         requires_vision: bool = False,
         requires_tools: bool = False,
-        max_latency_ms: Optional[int] = None,
+        max_latency_ms: int | None = None,
         min_quality: Literal["any", "good", "best"] = "good",
     ) -> tuple[str, ModelConfig]:
         """
@@ -1730,11 +1732,11 @@ class ModelRouter:
         self,
         task_type: TaskType,
         messages: list[dict],
-        images: Optional[list[bytes]] = None,
+        images: list[bytes] | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.0,
         json_mode: bool = False,
-        tools: Optional[list] = None,
+        tools: list | None = None,
         skip_budget_check: bool = False,
     ) -> dict:
         """
@@ -1860,11 +1862,11 @@ class ModelRouter:
         self,
         task_type: TaskType,
         messages: list[dict],
-        images: Optional[list[bytes]],
+        images: list[bytes] | None,
         max_tokens: int,
         temperature: float,
         json_mode: bool,
-        tools: Optional[list],
+        tools: list | None,
         original_error: str,
     ) -> dict:
         """Fallback to Sonnet if primary model fails."""

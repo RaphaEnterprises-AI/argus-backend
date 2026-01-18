@@ -7,29 +7,28 @@ Provides:
 - Request/Response encryption
 """
 
+import asyncio
+import json
 import time
 import uuid
-import json
-import hashlib
-from datetime import datetime, timezone
-from typing import Callable, Optional, Dict, Any
 from collections import defaultdict
-import asyncio
+from collections.abc import Callable
+from datetime import UTC, datetime
 
-from fastapi import Request, Response, HTTPException
+import structlog
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-import structlog
 
 from src.api.security.auth import (
-    get_client_ip,
-    is_public_endpoint,
+    AuthMethod,
+    UserContext,
     authenticate_api_key,
     authenticate_jwt,
     authenticate_service_account,
-    UserContext,
-    AuthMethod,
+    get_client_ip,
+    is_public_endpoint,
 )
 
 logger = structlog.get_logger()
@@ -210,7 +209,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, enabled: bool = True):
         super().__init__(app)
         self.enabled = enabled
-        self._request_counts: Dict[str, list] = defaultdict(list)
+        self._request_counts: dict[str, list] = defaultdict(list)
         self._lock = asyncio.Lock()
 
     def _get_rate_limit_key(self, request: Request) -> str:
@@ -222,7 +221,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return f"user:{user.user_id}"
         return f"ip:{get_client_ip(request)}"
 
-    def _get_limit_for_endpoint(self, path: str, user: Optional[UserContext]) -> dict:
+    def _get_limit_for_endpoint(self, path: str, user: UserContext | None) -> dict:
         """Get rate limit for specific endpoint and user tier."""
         # Check endpoint-specific limits
         for endpoint_prefix, limit in RateLimitConfig.ENDPOINT_LIMITS.items():
@@ -391,7 +390,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
 
         # Log request
         audit_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "request_id": request_id,
             "event_type": "api_request",
             "user_id": user_id,

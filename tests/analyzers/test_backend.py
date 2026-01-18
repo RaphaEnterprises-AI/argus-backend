@@ -1,10 +1,10 @@
 """Tests for the backend analyzer module."""
 
+
 import pytest
-from pathlib import Path
 
 from src.analyzers.backend import BackendAnalyzer
-from src.analyzers.base import ComponentType, Severity
+from src.analyzers.base import ComponentType
 
 
 class TestBackendAnalyzer:
@@ -161,7 +161,7 @@ def create_item():
         )
 
         if admin_route:
-            has_auth_warning = any(
+            any(
                 "auth" in i.message.lower() or "sensitive" in i.message.lower()
                 for i in admin_route.issues
             )

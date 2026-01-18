@@ -7,15 +7,13 @@ Implements a hierarchical permission system with:
 - Audit trail for permission changes
 """
 
-from enum import Enum
-from typing import Optional, Set, Dict, List, Any
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from enum import Enum
 from functools import wraps
 
-from fastapi import HTTPException, Depends, Request
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import HTTPException
 
 logger = structlog.get_logger()
 
@@ -102,7 +100,7 @@ class Role(str, Enum):
 
 
 # Role to permissions mapping
-ROLE_PERMISSIONS: Dict[Role, Set[Permission]] = {
+ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.OWNER: {
         Permission.ORG_READ, Permission.ORG_WRITE, Permission.ORG_DELETE,
         Permission.ORG_MANAGE_MEMBERS, Permission.ORG_MANAGE_BILLING, Permission.ORG_MANAGE_SETTINGS,
@@ -193,13 +191,13 @@ class RBACManager:
 
     def __init__(self):
         self._role_permissions = ROLE_PERMISSIONS.copy()
-        self._custom_permissions: Dict[str, Set[Permission]] = {}
+        self._custom_permissions: dict[str, set[Permission]] = {}
 
-    def get_permissions_for_role(self, role: Role) -> Set[Permission]:
+    def get_permissions_for_role(self, role: Role) -> set[Permission]:
         """Get all permissions for a role."""
         return self._role_permissions.get(role, set())
 
-    def get_permissions_for_roles(self, roles: List[str]) -> Set[Permission]:
+    def get_permissions_for_roles(self, roles: list[str]) -> set[Permission]:
         """Get combined permissions for multiple roles."""
         permissions = set()
         for role_name in roles:
@@ -213,9 +211,9 @@ class RBACManager:
 
     def has_permission(
         self,
-        roles: List[str],
+        roles: list[str],
         required_permission: Permission,
-        scopes: List[str] = None,
+        scopes: list[str] = None,
     ) -> bool:
         """Check if roles have a required permission.
 
@@ -365,19 +363,19 @@ class ResourceAccess:
     """Resource access control entry."""
     resource_type: str
     resource_id: str
-    user_id: Optional[str] = None
-    organization_id: Optional[str] = None
-    permissions: Set[Permission] = field(default_factory=set)
-    granted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    granted_by: Optional[str] = None
-    expires_at: Optional[datetime] = None
+    user_id: str | None = None
+    organization_id: str | None = None
+    permissions: set[Permission] = field(default_factory=set)
+    granted_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    granted_by: str | None = None
+    expires_at: datetime | None = None
 
 
 class ResourceACL:
     """Access Control List for resources."""
 
     def __init__(self):
-        self._acl: Dict[str, List[ResourceAccess]] = {}
+        self._acl: dict[str, list[ResourceAccess]] = {}
 
     def _get_key(self, resource_type: str, resource_id: str) -> str:
         return f"{resource_type}:{resource_id}"
@@ -386,9 +384,9 @@ class ResourceACL:
         self,
         resource_type: str,
         resource_id: str,
-        user_id: Optional[str] = None,
-        organization_id: Optional[str] = None,
-        permissions: Set[Permission] = None,
+        user_id: str | None = None,
+        organization_id: str | None = None,
+        permissions: set[Permission] = None,
         granted_by: str = None,
         expires_at: datetime = None,
     ) -> None:
@@ -421,8 +419,8 @@ class ResourceACL:
         self,
         resource_type: str,
         resource_id: str,
-        user_id: Optional[str] = None,
-        organization_id: Optional[str] = None,
+        user_id: str | None = None,
+        organization_id: str | None = None,
     ) -> None:
         """Revoke access to a resource."""
         key = self._get_key(resource_type, resource_id)
@@ -450,7 +448,7 @@ class ResourceACL:
         resource_type: str,
         resource_id: str,
         user_id: str,
-        organization_id: Optional[str],
+        organization_id: str | None,
         required_permission: Permission,
     ) -> bool:
         """Check if user has access to a resource."""
@@ -458,7 +456,7 @@ class ResourceACL:
         if key not in self._acl:
             return False
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for entry in self._acl[key]:
             # Check expiration

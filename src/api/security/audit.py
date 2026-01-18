@@ -9,14 +9,13 @@ Provides comprehensive audit logging for:
 """
 
 import asyncio
-import json
 import uuid
-from datetime import datetime, timezone
-from typing import Optional, Any, Dict, List
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, Field
 import structlog
+from pydantic import BaseModel, Field
 
 logger = structlog.get_logger()
 
@@ -105,32 +104,32 @@ class AuditEvent(BaseModel):
     """Audit event record."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     event_type: AuditEventType
     severity: AuditSeverity = AuditSeverity.INFO
 
     # Actor information
-    user_id: Optional[str] = None
-    organization_id: Optional[str] = None
-    session_id: Optional[str] = None
-    api_key_id: Optional[str] = None
+    user_id: str | None = None
+    organization_id: str | None = None
+    session_id: str | None = None
+    api_key_id: str | None = None
 
     # Request context
-    request_id: Optional[str] = None
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
-    method: Optional[str] = None
-    path: Optional[str] = None
+    request_id: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    method: str | None = None
+    path: str | None = None
 
     # Resource information
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
+    resource_type: str | None = None
+    resource_id: str | None = None
 
     # Event details
     action: str
-    description: Optional[str] = None
+    description: str | None = None
     outcome: str = "success"  # success, failure, error
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     # For compliance
     retention_days: int = 365  # SOC2 requires minimum 1 year
@@ -149,7 +148,7 @@ class SecurityAuditLogger:
 
     def __init__(self, persist_to_db: bool = True):
         self.persist_to_db = persist_to_db
-        self._event_buffer: List[AuditEvent] = []
+        self._event_buffer: list[AuditEvent] = []
         self._buffer_size = 100
         self._flush_interval = 5  # seconds
 
@@ -157,19 +156,19 @@ class SecurityAuditLogger:
         self,
         event_type: AuditEventType,
         action: str,
-        user_id: Optional[str] = None,
-        organization_id: Optional[str] = None,
-        resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None,
-        description: Optional[str] = None,
+        user_id: str | None = None,
+        organization_id: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        description: str | None = None,
         outcome: str = "success",
         severity: AuditSeverity = AuditSeverity.INFO,
-        metadata: Dict[str, Any] = None,
-        request_id: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        session_id: Optional[str] = None,
-        api_key_id: Optional[str] = None,
+        metadata: dict[str, Any] = None,
+        request_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        session_id: str | None = None,
+        api_key_id: str | None = None,
     ) -> AuditEvent:
         """Log an audit event."""
         event = AuditEvent(
@@ -430,7 +429,7 @@ class SecurityAuditLogger:
 # Global Audit Logger Instance
 # =============================================================================
 
-_audit_logger: Optional[SecurityAuditLogger] = None
+_audit_logger: SecurityAuditLogger | None = None
 
 
 def get_audit_logger() -> SecurityAuditLogger:

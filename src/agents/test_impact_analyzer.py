@@ -17,10 +17,9 @@ Now we bring it to everyone.
 
 import json
 import re
-from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+
 from anthropic import Anthropic
 
 from src.config import get_settings
@@ -92,7 +91,7 @@ class TestImpactAnalyzer:
         self,
         change: CodeChange,
         all_tests: list[dict],
-        coverage_data: Optional[dict] = None
+        coverage_data: dict | None = None
     ) -> ImpactAnalysis:
         """
         Analyze the impact of a code change on tests.
@@ -176,7 +175,7 @@ class TestImpactAnalyzer:
         dependencies = []
 
         for file_change in change.files:
-            file_path = file_change["path"]
+            file_change["path"]
 
             # Extract imports (simplified - would use AST in production)
             patch = file_change.get("patch", "")
@@ -488,7 +487,7 @@ class SmartTestSelector:
         self,
         change: CodeChange,
         all_tests: list[dict],
-        time_budget_seconds: Optional[int] = None,
+        time_budget_seconds: int | None = None,
         risk_tolerance: str = "medium"  # "low", "medium", "high"
     ) -> dict:
         """

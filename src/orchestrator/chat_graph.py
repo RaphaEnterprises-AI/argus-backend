@@ -1,15 +1,14 @@
 """Chat-enabled LangGraph for conversational test orchestration."""
 
-from typing import TypedDict, Annotated, Literal, Optional, List
-from datetime import datetime, timezone
 import json
 import re
+from typing import Annotated, Literal, TypedDict
 
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_anthropic import ChatAnthropic
 import structlog
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 
 from src.config import get_settings
 
@@ -58,7 +57,7 @@ def truncate_tool_result(content: str, max_tokens: int = MAX_TOOL_RESULT_TOKENS)
     return content
 
 
-def prune_messages_for_context(messages: List[BaseMessage], max_tokens: int = MAX_CONTEXT_TOKENS) -> List[BaseMessage]:
+def prune_messages_for_context(messages: list[BaseMessage], max_tokens: int = MAX_CONTEXT_TOKENS) -> list[BaseMessage]:
     """Prune messages to fit within context limit.
 
     Strategy:
@@ -110,10 +109,10 @@ def prune_messages_for_context(messages: List[BaseMessage], max_tokens: int = MA
 
 class ChatState(TypedDict):
     """State for chat conversations."""
-    messages: Annotated[List[BaseMessage], add_messages]
+    messages: Annotated[list[BaseMessage], add_messages]
     app_url: str
-    current_tool: Optional[str]
-    tool_results: List[dict]
+    current_tool: str | None
+    tool_results: list[dict]
     session_id: str
     should_continue: bool  # Flag to allow cancellation of execution
 
@@ -243,8 +242,10 @@ async def chat_node(state: ChatState, config) -> dict:
 
 async def tool_executor_node(state: ChatState, config) -> dict:
     """Execute tools called by the chat node."""
-    import httpx
     import uuid
+
+    import httpx
+
     from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
     last_message = state["messages"][-1]

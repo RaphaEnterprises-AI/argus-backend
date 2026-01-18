@@ -19,7 +19,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import anthropic
 import structlog
@@ -31,7 +31,6 @@ from .models import (
     ChangeIntent,
     Severity,
     VisualChange,
-    VisualComparisonResult,
 )
 from .structural_analyzer import StructuralDiff
 
@@ -43,7 +42,7 @@ class SemanticAnalysis:
     """Result of semantic analysis of visual changes."""
 
     # Identified changes
-    changes: List[VisualChange] = field(default_factory=list)
+    changes: list[VisualChange] = field(default_factory=list)
 
     # Overall assessment
     overall_assessment: str = ""
@@ -54,22 +53,22 @@ class SemanticAnalysis:
     approval_confidence: float = 0.0  # 0-1
 
     # Blocking issues
-    blocking_issues: List[str] = field(default_factory=list)
+    blocking_issues: list[str] = field(default_factory=list)
 
     # Suggestions for developers
-    suggestions: List[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)
 
     # User impact prediction
-    user_impact: Optional[Dict[str, Any]] = None
+    user_impact: dict[str, Any] | None = None
 
     # Metadata
     model_used: str = ""
     analysis_duration_ms: int = 0
-    token_usage: Dict[str, int] = field(default_factory=dict)
+    token_usage: dict[str, int] = field(default_factory=dict)
     cost_usd: float = 0.0
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "changes": [c.to_dict() for c in self.changes],
             "overall_assessment": self.overall_assessment,
@@ -167,10 +166,10 @@ class SemanticAnalyzer:
 
     def _build_analysis_prompt(
         self,
-        structural_diff: Optional[StructuralDiff] = None,
-        context: Optional[str] = None,
-        git_diff: Optional[str] = None,
-        pr_description: Optional[str] = None,
+        structural_diff: StructuralDiff | None = None,
+        context: str | None = None,
+        git_diff: str | None = None,
+        pr_description: str | None = None,
     ) -> str:
         """Build the analysis prompt for Claude."""
 
@@ -294,10 +293,10 @@ IMPORTANT:
         self,
         baseline_screenshot: bytes,
         current_screenshot: bytes,
-        structural_diff: Optional[StructuralDiff] = None,
-        context: Optional[str] = None,
-        git_diff: Optional[str] = None,
-        pr_description: Optional[str] = None,
+        structural_diff: StructuralDiff | None = None,
+        context: str | None = None,
+        git_diff: str | None = None,
+        pr_description: str | None = None,
     ) -> SemanticAnalysis:
         """Analyze visual changes between screenshots using AI.
 
@@ -411,7 +410,7 @@ IMPORTANT:
                 analysis_duration_ms=duration_ms,
             )
 
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
         """Parse JSON from Claude response, handling code blocks."""
         # Strip markdown code blocks if present
         if "```json" in content:
@@ -425,7 +424,7 @@ IMPORTANT:
 
     def _build_analysis_from_response(
         self,
-        result_data: Dict[str, Any],
+        result_data: dict[str, Any],
         model: str,
         input_tokens: int,
         output_tokens: int,
@@ -455,7 +454,7 @@ IMPORTANT:
             cost_usd=cost,
         )
 
-    def _parse_visual_change(self, data: Dict[str, Any]) -> VisualChange:
+    def _parse_visual_change(self, data: dict[str, Any]) -> VisualChange:
         """Parse a single VisualChange from AI response data."""
         # Map category string to enum
         category_mapping = {
@@ -518,8 +517,8 @@ IMPORTANT:
     async def classify_change_intent(
         self,
         change: VisualChange,
-        git_diff: Optional[str] = None,
-        pr_description: Optional[str] = None,
+        git_diff: str | None = None,
+        pr_description: str | None = None,
     ) -> ChangeIntent:
         """Determine if a specific change is intentional based on code context.
 
@@ -587,7 +586,7 @@ Respond with JSON:
         self,
         baseline: bytes,
         current: bytes,
-        region: Optional[Dict[str, int]] = None,
+        region: dict[str, int] | None = None,
     ) -> str:
         """Generate a human-readable description of what changed.
 
@@ -656,8 +655,8 @@ Be specific and concise. Focus on what a user would notice.
 
     async def predict_user_impact(
         self,
-        changes: List[VisualChange],
-    ) -> Dict[str, Any]:
+        changes: list[VisualChange],
+    ) -> dict[str, Any]:
         """Predict how visual changes affect user experience.
 
         Analyzes changes to predict impact on:

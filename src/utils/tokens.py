@@ -7,12 +7,10 @@ Provides:
 - Usage reporting
 """
 
-import base64
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
-from ..config import MODEL_PRICING, ModelName, SCREENSHOT_TOKENS
+from ..config import MODEL_PRICING, SCREENSHOT_TOKENS, ModelName
 
 
 def estimate_tokens(text: str, model: str = "claude-sonnet-4-5") -> int:

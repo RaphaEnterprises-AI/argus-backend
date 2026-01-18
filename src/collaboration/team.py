@@ -10,13 +10,10 @@ Enterprise-grade collaboration for testing teams:
 6. SSO/SAML integration support
 """
 
-import json
-import hashlib
 import secrets
-from enum import Enum
-from typing import Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import Enum
 from uuid import uuid4
 
 
@@ -81,10 +78,10 @@ class User:
     name: str
     role: Role
     team_id: str
-    avatar_url: Optional[str] = None
+    avatar_url: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
-    last_login: Optional[datetime] = None
-    sso_provider: Optional[str] = None  # "okta", "azure_ad", "google"
+    last_login: datetime | None = None
+    sso_provider: str | None = None  # "okta", "azure_ad", "google"
     mfa_enabled: bool = False
 
 
@@ -98,7 +95,7 @@ class Team:
     plan: str = "free"  # "free", "pro", "enterprise"
     created_at: datetime = field(default_factory=datetime.utcnow)
     settings: dict = field(default_factory=dict)
-    sso_config: Optional[dict] = None
+    sso_config: dict | None = None
 
 
 @dataclass
@@ -122,7 +119,7 @@ class Comment:
     target_id: str
     content: str
     created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
     mentions: list[str] = field(default_factory=list)
     reactions: dict[str, list[str]] = field(default_factory=dict)
 
@@ -136,9 +133,9 @@ class ApprovalRequest:
     target_id: str
     description: str
     status: str = "pending"  # "pending", "approved", "rejected"
-    reviewer_id: Optional[str] = None
+    reviewer_id: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None
     comments: list[str] = field(default_factory=list)
 
 
@@ -151,8 +148,8 @@ class AuditLogEntry:
     resource_type: str
     resource_id: str
     details: dict
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
+    ip_address: str | None = None
+    user_agent: str | None = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -175,7 +172,7 @@ class TeamManager:
         name: str,
         team_id: str,
         role: Role = Role.DEVELOPER,
-        sso_provider: Optional[str] = None
+        sso_provider: str | None = None
     ) -> User:
         """Create a new user."""
         user = User(
@@ -190,11 +187,11 @@ class TeamManager:
         self._log_action(user.id, "create_user", "user", user.id, {"email": email})
         return user
 
-    def get_user(self, user_id: str) -> Optional[User]:
+    def get_user(self, user_id: str) -> User | None:
         """Get a user by ID."""
         return self.users.get(user_id)
 
-    def get_user_by_email(self, email: str) -> Optional[User]:
+    def get_user_by_email(self, email: str) -> User | None:
         """Get a user by email."""
         for user in self.users.values():
             if user.email == email:
@@ -266,7 +263,7 @@ class TeamManager:
 
         return team, owner
 
-    def get_team(self, team_id: str) -> Optional[Team]:
+    def get_team(self, team_id: str) -> Team | None:
         """Get a team by ID."""
         return self.teams.get(team_id)
 
@@ -404,7 +401,7 @@ class TeamManager:
         self,
         request_id: str,
         reviewer_id: str,
-        comment: Optional[str] = None
+        comment: str | None = None
     ) -> bool:
         """Approve an approval request."""
         self.check_permission(reviewer_id, Permission.APPROVE_BASELINE)
@@ -465,8 +462,8 @@ class TeamManager:
         resource_type: str,
         resource_id: str,
         details: dict,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ):
         """Log an action to the audit log."""
         entry = AuditLogEntry(
@@ -488,9 +485,9 @@ class TeamManager:
     def get_audit_log(
         self,
         user_id: str,
-        team_id: Optional[str] = None,
-        action: Optional[str] = None,
-        since: Optional[datetime] = None,
+        team_id: str | None = None,
+        action: str | None = None,
+        since: datetime | None = None,
         limit: int = 100
     ) -> list[AuditLogEntry]:
         """Get audit log entries."""
@@ -517,7 +514,7 @@ class TeamManager:
         }
         return token
 
-    def validate_session(self, token: str) -> Optional[str]:
+    def validate_session(self, token: str) -> str | None:
         """Validate a session token and return user ID."""
         session = self.sessions.get(token)
         if not session:
@@ -547,11 +544,11 @@ class TeamManager:
 class SSOProvider:
     """Base class for SSO providers."""
 
-    async def authenticate(self, token: str) -> Optional[dict]:
+    async def authenticate(self, token: str) -> dict | None:
         """Authenticate with SSO provider."""
         raise NotImplementedError
 
-    async def get_user_info(self, token: str) -> Optional[dict]:
+    async def get_user_info(self, token: str) -> dict | None:
         """Get user info from SSO provider."""
         raise NotImplementedError
 
@@ -564,12 +561,12 @@ class OktaSSOProvider(SSOProvider):
         self.client_id = client_id
         self.client_secret = client_secret
 
-    async def authenticate(self, code: str) -> Optional[dict]:
+    async def authenticate(self, code: str) -> dict | None:
         """Exchange code for tokens."""
         # Implementation would use httpx to call Okta
         pass
 
-    async def get_user_info(self, access_token: str) -> Optional[dict]:
+    async def get_user_info(self, access_token: str) -> dict | None:
         """Get user info from Okta."""
         # Implementation would call Okta userinfo endpoint
         pass
@@ -583,10 +580,10 @@ class AzureADSSOProvider(SSOProvider):
         self.client_id = client_id
         self.client_secret = client_secret
 
-    async def authenticate(self, code: str) -> Optional[dict]:
+    async def authenticate(self, code: str) -> dict | None:
         """Exchange code for tokens."""
         pass
 
-    async def get_user_info(self, access_token: str) -> Optional[dict]:
+    async def get_user_info(self, access_token: str) -> dict | None:
         """Get user info from Azure AD."""
         pass

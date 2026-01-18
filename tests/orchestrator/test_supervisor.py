@@ -1,8 +1,9 @@
 """Tests for the supervisor orchestrator module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+import pytest
+from langchain_core.messages import HumanMessage
 
 
 class TestSupervisorState:
@@ -69,7 +70,7 @@ class TestAgentDefinitions:
 
     def test_agent_descriptions_exist(self, mock_env_vars):
         """Test all agents have descriptions."""
-        from src.orchestrator.supervisor import AGENTS, AGENT_DESCRIPTIONS
+        from src.orchestrator.supervisor import AGENT_DESCRIPTIONS, AGENTS
 
         for agent in AGENTS:
             assert agent in AGENT_DESCRIPTIONS
@@ -91,7 +92,7 @@ class TestCreateSupervisorPrompt:
 
     def test_create_supervisor_prompt_contains_agents(self, mock_env_vars):
         """Test supervisor prompt lists all agents."""
-        from src.orchestrator.supervisor import create_supervisor_prompt, AGENTS
+        from src.orchestrator.supervisor import AGENTS, create_supervisor_prompt
 
         prompt = create_supervisor_prompt()
 
@@ -824,8 +825,9 @@ class TestCreateSupervisorGraph:
 
     def test_create_supervisor_graph_returns_state_graph(self, mock_env_vars):
         """Test create_supervisor_graph returns a StateGraph."""
-        from src.orchestrator.supervisor import create_supervisor_graph
         from langgraph.graph import StateGraph
+
+        from src.orchestrator.supervisor import create_supervisor_graph
 
         graph = create_supervisor_graph()
 
@@ -833,7 +835,7 @@ class TestCreateSupervisorGraph:
 
     def test_create_supervisor_graph_has_all_nodes(self, mock_env_vars):
         """Test create_supervisor_graph has all expected nodes."""
-        from src.orchestrator.supervisor import create_supervisor_graph, AGENTS
+        from src.orchestrator.supervisor import AGENTS, create_supervisor_graph
 
         graph = create_supervisor_graph()
 
@@ -846,8 +848,9 @@ class TestCreateSupervisorGraph:
 
     def test_create_supervisor_graph_compiles(self, mock_env_vars):
         """Test create_supervisor_graph compiles successfully."""
-        from src.orchestrator.supervisor import create_supervisor_graph
         from langgraph.checkpoint.memory import MemorySaver
+
+        from src.orchestrator.supervisor import create_supervisor_graph
 
         graph = create_supervisor_graph()
         checkpointer = MemorySaver()

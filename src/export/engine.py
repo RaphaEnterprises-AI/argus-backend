@@ -1,28 +1,26 @@
 """Export Engine - Main class for test export."""
 
-from typing import Any, Optional
 
 import structlog
 
+from .formatters import CodeFormatter
 from .models import (
-    ExportConfig,
-    ExportResult,
-    SupportedLanguage,
-    SupportedFramework,
     FILE_EXTENSIONS,
     FRAMEWORK_DEPENDENCIES,
+    ExportConfig,
+    ExportResult,
+    SupportedFramework,
 )
 from .templates import (
     BaseTemplate,
+    CSharpSeleniumTemplate,
+    GoRodTemplate,
+    JavaSeleniumTemplate,
     PythonPlaywrightTemplate,
     PythonSeleniumTemplate,
-    TypeScriptPlaywrightTemplate,
-    JavaSeleniumTemplate,
-    CSharpSeleniumTemplate,
     RubyCapybaraTemplate,
-    GoRodTemplate,
+    TypeScriptPlaywrightTemplate,
 )
-from .formatters import CodeFormatter
 
 logger = structlog.get_logger()
 
@@ -71,7 +69,7 @@ class ExportEngine:
     def export(
         self,
         test_spec: dict,
-        config: Optional[ExportConfig] = None,
+        config: ExportConfig | None = None,
     ) -> ExportResult:
         """Export a test specification to code.
 
@@ -147,7 +145,7 @@ class ExportEngine:
     def export_batch(
         self,
         test_specs: list[dict],
-        config: Optional[ExportConfig] = None,
+        config: ExportConfig | None = None,
     ) -> list[ExportResult]:
         """Export multiple test specifications.
 
@@ -176,7 +174,7 @@ class ExportEngine:
     def preview(
         self,
         test_spec: dict,
-        config: Optional[ExportConfig] = None,
+        config: ExportConfig | None = None,
         max_lines: int = 50,
     ) -> str:
         """Generate a preview of exported code.

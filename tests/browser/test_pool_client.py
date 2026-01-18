@@ -1,11 +1,10 @@
 """Tests for Browser Pool Client module."""
 
-import pytest
-import asyncio
 import json
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 
 class TestUserContext:
@@ -70,7 +69,7 @@ class TestSignPoolToken:
 
     def test_sign_pool_token(self, mock_env_vars):
         """Test JWT token signing."""
-        from src.browser.pool_client import sign_pool_token, UserContext
+        from src.browser.pool_client import UserContext, sign_pool_token
 
         ctx = UserContext(
             user_id="user-123",
@@ -91,7 +90,7 @@ class TestSignPoolToken:
 
     def test_sign_pool_token_different_secrets(self, mock_env_vars):
         """Test that different secrets produce different signatures."""
-        from src.browser.pool_client import sign_pool_token, UserContext
+        from src.browser.pool_client import UserContext, sign_pool_token
 
         ctx = UserContext(user_id="user-123")
 
@@ -105,8 +104,9 @@ class TestSignPoolToken:
 
     def test_sign_pool_token_expires(self, mock_env_vars):
         """Test token expiration setting."""
-        from src.browser.pool_client import sign_pool_token, UserContext
         import base64
+
+        from src.browser.pool_client import UserContext, sign_pool_token
 
         ctx = UserContext(user_id="user-123")
 
@@ -138,7 +138,7 @@ class TestBrowserPoolErrors:
 
     def test_browser_pool_timeout_error(self, mock_env_vars):
         """Test BrowserPoolTimeoutError."""
-        from src.browser.pool_client import BrowserPoolTimeoutError, BrowserPoolError
+        from src.browser.pool_client import BrowserPoolError, BrowserPoolTimeoutError
 
         error = BrowserPoolTimeoutError("Request timed out")
         assert isinstance(error, BrowserPoolError)
@@ -146,7 +146,7 @@ class TestBrowserPoolErrors:
 
     def test_browser_pool_unavailable_error(self, mock_env_vars):
         """Test BrowserPoolUnavailableError."""
-        from src.browser.pool_client import BrowserPoolUnavailableError, BrowserPoolError
+        from src.browser.pool_client import BrowserPoolError, BrowserPoolUnavailableError
 
         error = BrowserPoolUnavailableError("No browsers available")
         assert isinstance(error, BrowserPoolError)
@@ -697,7 +697,7 @@ class TestBrowserPoolClientAct:
                     execution_mode=ExecutionMode.VISION,
                 ),
             ) as mock_vision:
-                result = await client.act(
+                await client.act(
                     "https://example.com",
                     "Click button",
                     use_vision_fallback=True,
@@ -940,7 +940,6 @@ class TestBrowserPoolClientVisionFallback:
         # Mock the import to raise ImportError
         with patch.dict("sys.modules", {"src.computer_use.client": None}):
             # Simulate what happens when the import fails
-            original_fallback = client._vision_fallback
 
             async def mock_vision_fallback(url: str, instruction: str):
                 try:
@@ -1015,7 +1014,7 @@ class TestModuleFunctions:
 
         from src.browser.pool_client import observe
 
-        result = await observe("https://example.com")
+        await observe("https://example.com")
 
         mock_client.observe.assert_called_once()
 
@@ -1032,7 +1031,7 @@ class TestModuleFunctions:
 
         from src.browser.pool_client import act
 
-        result = await act("https://example.com", "Click button")
+        await act("https://example.com", "Click button")
 
         mock_client.act.assert_called_once()
 
@@ -1049,6 +1048,6 @@ class TestModuleFunctions:
 
         from src.browser.pool_client import test
 
-        result = await test("https://example.com", ["Click button"])
+        await test("https://example.com", ["Click button"])
 
         mock_client.test.assert_called_once()

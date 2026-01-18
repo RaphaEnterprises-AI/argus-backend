@@ -7,15 +7,14 @@ Provides common functionality for all specialized analyzers:
 - Caching
 """
 
-import re
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional, Generator
 from enum import Enum
+from pathlib import Path
 
-from src.indexer import TreeSitterParser, ParsedFile, ASTNode
+from src.indexer import ASTNode, ParsedFile, TreeSitterParser
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +71,9 @@ class Issue:
     severity: Severity
     message: str
     file_path: str
-    line_number: Optional[int] = None
-    suggestion: Optional[str] = None
-    code: Optional[str] = None  # Issue code for categorization
+    line_number: int | None = None
+    suggestion: str | None = None
+    code: str | None = None  # Issue code for categorization
 
 
 @dataclass
@@ -99,7 +98,7 @@ class ComponentInfo:
 
     # Quality
     has_tests: bool = False
-    test_file: Optional[str] = None
+    test_file: str | None = None
     issues: list[Issue] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -133,10 +132,10 @@ class RouteInfo:
     # Parameters
     path_params: list[str] = field(default_factory=list)
     query_params: list[str] = field(default_factory=list)
-    body_schema: Optional[str] = None
+    body_schema: str | None = None
 
     # Response
-    response_schema: Optional[str] = None
+    response_schema: str | None = None
     status_codes: list[int] = field(default_factory=list)
 
     # Security
@@ -171,7 +170,7 @@ class QueryInfo:
     line_number: int
 
     # Query details
-    raw_query: Optional[str] = None
+    raw_query: str | None = None
     columns: list[str] = field(default_factory=list)
     joins: list[str] = field(default_factory=list)
     conditions: list[str] = field(default_factory=list)
@@ -345,7 +344,7 @@ class BaseAnalyzer(ABC):
             recommendations=self._generate_recommendations(all_components),
         )
 
-    def _parse_file(self, file_path: Path) -> Optional[ParsedFile]:
+    def _parse_file(self, file_path: Path) -> ParsedFile | None:
         """Parse a file with caching."""
         key = str(file_path)
         if key not in self._cache:

@@ -48,20 +48,23 @@ Why an Agent instead of static routing?
 - Makes nuanced decisions (e.g., "this looks like simple code but has unusual patterns")
 """
 
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import Optional, Literal, Callable
 import json
 import os
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
 import structlog
 
-from .base import BaseAgent, AgentResult
-from .prompts import get_enhanced_prompt
 from ..core.model_router import (
-    TaskType, TaskComplexity, ModelConfig, ModelProvider,
-    MODELS, TASK_MODEL_MAPPING, BaseModelClient
+    MODELS,
+    BaseModelClient,
+    ModelConfig,
+    ModelProvider,
+    TaskComplexity,
+    TaskType,
 )
-
+from .base import AgentResult, BaseAgent
+from .prompts import get_enhanced_prompt
 
 logger = structlog.get_logger()
 
@@ -87,7 +90,7 @@ class RouterAgentConfig:
     ])
 
     # Custom system prompt (optional - uses default if None)
-    custom_system_prompt: Optional[str] = None
+    custom_system_prompt: str | None = None
 
     # Skip LLM routing for tasks under this token count (use heuristics)
     trivial_threshold_tokens: int = 500
@@ -99,7 +102,7 @@ class RouterAgentConfig:
     enable_learning: bool = True
 
     # Custom complexity rules (callable that returns complexity)
-    custom_complexity_fn: Optional[Callable[[str], TaskComplexity]] = None
+    custom_complexity_fn: Callable[[str], TaskComplexity] | None = None
 
 
 @dataclass
@@ -109,7 +112,7 @@ class RoutingDecision:
     model_config: ModelConfig
     reasoning: str
     confidence: float
-    fallback_model: Optional[str] = None
+    fallback_model: str | None = None
     estimated_cost: float = 0.0
 
 
@@ -117,12 +120,12 @@ class RoutingDecision:
 class TaskContext:
     """Context for routing decision."""
     prompt: str
-    task_type: Optional[TaskType] = None
+    task_type: TaskType | None = None
     has_images: bool = False
     has_tools: bool = False
     num_tokens_estimate: int = 4000
-    max_latency_ms: Optional[int] = None
-    max_cost: Optional[float] = None
+    max_latency_ms: int | None = None
+    max_cost: float | None = None
     conversation_history: list[dict] = field(default_factory=list)
     previous_model_performance: dict = field(default_factory=dict)
 
@@ -165,11 +168,11 @@ class RouterAgent(BaseAgent):
         TaskType.COMPUTER_USE_MOBILE: "gemini-computer-use",
     }
 
-    def __init__(self, config: Optional[RouterAgentConfig] = None):
+    def __init__(self, config: RouterAgentConfig | None = None):
         super().__init__(use_multi_model=False)  # Router doesn't use multi-model for itself
         self.config = config or RouterAgentConfig()
-        self._router_client: Optional[BaseModelClient] = None
-        self._router_model_name: Optional[str] = None
+        self._router_client: BaseModelClient | None = None
+        self._router_model_name: str | None = None
         self.decision_history: list[dict] = []
         self.performance_tracker: dict[str, dict] = {}
 
@@ -474,7 +477,7 @@ Respond with JSON only."""
     def record_outcome(
         self,
         model_name: str,
-        task_type: Optional[TaskType],
+        task_type: TaskType | None,
         success: bool,
         actual_cost: float,
         latency_ms: int,
@@ -517,10 +520,10 @@ Respond with JSON only."""
 async def route_with_agent(
     router: RouterAgent,
     prompt: str,
-    task_type: Optional[TaskType] = None,
-    images: Optional[list[bytes]] = None,
-    tools: Optional[list] = None,
-    max_cost: Optional[float] = None,
+    task_type: TaskType | None = None,
+    images: list[bytes] | None = None,
+    tools: list | None = None,
+    max_cost: float | None = None,
 ) -> RoutingDecision:
     """
     Helper function to get routing decision from the Router Agent.

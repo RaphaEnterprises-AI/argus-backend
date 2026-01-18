@@ -1,7 +1,8 @@
 """Tests for the self healer agent module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 class TestFailureType:
@@ -112,7 +113,13 @@ class TestHealingResult:
 
     def test_result_creation(self, mock_env_vars):
         """Test HealingResult creation."""
-        from src.agents.self_healer import HealingResult, FailureDiagnosis, FixSuggestion, FailureType, FixType
+        from src.agents.self_healer import (
+            FailureDiagnosis,
+            FailureType,
+            FixSuggestion,
+            FixType,
+            HealingResult,
+        )
 
         diagnosis = FailureDiagnosis(
             failure_type=FailureType.SELECTOR_CHANGED,
@@ -141,7 +148,13 @@ class TestHealingResult:
 
     def test_result_to_dict(self, mock_env_vars):
         """Test HealingResult to_dict method."""
-        from src.agents.self_healer import HealingResult, FailureDiagnosis, FixSuggestion, FailureType, FixType
+        from src.agents.self_healer import (
+            FailureDiagnosis,
+            FailureType,
+            FixSuggestion,
+            FixType,
+            HealingResult,
+        )
 
         diagnosis = FailureDiagnosis(
             failure_type=FailureType.TIMING_ISSUE,
@@ -248,7 +261,7 @@ class TestSelfHealerAgent:
     def test_parse_diagnosis_valid(self, mock_env_vars):
         """Test parsing valid diagnosis."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FailureType
+            from src.agents.self_healer import FailureType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -270,7 +283,7 @@ class TestSelfHealerAgent:
     def test_parse_diagnosis_unknown_type(self, mock_env_vars):
         """Test parsing diagnosis with unknown type."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FailureType
+            from src.agents.self_healer import FailureType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -288,7 +301,7 @@ class TestSelfHealerAgent:
     def test_parse_fixes_valid(self, mock_env_vars):
         """Test parsing valid fixes."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixType
+            from src.agents.self_healer import SelfHealerAgent
 
             agent = SelfHealerAgent()
             agent.auto_heal_threshold = 0.9
@@ -321,7 +334,7 @@ class TestSelfHealerAgent:
     def test_parse_fixes_unknown_type(self, mock_env_vars):
         """Test parsing fixes with unknown type."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixType
+            from src.agents.self_healer import FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
             agent.auto_heal_threshold = 0.9
@@ -343,7 +356,7 @@ class TestSelfHealerAgent:
     def test_apply_fix_update_selector(self, mock_env_vars):
         """Test applying selector update fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixSuggestion, FixType
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -369,7 +382,7 @@ class TestSelfHealerAgent:
     def test_apply_fix_add_wait(self, mock_env_vars):
         """Test applying add wait fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixSuggestion, FixType
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -394,7 +407,7 @@ class TestSelfHealerAgent:
     def test_apply_fix_increase_timeout(self, mock_env_vars):
         """Test applying increase timeout fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixSuggestion, FixType
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -419,7 +432,7 @@ class TestSelfHealerAgent:
     def test_apply_fix_update_assertion(self, mock_env_vars):
         """Test applying update assertion fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixSuggestion, FixType
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -444,7 +457,7 @@ class TestSelfHealerAgent:
     def test_apply_fix_update_test_data(self, mock_env_vars):
         """Test applying update test data fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import SelfHealerAgent, FixSuggestion, FixType
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
 
@@ -471,7 +484,6 @@ class TestSelfHealerAgent:
         """Test execute method."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import SelfHealerAgent
-            from src.agents.base import AgentResult
 
             agent = SelfHealerAgent()
             agent.auto_heal_threshold = 0.9
@@ -552,7 +564,6 @@ class TestSelfHealerAgent:
         """Test batch analysis of failures."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import SelfHealerAgent
-            from src.agents.base import AgentResult
 
             agent = SelfHealerAgent()
             agent.auto_heal_threshold = 0.9

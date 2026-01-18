@@ -4,16 +4,15 @@ Enables browsing historical states, replaying from checkpoints,
 and forking test runs from any point in history.
 """
 
-from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
+from src.config import get_settings
 from src.orchestrator.checkpointer import get_checkpointer
 from src.orchestrator.graph import create_testing_graph
-from src.config import get_settings
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/time-travel", tags=["Time Travel"])
@@ -22,32 +21,32 @@ router = APIRouter(prefix="/api/v1/time-travel", tags=["Time Travel"])
 class CheckpointInfo(BaseModel):
     """Basic checkpoint information."""
     checkpoint_id: str
-    parent_checkpoint_id: Optional[str] = None
+    parent_checkpoint_id: str | None = None
     created_at: str
-    next_node: Optional[str] = None
+    next_node: str | None = None
 
 
 class CheckpointsResponse(BaseModel):
     """Response containing checkpoints for a thread."""
     thread_id: str
-    checkpoints: List[CheckpointInfo]
+    checkpoints: list[CheckpointInfo]
     total_count: int
 
 
 class StateSnapshot(BaseModel):
     """A snapshot of graph state at a point in time."""
     checkpoint_id: str
-    parent_checkpoint_id: Optional[str] = None
+    parent_checkpoint_id: str | None = None
     thread_id: str
     created_at: str
-    next_node: Optional[str] = None
+    next_node: str | None = None
     state_summary: dict
 
 
 class StateHistoryResponse(BaseModel):
     """Response containing state history."""
     thread_id: str
-    snapshots: List[StateSnapshot]
+    snapshots: list[StateSnapshot]
     total_count: int
 
 
@@ -55,7 +54,7 @@ class ReplayRequest(BaseModel):
     """Request to replay from a checkpoint."""
     thread_id: str
     checkpoint_id: str
-    new_thread_id: Optional[str] = None  # Fork to new thread
+    new_thread_id: str | None = None  # Fork to new thread
 
 
 class ReplayResponse(BaseModel):
@@ -71,7 +70,7 @@ class ForkRequest(BaseModel):
     thread_id: str
     checkpoint_id: str
     new_thread_id: str
-    state_modifications: Optional[dict] = None
+    state_modifications: dict | None = None
 
 
 class ForkResponse(BaseModel):
@@ -80,14 +79,14 @@ class ForkResponse(BaseModel):
     source_thread: str
     source_checkpoint: str
     new_thread_id: str
-    modifications_applied: List[str]
+    modifications_applied: list[str]
 
 
 class StateAtCheckpointResponse(BaseModel):
     """Full state at a specific checkpoint."""
     checkpoint_id: str
     thread_id: str
-    next_node: Optional[str] = None
+    next_node: str | None = None
     state: dict
     metadata: dict
 
@@ -96,8 +95,8 @@ class CompareStatesResponse(BaseModel):
     """Response from state comparison."""
     thread_1: str
     thread_2: str
-    checkpoint_1: Optional[str] = None
-    checkpoint_2: Optional[str] = None
+    checkpoint_1: str | None = None
+    checkpoint_2: str | None = None
     differences: dict
     difference_count: int
 
@@ -174,7 +173,7 @@ async def get_checkpoints(
 async def get_state_history(
     thread_id: str,
     limit: int = Query(50, ge=1, le=200, description="Maximum number of snapshots to return"),
-    before_checkpoint: Optional[str] = Query(None, description="Checkpoint ID for pagination (return snapshots before this one)"),
+    before_checkpoint: str | None = Query(None, description="Checkpoint ID for pagination (return snapshots before this one)"),
 ):
     """Get the state history for a thread.
 
@@ -475,8 +474,8 @@ async def fork_from_checkpoint(request: ForkRequest):
 async def compare_states(
     thread_id_1: str,
     thread_id_2: str,
-    checkpoint_id_1: Optional[str] = Query(None, description="Checkpoint ID for thread 1 (latest if not specified)"),
-    checkpoint_id_2: Optional[str] = Query(None, description="Checkpoint ID for thread 2 (latest if not specified)"),
+    checkpoint_id_1: str | None = Query(None, description="Checkpoint ID for thread 1 (latest if not specified)"),
+    checkpoint_id_2: str | None = Query(None, description="Checkpoint ID for thread 2 (latest if not specified)"),
 ):
     """Compare states between two threads or checkpoints.
 
@@ -551,7 +550,7 @@ async def compare_states(
 @router.get("/threads")
 async def list_threads(
     limit: int = Query(50, ge=1, le=200, description="Maximum number of threads to return"),
-    status: Optional[str] = Query(None, description="Filter by status: running, paused, completed"),
+    status: str | None = Query(None, description="Filter by status: running, paused, completed"),
 ):
     """List all known thread IDs with their current status.
 

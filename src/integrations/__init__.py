@@ -8,44 +8,44 @@ Provides:
 - AI synthesis layer for production intelligence
 """
 
-from .github_integration import GitHubIntegration, create_github_integration
-from .slack_integration import SlackIntegration, create_slack_integration
-from .slack import (
-    SlackNotifier,
-    SlackConfig,
-    TestResult,
-    FailureDetails,
-    ScheduleInfo,
-    QualityReport,
-    NotificationStatus,
-    create_slack_notifier,
-)
-from .reporter import ReportGenerator, create_reporter
-from .observability_hub import (
-    ObservabilityHub,
-    ObservabilityProvider,
-    Platform,
-    RealUserSession,
-    ProductionError,
-    PerformanceAnomaly,
-    UserJourneyPattern,
-    DatadogProvider,
-    SentryProvider,
-    NewRelicProvider,
-    FullStoryProvider,
-    PostHogProvider,
-)
 from .ai_synthesis import (
+    ActionPriority,
     AISynthesizer,
-    SynthesisReport,
-    TestSuggestion,
+    CoverageGap,
     ErrorInsight,
     FailurePrediction,
-    CoverageGap,
     InsightType,
-    ActionPriority,
+    SynthesisReport,
+    TestSuggestion,
     create_ai_synthesizer,
 )
+from .github_integration import GitHubIntegration, create_github_integration
+from .observability_hub import (
+    DatadogProvider,
+    FullStoryProvider,
+    NewRelicProvider,
+    ObservabilityHub,
+    ObservabilityProvider,
+    PerformanceAnomaly,
+    Platform,
+    PostHogProvider,
+    ProductionError,
+    RealUserSession,
+    SentryProvider,
+    UserJourneyPattern,
+)
+from .reporter import ReportGenerator, create_reporter
+from .slack import (
+    FailureDetails,
+    NotificationStatus,
+    QualityReport,
+    ScheduleInfo,
+    SlackConfig,
+    SlackNotifier,
+    TestResult,
+    create_slack_notifier,
+)
+from .slack_integration import SlackIntegration, create_slack_integration
 
 __all__ = [
     # Existing integrations

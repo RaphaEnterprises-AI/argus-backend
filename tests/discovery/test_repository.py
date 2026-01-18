@@ -4,19 +4,12 @@ This module tests the DiscoveryRepository class which provides database-first
 persistence layer for discovery sessions, pages, flows, and elements.
 """
 
-import asyncio
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import pytest
 
-from src.discovery.repository import (
-    DatabaseUnavailableError,
-    DiscoveryRepository,
-    RecordNotFoundError,
-    RepositoryError,
-)
 from src.discovery.models import (
     DiscoveredElement,
     DiscoveredFlow,
@@ -25,14 +18,18 @@ from src.discovery.models import (
     DiscoveryMode,
     DiscoverySession,
     DiscoveryStatus,
-    ElementBounds,
     ElementCategory,
     ExplorationStrategy,
     FlowCategory,
     FlowStep,
     PageCategory,
 )
-
+from src.discovery.repository import (
+    DatabaseUnavailableError,
+    DiscoveryRepository,
+    RecordNotFoundError,
+    RepositoryError,
+)
 
 # ==============================================================================
 # Fixtures
@@ -84,7 +81,7 @@ def sample_session():
         config=DiscoveryConfig(),
         progress_percentage=50.0,
         current_page="https://example.com/page",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         pages_found=5,
         flows_found=2,
         elements_found=20,
@@ -573,7 +570,7 @@ class TestRetryLogic:
             call_count += 1
             return MagicMock(data=[{}])
 
-        result = await repo._retry_operation(operation, "test_operation")
+        await repo._retry_operation(operation, "test_operation")
 
         assert call_count == 1
         assert repo._db_available is True
@@ -596,7 +593,7 @@ class TestRetryLogic:
                 raise Exception("Transient error")
             return MagicMock(data=[{}])
 
-        result = await repo._retry_operation(operation, "test_operation")
+        await repo._retry_operation(operation, "test_operation")
 
         assert call_count == 3
         assert repo._db_available is True

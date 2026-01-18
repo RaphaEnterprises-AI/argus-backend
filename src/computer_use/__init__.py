@@ -1,24 +1,26 @@
 """Computer Use API integration for E2E testing."""
 
-from .client import ComputerUseClient, UsageStats, TaskResult, ActionResult
-from .screenshot import ScreenshotCapture, Screenshot, CaptureMethod
 from .actions import (
     Action,
     ActionType,
-    ActionResult as ActionExecutionResult,
-    PlaywrightActionExecutor,
     ComputerUseActionExecutor,
     HybridActionExecutor,
+    PlaywrightActionExecutor,
     parse_test_step,
 )
+from .actions import (
+    ActionResult as ActionExecutionResult,
+)
+from .client import ActionResult, ComputerUseClient, TaskResult, UsageStats
 from .sandbox import (
-    SandboxManager,
+    LocalSandbox,
     SandboxConfig,
     SandboxInfo,
+    SandboxManager,
     SandboxState,
-    LocalSandbox,
     build_sandbox_image,
 )
+from .screenshot import CaptureMethod, Screenshot, ScreenshotCapture
 
 __all__ = [
     # Client

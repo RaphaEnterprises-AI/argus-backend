@@ -2,18 +2,17 @@
 
 import asyncio
 import json
-from typing import Optional, AsyncGenerator
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
+from src.orchestrator.checkpointer import get_checkpointer
 from src.orchestrator.graph import EnhancedTestingOrchestrator, create_enhanced_testing_graph
 from src.orchestrator.state import create_initial_state
-from src.orchestrator.checkpointer import get_checkpointer
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/stream", tags=["Streaming"])
@@ -23,16 +22,16 @@ class StreamTestRequest(BaseModel):
     """Request to start a streaming test run."""
     codebase_path: str = Field(..., description="Path to codebase")
     app_url: str = Field(..., description="Application URL to test")
-    thread_id: Optional[str] = Field(None, description="Thread ID for resuming")
-    pr_number: Optional[int] = Field(None, description="PR number if triggered by PR")
-    changed_files: Optional[list[str]] = Field(None, description="Files that changed")
+    thread_id: str | None = Field(None, description="Thread ID for resuming")
+    pr_number: int | None = Field(None, description="PR number if triggered by PR")
+    changed_files: list[str] | None = Field(None, description="Files that changed")
 
 
 class StreamChatRequest(BaseModel):
     """Request for streaming chat with orchestrator."""
     message: str = Field(..., description="User message")
     thread_id: str = Field(..., description="Conversation thread ID")
-    app_url: Optional[str] = Field(None, description="Application URL context")
+    app_url: str | None = Field(None, description="Application URL context")
 
 
 @router.post("/test")
@@ -84,7 +83,7 @@ async def stream_test_execution(request: StreamTestRequest):
                 "data": json.dumps({
                     "thread_id": thread_id,
                     "run_id": initial_state["run_id"],
-                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "started_at": datetime.now(UTC).isoformat(),
                     "codebase_path": request.codebase_path,
                     "app_url": request.app_url,
                 })
@@ -226,7 +225,7 @@ async def stream_test_execution(request: StreamTestRequest):
                     "total_cost": final_values.get("total_cost", 0),
                     "iterations": final_values.get("iteration", 0),
                     "error": final_values.get("error"),
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                 })
             }
 
@@ -244,7 +243,7 @@ async def stream_test_execution(request: StreamTestRequest):
                 "data": json.dumps({
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
             }
 
@@ -262,9 +261,8 @@ async def stream_chat(request: StreamChatRequest):
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
-            from langchain_core.messages import HumanMessage, AIMessage
-            from langgraph.graph import StateGraph, END
-            from src.orchestrator.state import TestingState
+            from langchain_core.messages import HumanMessage
+
 
             logger.info(
                 "Starting streaming chat",
@@ -283,7 +281,7 @@ async def stream_chat(request: StreamChatRequest):
                 "data": json.dumps({
                     "thread_id": request.thread_id,
                     "message_received": True,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
             }
 
@@ -532,7 +530,7 @@ async def resume_stream(thread_id: str):
                 "data": json.dumps({
                     "thread_id": thread_id,
                     "resuming_from": current_state.next[0] if current_state.next else "unknown",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
             }
 
@@ -577,7 +575,7 @@ async def resume_stream(thread_id: str):
                     "success": final_values.get("failed_count", 0) == 0,
                     "passed": final_values.get("passed_count", 0),
                     "failed": final_values.get("failed_count", 0),
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
                 })
             }
 
@@ -633,7 +631,7 @@ async def cancel_stream(thread_id: str):
             "success": True,
             "thread_id": thread_id,
             "message": "Execution cancelled",
-            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+            "cancelled_at": datetime.now(UTC).isoformat(),
             "final_state": {
                 "passed": updated_values.get("passed_count", 0),
                 "failed": updated_values.get("failed_count", 0),

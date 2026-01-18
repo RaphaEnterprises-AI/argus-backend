@@ -30,9 +30,10 @@ Architecture:
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional, Protocol, TypeVar
+from typing import Any
 
 import structlog
 
@@ -72,8 +73,8 @@ class ActionResult:
     success: bool
     action: str
     duration_ms: int
-    error: Optional[str] = None
-    screenshot: Optional[bytes] = None
+    error: str | None = None
+    screenshot: bytes | None = None
     data: Any = None  # Action-specific return data
 
 
@@ -84,7 +85,7 @@ class BrowserAutomation(ABC):
     The testing agent uses this interface exclusively, making it framework-agnostic.
     """
 
-    def __init__(self, config: Optional[BrowserConfig] = None):
+    def __init__(self, config: BrowserConfig | None = None):
         self.config = config or BrowserConfig()
         self.log = logger.bind(framework=self.config.framework.value)
 
@@ -104,7 +105,7 @@ class BrowserAutomation(ABC):
         pass
 
     @abstractmethod
-    async def click(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         """Click an element."""
         pass
 
@@ -134,7 +135,7 @@ class BrowserAutomation(ABC):
         pass
 
     @abstractmethod
-    async def wait_for_selector(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         """Wait for element to appear."""
         pass
 
@@ -178,7 +179,7 @@ class BrowserAutomation(ABC):
 class PlaywrightAutomation(BrowserAutomation):
     """Playwright-based browser automation."""
 
-    def __init__(self, config: Optional[BrowserConfig] = None):
+    def __init__(self, config: BrowserConfig | None = None):
         super().__init__(config or BrowserConfig(framework=AutomationFramework.PLAYWRIGHT))
         self._playwright = None
         self._browser = None
@@ -231,7 +232,7 @@ class PlaywrightAutomation(BrowserAutomation):
                 error=str(e),
             )
 
-    async def click(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         import time
 
         start = time.time()
@@ -297,7 +298,7 @@ class PlaywrightAutomation(BrowserAutomation):
     async def is_visible(self, selector: str) -> bool:
         return await self._page.is_visible(selector)
 
-    async def wait_for_selector(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         import time
 
         start = time.time()
@@ -369,7 +370,7 @@ class SeleniumAutomation(BrowserAutomation):
     Requires: pip install selenium webdriver-manager
     """
 
-    def __init__(self, config: Optional[BrowserConfig] = None):
+    def __init__(self, config: BrowserConfig | None = None):
         super().__init__(config or BrowserConfig(framework=AutomationFramework.SELENIUM))
         self._driver = None
 
@@ -422,7 +423,7 @@ class SeleniumAutomation(BrowserAutomation):
                 error=str(e),
             )
 
-    async def click(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         import time
 
         from selenium.webdriver.common.by import By
@@ -492,7 +493,7 @@ class SeleniumAutomation(BrowserAutomation):
         except Exception:
             return False
 
-    async def wait_for_selector(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         import time
 
         from selenium.webdriver.common.by import By
@@ -543,9 +544,9 @@ class ComputerUseAutomation(BrowserAutomation):
 
     def __init__(
         self,
-        config: Optional[BrowserConfig] = None,
+        config: BrowserConfig | None = None,
         anthropic_client=None,
-        screenshot_fn: Optional[Callable[[], bytes]] = None,
+        screenshot_fn: Callable[[], bytes] | None = None,
     ):
         """Initialize Computer Use automation.
 
@@ -654,7 +655,7 @@ class ComputerUseAutomation(BrowserAutomation):
                 error=str(e),
             )
 
-    async def click(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         """Click using Computer Use (visual identification).
 
         Instead of using CSS selectors, we describe what to click:
@@ -782,7 +783,7 @@ class ComputerUseAutomation(BrowserAutomation):
 
         return "yes" in response.content[0].text.lower()
 
-    async def wait_for_selector(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         """Wait for element using polling with Computer Use."""
         import asyncio
         import time
@@ -824,8 +825,8 @@ class HybridAutomation(BrowserAutomation):
     def __init__(
         self,
         primary: BrowserAutomation,
-        fallback: Optional[ComputerUseAutomation] = None,
-        config: Optional[BrowserConfig] = None,
+        fallback: ComputerUseAutomation | None = None,
+        config: BrowserConfig | None = None,
     ):
         super().__init__(config)
         self.primary = primary
@@ -860,7 +861,7 @@ class HybridAutomation(BrowserAutomation):
             lambda: self.fallback.goto(url, wait_until),
         )
 
-    async def click(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         return await self._with_fallback(
             "click",
             lambda: self.primary.click(selector, timeout_ms),
@@ -900,7 +901,7 @@ class HybridAutomation(BrowserAutomation):
                 return await self.fallback.is_visible(selector)
             return False
 
-    async def wait_for_selector(self, selector: str, timeout_ms: Optional[int] = None) -> ActionResult:
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
         return await self._with_fallback(
             "wait",
             lambda: self.primary.wait_for_selector(selector, timeout_ms),
@@ -916,7 +917,7 @@ class HybridAutomation(BrowserAutomation):
 
 async def create_browser(
     framework: AutomationFramework | str = AutomationFramework.PLAYWRIGHT,
-    config: Optional[BrowserConfig] = None,
+    config: BrowserConfig | None = None,
     **kwargs,
 ) -> BrowserAutomation:
     """Factory function to create and start a browser automation instance.
@@ -955,7 +956,7 @@ async def create_browser(
 
 def create_automation(
     framework: AutomationFramework | str = AutomationFramework.PLAYWRIGHT,
-    config: Optional[BrowserConfig] = None,
+    config: BrowserConfig | None = None,
     **kwargs,
 ) -> BrowserAutomation:
     """Factory function to create browser automation instance (not started).

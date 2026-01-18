@@ -9,9 +9,8 @@ This agent generates comprehensive test specifications including:
 
 import json
 from dataclasses import dataclass, field
-from typing import Optional
 
-from .base import BaseAgent, AgentResult
+from .base import AgentResult, BaseAgent
 from .code_analyzer import TestableSurface
 from .prompts import get_enhanced_prompt
 
@@ -21,10 +20,10 @@ class TestStep:
     """A single step in a test."""
 
     action: str  # goto, click, fill, assert, wait, screenshot, etc.
-    target: Optional[str] = None  # selector, URL, or element identifier
-    value: Optional[str] = None  # value to input or expected value
+    target: str | None = None  # selector, URL, or element identifier
+    value: str | None = None  # value to input or expected value
     timeout: int = 5000
-    description: Optional[str] = None
+    description: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -41,9 +40,9 @@ class TestAssertion:
     """An assertion to validate test results."""
 
     type: str  # element_visible, text_contains, url_matches, value_equals, etc.
-    target: Optional[str] = None
-    expected: Optional[str] = None
-    description: Optional[str] = None
+    target: str | None = None
+    expected: str | None = None
+    description: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -147,7 +146,7 @@ Output must be valid JSON."""
         testable_surfaces: list[TestableSurface | dict],
         app_url: str,
         codebase_summary: str = "",
-        changed_files: Optional[list[str]] = None,
+        changed_files: list[str] | None = None,
         max_tests_per_surface: int = 3,
     ) -> AgentResult[TestPlan]:
         """Generate a test plan from testable surfaces.
@@ -255,7 +254,7 @@ Output must be valid JSON."""
         surfaces: list[dict],
         app_url: str,
         codebase_summary: str,
-        changed_files: Optional[list[str]],
+        changed_files: list[str] | None,
         max_tests_per_surface: int,
     ) -> str:
         """Build the test planning prompt."""
@@ -392,7 +391,7 @@ Output must be valid JSON."""
         assertions = spec.get("assertions", [])
         action_count = len(steps)
         assertion_count = len(assertions)
-        test_type = spec.get("type", "ui")
+        spec.get("type", "ui")
         tags = spec.get("tags", [])
 
         # Analyze step types for complexity
@@ -404,7 +403,7 @@ Output must be valid JSON."""
             for a in assertions
         )
         has_wait_steps = sum(1 for s in steps if s.get("action") == "wait")
-        has_navigation = sum(1 for s in steps if s.get("action") == "goto")
+        sum(1 for s in steps if s.get("action") == "goto")
 
         # Count unique URLs for page load estimation
         unique_urls = set()

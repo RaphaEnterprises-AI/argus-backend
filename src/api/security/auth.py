@@ -10,20 +10,20 @@ Supports multiple authentication methods:
 
 import hashlib
 import hmac
+import os
 import secrets
 import time
-import os
-from datetime import datetime, timezone, timedelta
-from functools import wraps
-from typing import Optional, Callable, Any
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from enum import Enum
+from functools import wraps
 
-from fastapi import Request, HTTPException, Depends, Security
-from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
-import structlog
-import jwt
 import httpx
+import jwt
+import structlog
+from fastapi import Depends, HTTPException, Request, Security
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
 logger = structlog.get_logger()
 
@@ -105,17 +105,17 @@ class AuthMethod(str, Enum):
 class UserContext(BaseModel):
     """Authenticated user context."""
     user_id: str
-    organization_id: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
+    organization_id: str | None = None
+    email: str | None = None
+    name: str | None = None
     roles: list[str] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
     auth_method: AuthMethod = AuthMethod.ANONYMOUS
-    api_key_id: Optional[str] = None
-    session_id: Optional[str] = None
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
-    authenticated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    api_key_id: str | None = None
+    session_id: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    authenticated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     class Config:
         use_enum_values = True
@@ -124,9 +124,9 @@ class UserContext(BaseModel):
 class TokenPayload(BaseModel):
     """JWT token payload."""
     sub: str  # user_id
-    org: Optional[str] = None  # organization_id
-    email: Optional[str] = None
-    name: Optional[str] = None
+    org: str | None = None  # organization_id
+    email: str | None = None
+    name: str | None = None
     roles: list[str] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
     iat: int  # issued at
@@ -141,9 +141,9 @@ class TokenPayload(BaseModel):
 
 def generate_jwt_token(
     user_id: str,
-    organization_id: Optional[str] = None,
-    email: Optional[str] = None,
-    name: Optional[str] = None,
+    organization_id: str | None = None,
+    email: str | None = None,
+    name: str | None = None,
     roles: list[str] = None,
     scopes: list[str] = None,
     token_type: str = "access",
@@ -164,7 +164,7 @@ def generate_jwt_token(
     if not secret:
         raise ValueError("JWT_SECRET_KEY not configured")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if token_type == "access":
         exp = now + timedelta(hours=JWT_EXPIRATION_HOURS)
@@ -187,7 +187,7 @@ def generate_jwt_token(
     return jwt.encode(payload.model_dump(), secret, algorithm=JWT_ALGORITHM)
 
 
-def verify_jwt_token(token: str, secret_key: str = None) -> Optional[TokenPayload]:
+def verify_jwt_token(token: str, secret_key: str = None) -> TokenPayload | None:
     """Verify and decode a JWT token."""
     from src.config import get_settings
     settings = get_settings()
@@ -220,7 +220,7 @@ def generate_api_key() -> tuple[str, str]:
     Returns:
         Tuple of (plaintext_key, key_hash)
     """
-    random_bytes = secrets.token_bytes(32)
+    secrets.token_bytes(32)
     plaintext_key = f"{API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
     key_hash = hashlib.sha256(plaintext_key.encode()).hexdigest()
     return plaintext_key, key_hash
@@ -241,7 +241,7 @@ def verify_api_key_signature(key: str, signature: str, payload: str) -> bool:
 # Authentication Functions
 # =============================================================================
 
-async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserContext]:
+async def authenticate_api_key(api_key: str, request: Request) -> UserContext | None:
     """Authenticate using API key."""
     logger.debug("API key auth attempt", key_prefix=api_key[:16] if api_key else None)
 
@@ -276,7 +276,7 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
         # Check expiration
         if key_data.get("expires_at"):
             expires = datetime.fromisoformat(key_data["expires_at"].replace("Z", "+00:00"))
-            if expires < datetime.now(timezone.utc):
+            if expires < datetime.now(UTC):
                 logger.warning("Expired API key", key_id=key_data["id"])
                 return None
 
@@ -307,7 +307,7 @@ async def authenticate_api_key(api_key: str, request: Request) -> Optional[UserC
             "api_keys",
             {"id": f"eq.{key_data['id']}"},
             {
-                "last_used_at": datetime.now(timezone.utc).isoformat(),
+                "last_used_at": datetime.now(UTC).isoformat(),
                 "request_count": (key_data.get("request_count", 0) or 0) + 1,
             }
         )
@@ -390,7 +390,7 @@ async def get_jwks_for_issuer(issuer: str) -> dict:
     return _issuer_jwks_cache.get(issuer, {})
 
 
-async def verify_clerk_jwt(token: str) -> Optional[dict]:
+async def verify_clerk_jwt(token: str) -> dict | None:
     """Verify a Clerk JWT token using JWKS.
 
     Supports two modes:
@@ -523,7 +523,7 @@ async def verify_clerk_jwt(token: str) -> Optional[dict]:
         return None
 
 
-async def get_clerk_user_info(user_id: str) -> Optional[dict]:
+async def get_clerk_user_info(user_id: str) -> dict | None:
     """Fetch user info from Clerk Backend API.
 
     This is used to get the user's email when it's not included in the JWT.
@@ -596,7 +596,7 @@ async def get_clerk_user_info(user_id: str) -> Optional[dict]:
     return None
 
 
-async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext]:
+async def authenticate_jwt(token: str, request: Request) -> UserContext | None:
     """Authenticate using JWT token (supports both internal JWTs and Clerk JWTs)."""
 
     logger.info("[authenticate_jwt] Starting JWT authentication", token_length=len(token) if token else 0)
@@ -696,7 +696,7 @@ async def authenticate_jwt(token: str, request: Request) -> Optional[UserContext
     )
 
 
-async def authenticate_service_account(token: str, request: Request) -> Optional[UserContext]:
+async def authenticate_service_account(token: str, request: Request) -> UserContext | None:
     """Authenticate internal service account."""
     from src.config import get_settings
     settings = get_settings()
@@ -773,8 +773,8 @@ def is_api_key_only_endpoint(path: str) -> bool:
 
 async def get_current_user(
     request: Request,
-    api_key: Optional[str] = Security(api_key_header),
-    bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+    api_key: str | None = Security(api_key_header),
+    bearer: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
 ) -> UserContext:
     """Get current authenticated user.
 

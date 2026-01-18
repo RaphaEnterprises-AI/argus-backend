@@ -1,9 +1,10 @@
 """Tests for the security secure_reader module."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
+
+import pytest
 
 
 class TestSecureReadResult:
@@ -11,8 +12,8 @@ class TestSecureReadResult:
 
     def test_secure_read_result_creation(self, mock_env_vars):
         """Test SecureReadResult creation."""
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
         from src.security.secure_reader import SecureReadResult
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
 
         classification = Classification(
             path="/path/to/file.py",
@@ -37,8 +38,8 @@ class TestSecureReadResult:
 
     def test_secure_read_result_skipped(self, mock_env_vars):
         """Test SecureReadResult for skipped file."""
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
         from src.security.secure_reader import SecureReadResult
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
 
         classification = Classification(
             path="/path/to/.env",
@@ -82,11 +83,11 @@ class TestSecureCodeReader:
 
     def test_secure_reader_with_custom_components(self, mock_env_vars):
         """Test SecureCodeReader with custom components."""
-        from src.security.secure_reader import SecureCodeReader
+        from src.security.audit import AuditLogger
+        from src.security.classifier import DataClassifier
         from src.security.consent import ConsentManager
         from src.security.sanitizer import CodeSanitizer
-        from src.security.classifier import DataClassifier
-        from src.security.audit import AuditLogger
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             consent = ConsentManager(auto_grant_mode="standard")
@@ -109,8 +110,8 @@ class TestSecureCodeReader:
 
     def test_check_consent_success(self, mock_env_vars):
         """Test check_consent with granted consent."""
-        from src.security.secure_reader import SecureCodeReader
         from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):
@@ -150,9 +151,9 @@ class TestSecureCodeReader:
 
     def test_read_file_success(self, mock_env_vars):
         """Test read_file for safe file."""
-        from src.security.secure_reader import SecureCodeReader
-        from src.security.consent import ConsentManager
         from src.security.audit import AuditLogger
+        from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test file in a subdirectory to avoid it being seen as audit log
@@ -180,9 +181,9 @@ class TestSecureCodeReader:
 
     def test_read_file_restricted(self, mock_env_vars):
         """Test read_file for restricted file."""
-        from src.security.secure_reader import SecureCodeReader
-        from src.security.consent import ConsentManager
         from src.security.audit import AuditLogger
+        from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create restricted file - use credentials.json instead of .env
@@ -210,9 +211,9 @@ class TestSecureCodeReader:
 
     def test_read_file_with_secrets(self, mock_env_vars):
         """Test read_file with secrets that get classified as restricted and skipped."""
-        from src.security.secure_reader import SecureCodeReader
-        from src.security.consent import ConsentManager
         from src.security.audit import AuditLogger
+        from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create file with secret - this will be classified as RESTRICTED
@@ -242,8 +243,8 @@ class TestSecureCodeReader:
 
     def test_read_file_binary(self, mock_env_vars):
         """Test read_file for binary file."""
-        from src.security.secure_reader import SecureCodeReader
         from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):
@@ -263,9 +264,9 @@ class TestSecureCodeReader:
 
     def test_read_codebase(self, mock_env_vars):
         """Test read_codebase method."""
-        from src.security.secure_reader import SecureCodeReader
-        from src.security.consent import ConsentManager
         from src.security.audit import AuditLogger
+        from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test files in src directory
@@ -304,9 +305,9 @@ class TestSecureCodeReader:
 
     def test_read_codebase_max_files(self, mock_env_vars):
         """Test read_codebase with max_files limit."""
-        from src.security.secure_reader import SecureCodeReader
-        from src.security.consent import ConsentManager
         from src.security.audit import AuditLogger
+        from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create many files in src directory
@@ -332,9 +333,9 @@ class TestSecureCodeReader:
 
     def test_read_codebase_with_extensions(self, mock_env_vars):
         """Test read_codebase with specific extensions."""
-        from src.security.secure_reader import SecureCodeReader
-        from src.security.consent import ConsentManager
         from src.security.audit import AuditLogger
+        from src.security.consent import ConsentManager
+        from src.security.secure_reader import SecureCodeReader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create files in src directory
@@ -363,9 +364,9 @@ class TestSecureCodeReader:
 
     def test_get_context_for_ai(self, mock_env_vars):
         """Test get_context_for_ai method."""
-        from src.security.secure_reader import SecureCodeReader, SecureReadResult
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
         from src.security.consent import ConsentManager
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.secure_reader import SecureCodeReader, SecureReadResult
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):
@@ -413,9 +414,9 @@ class TestSecureCodeReader:
 
     def test_get_context_for_ai_skip_empty(self, mock_env_vars):
         """Test get_context_for_ai skips skipped files."""
-        from src.security.secure_reader import SecureCodeReader, SecureReadResult
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
         from src.security.consent import ConsentManager
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.secure_reader import SecureCodeReader, SecureReadResult
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):
@@ -449,9 +450,9 @@ class TestSecureCodeReader:
 
     def test_get_context_for_ai_without_metadata(self, mock_env_vars):
         """Test get_context_for_ai without metadata."""
-        from src.security.secure_reader import SecureCodeReader, SecureReadResult
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
         from src.security.consent import ConsentManager
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.secure_reader import SecureCodeReader, SecureReadResult
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):
@@ -484,9 +485,9 @@ class TestSecureCodeReader:
 
     def test_get_file_summary(self, mock_env_vars):
         """Test get_file_summary method."""
-        from src.security.secure_reader import SecureCodeReader, SecureReadResult
+        from src.security.classifier import Classification, DataCategory, SensitivityLevel
         from src.security.consent import ConsentManager
-        from src.security.classifier import Classification, SensitivityLevel, DataCategory
+        from src.security.secure_reader import SecureCodeReader, SecureReadResult
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):
@@ -578,8 +579,8 @@ class TestCreateSecureReader:
 
     def test_create_secure_reader_with_auto_consent(self, mock_env_vars):
         """Test create_secure_reader with auto consent mode."""
-        from src.security.secure_reader import create_secure_reader
         from src.security.consent import ConsentScope
+        from src.security.secure_reader import create_secure_reader
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict("os.environ", {"AUDIT_LOG_DIR": tmpdir}):

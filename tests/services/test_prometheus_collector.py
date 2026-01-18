@@ -1,18 +1,19 @@
 """Tests for the Prometheus Metrics Collector service."""
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
 import httpx
+import pytest
 
 from src.services.prometheus_collector import (
-    MetricValue,
-    MetricSeries,
-    ResourceUtilization,
-    SeleniumMetrics,
     BrowserNodeMetrics,
     InfrastructureSnapshot,
+    MetricSeries,
+    MetricValue,
     PrometheusCollector,
+    ResourceUtilization,
+    SeleniumMetrics,
     create_prometheus_collector,
 )
 

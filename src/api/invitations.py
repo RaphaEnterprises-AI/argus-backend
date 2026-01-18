@@ -9,16 +9,15 @@ Provides endpoints for:
 """
 
 import secrets
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, EmailStr
 import structlog
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 
-from src.services.supabase_client import get_supabase_client
+from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.email_service import get_email_service
-from src.api.teams import get_current_user, verify_org_access, log_audit
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/invitations", tags=["Invitation Management"])
@@ -32,7 +31,7 @@ class SendInvitationRequest(BaseModel):
     """Request to send an invitation."""
     email: EmailStr
     role: str = Field("member", pattern="^(admin|member|viewer)$")
-    message: Optional[str] = Field(None, max_length=500, description="Optional personal message")
+    message: str | None = Field(None, max_length=500, description="Optional personal message")
 
 
 class InvitationResponse(BaseModel):
@@ -42,9 +41,9 @@ class InvitationResponse(BaseModel):
     email: str
     role: str
     status: str
-    message: Optional[str]
+    message: str | None
     token_expires_at: str
-    invited_by: Optional[str]
+    invited_by: str | None
     created_at: str
 
 
@@ -66,11 +65,11 @@ class AcceptInvitationResponse(BaseModel):
 class ValidateTokenResponse(BaseModel):
     """Response for token validation."""
     valid: bool
-    email: Optional[str] = None
-    organization_name: Optional[str] = None
-    role: Optional[str] = None
-    expires_at: Optional[str] = None
-    error: Optional[str] = None
+    email: str | None = None
+    organization_name: str | None = None
+    role: str | None = None
+    expires_at: str | None = None
+    error: str | None = None
 
 
 # ============================================================================
@@ -84,7 +83,7 @@ def generate_invitation_token() -> str:
 
 def get_token_expiration() -> str:
     """Get expiration datetime 7 days from now."""
-    return (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    return (datetime.now(UTC) + timedelta(days=7)).isoformat()
 
 
 # ============================================================================
@@ -206,7 +205,7 @@ async def list_pending_invitations(org_id: str, request: Request):
 
     # Get pending invitations (not expired)
     # Use 'Z' suffix instead of '+00:00' to avoid URL encoding issues with '+'
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
     invitations_result = await supabase.request(
         f"/invitations?organization_id=eq.{supabase_org_id}&status=eq.pending"
         f"&token_expires_at=gt.{now}&select=*&order=created_at.desc"
@@ -267,7 +266,7 @@ async def revoke_invitation(org_id: str, invite_id: str, request: Request):
     update_result = await supabase.update(
         "invitations",
         {"id": f"eq.{invite_id}"},
-        {"status": "revoked", "updated_at": datetime.now(timezone.utc).isoformat()}
+        {"status": "revoked", "updated_at": datetime.now(UTC).isoformat()}
     )
 
     if update_result.get("error"):
@@ -323,7 +322,7 @@ async def validate_invitation_token(token: str):
 
     # Check if expired
     expires_at = datetime.fromisoformat(invitation["token_expires_at"].replace("Z", "+00:00"))
-    if datetime.now(timezone.utc) > expires_at:
+    if datetime.now(UTC) > expires_at:
         return ValidateTokenResponse(valid=False, error="Invitation has expired")
 
     # Get organization name
@@ -371,7 +370,7 @@ async def accept_invitation(token: str, request: Request):
 
     # Check if expired
     expires_at = datetime.fromisoformat(invitation["token_expires_at"].replace("Z", "+00:00"))
-    if datetime.now(timezone.utc) > expires_at:
+    if datetime.now(UTC) > expires_at:
         raise HTTPException(status_code=400, detail="Invitation has expired")
 
     # Verify the accepting user matches the invitation email (if email available)

@@ -1,18 +1,18 @@
 """User presence tracking for real-time collaboration."""
 
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Callable, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from .models import (
-    UserPresence,
-    PresenceStatus,
-    CursorPosition,
-    SelectionRange,
+    BroadcastMessage,
     CollaborationEvent,
     CollaborationEventType,
-    BroadcastMessage,
+    CursorPosition,
+    PresenceStatus,
+    SelectionRange,
+    UserPresence,
 )
 
 
@@ -35,7 +35,7 @@ class PresenceManager:
 
     def __init__(
         self,
-        broadcast_fn: Optional[Callable[[BroadcastMessage], None]] = None,
+        broadcast_fn: Callable[[BroadcastMessage], None] | None = None,
     ):
         """Initialize presence manager.
 
@@ -49,7 +49,7 @@ class PresenceManager:
         # Broadcast callback
         self._broadcast_fn = broadcast_fn
         # Cleanup task
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
         # Lock for thread-safe operations
         self._lock = asyncio.Lock()
 
@@ -74,8 +74,8 @@ class PresenceManager:
         user_name: str,
         user_email: str,
         workspace_id: str,
-        test_id: Optional[str] = None,
-        avatar_url: Optional[str] = None,
+        test_id: str | None = None,
+        avatar_url: str | None = None,
     ) -> UserPresence:
         """Record a user joining a workspace/test.
 
@@ -130,7 +130,7 @@ class PresenceManager:
         self,
         user_id: str,
         workspace_id: str,
-        test_id: Optional[str] = None,
+        test_id: str | None = None,
     ) -> None:
         """Record a user leaving a workspace/test.
 
@@ -167,7 +167,7 @@ class PresenceManager:
         user_id: str,
         workspace_id: str,
         cursor: CursorPosition,
-        test_id: Optional[str] = None,
+        test_id: str | None = None,
     ) -> None:
         """Update a user's cursor position.
 
@@ -181,7 +181,7 @@ class PresenceManager:
             presence = self._get_presence(user_id, workspace_id)
             if presence:
                 presence.cursor = cursor
-                presence.last_active = datetime.now(timezone.utc)
+                presence.last_active = datetime.now(UTC)
                 presence.status = PresenceStatus.ONLINE
 
                 # Update test presence if applicable
@@ -215,7 +215,7 @@ class PresenceManager:
         user_id: str,
         workspace_id: str,
         selection: SelectionRange,
-        test_id: Optional[str] = None,
+        test_id: str | None = None,
     ) -> None:
         """Update a user's text selection.
 
@@ -229,7 +229,7 @@ class PresenceManager:
             presence = self._get_presence(user_id, workspace_id)
             if presence:
                 presence.selection = selection
-                presence.last_active = datetime.now(timezone.utc)
+                presence.last_active = datetime.now(UTC)
                 presence.status = PresenceStatus.ONLINE
 
                 # Broadcast selection change
@@ -266,7 +266,7 @@ class PresenceManager:
         async with self._lock:
             presence = self._get_presence(user_id, workspace_id)
             if presence:
-                presence.last_active = datetime.now(timezone.utc)
+                presence.last_active = datetime.now(UTC)
                 if presence.status == PresenceStatus.IDLE:
                     presence.status = PresenceStatus.ONLINE
 
@@ -288,7 +288,7 @@ class PresenceManager:
             if presence:
                 old_status = presence.status
                 presence.status = status
-                presence.last_active = datetime.now(timezone.utc)
+                presence.last_active = datetime.now(UTC)
 
                 if old_status != status:
                     event_type = (
@@ -335,7 +335,7 @@ class PresenceManager:
         self,
         user_id: str,
         workspace_id: str,
-    ) -> Optional[UserPresence]:
+    ) -> UserPresence | None:
         """Get a specific user's presence.
 
         Args:
@@ -351,7 +351,7 @@ class PresenceManager:
         self,
         user_id: str,
         workspace_id: str,
-    ) -> Optional[UserPresence]:
+    ) -> UserPresence | None:
         """Internal method to get presence without lock."""
         if workspace_id not in self._presence_by_workspace:
             return None
@@ -371,7 +371,7 @@ class PresenceManager:
 
     async def _check_idle_users(self) -> None:
         """Check for idle/offline users and update their status."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         idle_threshold = now - timedelta(seconds=self.IDLE_TIMEOUT_SECONDS)
         offline_threshold = now - timedelta(seconds=self.OFFLINE_TIMEOUT_SECONDS)
 

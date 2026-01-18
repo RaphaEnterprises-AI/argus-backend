@@ -1,43 +1,43 @@
 """Services module for external integrations."""
 
-from src.services.supabase_client import SupabaseClient, get_supabase_client
 from src.services.ai_cost_tracker import (
+    MODEL_PRICING,
     AICostTracker,
-    get_cost_tracker,
-    record_ai_usage,
-    check_ai_budget,
-    calculate_ai_cost,
+    BudgetStatus,
     TaskType,
     UsageRecord,
-    BudgetStatus,
-    MODEL_PRICING,
+    calculate_ai_cost,
+    check_ai_budget,
+    get_cost_tracker,
+    record_ai_usage,
 )
 from src.services.email_service import (
-    EmailService,
-    EmailProvider,
     ConsoleEmailProvider,
+    EmailProvider,
+    EmailService,
     ResendEmailProvider,
     SendGridEmailProvider,
     SMTPEmailProvider,
     get_email_service,
 )
-from src.services.prometheus_collector import (
-    PrometheusCollector,
-    create_prometheus_collector,
-    InfrastructureSnapshot,
-    SeleniumMetrics,
-    BrowserNodeMetrics,
-)
 from src.services.infra_optimizer import (
     AIInfraOptimizer,
-    create_infra_optimizer,
-    InfraRecommendation,
+    Anomaly,
     CostReport,
     DemandForecast,
-    Anomaly,
-    RecommendationType,
+    InfraRecommendation,
     RecommendationPriority,
+    RecommendationType,
+    create_infra_optimizer,
 )
+from src.services.prometheus_collector import (
+    BrowserNodeMetrics,
+    InfrastructureSnapshot,
+    PrometheusCollector,
+    SeleniumMetrics,
+    create_prometheus_collector,
+)
+from src.services.supabase_client import SupabaseClient, get_supabase_client
 
 __all__ = [
     # Supabase

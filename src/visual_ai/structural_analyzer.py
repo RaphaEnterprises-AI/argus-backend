@@ -17,9 +17,9 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 from html.parser import HTMLParser
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from .models import VisualElement, VisualSnapshot, VisualChange, ChangeCategory
+from .models import VisualElement, VisualSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ElementBounds:
     height: int
 
     @property
-    def center(self) -> Tuple[int, int]:
+    def center(self) -> tuple[int, int]:
         """Get center point."""
         return (self.x + self.width // 2, self.y + self.height // 2)
 
@@ -54,7 +54,7 @@ class ElementBounds:
         """Get area in pixels."""
         return self.width * self.height
 
-    def to_dict(self) -> Dict[str, int]:
+    def to_dict(self) -> dict[str, int]:
         return {
             "x": self.x,
             "y": self.y,
@@ -63,7 +63,7 @@ class ElementBounds:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, int]) -> "ElementBounds":
+    def from_dict(cls, data: dict[str, int]) -> "ElementBounds":
         return cls(
             x=data.get("x", 0),
             y=data.get("y", 0),
@@ -103,14 +103,14 @@ class StructuralElement:
     id: str
     tag: str
     bounds: ElementBounds
-    selector: Optional[str] = None
-    text_content: Optional[str] = None
-    attributes: Dict[str, str] = field(default_factory=dict)
-    computed_styles: Dict[str, str] = field(default_factory=dict)
+    selector: str | None = None
+    text_content: str | None = None
+    attributes: dict[str, str] = field(default_factory=dict)
+    computed_styles: dict[str, str] = field(default_factory=dict)
     children_count: int = 0
     z_index: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "tag": self.tag,
@@ -124,7 +124,7 @@ class StructuralElement:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StructuralElement":
+    def from_dict(cls, data: dict[str, Any]) -> "StructuralElement":
         return cls(
             id=data.get("id", ""),
             tag=data.get("tag", ""),
@@ -144,14 +144,14 @@ class StructuralChange:
 
     change_type: StructuralChangeType
     element_id: str
-    baseline_element: Optional[StructuralElement] = None
-    current_element: Optional[StructuralElement] = None
-    property_changes: Dict[str, Tuple[Any, Any]] = field(default_factory=dict)
-    position_delta: Optional[Tuple[int, int]] = None
-    size_delta: Optional[Tuple[int, int]] = None
+    baseline_element: StructuralElement | None = None
+    current_element: StructuralElement | None = None
+    property_changes: dict[str, tuple[Any, Any]] = field(default_factory=dict)
+    position_delta: tuple[int, int] | None = None
+    size_delta: tuple[int, int] | None = None
     confidence: float = 1.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "change_type": self.change_type.value,
             "element_id": self.element_id,
@@ -171,7 +171,7 @@ class StructuralChange:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StructuralChange":
+    def from_dict(cls, data: dict[str, Any]) -> "StructuralChange":
         property_changes = {}
         for k, v in data.get("property_changes", {}).items():
             if isinstance(v, dict):
@@ -205,9 +205,9 @@ class LayoutRegion:
 
     name: str  # e.g., "header", "navigation", "main-content", "footer"
     bounds: ElementBounds
-    elements: List[StructuralElement] = field(default_factory=list)
+    elements: list[StructuralElement] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "bounds": self.bounds.to_dict(),
@@ -237,16 +237,16 @@ class StructuralDiff:
     elements_unchanged: int = 0
 
     # Detailed changes
-    changes: List[StructuralChange] = field(default_factory=list)
+    changes: list[StructuralChange] = field(default_factory=list)
 
     # Layout analysis
-    baseline_layout_regions: List[LayoutRegion] = field(default_factory=list)
-    current_layout_regions: List[LayoutRegion] = field(default_factory=list)
+    baseline_layout_regions: list[LayoutRegion] = field(default_factory=list)
+    current_layout_regions: list[LayoutRegion] = field(default_factory=list)
     layout_shift_score: float = 0.0  # CLS-like metric
 
     # Pixel-level diff
     pixel_diff_percentage: float = 0.0  # 0-100
-    pixel_diff_regions: List[ElementBounds] = field(default_factory=list)
+    pixel_diff_regions: list[ElementBounds] = field(default_factory=list)
 
     # Hashes for quick comparison
     baseline_layout_hash: str = ""
@@ -254,7 +254,7 @@ class StructuralDiff:
     baseline_content_hash: str = ""
     current_content_hash: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "baseline_id": self.baseline_id,
             "current_id": self.current_id,
@@ -278,7 +278,7 @@ class StructuralDiff:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StructuralDiff":
+    def from_dict(cls, data: dict[str, Any]) -> "StructuralDiff":
         return cls(
             baseline_id=data.get("baseline_id", ""),
             current_id=data.get("current_id", ""),
@@ -333,13 +333,13 @@ class StructuralDiff:
 
     def get_significant_changes(
         self, min_confidence: float = 0.7
-    ) -> List[StructuralChange]:
+    ) -> list[StructuralChange]:
         """Get changes with confidence above threshold."""
         return [c for c in self.changes if c.confidence >= min_confidence]
 
     def get_changes_by_type(
         self, change_type: StructuralChangeType
-    ) -> List[StructuralChange]:
+    ) -> list[StructuralChange]:
         """Get all changes of a specific type."""
         return [c for c in self.changes if c.change_type == change_type]
 
@@ -377,15 +377,15 @@ class VisualStructuralDiff:
     snapshot system.
     """
 
-    added_elements: List[VisualElement] = field(default_factory=list)
-    removed_elements: List[VisualElement] = field(default_factory=list)
-    moved_elements: List[Tuple[VisualElement, VisualElement]] = field(
+    added_elements: list[VisualElement] = field(default_factory=list)
+    removed_elements: list[VisualElement] = field(default_factory=list)
+    moved_elements: list[tuple[VisualElement, VisualElement]] = field(
         default_factory=list
     )  # (baseline, current)
-    modified_elements: List[Tuple[VisualElement, VisualElement, List[str]]] = field(
+    modified_elements: list[tuple[VisualElement, VisualElement, list[str]]] = field(
         default_factory=list
     )  # (baseline, current, changed_props)
-    text_changes: List[Dict[str, Any]] = field(
+    text_changes: list[dict[str, Any]] = field(
         default_factory=list
     )  # {element, old_text, new_text}
 
@@ -427,7 +427,7 @@ class VisualStructuralDiff:
             return "No structural changes detected"
         return "; ".join(parts)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "added_elements": [el.to_dict() for el in self.added_elements],
@@ -497,7 +497,7 @@ class LayoutShift:
 
         return ", ".join(directions) if directions else "no movement"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "element": self.element.to_dict(),
@@ -516,12 +516,12 @@ class DOMTreeParser(HTMLParser):
 
     def __init__(self):
         super().__init__()
-        self.elements: List[Dict[str, Any]] = []
-        self._stack: List[Dict[str, Any]] = []
-        self._current_text: List[str] = []
+        self.elements: list[dict[str, Any]] = []
+        self._stack: list[dict[str, Any]] = []
+        self._current_text: list[str] = []
 
     def handle_starttag(
-        self, tag: str, attrs: List[Tuple[str, Optional[str]]]
+        self, tag: str, attrs: list[tuple[str, str | None]]
     ) -> None:
         element = {
             "tag": tag,
@@ -646,9 +646,9 @@ class StructuralAnalyzer:
 
     async def detect_layout_shifts(
         self,
-        baseline_elements: List[VisualElement],
-        current_elements: List[VisualElement],
-    ) -> List[LayoutShift]:
+        baseline_elements: list[VisualElement],
+        current_elements: list[VisualElement],
+    ) -> list[LayoutShift]:
         """Detect elements that moved position between snapshots.
 
         Uses Euclidean distance to calculate the shift distance between
@@ -661,7 +661,7 @@ class StructuralAnalyzer:
         Returns:
             List of LayoutShift objects for elements that moved.
         """
-        shifts: List[LayoutShift] = []
+        shifts: list[LayoutShift] = []
 
         # Match elements
         matches, _, _ = self._match_elements(baseline_elements, current_elements)
@@ -696,8 +696,8 @@ class StructuralAnalyzer:
         self,
         baseline: VisualSnapshot,
         current: VisualSnapshot,
-        component_selectors: List[str],
-    ) -> Dict[str, Any]:
+        component_selectors: list[str],
+    ) -> dict[str, Any]:
         """Track specific components across versions.
 
         Args:
@@ -708,13 +708,13 @@ class StructuralAnalyzer:
         Returns:
             Dictionary mapping selectors to their change information.
         """
-        results: Dict[str, Any] = {}
+        results: dict[str, Any] = {}
 
         for selector in component_selectors:
             baseline_el = baseline.get_element_by_selector(selector)
             current_el = current.get_element_by_selector(selector)
 
-            component_result: Dict[str, Any] = {
+            component_result: dict[str, Any] = {
                 "selector": selector,
                 "found_in_baseline": baseline_el is not None,
                 "found_in_current": current_el is not None,
@@ -765,12 +765,12 @@ class StructuralAnalyzer:
 
     def _match_elements(
         self,
-        baseline_elements: List[VisualElement],
-        current_elements: List[VisualElement],
-    ) -> Tuple[
-        List[Tuple[VisualElement, VisualElement]],
-        List[VisualElement],
-        List[VisualElement],
+        baseline_elements: list[VisualElement],
+        current_elements: list[VisualElement],
+    ) -> tuple[
+        list[tuple[VisualElement, VisualElement]],
+        list[VisualElement],
+        list[VisualElement],
     ]:
         """Match elements between snapshots using ID, selector, position.
 
@@ -786,7 +786,7 @@ class StructuralAnalyzer:
         Returns:
             Tuple of (matched_pairs, unmatched_baseline, unmatched_current)
         """
-        matches: List[Tuple[VisualElement, VisualElement]] = []
+        matches: list[tuple[VisualElement, VisualElement]] = []
         unmatched_baseline = list(baseline_elements)
         unmatched_current = list(current_elements)
 
@@ -814,7 +814,7 @@ class StructuralAnalyzer:
 
         # Stage 3: Match by position proximity (for remaining elements)
         for current_el in list(unmatched_current):
-            best_match: Optional[VisualElement] = None
+            best_match: VisualElement | None = None
             best_distance = float("inf")
 
             for baseline_el in unmatched_baseline:
@@ -859,9 +859,9 @@ class StructuralAnalyzer:
 
     def _get_changed_properties(
         self, baseline: VisualElement, current: VisualElement
-    ) -> List[str]:
+    ) -> list[str]:
         """Get list of properties that changed between two elements."""
-        changed: List[str] = []
+        changed: list[str] = []
 
         # Check bounds
         if baseline.bounds != current.bounds:
@@ -925,14 +925,14 @@ class StructuralAnalyzer:
             return 0.0
         return difflib.SequenceMatcher(None, text1, text2).ratio()
 
-    def _parse_dom_to_elements(self, dom_html: str) -> List[VisualElement]:
+    def _parse_dom_to_elements(self, dom_html: str) -> list[VisualElement]:
         """Parse HTML DOM string into a list of VisualElement objects.
 
         Note: This is a simplified parser that creates elements from the DOM.
         In production, you would use the elements from VisualSnapshot which
         have accurate bounds from the browser.
         """
-        elements: List[VisualElement] = []
+        elements: list[VisualElement] = []
 
         try:
             parser = DOMTreeParser()
@@ -970,10 +970,10 @@ class StructuralAnalyzer:
         return elements
 
     def _flatten_parsed_elements(
-        self, elements: List[Dict[str, Any]], parent_selector: str = ""
-    ) -> List[Dict[str, Any]]:
+        self, elements: list[dict[str, Any]], parent_selector: str = ""
+    ) -> list[dict[str, Any]]:
         """Flatten nested element structure into a flat list."""
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
 
         for i, el in enumerate(elements):
             # Build path-based selector
@@ -1000,7 +1000,7 @@ class StructuralAnalyzer:
 
         return result
 
-    def _generate_selector(self, parsed_element: Dict[str, Any]) -> str:
+    def _generate_selector(self, parsed_element: dict[str, Any]) -> str:
         """Generate a CSS selector for a parsed element."""
         if "_selector" in parsed_element:
             return parsed_element["_selector"]
@@ -1029,7 +1029,7 @@ class StructuralAnalyzer:
         diff: VisualStructuralDiff,
         baseline_dom: str,
         current_dom: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate a comprehensive diff report with line-by-line changes.
 
         Args:
@@ -1074,7 +1074,7 @@ class StructuralAnalyzer:
         }
 
     def calculate_cumulative_layout_shift(
-        self, shifts: List[LayoutShift], viewport_height: float = 800.0
+        self, shifts: list[LayoutShift], viewport_height: float = 800.0
     ) -> float:
         """Calculate the Cumulative Layout Shift (CLS) score.
 
@@ -1132,7 +1132,7 @@ class StructuralAnalyzer:
         Returns:
             A StructuralDiff with equivalent data.
         """
-        changes: List[StructuralChange] = []
+        changes: list[StructuralChange] = []
 
         # Convert added elements
         for el in visual_diff.added_elements:

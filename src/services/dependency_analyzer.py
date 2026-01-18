@@ -16,7 +16,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +121,8 @@ class DependencyAnalyzer:
 
     def build_graph(
         self,
-        source_dirs: Optional[list[str]] = None,
-        extensions: Optional[list[str]] = None,
+        source_dirs: list[str] | None = None,
+        extensions: list[str] | None = None,
     ) -> None:
         """Build the dependency graph for the codebase.
 
@@ -210,7 +209,7 @@ class DependencyAnalyzer:
 
     def _detect_module_type(self, path: str, content: str) -> str:
         """Detect the type of module based on path and content."""
-        path_lower = path.lower()
+        path.lower()
 
         if ".test." in path or ".spec." in path or "/tests/" in path or "/__tests__/" in path:
             return "test"
@@ -282,7 +281,7 @@ class DependencyAnalyzer:
                     module.dependencies.append(resolved)
                     self.modules[resolved].dependents.append(module_path)
 
-    def _resolve_import(self, import_path: str, from_dir: str) -> Optional[str]:
+    def _resolve_import(self, import_path: str, from_dir: str) -> str | None:
         """Resolve an import path to a module path."""
         # Skip external packages
         if not import_path.startswith(".") and not import_path.startswith("@/"):
@@ -590,7 +589,7 @@ class DependencyAnalyzer:
 
 
 # Global instance (lazy initialized)
-_dependency_analyzer: Optional[DependencyAnalyzer] = None
+_dependency_analyzer: DependencyAnalyzer | None = None
 
 
 def get_dependency_analyzer(repo_path: str = ".") -> DependencyAnalyzer:

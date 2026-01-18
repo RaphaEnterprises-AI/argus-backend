@@ -12,15 +12,15 @@ This agent:
 import base64
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from .base import BaseAgent, AgentResult
+from .base import AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec, TestStep
 
 if TYPE_CHECKING:
+    from src.execution import ExecutionStrategy, HybridExecutor
     from src.tools.browser_worker_client import BrowserWorkerClient
-    from src.execution import HybridExecutor, ExecutionStrategy
 
 
 @dataclass
@@ -31,10 +31,10 @@ class StepResult:
     action: str
     success: bool
     duration_ms: int
-    error: Optional[str] = None
-    screenshot: Optional[bytes] = None
+    error: str | None = None
+    screenshot: bytes | None = None
     # Hybrid execution fields
-    mode_used: Optional[str] = None  # "dom", "vision", or "hybrid"
+    mode_used: str | None = None  # "dom", "vision", or "hybrid"
     fallback_triggered: bool = False
     dom_attempts: int = 0
     vision_attempts: int = 0
@@ -61,11 +61,11 @@ class AssertionResult:
     """Result from checking an assertion."""
 
     type: str
-    target: Optional[str]
-    expected: Optional[str]
-    actual: Optional[str]
+    target: str | None
+    expected: str | None
+    actual: str | None
     passed: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -88,9 +88,9 @@ class UITestResult:
     step_results: list[StepResult] = field(default_factory=list)
     assertion_results: list[AssertionResult] = field(default_factory=list)
     total_duration_ms: int = 0
-    error_message: Optional[str] = None
-    final_screenshot: Optional[bytes] = None
-    failure_screenshot: Optional[bytes] = None
+    error_message: str | None = None
+    final_screenshot: bytes | None = None
+    failure_screenshot: bytes | None = None
     # Hybrid execution stats
     execution_mode: str = "standard"  # "standard", "hybrid", "worker"
     total_dom_attempts: int = 0
@@ -297,7 +297,7 @@ Respond with JSON containing:
         test_spec: TestSpec | dict,
         app_url: str,
         playwright_tools=None,
-        use_worker: Optional[bool] = None,
+        use_worker: bool | None = None,
     ) -> AgentResult[UITestResult]:
         """Execute a UI test specification.
 
@@ -321,7 +321,7 @@ Respond with JSON containing:
             self.log.info("Worker unavailable, falling back to local Playwright")
         # Convert dict to TestSpec if needed
         if isinstance(test_spec, dict):
-            from .test_planner import TestStep, TestAssertion
+            from .test_planner import TestAssertion, TestStep
 
             steps = [
                 TestStep(**s) if isinstance(s, dict) else s
@@ -684,11 +684,11 @@ Respond with JSON containing:
         Returns:
             AgentResult containing UITestResult with hybrid execution stats
         """
-        from src.execution import ExecutionStrategy
 
         # Convert dict to TestSpec if needed
         if isinstance(test_spec, dict):
-            from .test_planner import TestStep as PlannerTestStep, TestAssertion
+            from .test_planner import TestAssertion
+            from .test_planner import TestStep as PlannerTestStep
 
             steps = [
                 PlannerTestStep(**s) if isinstance(s, dict) else s

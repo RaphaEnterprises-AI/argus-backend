@@ -1,11 +1,11 @@
 """Tests for the error correlator module."""
 
-import pytest
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 import tempfile
-import os
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestCorrelationType:
@@ -97,7 +97,7 @@ class TestCorrelation:
 
     def test_correlation_creation(self, mock_env_vars):
         """Test creating a Correlation instance."""
-        from src.core.correlator import Correlation, CorrelationType, ConfidenceLevel, CodeLocation
+        from src.core.correlator import CodeLocation, ConfidenceLevel, Correlation, CorrelationType
 
         location = CodeLocation(file_path="src/auth.py", line_number=25)
 
@@ -118,7 +118,7 @@ class TestCorrelation:
 
     def test_correlation_to_dict(self, mock_env_vars):
         """Test Correlation to_dict method."""
-        from src.core.correlator import Correlation, CorrelationType, ConfidenceLevel, CodeLocation
+        from src.core.correlator import CodeLocation, ConfidenceLevel, Correlation, CorrelationType
 
         location = CodeLocation(file_path="test.py", line_number=10)
         related = [CodeLocation(file_path="helper.py", line_number=5)]
@@ -262,7 +262,13 @@ class TestErrorCorrelator:
 
     def test_deduplicate_correlations(self, mock_env_vars):
         """Test correlation deduplication."""
-        from src.core.correlator import ErrorCorrelator, Correlation, CorrelationType, ConfidenceLevel, CodeLocation
+        from src.core.correlator import (
+            CodeLocation,
+            ConfidenceLevel,
+            Correlation,
+            CorrelationType,
+            ErrorCorrelator,
+        )
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -304,7 +310,13 @@ class TestErrorCorrelator:
     async def test_correlate_from_stack(self, mock_env_vars):
         """Test correlation from stack trace."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, StackFrame, EventType, Severity, EventSource
+        from src.core.normalizer import (
+            EventSource,
+            EventType,
+            NormalizedEvent,
+            Severity,
+            StackFrame,
+        )
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -353,7 +365,13 @@ class TestErrorCorrelator:
     async def test_correlate_from_stack_skips_non_app(self, mock_env_vars):
         """Test that stack correlation skips non-app frames."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, StackFrame, EventType, Severity, EventSource
+        from src.core.normalizer import (
+            EventSource,
+            EventType,
+            NormalizedEvent,
+            Severity,
+            StackFrame,
+        )
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -383,8 +401,8 @@ class TestErrorCorrelator:
     @pytest.mark.asyncio
     async def test_correlate_from_file(self, mock_env_vars):
         """Test correlation from explicit file path."""
-        from src.core.correlator import ErrorCorrelator, CorrelationType
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.correlator import CorrelationType, ErrorCorrelator
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -414,7 +432,7 @@ class TestErrorCorrelator:
     async def test_correlate_from_file_no_path(self, mock_env_vars):
         """Test file correlation returns None when no path."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -438,7 +456,7 @@ class TestErrorCorrelator:
     async def test_correlate_from_component(self, mock_env_vars):
         """Test correlation from UI component name."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test component files
@@ -471,7 +489,7 @@ class TestErrorCorrelator:
     async def test_correlate_from_component_no_codebase(self, mock_env_vars):
         """Test component correlation returns empty when no codebase."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         correlator = ErrorCorrelator(use_llm=False)  # No codebase_path
 
@@ -495,7 +513,13 @@ class TestErrorCorrelator:
     async def test_correlate_event_full(self, mock_env_vars):
         """Test full event correlation."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, StackFrame, EventType, Severity, EventSource
+        from src.core.normalizer import (
+            EventSource,
+            EventType,
+            NormalizedEvent,
+            Severity,
+            StackFrame,
+        )
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -533,7 +557,7 @@ class TestErrorCorrelator:
     async def test_detect_patterns_basic(self, mock_env_vars):
         """Test basic pattern detection."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -566,7 +590,7 @@ class TestErrorCorrelator:
     async def test_detect_patterns_min_occurrences(self, mock_env_vars):
         """Test pattern detection respects min_occurrences."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -673,7 +697,7 @@ class TestErrorCorrelator:
     async def test_correlate_semantic_without_client(self, mock_env_vars):
         """Test semantic correlation returns empty without LLM client."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         correlator = ErrorCorrelator(use_llm=False)
 
@@ -696,7 +720,7 @@ class TestErrorCorrelator:
     async def test_enhance_pattern_with_llm(self, mock_env_vars):
         """Test pattern enhancement with LLM."""
         from src.core.correlator import ErrorCorrelator, ErrorPattern
-        from src.core.normalizer import NormalizedEvent, EventType, Severity, EventSource
+        from src.core.normalizer import EventSource, EventType, NormalizedEvent, Severity
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text='''{
@@ -749,7 +773,13 @@ class TestErrorCorrelatorIntegration:
     async def test_full_correlation_pipeline(self, mock_env_vars):
         """Test full correlation pipeline without LLM."""
         from src.core.correlator import ErrorCorrelator
-        from src.core.normalizer import NormalizedEvent, StackFrame, EventType, Severity, EventSource
+        from src.core.normalizer import (
+            EventSource,
+            EventType,
+            NormalizedEvent,
+            Severity,
+            StackFrame,
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create source files

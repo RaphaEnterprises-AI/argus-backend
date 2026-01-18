@@ -1,7 +1,8 @@
 """Tests for the orchestrator nodes module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 class TestTrackUsage:
@@ -57,7 +58,7 @@ class TestAnalyzeCodeNode:
         """Test successful code analysis."""
         with patch("anthropic.Anthropic") as mock_anthropic:
             with patch("src.orchestrator.nodes.create_secure_reader") as mock_reader:
-                with patch("src.orchestrator.nodes.get_audit_logger") as mock_audit:
+                with patch("src.orchestrator.nodes.get_audit_logger"):
                     from src.orchestrator.nodes import analyze_code_node
 
                     # Setup mock reader
@@ -109,9 +110,10 @@ class TestAnalyzeCodeNode:
         with patch("anthropic.Anthropic") as mock_anthropic:
             with patch("src.orchestrator.nodes.create_secure_reader") as mock_reader:
                 with patch("src.orchestrator.nodes.get_audit_logger"):
-                    from src.orchestrator.nodes import analyze_code_node
                     import tempfile
                     from pathlib import Path
+
+                    from src.orchestrator.nodes import analyze_code_node
 
                     with tempfile.TemporaryDirectory() as tmpdir:
                         # Create a test file
@@ -274,7 +276,7 @@ class TestExecuteTestNode:
     @pytest.mark.asyncio
     async def test_execute_test_ui_simulated(self, mock_env_vars):
         """Test executing a UI test with simulated execution."""
-        with patch("anthropic.Anthropic") as mock_anthropic:
+        with patch("anthropic.Anthropic"):
             with patch(
                 "src.orchestrator.nodes._execute_ui_test"
             ) as mock_ui:
@@ -335,8 +337,8 @@ class TestSelfHealNode:
     async def test_self_heal_success(self, mock_env_vars):
         """Test successful self healing."""
         with patch("anthropic.Anthropic") as mock_anthropic:
-            from src.orchestrator.nodes import self_heal_node
             from src.config import Settings
+            from src.orchestrator.nodes import self_heal_node
 
             mock_response = MagicMock()
             mock_response.usage.input_tokens = 100
@@ -384,8 +386,8 @@ class TestSelfHealNode:
     async def test_self_heal_low_confidence(self, mock_env_vars):
         """Test self heal with low confidence."""
         with patch("anthropic.Anthropic") as mock_anthropic:
-            from src.orchestrator.nodes import self_heal_node
             from src.config import Settings
+            from src.orchestrator.nodes import self_heal_node
 
             mock_response = MagicMock()
             mock_response.usage.input_tokens = 100

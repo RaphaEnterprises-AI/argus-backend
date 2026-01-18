@@ -1,12 +1,12 @@
 """Tests for the reporter module."""
 
-import pytest
-import tempfile
-import os
 import json
+import os
+import tempfile
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # Patch target for Anthropic client in base agent
 ANTHROPIC_PATCH = 'anthropic.Anthropic'
@@ -114,7 +114,7 @@ class TestTestReport:
 
     def test_report_to_dict(self, mock_env_vars):
         """Test TestReport to_dict method."""
-        from src.agents.reporter import TestReport, TestSummary, FailureReport
+        from src.agents.reporter import FailureReport, TestReport, TestSummary
 
         summary = TestSummary(total_tests=2, passed=1, failed=1)
         failure = FailureReport(
@@ -227,7 +227,7 @@ class TestReporterAgent:
     def test_generate_markdown_report(self, mock_env_vars):
         """Test markdown report generation."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.reporter import ReporterAgent, TestSummary, FailureReport
+            from src.agents.reporter import FailureReport, ReporterAgent, TestSummary
 
             agent = ReporterAgent()
 
@@ -278,7 +278,7 @@ class TestReporterAgent:
     def test_generate_html_report(self, mock_env_vars):
         """Test HTML report generation."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.reporter import ReporterAgent, TestSummary, FailureReport
+            from src.agents.reporter import FailureReport, ReporterAgent, TestSummary
 
             agent = ReporterAgent()
 
@@ -376,7 +376,7 @@ class TestReporterAgent:
             mock_response.content = [MagicMock(text='["Recommendation 1", "Recommendation 2", "Recommendation 3"]')]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
-            from src.agents.reporter import ReporterAgent, TestSummary, FailureReport
+            from src.agents.reporter import FailureReport, ReporterAgent, TestSummary
 
             agent = ReporterAgent()
 
@@ -401,7 +401,7 @@ class TestReporterAgent:
     async def test_generate_recommendations_cost_limit(self, mock_env_vars):
         """Test recommendations with cost limit exceeded."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.reporter import ReporterAgent, TestSummary, FailureReport
+            from src.agents.reporter import FailureReport, ReporterAgent, TestSummary
 
             agent = ReporterAgent()
             agent._usage.total_cost = 100.0  # Exceed default limit (10.0)
@@ -421,7 +421,7 @@ class TestReporterAgent:
     async def test_create_github_issue(self, mock_env_vars):
         """Test GitHub issue body generation."""
         with patch(ANTHROPIC_PATCH):
-            from src.agents.reporter import ReporterAgent, FailureReport
+            from src.agents.reporter import FailureReport, ReporterAgent
 
             agent = ReporterAgent()
 

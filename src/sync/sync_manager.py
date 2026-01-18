@@ -1,26 +1,23 @@
 """Sync manager for two-way IDE synchronization."""
 
 import asyncio
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Optional
-from uuid import uuid4
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
+from .change_detector import ChangeDetector, DiffResult
+from .conflict_resolver import ConflictResolver
 from .models import (
+    ConflictResolutionStrategy,
+    ProjectSyncState,
+    SyncConflict,
     SyncEvent,
-    SyncEventType,
+    SyncPullResult,
+    SyncPushResult,
     SyncSource,
     SyncStatus,
-    SyncConflict,
-    ConflictResolutionStrategy,
-    TestSyncState,
-    ProjectSyncState,
-    SyncPushResult,
-    SyncPullResult,
-    TestSpec,
 )
-from .change_detector import ChangeDetector, DiffResult
-from .conflict_resolver import ConflictResolver, MergeResult
 
 
 @dataclass
@@ -54,9 +51,9 @@ class SyncManager:
 
     def __init__(
         self,
-        config: Optional[SyncConfig] = None,
-        push_fn: Optional[Callable[[list[SyncEvent]], SyncPushResult]] = None,
-        pull_fn: Optional[Callable[[str, int], SyncPullResult]] = None,
+        config: SyncConfig | None = None,
+        push_fn: Callable[[list[SyncEvent]], SyncPushResult] | None = None,
+        pull_fn: Callable[[str, int], SyncPullResult] | None = None,
     ):
         """Initialize sync manager.
 
@@ -80,7 +77,7 @@ class SyncManager:
         self._pending_events: list[SyncEvent] = []
 
         # Sync control
-        self._sync_task: Optional[asyncio.Task] = None
+        self._sync_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -198,7 +195,7 @@ class SyncManager:
             project = self.get_project_state(project_id)
             test_state = project.get_test_state(test_id)
             test_state.local_version += 1
-            test_state.last_local_change = datetime.now(timezone.utc)
+            test_state.last_local_change = datetime.now(UTC)
             test_state.status = SyncStatus.PENDING
             test_state.checksum = diff.new_checksum
 
@@ -215,7 +212,7 @@ class SyncManager:
 
         return diff
 
-    def get_local_spec(self, test_id: str) -> Optional[dict]:
+    def get_local_spec(self, test_id: str) -> dict | None:
         """Get current local spec for a test.
 
         Args:
@@ -233,7 +230,7 @@ class SyncManager:
     async def push(
         self,
         project_id: str,
-        test_id: Optional[str] = None,
+        test_id: str | None = None,
     ) -> SyncPushResult:
         """Push local changes to the server.
 
@@ -284,7 +281,7 @@ class SyncManager:
                             # Update base spec if all changes pushed
                             if not test_state.pending_changes:
                                 test_state.status = SyncStatus.SYNCED
-                                test_state.last_synced = datetime.now(timezone.utc)
+                                test_state.last_synced = datetime.now(UTC)
                                 if event.test_id in self._local_specs:
                                     self._base_specs[event.test_id] = (
                                         self._local_specs[event.test_id].copy()
@@ -420,7 +417,7 @@ class SyncManager:
         test_state.last_remote_change = event.timestamp
         if not test_state.pending_changes:
             test_state.status = SyncStatus.SYNCED
-            test_state.last_synced = datetime.now(timezone.utc)
+            test_state.last_synced = datetime.now(UTC)
 
     # =========================================================================
     # Conflict Resolution
@@ -553,7 +550,7 @@ class SyncManager:
             # Push all local changes
             push_result = await self.push(project_id)
 
-            project.last_full_sync = datetime.now(timezone.utc)
+            project.last_full_sync = datetime.now(UTC)
 
             return {
                 "success": push_result.success,

@@ -1,8 +1,9 @@
 """Tests for E2E Browser Client module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 
 class TestBrowserAction:
@@ -191,7 +192,7 @@ class TestBrowserPage:
     @pytest.mark.asyncio
     async def test_page_act_success(self, mock_env_vars, mock_client):
         """Test page.act method succeeds."""
-        from src.browser.e2e_client import BrowserPage, BrowserAction
+        from src.browser.e2e_client import BrowserAction, BrowserPage
 
         page = BrowserPage(
             client=mock_client,
@@ -253,7 +254,7 @@ class TestBrowserPage:
     @pytest.mark.asyncio
     async def test_page_extract_dict_schema(self, mock_env_vars, mock_client):
         """Test page.extract with dict schema."""
-        from src.browser.e2e_client import BrowserPage, BrowserAction
+        from src.browser.e2e_client import BrowserAction, BrowserPage
 
         mock_client._execute_action = AsyncMock(
             return_value={
@@ -320,7 +321,7 @@ class TestBrowserPage:
     @pytest.mark.asyncio
     async def test_page_observe(self, mock_env_vars, mock_client):
         """Test page.observe method."""
-        from src.browser.e2e_client import BrowserPage, BrowserAction
+        from src.browser.e2e_client import BrowserAction, BrowserPage
 
         mock_client._execute_action = AsyncMock(
             return_value={
@@ -402,14 +403,14 @@ class TestBrowserPage:
             url="https://example.com",
         )
 
-        result = await page.goto("https://other.com")
+        await page.goto("https://other.com")
 
         # goto calls act internally
         assert mock_client._execute_action.called
 
     def test_page_action_history(self, mock_env_vars, mock_client):
         """Test page.action_history property."""
-        from src.browser.e2e_client import BrowserPage, ActionResult, BrowserAction
+        from src.browser.e2e_client import ActionResult, BrowserAction, BrowserPage
 
         page = BrowserPage(
             client=mock_client,
@@ -431,7 +432,7 @@ class TestBrowserPage:
 
     def test_page_get_stats(self, mock_env_vars, mock_client):
         """Test page.get_stats method."""
-        from src.browser.e2e_client import BrowserPage, ActionResult, BrowserAction
+        from src.browser.e2e_client import ActionResult, BrowserAction, BrowserPage
 
         page = BrowserPage(
             client=mock_client,
@@ -614,7 +615,7 @@ class TestE2EBrowserClient:
     @pytest.mark.asyncio
     async def test_client_new_page(self, mock_env_vars, mock_httpx_client):
         """Test creating a new page."""
-        from src.browser.e2e_client import E2EBrowserClient, BrowserPage
+        from src.browser.e2e_client import BrowserPage, E2EBrowserClient
 
         client = E2EBrowserClient(endpoint="https://test-worker.workers.dev")
         client._connected = True
@@ -659,7 +660,7 @@ class TestE2EBrowserClientExecuteAction:
     @pytest.fixture
     def connected_client(self, mock_env_vars, mock_httpx_client):
         """Create a connected E2EBrowserClient."""
-        from src.browser.e2e_client import E2EBrowserClient, BrowserPage
+        from src.browser.e2e_client import BrowserPage, E2EBrowserClient
 
         client = E2EBrowserClient(endpoint="https://test-worker.workers.dev")
         client._connected = True
@@ -814,7 +815,7 @@ class TestE2EBrowserClientHelperMethods:
     @pytest.fixture
     def connected_client(self, mock_env_vars, mock_httpx_client):
         """Create a connected E2EBrowserClient with a page."""
-        from src.browser.e2e_client import E2EBrowserClient, BrowserPage
+        from src.browser.e2e_client import BrowserPage, E2EBrowserClient
 
         client = E2EBrowserClient(endpoint="https://test-worker.workers.dev")
         client._connected = True
@@ -828,7 +829,6 @@ class TestE2EBrowserClientHelperMethods:
     @pytest.mark.asyncio
     async def test_get_page_state(self, connected_client, mock_httpx_client):
         """Test _get_page_state method."""
-        from src.browser.e2e_client import BrowserAction
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -951,7 +951,7 @@ class TestE2EBrowserClientRunTest:
         }
         mock_httpx_client.post = AsyncMock(return_value=mock_response)
 
-        result = await connected_client.run_test(
+        await connected_client.run_test(
             url="https://example.com",
             steps=["Click button"],
             screenshot=True,
