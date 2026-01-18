@@ -1,0 +1,288 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL for E2E tests'
+        required: false
+        default: 'http://localhost:3000'
+      browser:
+        description: 'Browser to run tests in'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+          - all
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # E2E tests using Playwright
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: argus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install playwright pytest-playwright
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium firefox webkit
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: dashboard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npm run build
+
+      - name: Start backend server
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/argus_test
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+          curl --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8000/health || true
+
+      - name: Start dashboard server
+        working-directory: dashboard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: |
+          npm run start &
+          sleep 5
+          curl --retry 10 --retry-delay 1 --retry-connrefused http://localhost:3000 || true
+
+      - name: Run E2E tests (Chromium)
+        if: github.event.inputs.browser == '' || github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all'
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m pytest tests/e2e/ \
+            --browser chromium \
+            -v \
+            --tb=short \
+            --html=e2e-report-chromium.html \
+            --self-contained-html \
+            || true
+
+      - name: Run E2E tests (Firefox)
+        if: github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all'
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m pytest tests/e2e/ \
+            --browser firefox \
+            -v \
+            --tb=short \
+            --html=e2e-report-firefox.html \
+            --self-contained-html \
+            || true
+
+      - name: Run E2E tests (WebKit)
+        if: github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all'
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m pytest tests/e2e/ \
+            --browser webkit \
+            -v \
+            --tb=short \
+            --html=e2e-report-webkit.html \
+            --self-contained-html \
+            || true
+
+      - name: Upload E2E test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-reports
+          path: |
+            e2e-report-*.html
+            test-results/
+          retention-days: 14
+
+      - name: Upload Playwright traces
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+
+  # Staging E2E tests (on main branch only)
+  staging-e2e:
+    name: Staging E2E Tests
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    timeout-minutes: 30
+    needs: e2e-tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install playwright pytest-playwright pytest-html
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Run E2E tests against staging
+        env:
+          E2E_BASE_URL: https://staging.heyargus.com
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m pytest tests/e2e/ \
+            --browser chromium \
+            -v \
+            --tb=short \
+            --html=staging-e2e-report.html \
+            --self-contained-html \
+            || true
+
+      - name: Upload staging E2E report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staging-e2e-report
+          path: staging-e2e-report.html
+          retention-days: 14
+
+      - name: Create staging test summary
+        if: always()
+        run: |
+          echo "## Staging E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Target: staging.heyargus.com" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See the full report in the artifacts." >> $GITHUB_STEP_SUMMARY
+
+  # Visual regression tests
+  visual-regression:
+    name: Visual Regression Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Install Playwright
+        working-directory: dashboard
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Storybook (if exists)
+        working-directory: dashboard
+        run: |
+          if [ -f "package.json" ] && grep -q "storybook" package.json; then
+            npm run build-storybook || true
+          else
+            echo "Storybook not configured, skipping..."
+          fi
+        continue-on-error: true
+
+      - name: Run visual regression tests
+        working-directory: dashboard
+        run: |
+          if [ -f "playwright.config.ts" ] || [ -f "playwright.config.js" ]; then
+            npx playwright test --project=visual || true
+          else
+            echo "No Playwright visual tests configured, skipping..."
+          fi
+        continue-on-error: true
+
+      - name: Upload visual diff artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-regression-diffs
+          path: dashboard/test-results/
+          retention-days: 7

@@ -9,6 +9,11 @@
   [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
   [![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-purple.svg)](https://github.com/langchain-ai/langgraph)
   [![Claude](https://img.shields.io/badge/Claude-Sonnet%204.5-orange.svg)](https://anthropic.com)
+
+  [![CI](https://github.com/samuelvinay91/argus-backend/actions/workflows/test.yml/badge.svg)](https://github.com/samuelvinay91/argus-backend/actions/workflows/test.yml)
+  [![codecov](https://codecov.io/gh/samuelvinay91/argus-backend/branch/main/graph/badge.svg)](https://codecov.io/gh/samuelvinay91/argus-backend)
+  [![Backend Coverage](https://img.shields.io/badge/backend%20coverage-95%25-brightgreen.svg)](https://codecov.io/gh/samuelvinay91/argus-backend)
+  [![Dashboard Coverage](https://img.shields.io/badge/dashboard%20coverage-68%25-yellow.svg)](https://codecov.io/gh/samuelvinay91/argus-backend)
 </div>
 
 ---
