@@ -217,6 +217,28 @@ class R2Storage:
             logger.exception("R2 retrieval error", error=str(e))
             return None
 
+    def _convert_buffer_to_base64(self, screenshot: Any) -> str | None:
+        """Convert various screenshot formats to base64 string.
+
+        Handles:
+        - base64 string (pass through)
+        - Buffer dict: {type: "Buffer", data: [bytes]}
+        - bytes/bytearray
+        """
+        import base64 as b64
+
+        if isinstance(screenshot, str) and len(screenshot) > 100:
+            return screenshot
+        elif isinstance(screenshot, dict) and screenshot.get("type") == "Buffer":
+            # Node.js Buffer format from browser pool
+            data = screenshot.get("data", [])
+            if isinstance(data, list):
+                byte_data = bytes(data)
+                return b64.b64encode(byte_data).decode("utf-8")
+        elif isinstance(screenshot, (bytes, bytearray)):
+            return b64.b64encode(screenshot).decode("utf-8")
+        return None
+
     async def store_test_result(
         self,
         result: dict[str, Any],
@@ -229,19 +251,22 @@ class R2Storage:
         lightweight = dict(result)
         artifact_refs = []
 
-        # Extract and store screenshots
+        # Extract and store screenshots (handle both string and Buffer formats)
         for field in ["screenshot", "finalScreenshot"]:
-            if field in lightweight and isinstance(lightweight[field], str) and len(lightweight[field]) > 1000:
-                ref = await self.store_screenshot(lightweight[field], {"source": field, "test_id": test_id})
-                artifact_refs.append(ref)
-                lightweight[field] = ref["artifact_id"]
+            if field in lightweight and lightweight[field]:
+                base64_data = self._convert_buffer_to_base64(lightweight[field])
+                if base64_data and len(base64_data) > 1000:
+                    ref = await self.store_screenshot(base64_data, {"source": field, "test_id": test_id})
+                    artifact_refs.append(ref)
+                    lightweight[field] = ref["artifact_id"]
 
         # Extract screenshots array
         if "screenshots" in lightweight and isinstance(lightweight["screenshots"], list):
             new_screenshots = []
             for i, screenshot in enumerate(lightweight["screenshots"]):
-                if isinstance(screenshot, str) and len(screenshot) > 1000:
-                    ref = await self.store_screenshot(screenshot, {"step": i, "test_id": test_id})
+                base64_data = self._convert_buffer_to_base64(screenshot)
+                if base64_data and len(base64_data) > 1000:
+                    ref = await self.store_screenshot(base64_data, {"step": i, "test_id": test_id})
                     artifact_refs.append(ref)
                     new_screenshots.append(ref["artifact_id"])
                 else:
@@ -251,10 +276,11 @@ class R2Storage:
         # Extract step screenshots
         if "steps" in lightweight and isinstance(lightweight["steps"], list):
             for i, step in enumerate(lightweight["steps"]):
-                if isinstance(step, dict) and "screenshot" in step:
-                    if isinstance(step["screenshot"], str) and len(step["screenshot"]) > 1000:
+                if isinstance(step, dict) and "screenshot" in step and step["screenshot"]:
+                    base64_data = self._convert_buffer_to_base64(step["screenshot"])
+                    if base64_data and len(base64_data) > 1000:
                         ref = await self.store_screenshot(
-                            step["screenshot"],
+                            base64_data,
                             {"step": i, "instruction": step.get("instruction", ""), "test_id": test_id}
                         )
                         artifact_refs.append(ref)
