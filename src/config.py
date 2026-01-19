@@ -100,6 +100,19 @@ class Settings(BaseSettings):
         None,
         description="Cloudflare D1 database ID for test history"
     )
+    # R2 S3-compatible credentials for presigned URLs
+    cloudflare_r2_access_key_id: str | None = Field(
+        None,
+        description="Cloudflare R2 access key ID for S3-compatible API (presigned URLs)"
+    )
+    cloudflare_r2_secret_access_key: SecretStr | None = Field(
+        None,
+        description="Cloudflare R2 secret access key for S3-compatible API"
+    )
+    cloudflare_r2_presigned_url_expiry: int = Field(
+        3600,
+        description="Presigned URL expiry in seconds (default: 1 hour)"
+    )
     cache_enabled: bool = Field(True, description="Enable caching layer")
     cache_ttl_quality_scores: int = Field(300, description="TTL for quality scores in seconds (default: 5 min)")
     cache_ttl_llm_responses: int = Field(86400, description="TTL for LLM responses in seconds (default: 24 hours)")

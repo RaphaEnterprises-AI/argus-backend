@@ -42,6 +42,10 @@ class CloudflareConfig:
     d1_database_id: str = ""
     kv_namespace_id: str = ""
     ai_gateway_id: str = "argus-gateway"
+    # R2 S3-compatible credentials for presigned URLs
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_presigned_url_expiry: int = 3600  # 1 hour default
 
     @classmethod
     def from_env(cls) -> "CloudflareConfig":
@@ -54,6 +58,9 @@ class CloudflareConfig:
             d1_database_id=os.getenv("CLOUDFLARE_D1_DATABASE_ID", ""),
             kv_namespace_id=os.getenv("CLOUDFLARE_KV_NAMESPACE_ID", ""),
             ai_gateway_id=os.getenv("CLOUDFLARE_AI_GATEWAY_ID", "argus-gateway"),
+            r2_access_key_id=os.getenv("CLOUDFLARE_R2_ACCESS_KEY_ID", ""),
+            r2_secret_access_key=os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", ""),
+            r2_presigned_url_expiry=int(os.getenv("CLOUDFLARE_R2_PRESIGNED_URL_EXPIRY", "3600")),
         )
 
     @classmethod
@@ -66,6 +73,10 @@ class CloudflareConfig:
         if settings.cloudflare_api_token:
             api_token = settings.cloudflare_api_token.get_secret_value()
 
+        r2_secret = ""
+        if settings.cloudflare_r2_secret_access_key:
+            r2_secret = settings.cloudflare_r2_secret_access_key.get_secret_value()
+
         return cls(
             account_id=settings.cloudflare_account_id or "",
             api_token=api_token,
@@ -74,6 +85,9 @@ class CloudflareConfig:
             d1_database_id=settings.cloudflare_d1_database_id or "",
             kv_namespace_id=settings.cloudflare_kv_namespace_id or "",
             ai_gateway_id=settings.cloudflare_gateway_id or "argus-gateway",
+            r2_access_key_id=settings.cloudflare_r2_access_key_id or "",
+            r2_secret_access_key=r2_secret,
+            r2_presigned_url_expiry=settings.cloudflare_r2_presigned_url_expiry,
         )
 
 
@@ -145,12 +159,17 @@ class R2Storage:
                 if response.status_code in [200, 201]:
                     logger.info("Stored screenshot in R2", artifact_id=artifact_id, size_kb=len(image_bytes) // 1024)
 
+                    # Generate presigned URL if credentials are configured
+                    presigned_url = self.get_presigned_url(artifact_id)
+
                     artifact_ref = {
                         "artifact_id": artifact_id,
                         "type": "screenshot",
                         "storage": "r2",
                         "key": key,
-                        "url": f"https://{self.config.r2_bucket}.r2.cloudflarestorage.com/{key}",
+                        "url": presigned_url or f"https://{self.config.r2_bucket}.r2.cloudflarestorage.com/{key}",
+                        "presigned_url": presigned_url,
+                        "url_expiry_seconds": self.config.r2_presigned_url_expiry if presigned_url else None,
                         "metadata": metadata,
                         "created_at": datetime.now(UTC).isoformat()
                     }
@@ -215,6 +234,66 @@ class R2Storage:
                 return None
         except Exception as e:
             logger.exception("R2 retrieval error", error=str(e))
+            return None
+
+    def get_presigned_url(
+        self,
+        artifact_id: str,
+        expiry_seconds: int | None = None
+    ) -> str | None:
+        """Generate a presigned URL for direct R2 access.
+
+        Args:
+            artifact_id: The artifact ID (e.g., screenshot_xxx_yyy)
+            expiry_seconds: URL expiry time (default from config)
+
+        Returns:
+            Presigned URL string or None if R2 credentials not configured
+        """
+        # Check if S3-compatible credentials are configured
+        if not self.config.r2_access_key_id or not self.config.r2_secret_access_key:
+            logger.debug("R2 access keys not configured, presigned URLs unavailable")
+            return None
+
+        try:
+            import boto3
+            from botocore.config import Config
+
+            # R2 S3-compatible endpoint
+            endpoint_url = f"https://{self.config.account_id}.r2.cloudflarestorage.com"
+
+            # Create S3 client for R2
+            s3_client = boto3.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                aws_access_key_id=self.config.r2_access_key_id,
+                aws_secret_access_key=self.config.r2_secret_access_key,
+                config=Config(signature_version="s3v4"),
+                region_name="auto",  # R2 uses 'auto' region
+            )
+
+            # Determine the object key
+            key = f"screenshots/{artifact_id}.png"
+            expiry = expiry_seconds or self.config.r2_presigned_url_expiry
+
+            # Generate presigned URL
+            url = s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.config.r2_bucket,
+                    "Key": key,
+                },
+                ExpiresIn=expiry,
+            )
+
+            logger.info("Generated presigned URL", artifact_id=artifact_id, expiry_seconds=expiry)
+            return url
+
+        except ImportError:
+            logger.warning("boto3 not installed, presigned URLs unavailable")
+            return None
+        except Exception as e:
+            logger.exception("Failed to generate presigned URL", error=str(e))
             return None
 
     def _convert_buffer_to_base64(self, screenshot: Any) -> str | None:

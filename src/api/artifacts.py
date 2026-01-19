@@ -85,7 +85,22 @@ async def get_artifact(
             artifact_type = artifact_id.split("_")[0] if "_" in artifact_id else "screenshot"
 
             if artifact_type == "screenshot":
-                # Fetch from R2
+                # If URL format requested, try to generate presigned URL first
+                if format == "url":
+                    presigned_url = cf_client.r2.get_presigned_url(artifact_id)
+                    if presigned_url:
+                        logger.info("Generated presigned URL for artifact", artifact_id=artifact_id)
+                        return ArtifactResponse(
+                            artifact_id=artifact_id,
+                            type="screenshot",
+                            content=presigned_url,
+                            content_type="url",
+                            metadata={"storage": "r2", "url_type": "presigned", "expiry_seconds": cf_client.r2.config.r2_presigned_url_expiry},
+                        )
+                    # Fall back to base64 if presigned URL generation failed
+                    logger.warning("Presigned URL generation failed, falling back to base64", artifact_id=artifact_id)
+
+                # Fetch from R2 as base64
                 base64_content = await cf_client.r2.get_screenshot(artifact_id)
 
                 if base64_content:
