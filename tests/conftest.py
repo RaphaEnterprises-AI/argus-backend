@@ -18,6 +18,9 @@ except ImportError:
 def pytest_configure(config):
     """Configure custom pytest markers."""
     config.addinivalue_line(
+        "markers", "smoke: mark test as smoke test (fast, critical path - included in CI)"
+    )
+    config.addinivalue_line(
         "markers", "requires_tree_sitter: mark test as requiring tree-sitter"
     )
     config.addinivalue_line(
