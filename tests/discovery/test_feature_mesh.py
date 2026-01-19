@@ -835,7 +835,10 @@ class TestProcessDiscoveryCompletion:
             )
 
             # Should have error in the result
-            assert "error" in result["integrations"].get("visual_ai", {})
+            # Note: create_baselines_from_discovery catches exceptions internally
+            # and returns errors in errors_detail, not raising to process_discovery_completion
+            visual_ai_result = result["integrations"].get("visual_ai", {})
+            assert visual_ai_result.get("errors", 0) > 0 or visual_ai_result.get("error")
 
 
 # ==============================================================================
