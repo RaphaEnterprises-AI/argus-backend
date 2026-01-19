@@ -554,7 +554,7 @@ class TestToolExecutorNode:
             "steps": [{"passed": True}],
         }
 
-        with patch("src.orchestrator.chat_graph.BrowserPoolClient") as mock_browser_pool_class:
+        with patch("src.browser.pool_client.BrowserPoolClient") as mock_browser_pool_class:
             mock_browser_pool = AsyncMock()
             mock_browser_pool.pool_url = "https://test-pool.com"
             mock_browser_pool.test = AsyncMock(return_value=mock_pool_result)
