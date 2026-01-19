@@ -806,7 +806,7 @@ class TestSlackNotificationEndpoints:
 
         with patch("src.api.notifications.get_slack_notifier") as mock_get:
             mock_notifier = MagicMock()
-            mock_notifier.send_test_results = AsyncMock(return_value=True)
+            mock_notifier.send_test_result = AsyncMock(return_value=True)
             mock_get.return_value = mock_notifier
 
             response = await send_test_result_notification(request)
@@ -815,8 +815,8 @@ class TestSlackNotificationEndpoints:
 
     @pytest.mark.asyncio
     async def test_send_failure_alert(self, mock_env_vars):
-        """Test send_failure_alert endpoint."""
-        from src.api.notifications import FailureAlertRequest, send_failure_alert
+        """Test send_failure_alert_notification endpoint."""
+        from src.api.notifications import FailureAlertRequest, send_failure_alert_notification
 
         request = FailureAlertRequest(
             test_id="test-123",
@@ -829,14 +829,14 @@ class TestSlackNotificationEndpoints:
             mock_notifier.send_failure_alert = AsyncMock(return_value=True)
             mock_get.return_value = mock_notifier
 
-            response = await send_failure_alert(request)
+            response = await send_failure_alert_notification(request)
 
             assert response.success is True
 
     @pytest.mark.asyncio
     async def test_send_schedule_reminder(self, mock_env_vars):
-        """Test send_schedule_reminder endpoint."""
-        from src.api.notifications import ScheduleReminderRequest, send_schedule_reminder
+        """Test send_schedule_reminder_notification endpoint."""
+        from src.api.notifications import ScheduleReminderRequest, send_schedule_reminder_notification
 
         request = ScheduleReminderRequest(
             schedule_id="schedule-123",
@@ -850,14 +850,14 @@ class TestSlackNotificationEndpoints:
             mock_notifier.send_schedule_reminder = AsyncMock(return_value=True)
             mock_get.return_value = mock_notifier
 
-            response = await send_schedule_reminder(request)
+            response = await send_schedule_reminder_notification(request)
 
             assert response.success is True
 
     @pytest.mark.asyncio
     async def test_send_quality_report(self, mock_env_vars):
-        """Test send_quality_report endpoint."""
-        from src.api.notifications import QualityReportRequest, send_quality_report
+        """Test send_quality_report_notification endpoint."""
+        from src.api.notifications import QualityReportRequest, send_quality_report_notification
 
         request = QualityReportRequest(
             project_id="project-123",
@@ -872,7 +872,7 @@ class TestSlackNotificationEndpoints:
             mock_notifier.send_quality_report = AsyncMock(return_value=True)
             mock_get.return_value = mock_notifier
 
-            response = await send_quality_report(request)
+            response = await send_quality_report_notification(request)
 
             assert response.success is True
 
