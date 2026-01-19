@@ -734,6 +734,13 @@ class CrawleeBridge:
         if el_data.get("inputType") in ["password", "email"]:
             return ElementCategory.authentication
 
+        # Check for commerce elements (by label, before generic type checks)
+        if any(
+            kw in label
+            for kw in ["buy", "cart", "checkout", "purchase", "add to"]
+        ):
+            return ElementCategory.commerce
+
         # Check for form elements
         if el_type == "input":
             return ElementCategory.form
@@ -745,13 +752,6 @@ class CrawleeBridge:
         # Check for navigation elements
         if el_type == "link":
             return ElementCategory.navigation
-
-        # Check for commerce elements
-        if any(
-            kw in label
-            for kw in ["buy", "cart", "checkout", "purchase", "add to"]
-        ):
-            return ElementCategory.commerce
 
         return ElementCategory.content
 
