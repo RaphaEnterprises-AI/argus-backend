@@ -518,10 +518,14 @@ class TestScheduleEndpoints:
             "created_at": "2024-01-01T00:00:00Z",
         }
 
-        mock_request = MagicMock()
-
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await list_schedules(mock_request, project_id="project-123")
+            response = await list_schedules(
+                project_id="project-123",
+                enabled=None,
+                tags=None,
+                page=1,
+                per_page=20,
+            )
 
             assert response.total >= 1
             assert len(response.schedules) >= 1
@@ -543,10 +547,8 @@ class TestScheduleEndpoints:
             "created_at": "2024-01-01T00:00:00Z",
         }
 
-        mock_request = MagicMock()
-
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await get_schedule(mock_request, "schedule-123")
+            response = await get_schedule("schedule-123")
 
             assert response.id == "schedule-123"
             assert response.name == "Test Schedule"
@@ -560,11 +562,9 @@ class TestScheduleEndpoints:
 
         schedules.clear()
 
-        mock_request = MagicMock()
-
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
             with pytest.raises(HTTPException) as exc_info:
-                await get_schedule(mock_request, "nonexistent")
+                await get_schedule("nonexistent")
 
             assert exc_info.value.status_code == 404
 
@@ -607,10 +607,8 @@ class TestScheduleEndpoints:
             "created_at": "2024-01-01T00:00:00Z",
         }
 
-        mock_request = MagicMock()
-
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await delete_schedule(mock_request, "to-delete")
+            response = await delete_schedule("to-delete")
 
             assert response["success"] is True
             assert "to-delete" not in schedules
@@ -637,7 +635,7 @@ class TestScheduleEndpoints:
         mock_background = MagicMock()
 
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await trigger_schedule(mock_request, "schedule-123", mock_background)
+            response = await trigger_schedule("schedule-123", mock_request, mock_background)
 
             assert response.success is True
             assert response.schedule_id == "schedule-123"
@@ -647,7 +645,7 @@ class TestScheduleEndpoints:
 
     @pytest.mark.asyncio
     async def test_trigger_disabled_schedule(self, mock_env_vars):
-        """Test triggering a disabled schedule."""
+        """Test triggering a disabled schedule - manual triggers work even for disabled schedules."""
         from src.api.scheduling import schedules, trigger_schedule
 
         schedules["disabled-schedule"] = {
@@ -656,19 +654,20 @@ class TestScheduleEndpoints:
             "name": "Disabled Schedule",
             "cron_expression": "0 9 * * *",
             "app_url": "https://example.com",
+            "app_url_override": "https://example.com",
             "enabled": False,
             "created_at": "2024-01-01T00:00:00Z",
         }
 
         mock_request = MagicMock()
+        mock_request.headers = {"x-user-id": "user-123"}
         mock_background = MagicMock()
 
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            with pytest.raises(HTTPException) as exc_info:
-                await trigger_schedule(mock_request, "disabled-schedule", mock_background)
-
-            assert exc_info.value.status_code == 400
-            assert "disabled" in str(exc_info.value.detail).lower()
+            # Manual triggers work even for disabled schedules
+            response = await trigger_schedule("disabled-schedule", mock_request, mock_background)
+            assert response.success is True
+            assert response.schedule_id == "disabled-schedule"
 
         schedules.clear()
 
@@ -694,12 +693,16 @@ class TestScheduleRunEndpoints:
             {"id": "run-2", "schedule_id": "schedule-123", "status": "failure", "started_at": "2024-01-02T09:00:00Z"},
         ]
 
-        mock_request = MagicMock()
-
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await get_schedule_runs(mock_request, "schedule-123")
+            response = await get_schedule_runs(
+                "schedule-123",
+                status=None,
+                limit=20,
+                offset=0,
+            )
 
-            assert response["total"] == 2
+            # Returns a list of ScheduleRunResponse
+            assert len(response) == 2
 
         schedules.clear()
         schedule_runs.clear()
@@ -718,17 +721,21 @@ class TestScheduleRunEndpoints:
             "created_at": "2024-01-01T00:00:00Z",
         }
         schedule_runs["schedule-123"] = [
-            {"id": "run-1", "status": "success"},
-            {"id": "run-2", "status": "failure"},
-            {"id": "run-3", "status": "success"},
+            {"id": "run-1", "schedule_id": "schedule-123", "status": "success", "started_at": "2024-01-01T09:00:00Z"},
+            {"id": "run-2", "schedule_id": "schedule-123", "status": "failure", "started_at": "2024-01-02T09:00:00Z"},
+            {"id": "run-3", "schedule_id": "schedule-123", "status": "success", "started_at": "2024-01-03T09:00:00Z"},
         ]
 
-        mock_request = MagicMock()
-
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await get_schedule_runs(mock_request, "schedule-123", status="success")
+            response = await get_schedule_runs(
+                "schedule-123",
+                status="success",
+                limit=20,
+                offset=0,
+            )
 
-            assert len(response["runs"]) == 2
+            # Returns a list of ScheduleRunResponse, filtered by status
+            assert len(response) == 2
 
         schedules.clear()
         schedule_runs.clear()
