@@ -746,10 +746,15 @@ class TestSlackConfigEndpoints:
 
         with patch("src.api.notifications.get_slack_notifier") as mock_get:
             mock_notifier = MagicMock()
-            mock_notifier.config = MagicMock()
-            mock_notifier.config.webhook_url = "https://hooks.slack.com/xxx"
-            mock_notifier.config.bot_token = None
-            mock_notifier.config.default_channel = "#testing"
+            mock_notifier.check_connection = AsyncMock(return_value={
+                "configured": True,
+                "webhook_configured": True,
+                "bot_configured": False,
+                "default_channel": "#testing",
+                "webhook_status": "connected",
+                "api_status": "not_configured",
+                "bot_info": None,
+            })
             mock_get.return_value = mock_notifier
 
             response = await get_slack_status()
