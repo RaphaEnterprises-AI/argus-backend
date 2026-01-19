@@ -69,6 +69,12 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.setenv("STAGEHAND_WORKER_URL", "https://test-worker.workers.dev")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account-id")
+    # Clear DATABASE_URL to ensure tests use MemorySaver instead of PostgresSaver
+    # (PostgresSaver.from_conn_string returns a context manager in newer langgraph)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # Reset the checkpointer singleton to pick up the env change
+    from src.orchestrator.checkpointer import reset_checkpointer
+    reset_checkpointer()
 
 
 @pytest.fixture
