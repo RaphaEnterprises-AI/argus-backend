@@ -249,6 +249,7 @@ class TestCheckpointerIntegration:
         """Should be able to use checkpointer with a simple graph."""
         from typing import TypedDict
 
+        from langgraph.checkpoint.memory import MemorySaver
         from langgraph.graph import END, StateGraph
 
         class SimpleState(TypedDict):
@@ -263,8 +264,8 @@ class TestCheckpointerIntegration:
         graph.set_entry_point("increment")
         graph.add_edge("increment", END)
 
-        # Compile with checkpointer
-        checkpointer = get_checkpointer()
+        # Use MemorySaver directly for integration tests (no real DB needed)
+        checkpointer = MemorySaver()
         app = graph.compile(checkpointer=checkpointer)
 
         # Run
@@ -283,6 +284,7 @@ class TestCheckpointerIntegration:
         """Should preserve state history across multiple invocations."""
         from typing import TypedDict
 
+        from langgraph.checkpoint.memory import MemorySaver
         from langgraph.graph import END, StateGraph
 
         class SimpleState(TypedDict):
@@ -296,7 +298,8 @@ class TestCheckpointerIntegration:
         graph.set_entry_point("update")
         graph.add_edge("update", END)
 
-        checkpointer = get_checkpointer()
+        # Use MemorySaver directly for integration tests (no real DB needed)
+        checkpointer = MemorySaver()
         app = graph.compile(checkpointer=checkpointer)
 
         config = {"configurable": {"thread_id": "history-test"}}
