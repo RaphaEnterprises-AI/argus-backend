@@ -727,7 +727,7 @@ class CrawleeBridge:
         # Check for authentication elements
         if any(
             kw in label
-            for kw in ["login", "sign in", "log in", "logout", "sign out"]
+            for kw in ["login", "sign in", "log in", "logout", "log out", "sign out"]
         ):
             return ElementCategory.authentication
 
