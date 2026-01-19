@@ -988,7 +988,7 @@ class TestDiscoveryPatternsEndpoints:
         """Test listing discovery patterns."""
         from src.api.discovery import list_discovery_patterns
 
-        with patch("src.api.discovery.get_supabase_client") as mock_supabase:
+        with patch("src.services.supabase_client.get_supabase_client") as mock_supabase:
             mock_instance = MagicMock()
             mock_instance.request = AsyncMock(return_value={
                 "data": [
@@ -1015,7 +1015,7 @@ class TestDiscoveryPatternsEndpoints:
         """Test listing patterns when table doesn't exist."""
         from src.api.discovery import list_discovery_patterns
 
-        with patch("src.api.discovery.get_supabase_client") as mock_supabase:
+        with patch("src.services.supabase_client.get_supabase_client") as mock_supabase:
             mock_instance = MagicMock()
             mock_instance.request = AsyncMock(return_value={
                 "error": "Table not found",
