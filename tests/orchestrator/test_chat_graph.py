@@ -592,19 +592,18 @@ class TestToolExecutorNode:
             "should_continue": True,
         }
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"success": True, "action": "clicked"}
+        # Mock BrowserPoolClient instead of httpx.AsyncClient
+        mock_act_result = MagicMock()
+        mock_act_result.to_dict.return_value = {"success": True, "action": "clicked"}
 
-        with patch("src.orchestrator.chat_graph.get_settings") as mock_settings:
-            mock_settings.return_value.browser_worker_url = "https://test-worker.com"
+        with patch("src.browser.pool_client.BrowserPoolClient") as mock_browser_pool_class:
+            mock_browser_pool = AsyncMock()
+            mock_browser_pool.pool_url = "https://test-pool.com"
+            mock_browser_pool.act = AsyncMock(return_value=mock_act_result)
+            mock_browser_pool_class.return_value.__aenter__ = AsyncMock(return_value=mock_browser_pool)
+            mock_browser_pool_class.return_value.__aexit__ = AsyncMock(return_value=None)
             with patch("src.services.cloudflare_storage.is_cloudflare_configured", return_value=False):
-                with patch("httpx.AsyncClient") as mock_client_class:
-                    mock_client = AsyncMock()
-                    mock_client.post = AsyncMock(return_value=mock_response)
-                    mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
-
-                    result = await tool_executor_node(state, {})
+                result = await tool_executor_node(state, {})
 
         assert len(result["messages"]) == 1
 
