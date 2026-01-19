@@ -186,9 +186,12 @@ def generate_fingerprint(
         parts.append(component)
     if url:
         # Normalize URL by removing query params and IDs
+        # NOTE: UUID normalization MUST come before numeric ID normalization
+        # to prevent UUIDs starting with digits (e.g., "11111111-...") from being
+        # partially matched by the numeric pattern first.
         normalized_url = re.sub(r"\?.*$", "", url)
-        normalized_url = re.sub(r"/\d+", "/:id", normalized_url)
         normalized_url = re.sub(r"/[a-f0-9-]{36}", "/:uuid", normalized_url)
+        normalized_url = re.sub(r"/\d+", "/:id", normalized_url)
         parts.append(normalized_url)
 
     combined = "|".join(parts)
