@@ -808,11 +808,12 @@ class TestWebhookErrorHandling:
             mock_supabase.return_value = mock_client
 
             with patch("src.api.webhooks.validate_project_org", AsyncMock(return_value=True)):
-                with pytest.raises(HTTPException) as exc_info:
-                    await handle_datadog_webhook(
-                        mock_request,
-                        organization_id="org-123",
-                        project_id="project-1",
-                    )
+                with patch("src.api.webhooks.update_webhook_log", AsyncMock()):
+                    with pytest.raises(HTTPException) as exc_info:
+                        await handle_datadog_webhook(
+                            mock_request,
+                            organization_id="org-123",
+                            project_id="project-1",
+                        )
 
-                assert exc_info.value.status_code == 500
+                    assert exc_info.value.status_code == 500
