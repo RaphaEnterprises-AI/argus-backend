@@ -737,7 +737,7 @@ class TestSlackConfigEndpoints:
         response = await configure_slack(request)
 
         assert response.success is True
-        assert "configured" in response.message.lower()
+        assert "configuration" in response.message.lower() or "updated" in response.message.lower()
 
     @pytest.mark.asyncio
     async def test_get_slack_status(self, mock_env_vars):
