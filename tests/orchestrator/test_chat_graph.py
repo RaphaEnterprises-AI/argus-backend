@@ -764,8 +764,9 @@ class TestToolExecutorNode:
                 with patch("httpx.AsyncClient") as mock_client_class:
                     mock_client = AsyncMock()
                     mock_client.post = AsyncMock(side_effect=Exception("Connection failed"))
-                    mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+                    # The client is used directly (not as context manager), so mock aclose() too
+                    mock_client.aclose = AsyncMock()
+                    mock_client_class.return_value = mock_client
 
                     result = await tool_executor_node(state, {})
 
