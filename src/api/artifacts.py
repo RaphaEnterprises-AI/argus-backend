@@ -114,12 +114,13 @@ async def get_artifact(
 @router.get("/{artifact_id}/raw")
 async def get_artifact_raw(
     artifact_id: str,
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Get artifact content as raw image bytes.
 
     This endpoint returns the actual image file with proper content-type headers,
-    suitable for direct use in <img> tags.
+    suitable for authenticated image delivery.
 
     Args:
         artifact_id: The artifact ID
@@ -127,11 +128,8 @@ async def get_artifact_raw(
     Returns:
         Raw image bytes with appropriate Content-Type header.
 
-    SECURITY: Publicly accessible for image delivery (used in <img> tags).
-    Security is maintained via:
-    - Artifact IDs contain content hashes (hard to guess)
-    - Artifacts auto-expire after 24 hours
-    - Rate limiting on the endpoint
+    SECURITY: Requires authentication. All artifacts are customer-specific
+    and confidential.
     """
     # Validate artifact ID format to prevent enumeration
     import re
