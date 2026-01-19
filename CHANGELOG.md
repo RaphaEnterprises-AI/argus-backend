@@ -1,5 +1,55 @@
 # Changelog
 
+## [2.9.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.8.0...v2.9.0) (2026-01-19)
+
+
+### Features
+
+* **ci:** implement tiered testing with smoke tests for PRs ([a29ca9f](https://github.com/RaphaEnterprises-AI/argus-backend/commit/a29ca9fed1a1a2b3e8a3e9a2d6a223a49b6b9310))
+* **dashboard:** add authenticated screenshot fetching ([b4c7956](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b4c7956392af7c607c01c5be8af9d336d4f7acd4))
+* **logging:** add comprehensive audit logging across execution flow ([2dc4bb3](https://github.com/RaphaEnterprises-AI/argus-backend/commit/2dc4bb39c88971d88d462465d5e4ad8344577bea))
+* **tests:** add comprehensive test coverage and CI/CD pipeline ([59d44ba](https://github.com/RaphaEnterprises-AI/argus-backend/commit/59d44ba29c633409a4f482e7883f95f939544573))
+
+
+### Bug Fixes
+
+* add missing desired_replicas variable ([dfcff8e](https://github.com/RaphaEnterprises-AI/argus-backend/commit/dfcff8e4b8f89d1e2ef2e48b2fe1f278fd200f25))
+* **api:** resolve 5 E2E API test failures ([a7b9158](https://github.com/RaphaEnterprises-AI/argus-backend/commit/a7b9158ed6091215881b5993b0ae17e0b5b08584))
+* **ci:** remove dashboard jobs from backend test workflow ([da4496c](https://github.com/RaphaEnterprises-AI/argus-backend/commit/da4496c1cab58fea93744b1c2544ca24919de1e0))
+* **discovery:** add 'log out' keyword to authentication categorization ([bb1c6b1](https://github.com/RaphaEnterprises-AI/argus-backend/commit/bb1c6b1d214229b794dfbbb6d5a6cc5fc3bc9fef))
+* **discovery:** move commerce keyword check before generic type checks ([fe91565](https://github.com/RaphaEnterprises-AI/argus-backend/commit/fe9156557bd3e50d27d8be39a44844f8460404c9))
+* **discovery:** swap UUID/number regex order in _normalize_title ([2935c70](https://github.com/RaphaEnterprises-AI/argus-backend/commit/2935c705c36f24153369572beceb94c483264328))
+* **infra:** update Prometheus collector for Vultr browser pool metrics ([700c8de](https://github.com/RaphaEnterprises-AI/argus-backend/commit/700c8ded7eaece48d973a9c69aa2e70510d257fe))
+* **lint:** import Callable from collections.abc per Python 3.9+ convention ([b8213a7](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b8213a78d4afb64dd885bfc434732ce681ef7688))
+* **lint:** resolve all ruff lint errors ([79ffbb2](https://github.com/RaphaEnterprises-AI/argus-backend/commit/79ffbb20c53b1fc473fd25de8cb653e726b063cc))
+* **screenshots:** enable public access for artifact images ([4529efc](https://github.com/RaphaEnterprises-AI/argus-backend/commit/4529efc9cd59cb7bb88f2d5e7ed9d8b6e072368c))
+* **supabase:** add offset parameter to select() for pagination ([3affa11](https://github.com/RaphaEnterprises-AI/argus-backend/commit/3affa11965491c172476de7507c239ee0bc27701))
+* **tests:** add AsyncMock for update_webhook_log in exception test ([df5ed31](https://github.com/RaphaEnterprises-AI/argus-backend/commit/df5ed31bf3000fa2502e70e852028329bb4ca2a7))
+* **tests:** add explicit project_id=None for webhook tests ([c81d569](https://github.com/RaphaEnterprises-AI/argus-backend/commit/c81d569650b4be223658c2d6eeecff192446944f))
+* **tests:** check lowercase 'uuid' in normalize_title test ([b582341](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b5823413770bc5f1335e04dcc023712b2513f2db))
+* **tests:** correct argument order in scheduling endpoint tests ([e45fbc5](https://github.com/RaphaEnterprises-AI/argus-backend/commit/e45fbc50347e32ca96520a74816f3ab9a53a0b9c))
+* **tests:** correct assertion for feature mesh error handling test ([af480ca](https://github.com/RaphaEnterprises-AI/argus-backend/commit/af480cadc2a87af08f9493dd0b0ecffb391257f9))
+* **tests:** correct assertion for slack configuration message ([fdc7282](https://github.com/RaphaEnterprises-AI/argus-backend/commit/fdc7282661857946987335a798d3d1876ff1ec30))
+* **tests:** correct function names and AsyncMock usage in notification tests ([0df450b](https://github.com/RaphaEnterprises-AI/argus-backend/commit/0df450b3f444eda09ef29ed354e52b96b47002ea))
+* **tests:** correct mock patch path for get_supabase_client ([5c3a472](https://github.com/RaphaEnterprises-AI/argus-backend/commit/5c3a472e2bfa299d17bcac09877dc13cea54ccaa))
+* **tests:** correct scheduling endpoint tests for actual function signatures ([8f6dab2](https://github.com/RaphaEnterprises-AI/argus-backend/commit/8f6dab2eb148a1c517a24469a429ab000c90209d))
+* **tests:** fix notification endpoint tests for correct function signatures ([33ae6fc](https://github.com/RaphaEnterprises-AI/argus-backend/commit/33ae6fc2fabb599397af834abd8584b93bef0ec4))
+* **tests:** mock BrowserPoolClient instead of httpx.AsyncClient ([df009e2](https://github.com/RaphaEnterprises-AI/argus-backend/commit/df009e249d5b8fb7d1af1b647146994ceaab923d))
+* **tests:** mock BrowserPoolClient.act() for executeAction test ([d46b546](https://github.com/RaphaEnterprises-AI/argus-backend/commit/d46b5463036bc48d4ee918536c454294b9f2b45c))
+* **tests:** mock pages and elements tables separately ([3e984a1](https://github.com/RaphaEnterprises-AI/argus-backend/commit/3e984a1292edf4d8149dd439b9c1ba43a2117580))
+* **tests:** mock Path.exists for crawlee script not found test ([298ddec](https://github.com/RaphaEnterprises-AI/argus-backend/commit/298ddecb0fd8a5fdc065db1e1152791377e754cf))
+* **tests:** skip broken playwright import test ([ba77273](https://github.com/RaphaEnterprises-AI/argus-backend/commit/ba77273b24160fa57451ec03b78afeeefd807056))
+* **tests:** skip flaky health_check_without_db test ([aacd33f](https://github.com/RaphaEnterprises-AI/argus-backend/commit/aacd33f812d5908dba89b85d29df73b9de77196f))
+* **tests:** use AsyncMock for check_connection in test_get_slack_status ([b549e42](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b549e429f6503301d378620d97a9c1cf4ffc4dd6))
+* **tests:** use Callable type annotation instead of callable builtin ([e74a9c8](https://github.com/RaphaEnterprises-AI/argus-backend/commit/e74a9c8ab93307565335c4366bfc4c7a7c789e78))
+* **tests:** use correct patch path for BrowserPoolClient ([cb448b1](https://github.com/RaphaEnterprises-AI/argus-backend/commit/cb448b1c881dcd56a431603a06c24801f53ca583))
+* **webhooks:** correct regex order in generate_fingerprint for UUID normalization ([5754f18](https://github.com/RaphaEnterprises-AI/argus-backend/commit/5754f185e9eac06aeb366d006a623092ae67a64f))
+
+
+### Documentation
+
+* **architecture:** update with v2.8.0 audit findings ([ea1f0b0](https://github.com/RaphaEnterprises-AI/argus-backend/commit/ea1f0b05d755462d46888c93b6c0b37b7b14bc69))
+
 ## [2.8.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.7.0...v2.8.0) (2026-01-17)
 
 
