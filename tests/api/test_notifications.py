@@ -899,7 +899,7 @@ class TestChannelEndpoints:
 
         with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
             with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await create_channel(mock_request, request)
+                response = await create_channel(request, mock_request)
 
                 assert response.name == "New Channel"
                 assert response.channel_type == "slack"
@@ -915,25 +915,29 @@ class TestChannelEndpoints:
         _channels["channel-1"] = {
             "id": "channel-1",
             "organization_id": "org-123",
+            "project_id": None,
             "name": "Channel 1",
             "channel_type": "slack",
             "config": {},
             "enabled": True,
             "verified": True,
             "rate_limit_per_hour": 100,
+            "last_sent_at": None,
             "sent_today": 0,
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z",
         }
 
-        mock_request = MagicMock()
-        mock_user = {"user_id": "user-123", "organization_id": "org-123"}
+        with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
+            response = await list_channels(
+                organization_id="org-123",
+                project_id=None,
+                channel_type=None,
+                enabled=None,
+                limit=50,
+            )
 
-        with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
-            with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await list_channels(mock_request, organization_id="org-123")
-
-                assert response["total"] >= 1
+            assert len(response) >= 1
 
         _channels.clear()
 
@@ -945,25 +949,23 @@ class TestChannelEndpoints:
         _channels["channel-123"] = {
             "id": "channel-123",
             "organization_id": "org-456",
+            "project_id": None,
             "name": "Test Channel",
             "channel_type": "slack",
             "config": {},
             "enabled": True,
             "verified": True,
             "rate_limit_per_hour": 100,
+            "last_sent_at": None,
             "sent_today": 5,
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T12:00:00Z",
         }
 
-        mock_request = MagicMock()
-        mock_user = {"user_id": "user-123", "organization_id": "org-456"}
+        with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
+            response = await get_channel("channel-123")
 
-        with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
-            with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await get_channel(mock_request, "channel-123")
-
-                assert response.id == "channel-123"
+            assert response.id == "channel-123"
 
         _channels.clear()
 
@@ -974,15 +976,11 @@ class TestChannelEndpoints:
 
         _channels.clear()
 
-        mock_request = MagicMock()
-        mock_user = {"user_id": "user-123"}
+        with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_channel("nonexistent")
 
-        with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
-            with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                with pytest.raises(HTTPException) as exc_info:
-                    await get_channel(mock_request, "nonexistent")
-
-                assert exc_info.value.status_code == 404
+            assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_delete_channel(self, mock_env_vars):
@@ -995,15 +993,11 @@ class TestChannelEndpoints:
             "name": "To Delete",
         }
 
-        mock_request = MagicMock()
-        mock_user = {"user_id": "user-123", "organization_id": "org-123"}
+        with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
+            response = await delete_channel("to-delete")
 
-        with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
-            with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await delete_channel(mock_request, "to-delete")
-
-                assert response["success"] is True
-                assert "to-delete" not in _channels
+            assert response["success"] is True
+            assert "to-delete" not in _channels
 
         _channels.clear()
 
@@ -1033,7 +1027,13 @@ class TestUserNotificationEndpoints:
 
         with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
             with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await list_user_notifications(mock_request)
+                response = await list_user_notifications(
+                    mock_request,
+                    read=None,
+                    notification_type=None,
+                    limit=50,
+                    offset=0,
+                )
 
                 assert response.total >= 1
                 assert response.unread_count >= 0
@@ -1042,8 +1042,8 @@ class TestUserNotificationEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_unread_count(self, mock_env_vars):
-        """Test get_unread_count endpoint."""
-        from src.api.notifications import _user_notifications, get_unread_count
+        """Test get_unread_notification_count endpoint."""
+        from src.api.notifications import _user_notifications, get_unread_notification_count
 
         _user_notifications.clear()
         _user_notifications["notif-1"] = {"id": "notif-1", "user_id": "user-123", "read": False, "priority": "high"}
@@ -1054,7 +1054,7 @@ class TestUserNotificationEndpoints:
 
         with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
             with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await get_unread_count(mock_request)
+                response = await get_unread_notification_count(mock_request)
 
                 assert response.unread_count == 2
 
@@ -1062,8 +1062,8 @@ class TestUserNotificationEndpoints:
 
     @pytest.mark.asyncio
     async def test_mark_notification_read(self, mock_env_vars):
-        """Test mark_notification_read endpoint."""
-        from src.api.notifications import _user_notifications, mark_notification_read
+        """Test mark_notification_as_read endpoint."""
+        from src.api.notifications import _user_notifications, mark_notification_as_read
 
         _user_notifications["notif-123"] = {
             "id": "notif-123",
@@ -1081,16 +1081,16 @@ class TestUserNotificationEndpoints:
 
         with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
             with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await mark_notification_read(mock_request, "notif-123")
+                response = await mark_notification_as_read("notif-123", mock_request)
 
-                assert response.read is True
+                assert response.success is True
 
         _user_notifications.clear()
 
     @pytest.mark.asyncio
     async def test_mark_all_read(self, mock_env_vars):
-        """Test mark_all_read endpoint."""
-        from src.api.notifications import _user_notifications, mark_all_read
+        """Test mark_all_notifications_as_read endpoint."""
+        from src.api.notifications import _user_notifications, mark_all_notifications_as_read
 
         _user_notifications.clear()
         _user_notifications["notif-1"] = {"id": "notif-1", "user_id": "user-123", "read": False}
@@ -1101,9 +1101,9 @@ class TestUserNotificationEndpoints:
 
         with patch("src.api.notifications.get_current_user", AsyncMock(return_value=mock_user)):
             with patch("src.api.notifications.get_supabase", AsyncMock(return_value=None)):
-                response = await mark_all_read(mock_request)
+                response = await mark_all_notifications_as_read(mock_request)
 
-                assert response["success"] is True
-                assert response["count"] == 2
+                assert response.success is True
+                assert response.details["count"] == 2
 
         _user_notifications.clear()
