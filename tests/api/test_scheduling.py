@@ -492,9 +492,10 @@ class TestScheduleEndpoints:
         )
 
         mock_request = MagicMock()
+        mock_request.headers = {"x-user-id": "user-123"}
 
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await create_schedule(mock_request, request)
+            response = await create_schedule(request, mock_request)
 
             assert response.name == "New Schedule"
             assert response.project_id == "project-123"
@@ -583,10 +584,9 @@ class TestScheduleEndpoints:
         }
 
         request = ScheduleUpdateRequest(name="Updated Name")
-        mock_request = MagicMock()
 
         with patch("src.api.scheduling.get_supabase", AsyncMock(return_value=None)):
-            response = await update_schedule(mock_request, "schedule-123", request)
+            response = await update_schedule("schedule-123", request)
 
             assert response.name == "Updated Name"
 
