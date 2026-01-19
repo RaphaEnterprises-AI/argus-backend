@@ -405,10 +405,21 @@ class TestPageOperations:
             "depth_from_start": 1,
         }
 
-        mock_table = mock_supabase.table.return_value
-        mock_select = mock_table.select.return_value
-        mock_eq = mock_select.eq.return_value
-        mock_eq.execute.return_value = MagicMock(data=[db_record])
+        # Mock different responses for pages vs elements tables
+        page_response = MagicMock(data=[db_record])
+        element_response = MagicMock(data=[])  # No elements for this page
+
+        def table_factory(table_name):
+            mock_table = MagicMock()
+            mock_select = mock_table.select.return_value
+            mock_eq = mock_select.eq.return_value
+            if table_name == "discovered_pages":
+                mock_eq.execute.return_value = page_response
+            else:
+                mock_eq.execute.return_value = element_response
+            return mock_table
+
+        mock_supabase.table = table_factory
 
         repo = DiscoveryRepository(supabase_client=mock_supabase)
         results = await repo.get_pages("session-123")
