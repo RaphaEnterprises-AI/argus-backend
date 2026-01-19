@@ -254,7 +254,8 @@ class TestUtilityFunctions:
     def test_normalize_title_removes_uuids(self):
         """Test that UUIDs are replaced in titles."""
         result = _normalize_title("User 550e8400-e29b-41d4-a716-446655440000 Profile")
-        assert "UUID" in result
+        # Result is lowercased, so check for "uuid" not "UUID"
+        assert "uuid" in result
         assert "550e8400" not in result
 
     def test_normalize_title_lowercases(self):
