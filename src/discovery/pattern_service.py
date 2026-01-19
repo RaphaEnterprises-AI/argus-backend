@@ -634,12 +634,12 @@ def _normalize_title(title: str) -> str:
     # Remove specific words/values, keep structure
     import re
 
-    # Remove numbers
-    title = re.sub(r"\d+", "#", title)
-    # Remove UUIDs
+    # Remove UUIDs first (before number replacement mangles them)
     title = re.sub(
         r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", "UUID", title, flags=re.I
     )
+    # Remove numbers
+    title = re.sub(r"\d+", "#", title)
     return title.lower().strip()
 
 
