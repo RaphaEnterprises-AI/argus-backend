@@ -530,9 +530,12 @@ class TestCrawleeScriptPath:
 
     def test_get_default_crawlee_script_not_found(self):
         """Test that FileNotFoundError is raised when script doesn't exist."""
+        from unittest.mock import patch
+
         bridge = CrawleeBridge()
-        with pytest.raises(FileNotFoundError):
-            bridge._get_default_crawlee_script()
+        with patch("pathlib.Path.exists", return_value=False):
+            with pytest.raises(FileNotFoundError):
+                bridge._get_default_crawlee_script()
 
 
 # ==============================================================================
