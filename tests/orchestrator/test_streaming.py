@@ -125,7 +125,7 @@ class TestStreamingEndpoints:
         with patch("src.api.streaming.get_checkpointer"):
             with patch("src.config.get_settings") as mock_settings:
                 mock_settings.return_value = MagicMock()
-                with patch("src.orchestrator.graph.create_testing_graph") as mock_graph:
+                with patch("src.api.streaming.create_enhanced_testing_graph") as mock_graph:
                     mock_graph.return_value.compile.return_value = mock_app
 
                     response = await get_stream_status("unknown-thread")
@@ -160,7 +160,7 @@ class TestStreamingEndpoints:
         with patch("src.api.streaming.get_checkpointer"):
             with patch("src.config.get_settings") as mock_settings:
                 mock_settings.return_value = MagicMock()
-                with patch("src.orchestrator.graph.create_testing_graph") as mock_graph:
+                with patch("src.api.streaming.create_enhanced_testing_graph") as mock_graph:
                     mock_graph.return_value.compile.return_value = mock_app
 
                     response = await get_stream_status("test-thread")
@@ -184,7 +184,7 @@ class TestStreamingEndpoints:
         with patch("src.api.streaming.get_checkpointer"):
             with patch("src.config.get_settings") as mock_settings:
                 mock_settings.return_value = MagicMock()
-                with patch("src.orchestrator.graph.create_testing_graph") as mock_graph:
+                with patch("src.api.streaming.create_enhanced_testing_graph") as mock_graph:
                     mock_graph.return_value.compile.return_value = mock_app
 
                     with pytest.raises(HTTPException) as exc_info:
@@ -212,7 +212,7 @@ class TestStreamingEndpoints:
         with patch("src.api.streaming.get_checkpointer"):
             with patch("src.config.get_settings") as mock_settings:
                 mock_settings.return_value = MagicMock()
-                with patch("src.orchestrator.graph.create_testing_graph") as mock_graph:
+                with patch("src.api.streaming.create_enhanced_testing_graph") as mock_graph:
                     mock_graph.return_value.compile.return_value = mock_app
 
                     response = await cancel_stream("test-thread")
@@ -239,7 +239,7 @@ class TestStreamingEndpoints:
         with patch("src.api.streaming.get_checkpointer"):
             with patch("src.config.get_settings") as mock_settings:
                 mock_settings.return_value = MagicMock()
-                with patch("src.orchestrator.graph.create_testing_graph") as mock_graph:
+                with patch("src.api.streaming.create_enhanced_testing_graph") as mock_graph:
                     mock_graph.return_value.compile.return_value = mock_app
 
                     response = await resume_stream("test-thread")
