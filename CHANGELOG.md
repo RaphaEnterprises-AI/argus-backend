@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.1](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.9.0...v2.9.1) (2026-01-19)
+
+
+### Bug Fixes
+
+* **artifacts:** persist screenshots to R2 and Supabase ([e7cbcf7](https://github.com/RaphaEnterprises-AI/argus-backend/commit/e7cbcf7075b92521773d2ce8e16c28a44b59c45f))
+* **storage:** handle Buffer format screenshots from browser pool ([d5e142f](https://github.com/RaphaEnterprises-AI/argus-backend/commit/d5e142fbc8382265eb857c228db42280b10096fb))
+
 ## [2.9.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.8.0...v2.9.0) (2026-01-19)
 
 
