@@ -109,7 +109,7 @@ class R2Storage:
         base64_data: str,
         metadata: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Store a screenshot in R2.
+        """Store a screenshot in R2 and save metadata to Supabase.
 
         Args:
             base64_data: Base64 encoded image data
@@ -124,6 +124,7 @@ class R2Storage:
 
         # Store in R2
         key = f"screenshots/{artifact_id}.png"
+        metadata = metadata or {}
 
         try:
             async with httpx.AsyncClient() as client:
@@ -143,15 +144,44 @@ class R2Storage:
 
                 if response.status_code in [200, 201]:
                     logger.info("Stored screenshot in R2", artifact_id=artifact_id, size_kb=len(image_bytes) // 1024)
-                    return {
+
+                    artifact_ref = {
                         "artifact_id": artifact_id,
                         "type": "screenshot",
                         "storage": "r2",
                         "key": key,
                         "url": f"https://{self.config.r2_bucket}.r2.cloudflarestorage.com/{key}",
-                        "metadata": metadata or {},
+                        "metadata": metadata,
                         "created_at": datetime.now(UTC).isoformat()
                     }
+
+                    # Also save metadata to Supabase for listing/querying
+                    try:
+                        from src.integrations.supabase import get_supabase
+                        supabase = await get_supabase()
+                        if supabase:
+                            await supabase.insert("artifacts", {
+                                "id": artifact_id,
+                                "organization_id": metadata.get("organization_id"),
+                                "project_id": metadata.get("project_id"),
+                                "user_id": metadata.get("user_id", "anonymous"),
+                                "type": "screenshot",
+                                "storage_backend": "r2",
+                                "storage_key": key,
+                                "storage_url": artifact_ref["url"],
+                                "test_id": metadata.get("test_id"),
+                                "thread_id": metadata.get("thread_id"),
+                                "step_index": metadata.get("step"),
+                                "action_description": metadata.get("action"),
+                                "file_size_bytes": len(image_bytes),
+                                "content_type": "image/png",
+                                "metadata": metadata,
+                            })
+                            logger.info("Saved artifact metadata to Supabase", artifact_id=artifact_id)
+                    except Exception as db_error:
+                        logger.warning("Failed to save artifact metadata to Supabase", error=str(db_error))
+
+                    return artifact_ref
                 else:
                     logger.error("Failed to store screenshot in R2", status=response.status_code)
                     raise Exception(f"R2 upload failed: {response.status_code}")

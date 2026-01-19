@@ -186,12 +186,13 @@ async def get_artifact_raw(
 
 
 @router.get("/")
-async def list_recent_artifacts(limit: int = 20, type: str | None = None):
+async def list_recent_artifacts(
+    limit: int = 20,
+    type: str | None = None,
+    user: UserContext = Depends(get_current_user),
+):
     """
-    List recent artifacts from the memory store.
-
-    Note: This only lists artifacts in the current process memory.
-    R2-stored artifacts are not listed here.
+    List recent artifacts from Supabase and memory store.
 
     Args:
         limit: Maximum number of artifacts to return
@@ -200,22 +201,57 @@ async def list_recent_artifacts(limit: int = 20, type: str | None = None):
     Returns:
         List of artifact references (without full content).
     """
-    artifact_store = get_artifact_store()
-
-    # Get all artifacts from memory store
     artifacts = []
+
+    # First, try to get artifacts from Supabase
+    try:
+        from src.integrations.supabase import get_supabase
+        supabase = await get_supabase()
+        if supabase:
+            query_params = {"limit": limit}
+            if type:
+                query_params["type"] = type
+            if user.organization_id:
+                query_params["organization_id"] = user.organization_id
+
+            db_artifacts = await supabase.select(
+                "artifacts",
+                columns="id, type, storage_backend, storage_url, test_id, thread_id, action_description, file_size_bytes, metadata, created_at",
+                order_by="created_at",
+                ascending=False,
+                **query_params
+            )
+
+            for artifact in db_artifacts or []:
+                artifacts.append({
+                    "artifact_id": artifact["id"],
+                    "type": artifact["type"],
+                    "storage": artifact["storage_backend"],
+                    "url": artifact.get("storage_url"),
+                    "test_id": artifact.get("test_id"),
+                    "thread_id": artifact.get("thread_id"),
+                    "action": artifact.get("action_description"),
+                    "file_size_bytes": artifact.get("file_size_bytes"),
+                    "created_at": artifact.get("created_at"),
+                    "metadata": artifact.get("metadata", {}),
+                })
+    except Exception as e:
+        logger.warning("Failed to fetch artifacts from Supabase", error=str(e))
+
+    # Also check memory store for any in-memory artifacts
+    artifact_store = get_artifact_store()
     for artifact_id, artifact in artifact_store._memory_store.items():
         if type and artifact.type != type:
             continue
-
-        artifacts.append({
-            "artifact_id": artifact.id,
-            "type": artifact.type,
-            "created_at": artifact.created_at,
-            "metadata": artifact.metadata,
-            # Don't include full content in list response
-            "content_preview": f"{artifact.content[:50]}..." if len(artifact.content) > 50 else artifact.content,
-        })
+        # Avoid duplicates
+        if not any(a["artifact_id"] == artifact_id for a in artifacts):
+            artifacts.append({
+                "artifact_id": artifact.id,
+                "type": artifact.type,
+                "storage": "memory",
+                "created_at": artifact.created_at,
+                "metadata": artifact.metadata,
+            })
 
     # Sort by created_at descending
     artifacts.sort(key=lambda x: x.get("created_at", ""), reverse=True)

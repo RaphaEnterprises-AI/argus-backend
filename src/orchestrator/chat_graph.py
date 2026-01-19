@@ -13,6 +13,7 @@ from langgraph.graph.message import add_messages
 
 from src.config import get_settings
 from src.services.audit_logger import AuditAction, AuditStatus, ResourceType, get_audit_logger
+from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
 logger = structlog.get_logger()
 
@@ -255,7 +256,6 @@ async def tool_executor_node(state: ChatState, config) -> dict:
     import uuid
 
     from src.browser.pool_client import BrowserPoolClient, UserContext
-    from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
     last_message = state["messages"][-1]
 
@@ -299,6 +299,19 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                     result["_backend"] = "browser_pool"
                     result["_pool_url"] = browser_pool.pool_url
 
+                    # Store screenshots in Cloudflare R2 for persistence
+                    if is_cloudflare_configured():
+                        try:
+                            cf_client = get_cloudflare_client()
+                            result = await cf_client.store_test_artifacts(
+                                result=result,
+                                test_id=test_id,
+                                project_id=state.get("project_id", "default"),
+                            )
+                            logger.info("Stored test artifacts in R2", test_id=test_id)
+                        except Exception as e:
+                            logger.warning("Failed to store artifacts in R2", error=str(e))
+
                 elif tool_name == "executeAction":
                     # Use BrowserPoolClient.act() for single actions
                     pool_result = await browser_pool.act(
@@ -309,6 +322,20 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                     result = pool_result.to_dict()
                     result["_backend"] = "browser_pool"
                     result["_pool_url"] = browser_pool.pool_url
+
+                    # Store screenshot in Cloudflare R2 for persistence
+                    if is_cloudflare_configured() and result.get("screenshot"):
+                        try:
+                            cf_client = get_cloudflare_client()
+                            screenshot_ref = await cf_client.r2.store_screenshot(
+                                base64_data=result["screenshot"],
+                                metadata={"test_id": test_id, "action": tool_args["instruction"][:100]}
+                            )
+                            result["screenshot"] = screenshot_ref.get("artifact_id")
+                            result["_artifact_refs"] = [screenshot_ref]
+                            logger.info("Stored action screenshot in R2", test_id=test_id)
+                        except Exception as e:
+                            logger.warning("Failed to store screenshot in R2", error=str(e))
 
                 elif tool_name == "discoverElements":
                     # Use BrowserPoolClient.observe() for element discovery
