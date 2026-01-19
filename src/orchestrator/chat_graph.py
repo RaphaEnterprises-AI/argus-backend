@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from typing import Annotated, Literal, TypedDict
 
 import structlog
@@ -11,6 +12,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.config import get_settings
+from src.services.audit_logger import AuditAction, AuditStatus, ResourceType, get_audit_logger
 
 logger = structlog.get_logger()
 
@@ -271,6 +273,10 @@ async def tool_executor_node(state: ChatState, config) -> dict:
         org_id=None,  # TODO: Extract from auth context if available
     )
 
+    # Get audit logger for comprehensive logging
+    audit = get_audit_logger()
+    session_id = state.get("session_id", "anonymous")
+
     # Use BrowserPoolClient for all browser operations
     # This routes to the Vultr K8s browser pool (or fallback to Cloudflare worker)
     async with BrowserPoolClient(user_context=user_context) as browser_pool:
@@ -278,6 +284,7 @@ async def tool_executor_node(state: ChatState, config) -> dict:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
             test_id = str(uuid.uuid4())[:8]
+            start_time = time.time()
 
             try:
                 if tool_name == "runTest":
@@ -361,8 +368,34 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                 else:
                     result = {"error": f"Unknown tool: {tool_name}"}
 
+                # Log successful tool execution
+                duration_ms = int((time.time() - start_time) * 1000)
+                await audit.log_tool_execution(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    result=result,
+                    success=result.get("success", True) if isinstance(result, dict) else True,
+                    duration_ms=duration_ms,
+                    user_id=session_id,
+                    thread_id=session_id,
+                )
+
             except Exception as e:
+                duration_ms = int((time.time() - start_time) * 1000)
                 logger.exception("Tool execution failed", tool=tool_name, error=str(e))
+
+                # Log error to audit trail
+                await audit.log_tool_execution(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    result=None,
+                    success=False,
+                    duration_ms=duration_ms,
+                    user_id=session_id,
+                    thread_id=session_id,
+                    error=str(e),
+                )
+
                 # Include more details about the failure
                 result = {
                     "success": False,

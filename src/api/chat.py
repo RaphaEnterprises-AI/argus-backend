@@ -13,6 +13,12 @@ from pydantic import BaseModel
 
 from src.orchestrator.chat_graph import ChatState, create_chat_graph
 from src.orchestrator.checkpointer import get_checkpointer
+from src.services.audit_logger import (
+    AuditAction,
+    AuditStatus,
+    ResourceType,
+    get_audit_logger,
+)
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
@@ -132,6 +138,22 @@ async def stream_message(request: ChatRequest):
 
             logger.info("Starting chat stream", thread_id=thread_id)
 
+            # Log chat start to audit trail
+            audit = get_audit_logger()
+            start_time = datetime.now(UTC)
+            await audit.log(
+                action=AuditAction.TEST_RUN,
+                resource_type=ResourceType.TEST,
+                resource_id=thread_id,
+                description=f"Chat stream started with {len(request.messages)} messages",
+                metadata={
+                    "thread_id": thread_id,
+                    "message_count": len(request.messages),
+                    "app_url": request.app_url,
+                    "last_user_message": request.messages[-1].content[:200] if request.messages else None,
+                },
+            )
+
             # Track sent items to avoid duplicates (values stream sends full state each time)
             sent_tool_calls = set()
             sent_tool_results = set()
@@ -191,6 +213,16 @@ async def stream_message(request: ChatRequest):
                                     }
                                     yield f'9:{json.dumps(tool_call_data)}\n'
 
+                                    # Log tool call to audit trail
+                                    await audit.log_tool_execution(
+                                        tool_name=tc["name"],
+                                        tool_args=tc["args"],
+                                        result=None,  # Result comes later
+                                        success=True,  # Call initiated
+                                        duration_ms=0,  # Unknown at this point
+                                        thread_id=thread_id,
+                                    )
+
                             # Check for tool results (results from tool execution)
                             if isinstance(last_msg, ToolMessage):
                                 # Skip if already sent
@@ -213,11 +245,55 @@ async def stream_message(request: ChatRequest):
                                 }
                                 yield f'a:{json.dumps(tool_result_data)}\n'
 
+                                # Log tool result to audit trail
+                                # Determine success based on result content
+                                is_success = True
+                                error_msg = None
+                                if isinstance(result_content, dict):
+                                    is_success = result_content.get("success", True)
+                                    error_msg = result_content.get("error")
+                                await audit.log_tool_execution(
+                                    tool_name=getattr(last_msg, "name", "unknown"),
+                                    tool_args={},  # Args were logged with tool call
+                                    result=result_content,
+                                    success=is_success,
+                                    duration_ms=0,  # Not tracked per-tool in stream
+                                    thread_id=thread_id,
+                                    error=error_msg,
+                                )
+
+            # Log successful completion
+            duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+            await audit.log(
+                action=AuditAction.TEST_RUN,
+                resource_type=ResourceType.TEST,
+                resource_id=thread_id,
+                description="Chat stream completed successfully",
+                metadata={
+                    "thread_id": thread_id,
+                    "tool_calls_count": len(sent_tool_calls),
+                    "tool_results_count": len(sent_tool_results),
+                },
+                duration_ms=duration_ms,
+            )
+
             # AI SDK finish message: d:{"finishReason":"stop"}\n
             yield f'd:{json.dumps({"finishReason": "stop", "threadId": thread_id})}\n'
 
         except Exception as e:
             logger.exception("Chat stream error", error=str(e))
+            # Log error to audit trail
+            audit = get_audit_logger()
+            await audit.log_error(
+                error=e,
+                context="chat_streaming",
+                resource_id=thread_id,
+                metadata={
+                    "thread_id": thread_id,
+                    "message_count": len(request.messages),
+                    "app_url": request.app_url,
+                },
+            )
             # AI SDK error format: 3:"error message"\n (must be a string, not object)
             yield f'3:{json.dumps(str(e))}\n'
 

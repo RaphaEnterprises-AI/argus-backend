@@ -37,6 +37,7 @@ from src.browser.pool_models import (
     StepResult,
     TestResult,
 )
+from src.services.audit_logger import get_audit_logger
 
 logger = structlog.get_logger(__name__)
 
@@ -432,6 +433,18 @@ class BrowserPoolClient:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info("Observe completed", url=url, elements_found=len(elements), duration_ms=duration_ms)
 
+            # Log to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="observe",
+                url=url,
+                success=True,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                metadata={"elements_found": len(elements), "instruction": instruction},
+            )
+
             return ObserveResult(
                 success=data.get("success", True),
                 url=data.get("url", url),
@@ -440,7 +453,21 @@ class BrowserPoolClient:
             )
 
         except BrowserPoolError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
             logger.error("Observe failed", url=url, error=str(e))
+
+            # Log failure to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="observe",
+                url=url,
+                success=False,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                error=str(e),
+            )
+
             return ObserveResult(
                 success=False,
                 url=url,
@@ -504,6 +531,19 @@ class BrowserPoolClient:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info("Action completed", url=url, success=success, duration_ms=duration_ms)
 
+            # Log to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="act",
+                url=url,
+                success=success,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                metadata={"instruction": instruction, "actions_count": len(actions)},
+                error=data.get("error"),
+            )
+
             return ActResult(
                 success=success,
                 message=data.get("message", ""),
@@ -515,7 +555,21 @@ class BrowserPoolClient:
             )
 
         except BrowserPoolError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
             logger.error("Action failed", url=url, instruction=instruction, error=str(e))
+
+            # Log failure to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="act",
+                url=url,
+                success=False,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                error=str(e),
+                metadata={"instruction": instruction, "fallback_attempted": use_vision_fallback},
+            )
 
             # Try vision fallback on pool failure
             if use_vision_fallback and self.config.vision_fallback_enabled:
@@ -588,13 +642,30 @@ class BrowserPoolClient:
             success = data.get("success", False)
             duration_ms = int((time.time() - start_time) * 1000)
 
+            steps_passed = sum(1 for s in step_results if s.success)
             logger.info(
                 "Test completed",
                 url=url,
                 success=success,
-                steps_passed=sum(1 for s in step_results if s.success),
+                steps_passed=steps_passed,
                 steps_total=len(step_results),
                 duration_ms=duration_ms,
+            )
+
+            # Log to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="test",
+                url=url,
+                success=success,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                metadata={
+                    "steps_total": len(steps),
+                    "steps_passed": steps_passed,
+                    "browser": browser.value,
+                },
             )
 
             return TestResult(
@@ -604,7 +675,22 @@ class BrowserPoolClient:
             )
 
         except BrowserPoolError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
             logger.error("Test failed", url=url, error=str(e))
+
+            # Log failure to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="test",
+                url=url,
+                success=False,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                error=str(e),
+                metadata={"steps_total": len(steps), "browser": browser.value},
+            )
+
             return TestResult(
                 success=False,
                 error=str(e),
@@ -628,6 +714,7 @@ class BrowserPoolClient:
             ExtractResult with extracted data
         """
         logger.info("Extracting data", url=url, schema=schema)
+        start_time = time.time()
 
         try:
             data = await self._request("POST", "/extract", {
@@ -635,6 +722,20 @@ class BrowserPoolClient:
                 "schema": schema,
                 "instruction": instruction or f"Extract the following data: {json.dumps(schema)}",
             })
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Log to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="extract",
+                url=url,
+                success=data.get("success", True),
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                metadata={"schema_fields": list(schema.keys())},
+            )
 
             return ExtractResult(
                 success=data.get("success", True),
@@ -644,7 +745,21 @@ class BrowserPoolClient:
             )
 
         except BrowserPoolError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
             logger.error("Extraction failed", url=url, error=str(e))
+
+            # Log failure to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="extract",
+                url=url,
+                success=False,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                error=str(e),
+            )
+
             return ExtractResult(
                 success=False,
                 url=url,

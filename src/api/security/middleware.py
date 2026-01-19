@@ -30,6 +30,7 @@ from src.api.security.auth import (
     get_client_ip,
     is_public_endpoint,
 )
+from src.services.audit_logger import get_audit_logger
 
 logger = structlog.get_logger()
 
@@ -172,6 +173,25 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # If still no user, return 401
         if not user:
+            # Log failed authentication to audit trail
+            audit = get_audit_logger()
+            asyncio.create_task(
+                audit.log_auth_event(
+                    event_type="login",
+                    user_id="anonymous",
+                    success=False,
+                    ip_address=get_client_ip(request),
+                    user_agent=request.headers.get("user-agent"),
+                    metadata={
+                        "path": request.url.path,
+                        "method": request.method,
+                        "had_api_key": bool(api_key),
+                        "had_auth_header": bool(request.headers.get("authorization")),
+                    },
+                    error="Authentication required - no valid credentials provided",
+                )
+            )
+
             return JSONResponse(
                 status_code=401,
                 content={
@@ -193,6 +213,24 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             auth_method=user.auth_method,
             path=request.url.path,
             method=request.method,
+        )
+
+        # Log successful authentication to audit trail
+        audit = get_audit_logger()
+        asyncio.create_task(
+            audit.log_auth_event(
+                event_type=user.auth_method.value if hasattr(user.auth_method, "value") else str(user.auth_method),
+                user_id=user.user_id,
+                success=True,
+                ip_address=get_client_ip(request),
+                user_agent=request.headers.get("user-agent"),
+                organization_id=user.organization_id,
+                metadata={
+                    "path": request.url.path,
+                    "method": request.method,
+                    "session_id": user.session_id,
+                },
+            )
         )
 
         return await call_next(request)
