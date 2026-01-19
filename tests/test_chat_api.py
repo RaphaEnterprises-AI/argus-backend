@@ -21,7 +21,7 @@ import json
 import os
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 import pytest
@@ -85,7 +85,7 @@ class ChatAPITester:
         message: str,
         thread_id: str | None = None,
         app_url: str | None = None,
-        on_event: callable | None = None
+        on_event: Callable | None = None
     ) -> dict:
         """Send a streaming chat message and collect all events."""
         payload = {
