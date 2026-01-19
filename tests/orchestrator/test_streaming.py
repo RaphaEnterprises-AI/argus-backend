@@ -76,7 +76,7 @@ class TestStreamingEndpoints:
 
         from src.api.streaming import StreamTestRequest, stream_test_execution
 
-        with patch("src.api.streaming.TestingOrchestrator") as mock_orchestrator:
+        with patch("src.api.streaming.EnhancedTestingOrchestrator") as mock_orchestrator:
             mock_app = AsyncMock()
             # Mock the async iterator for astream
             mock_app.astream = MagicMock(return_value=AsyncIteratorMock([]))
