@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.9.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.8.0...v2.9.0) (2026-01-19)
+
+
+### Features
+
+* **ci:** implement tiered testing with smoke tests for PRs ([a29ca9f](https://github.com/RaphaEnterprises-AI/argus-backend/commit/a29ca9fed1a1a2b3e8a3e9a2d6a223a49b6b9310))
+* **dashboard:** add authenticated screenshot fetching ([b4c7956](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b4c7956392af7c607c01c5be8af9d336d4f7acd4))
+* **tests:** add comprehensive test coverage and CI/CD pipeline ([59d44ba](https://github.com/RaphaEnterprises-AI/argus-backend/commit/59d44ba29c633409a4f482e7883f95f939544573))
+
+
+### Bug Fixes
+
+* add missing desired_replicas variable ([dfcff8e](https://github.com/RaphaEnterprises-AI/argus-backend/commit/dfcff8e4b8f89d1e2ef2e48b2fe1f278fd200f25))
+* **api:** resolve 5 E2E API test failures ([a7b9158](https://github.com/RaphaEnterprises-AI/argus-backend/commit/a7b9158ed6091215881b5993b0ae17e0b5b08584))
+* **ci:** remove dashboard jobs from backend test workflow ([da4496c](https://github.com/RaphaEnterprises-AI/argus-backend/commit/da4496c1cab58fea93744b1c2544ca24919de1e0))
+* **infra:** update Prometheus collector for Vultr browser pool metrics ([700c8de](https://github.com/RaphaEnterprises-AI/argus-backend/commit/700c8ded7eaece48d973a9c69aa2e70510d257fe))
+* **lint:** import Callable from collections.abc per Python 3.9+ convention ([b8213a7](https://github.com/RaphaEnterprises-AI/argus-backend/commit/b8213a78d4afb64dd885bfc434732ce681ef7688))
+* **lint:** resolve all ruff lint errors ([79ffbb2](https://github.com/RaphaEnterprises-AI/argus-backend/commit/79ffbb20c53b1fc473fd25de8cb653e726b063cc))
+* **screenshots:** enable public access for artifact images ([4529efc](https://github.com/RaphaEnterprises-AI/argus-backend/commit/4529efc9cd59cb7bb88f2d5e7ed9d8b6e072368c))
+* **supabase:** add offset parameter to select() for pagination ([3affa11](https://github.com/RaphaEnterprises-AI/argus-backend/commit/3affa11965491c172476de7507c239ee0bc27701))
+* **tests:** use Callable type annotation instead of callable builtin ([e74a9c8](https://github.com/RaphaEnterprises-AI/argus-backend/commit/e74a9c8ab93307565335c4366bfc4c7a7c789e78))
+
+
+### Documentation
+
+* **architecture:** update with v2.8.0 audit findings ([ea1f0b0](https://github.com/RaphaEnterprises-AI/argus-backend/commit/ea1f0b05d755462d46888c93b6c0b37b7b14bc69))
+
 ## [2.8.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.7.0...v2.8.0) (2026-01-17)
 
 
