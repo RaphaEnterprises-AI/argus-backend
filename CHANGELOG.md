@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.10.0](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.9.1...v2.10.0) (2026-01-19)
+
+
+### Features
+
+* **artifacts:** add presigned URL support for R2 screenshots ([c3cf2b3](https://github.com/RaphaEnterprises-AI/argus-backend/commit/c3cf2b30971ea3e8214cd0781d656234cdf94e77))
+
+
+### Bug Fixes
+
+* **tests:** clear DATABASE_URL in mock_env_vars to prevent PostgresSaver issues ([ff6284a](https://github.com/RaphaEnterprises-AI/argus-backend/commit/ff6284a77989ef610238aa071993a7ed0cf546ae))
+* **tests:** properly mock httpx.AsyncClient for BrowserPoolClient test ([15603be](https://github.com/RaphaEnterprises-AI/argus-backend/commit/15603be319c5f80ed941363eb335d47309672bb8))
+* **tests:** update streaming test to patch EnhancedTestingOrchestrator ([e335929](https://github.com/RaphaEnterprises-AI/argus-backend/commit/e3359293aead627465f3e4abcbff8f03ff40b4bb))
+* **tests:** update streaming tests to patch create_enhanced_testing_graph ([e75d713](https://github.com/RaphaEnterprises-AI/argus-backend/commit/e75d71393002c0e9bf1123a63db0ec7b19fa8c9d))
+* **tests:** use MemorySaver directly in checkpointer integration tests ([d4b6f1e](https://github.com/RaphaEnterprises-AI/argus-backend/commit/d4b6f1ed171ddb065c3c2a1e617a23f25cd612ed))
+
 ## [2.9.1](https://github.com/RaphaEnterprises-AI/argus-backend/compare/v2.9.0...v2.9.1) (2026-01-19)
 
 
