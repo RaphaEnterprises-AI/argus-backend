@@ -472,6 +472,7 @@ class TestDatadogWebhook:
                             response = await handle_datadog_webhook(
                                 mock_request,
                                 organization_id="org-123",
+                                project_id=None,
                             )
 
                             assert response.success is True
@@ -604,6 +605,7 @@ class TestLogRocketWebhook:
 
         with patch("src.api.webhooks.get_supabase_client") as mock_supabase:
             mock_client = MagicMock()
+            mock_client.request = AsyncMock(return_value={"data": []})
             mock_supabase.return_value = mock_client
 
             with patch("src.api.webhooks.log_webhook", AsyncMock()):
@@ -613,6 +615,7 @@ class TestLogRocketWebhook:
                             await handle_logrocket_webhook(
                                 mock_request,
                                 organization_id="org-123",
+                                project_id=None,
                             )
 
                         assert exc_info.value.status_code == 400
