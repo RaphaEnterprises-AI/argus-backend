@@ -1,7 +1,7 @@
 """
 Browser Pool Models
 
-Unified types and models for the Hetzner Browser Pool.
+Unified types and models for the Vultr Browser Pool.
 These replace the fragmented models across multiple clients.
 """
 

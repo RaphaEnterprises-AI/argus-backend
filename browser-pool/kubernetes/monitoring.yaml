@@ -127,6 +127,26 @@ spec:
   selector:
     app: prometheus
 ---
+# LoadBalancer for external access to Prometheus
+# DNS: prometheus.heyargus.ai (to be configured)
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-external
+  namespace: browser-pool
+  labels:
+    app: prometheus
+  annotations:
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 9090
+      name: http
+  selector:
+    app: prometheus
+---
 # Service Account for Prometheus
 apiVersion: v1
 kind: ServiceAccount

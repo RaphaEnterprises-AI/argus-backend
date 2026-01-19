@@ -239,14 +239,21 @@ class PrometheusCollector:
             return []
 
     async def get_selenium_metrics(self) -> SeleniumMetrics | None:
-        """Get current Selenium Grid metrics."""
+        """Get current browser pool metrics.
+
+        Note: Supports both Selenium Grid metrics (selenium_*) and
+        Vultr Browser Pool metrics (browser_*) for compatibility.
+        """
+        # Try browser pool metrics first (Vultr K8s), fall back to Selenium Grid
         queries = {
+            # Browser pool metrics (primary)
+            "active": "browser_sessions_active",
+            "total": "browser_sessions_total",
+            # Selenium Grid metrics (fallback)
             "queued": "selenium_sessions_queued",
-            "active": "selenium_sessions_active",
-            "total": "selenium_sessions_total",
             "nodes_available": "selenium_nodes_available",
             "nodes_total": "selenium_nodes_total",
-            "avg_duration": "avg(selenium_session_duration_seconds)",
+            "avg_duration": "avg(browser_action_duration_seconds_sum / browser_action_duration_seconds_count)",
             "queue_wait": "avg(selenium_session_queue_wait_time_seconds)",
         }
 
@@ -277,54 +284,52 @@ class PrometheusCollector:
 
         Args:
             browser_type: One of "chrome", "firefox", "edge"
+
+        Note: For Vultr Browser Pool, we use browser-worker metrics.
+        Only Chrome is available in the custom pool (Playwright Chromium).
+        Firefox and Edge return zeros (not deployed in custom pool).
         """
-        deployment_name = f"selenium-grid-selenium-node-{browser_type}"
+        # Vultr Browser Pool only has Chromium via Playwright
+        # Firefox/Edge would require Selenium Grid or TestingBot
+        if browser_type != "chrome":
+            min_replicas = {"firefox": 1, "edge": 1}.get(browser_type, 1)
+            max_replicas = {"firefox": 8, "edge": 8}.get(browser_type, 8)
+            return BrowserNodeMetrics(
+                browser_type=browser_type,
+                replicas_current=0,
+                replicas_desired=0,
+                replicas_min=min_replicas,
+                replicas_max=max_replicas,
+                cpu_utilization=ResourceUtilization(0, 0, 0, 0, datetime.now()),
+                memory_utilization=ResourceUtilization(0, 0, 0, 0, datetime.now()),
+                sessions_active=0,
+                timestamp=datetime.now()
+            )
 
-        # Get current replicas from KEDA
-        replicas_query = f'keda_scaler_active{{scaledObject=~"selenium-{browser_type}-scaler"}}'
-        await self.query(replicas_query)
+        # For Chrome (browser-worker), use available metrics
+        # Count active browser workers
+        worker_count_query = 'count(up{job="browser-worker"} == 1)'
+        worker_values = await self.query(worker_count_query)
+        current_replicas = int(worker_values[0].value) if worker_values else 0
 
-        # Get CPU utilization
-        cpu_query = f'''
-            sum(rate(container_cpu_usage_seconds_total{{
-                pod=~"{deployment_name}.*",
-                container!=""
-            }}[5m])) /
-            sum(kube_pod_container_resource_requests{{
-                pod=~"{deployment_name}.*",
-                resource="cpu"
-            }}) * 100
-        '''
+        # Get active sessions from browser pool
+        sessions_query = 'sum(browser_sessions_active)'
+        session_values = await self.query(sessions_query)
+        sessions_active = int(session_values[0].value) if session_values else 0
+
+        # Get CPU utilization from process metrics
+        cpu_query = 'avg(rate(process_cpu_seconds_total{job="browser-worker"}[5m])) * 100'
         cpu_values = await self.query(cpu_query)
         cpu_percent = cpu_values[0].value if cpu_values else 0.0
 
-        # Get memory utilization
-        memory_query = f'''
-            sum(container_memory_usage_bytes{{
-                pod=~"{deployment_name}.*",
-                container!=""
-            }}) /
-            sum(kube_pod_container_resource_requests{{
-                pod=~"{deployment_name}.*",
-                resource="memory"
-            }}) * 100
-        '''
+        # Get memory utilization from process metrics (as percentage of 512MB limit)
+        memory_query = 'avg(process_resident_memory_bytes{job="browser-worker"}) / (512 * 1024 * 1024) * 100'
         memory_values = await self.query(memory_query)
         memory_percent = memory_values[0].value if memory_values else 0.0
 
-        # Get current replica count
-        replica_query = f'kube_deployment_status_replicas{{deployment="{deployment_name}"}}'
-        replica_values = await self.query(replica_query)
-        current_replicas = int(replica_values[0].value) if replica_values else 0
-
-        # Get desired replicas
-        desired_query = f'kube_deployment_spec_replicas{{deployment="{deployment_name}"}}'
-        desired_values = await self.query(desired_query)
-        desired_replicas = int(desired_values[0].value) if desired_values else 0
-
-        # Get KEDA min/max from scaled object
-        min_replicas = {"chrome": 2, "firefox": 1, "edge": 1}.get(browser_type, 1)
-        max_replicas = {"chrome": 15, "firefox": 8, "edge": 8}.get(browser_type, 10)
+        # KEDA min/max for browser workers
+        min_replicas = 2
+        max_replicas = 15
 
         return BrowserNodeMetrics(
             browser_type=browser_type,
@@ -351,36 +356,34 @@ class PrometheusCollector:
         )
 
     async def get_infrastructure_snapshot(self) -> InfrastructureSnapshot:
-        """Get complete infrastructure metrics snapshot."""
+        """Get complete infrastructure metrics snapshot.
+
+        Note: Uses Vultr Browser Pool metrics when available,
+        falls back to Selenium Grid metrics if configured.
+        """
         selenium = await self.get_selenium_metrics()
         chrome = await self.get_browser_node_metrics("chrome")
         firefox = await self.get_browser_node_metrics("firefox")
         edge = await self.get_browser_node_metrics("edge")
 
-        # Get cluster-wide metrics
-        cluster_cpu_query = '''
-            sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) /
-            sum(machine_cpu_cores) * 100
-        '''
+        # Get cluster-wide metrics from browser pool (simpler queries)
+        # CPU: average across all browser workers
+        cluster_cpu_query = 'avg(rate(process_cpu_seconds_total[5m])) * 100'
         cpu_values = await self.query(cluster_cpu_query)
         cluster_cpu = cpu_values[0].value if cpu_values else 0.0
 
-        cluster_mem_query = '''
-            sum(container_memory_usage_bytes{container!=""}) /
-            sum(machine_memory_bytes) * 100
-        '''
+        # Memory: average memory usage as percentage
+        cluster_mem_query = 'avg(process_resident_memory_bytes) / (512 * 1024 * 1024) * 100'
         mem_values = await self.query(cluster_mem_query)
         cluster_mem = mem_values[0].value if mem_values else 0.0
 
-        # Get node count
-        node_query = 'count(kube_node_info)'
-        node_values = await self.query(node_query)
-        total_nodes = int(node_values[0].value) if node_values else 0
+        # Count total workers (browser-worker + browser-manager)
+        worker_query = 'count(up{job=~"browser-worker|browser-manager"} == 1)'
+        worker_values = await self.query(worker_query)
+        total_pods = int(worker_values[0].value) if worker_values else 0
 
-        # Get pod count
-        pod_query = 'count(kube_pod_info{namespace="selenium-grid"})'
-        pod_values = await self.query(pod_query)
-        total_pods = int(pod_values[0].value) if pod_values else 0
+        # Nodes = unique instances (for browser pool, each pod is on its own "node")
+        total_nodes = total_pods  # Simplified for browser pool
 
         return InfrastructureSnapshot(
             selenium=selenium or SeleniumMetrics(

@@ -117,7 +117,7 @@ class UITesterAgentV2(BaseAgent):
     """
     UI Tester Agent using the unified BrowserPoolClient.
 
-    This agent executes UI tests using the Hetzner Browser Pool,
+    This agent executes UI tests using the Vultr Browser Pool,
     with automatic vision fallback for reliability.
 
     Usage:
@@ -191,7 +191,7 @@ Respond with JSON containing:
 
         This is the PRIMARY entry point for test execution.
         It uses the unified BrowserPoolClient which:
-        - Routes to Hetzner Browser Pool
+        - Routes to Vultr Browser Pool
         - Automatically falls back to Claude Computer Use on failure
         - Handles retries and self-healing
 

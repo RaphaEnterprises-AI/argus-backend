@@ -1,13 +1,13 @@
 """
-Browser automation module - Unified Hetzner Browser Pool.
+Browser automation module - Unified Vultr Browser Pool.
 
 This module provides scalable browser automation via a Kubernetes-based
-browser pool on Hetzner Cloud, with automatic fallback to Cloudflare.
+browser pool on Vultr Cloud, with automatic fallback to Cloudflare.
 
 Architecture:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     BrowserPoolClient (Primary)                      │
-│           Hetzner K8s cluster with HPA (5-500 pods)                 │
+│           Vultr K8s cluster with HPA (5-500 pods)                 │
 └─────────────────────────────────────────────────────────────────────┘
                               │ fallback
                               ▼

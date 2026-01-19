@@ -241,11 +241,18 @@ async def chat_node(state: ChatState, config) -> dict:
 
 
 async def tool_executor_node(state: ChatState, config) -> dict:
-    """Execute tools called by the chat node."""
+    """Execute tools called by the chat node.
+
+    Uses the BrowserPoolClient for all browser operations, which routes to:
+    1. BROWSER_POOL_URL (Vultr K8s) - Primary, production-grade
+    2. BROWSER_WORKER_URL (Cloudflare) - Legacy fallback
+    3. localhost:8080 - Local development
+
+    The client handles JWT authentication, retries, and vision fallback.
+    """
     import uuid
 
-    import httpx
-
+    from src.browser.pool_client import BrowserPoolClient, UserContext
     from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
     last_message = state["messages"][-1]
@@ -255,125 +262,150 @@ async def tool_executor_node(state: ChatState, config) -> dict:
 
     tool_results = []
 
-    # Worker URL for browser automation
-    settings = get_settings()
-    worker_url = settings.browser_worker_url
-
     # Get Cloudflare client for artifact storage
     cf_client = get_cloudflare_client()
 
-    for tool_call in last_message.tool_calls:
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-        test_id = str(uuid.uuid4())[:8]
+    # Create user context for audit logging
+    user_context = UserContext(
+        user_id=state.get("session_id", "anonymous"),
+        org_id=None,  # TODO: Extract from auth context if available
+    )
 
-        try:
-            if tool_name == "runTest":
-                async with httpx.AsyncClient(timeout=180.0) as client:
-                    response = await client.post(
-                        f"{worker_url}/test",
-                        json={
-                            "url": tool_args["url"],
-                            "steps": tool_args["steps"],
-                            "screenshot": True,
-                        }
+    # Use BrowserPoolClient for all browser operations
+    # This routes to the Vultr K8s browser pool (or fallback to Cloudflare worker)
+    async with BrowserPoolClient(user_context=user_context) as browser_pool:
+        for tool_call in last_message.tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+            test_id = str(uuid.uuid4())[:8]
+
+            try:
+                if tool_name == "runTest":
+                    # Use BrowserPoolClient.test() for multi-step tests
+                    pool_result = await browser_pool.test(
+                        url=tool_args["url"],
+                        steps=tool_args["steps"],
+                        capture_screenshots=True,
                     )
-                    result = response.json()
+                    result = pool_result.to_dict()
+                    # Add backend info for debugging
+                    result["_backend"] = "browser_pool"
+                    result["_pool_url"] = browser_pool.pool_url
 
-            elif tool_name == "executeAction":
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        f"{worker_url}/act",
-                        json={
-                            "url": tool_args["url"],
-                            "instruction": tool_args["instruction"],
-                            "screenshot": True,
-                        }
+                elif tool_name == "executeAction":
+                    # Use BrowserPoolClient.act() for single actions
+                    pool_result = await browser_pool.act(
+                        url=tool_args["url"],
+                        instruction=tool_args["instruction"],
+                        screenshot=True,
                     )
-                    result = response.json()
+                    result = pool_result.to_dict()
+                    result["_backend"] = "browser_pool"
+                    result["_pool_url"] = browser_pool.pool_url
 
-            elif tool_name == "discoverElements":
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        f"{worker_url}/observe",
-                        json={"url": tool_args["url"]}
+                elif tool_name == "discoverElements":
+                    # Use BrowserPoolClient.observe() for element discovery
+                    pool_result = await browser_pool.observe(
+                        url=tool_args["url"],
                     )
-                    result = response.json()
+                    result = pool_result.to_dict()
+                    result["_backend"] = "browser_pool"
+                    result["_pool_url"] = browser_pool.pool_url
 
-            elif tool_name == "createTest":
-                from src.agents.nlp_test_creator import NLPTestCreator
-                creator = NLPTestCreator(app_url=tool_args["app_url"])
-                test = await creator.create(tool_args["description"])
+                elif tool_name == "createTest":
+                    from src.agents.nlp_test_creator import NLPTestCreator
+                    creator = NLPTestCreator(app_url=tool_args["app_url"])
+                    test = await creator.create(tool_args["description"])
 
-                # Return test plan with structured data for frontend preview
-                # Frontend will show this as an interactive card with Run/Edit buttons
+                    # Return test plan with structured data for frontend preview
+                    # Frontend will show this as an interactive card with Run/Edit buttons
+                    result = {
+                        "success": True,
+                        "_type": "test_preview",  # Frontend uses this to render special UI
+                        "test": test.to_dict(),
+                        "summary": {
+                            "name": test.name,
+                            "steps_count": len(test.steps),
+                            "assertions_count": len(test.assertions),
+                            "estimated_duration": test.estimated_duration_seconds,
+                        },
+                        "steps_preview": [
+                            {
+                                "number": i + 1,
+                                "action": step.action,
+                                "description": step.description or f"{step.action} {step.target or ''}",
+                            }
+                            for i, step in enumerate(test.steps[:10])  # Show first 10 steps
+                        ],
+                        "app_url": tool_args["app_url"],
+                        "_actions": ["run_test", "edit_test", "save_test"],  # Available actions
+                    }
+
+                elif tool_name == "checkStatus":
+                    # Check browser pool health along with other components
+                    pool_health = await browser_pool.health(use_cache=False)
+                    result = {
+                        "success": True,
+                        "components": [
+                            {"name": "Orchestrator", "status": "connected"},
+                            {
+                                "name": "Browser Pool",
+                                "status": "healthy" if pool_health.healthy else "degraded",
+                                "pool_url": pool_health.pool_url,
+                                "available_pods": pool_health.available_pods,
+                                "active_sessions": pool_health.active_sessions,
+                            },
+                            {"name": "Memory Store", "status": "connected"},
+                        ]
+                    }
+                else:
+                    result = {"error": f"Unknown tool: {tool_name}"}
+
+            except Exception as e:
+                logger.exception("Tool execution failed", tool=tool_name, error=str(e))
+                # Include more details about the failure
                 result = {
-                    "success": True,
-                    "_type": "test_preview",  # Frontend uses this to render special UI
-                    "test": test.to_dict(),
-                    "summary": {
-                        "name": test.name,
-                        "steps_count": len(test.steps),
-                        "assertions_count": len(test.assertions),
-                        "estimated_duration": test.estimated_duration_seconds,
+                    "success": False,
+                    "error": str(e),
+                    "errorDetails": {
+                        "category": "execution_error",
+                        "originalError": str(e),
+                        "isRetryable": True,
+                        "suggestedAction": "Check browser pool connectivity or retry",
                     },
-                    "steps_preview": [
-                        {
-                            "number": i + 1,
-                            "action": step.action,
-                            "description": step.description or f"{step.action} {step.target or ''}",
-                        }
-                        for i, step in enumerate(test.steps[:10])  # Show first 10 steps
-                    ],
-                    "app_url": tool_args["app_url"],
-                    "_actions": ["run_test", "edit_test", "save_test"],  # Available actions
+                    "_backend": "browser_pool",
+                    "_pool_url": browser_pool.pool_url,
                 }
 
-            elif tool_name == "checkStatus":
-                result = {
-                    "success": True,
-                    "components": [
-                        {"name": "Orchestrator", "status": "connected"},
-                        {"name": "Browser Worker", "status": "connected"},
-                        {"name": "Memory Store", "status": "connected"},
-                    ]
-                }
-            else:
-                result = {"error": f"Unknown tool: {tool_name}"}
-
-        except Exception as e:
-            logger.exception("Tool execution failed", tool=tool_name, error=str(e))
-            result = {"error": str(e)}
-
-        # Store artifacts in Cloudflare R2 if available and result has screenshots
-        # This keeps LangGraph state lightweight while preserving full data
-        try:
-            if is_cloudflare_configured() and tool_name in ["runTest", "executeAction"]:
-                # Store screenshots in R2, get lightweight result for state
-                lightweight_result = await cf_client.store_test_artifacts(
-                    result=result,
-                    test_id=test_id,
-                    project_id=state.get("session_id", "default")
-                )
-                # Use lightweight result for LangGraph state
-                state_result = lightweight_result
-                logger.info("Stored artifacts in Cloudflare R2", test_id=test_id, tool=tool_name)
-            else:
-                # Cloudflare not configured - use result as-is (will be pruned later)
+            # Store artifacts in Cloudflare R2 if available and result has screenshots
+            # This keeps LangGraph state lightweight while preserving full data
+            try:
+                if is_cloudflare_configured() and tool_name in ["runTest", "executeAction"]:
+                    # Store screenshots in R2, get lightweight result for state
+                    lightweight_result = await cf_client.store_test_artifacts(
+                        result=result,
+                        test_id=test_id,
+                        project_id=state.get("session_id", "default")
+                    )
+                    # Use lightweight result for LangGraph state
+                    state_result = lightweight_result
+                    logger.info("Stored artifacts in Cloudflare R2", test_id=test_id, tool=tool_name)
+                else:
+                    # Cloudflare not configured - use result as-is (will be pruned later)
+                    state_result = result
+            except Exception as cf_error:
+                logger.warning("Cloudflare storage failed, using original result", error=str(cf_error))
                 state_result = result
-        except Exception as cf_error:
-            logger.warning("Cloudflare storage failed, using original result", error=str(cf_error))
-            state_result = result
 
-        # Create tool message
-        # Full result is streamed to frontend, lightweight stored in state
-        tool_results.append(
-            ToolMessage(
-                content=json.dumps(state_result),
-                tool_call_id=tool_call["id"],
-                name=tool_name,
+            # Create tool message
+            # Full result is streamed to frontend, lightweight stored in state
+            tool_results.append(
+                ToolMessage(
+                    content=json.dumps(state_result),
+                    tool_call_id=tool_call["id"],
+                    name=tool_name,
+                )
             )
-        )
 
     return {"messages": tool_results}
 

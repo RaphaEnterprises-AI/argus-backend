@@ -63,7 +63,7 @@ from .test_planner import TestPlannerAgent
 # Legacy UI Tester - Available as UITesterAgentLegacy for migration
 from .ui_tester import UITesterAgent as UITesterAgentLegacy
 
-# UI Tester V2 - Uses unified BrowserPoolClient (Hetzner K8s)
+# UI Tester V2 - Uses unified BrowserPoolClient (Vultr K8s)
 from .ui_tester_v2 import AssertionResult, StepResult, UITesterAgent, UITesterAgentV2, UITestResult
 
 # Competitive Features

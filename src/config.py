@@ -170,10 +170,39 @@ class Settings(BaseSettings):
     server_host: str = Field("0.0.0.0", description="Server host")
     server_port: int = Field(8000, description="Server port")
 
-    # Browser Automation Worker (Cloudflare Worker)
+    # ==========================================================================
+    # Browser Pool Configuration (Vultr K8s - Primary)
+    # ==========================================================================
+    # The BrowserPoolClient checks URLs in this order:
+    # 1. BROWSER_POOL_URL (Vultr K8s) - Primary, production-grade, scalable
+    # 2. BROWSER_WORKER_URL (Cloudflare) - Legacy fallback
+    # 3. http://localhost:8080 - Local development
+
+    browser_pool_url: str | None = Field(
+        None,
+        description="URL of the Vultr K8s browser pool (primary). Set via BROWSER_POOL_URL env var."
+    )
+    browser_pool_jwt_secret: SecretStr | None = Field(
+        None,
+        description="JWT secret for browser pool authentication. Set via BROWSER_POOL_JWT_SECRET env var."
+    )
+    browser_timeout_ms: int = Field(
+        60000,
+        description="Default timeout for browser operations in milliseconds"
+    )
+    browser_retry_count: int = Field(
+        3,
+        description="Number of retries for failed browser operations"
+    )
+    vision_fallback_enabled: bool = Field(
+        True,
+        description="Enable Claude Computer Use as fallback when DOM execution fails"
+    )
+
+    # Legacy: Cloudflare Worker (fallback if BROWSER_POOL_URL not set)
     browser_worker_url: str = Field(
         "https://argus-api.samuelvinay-kumar.workers.dev",
-        description="URL of the browser automation Cloudflare Worker"
+        description="URL of the Cloudflare browser worker (legacy fallback). Use BROWSER_POOL_URL instead."
     )
 
     # ==========================================================================

@@ -103,12 +103,12 @@ ENABLE_CACHING = "true"
 ENABLE_SELF_HEALING = "true"
 DEFAULT_BACKEND = "vultr"  # "vultr", "cloudflare", "testingbot", "auto"
 
-# Vultr VKE Browser Pool (Legacy - Custom implementation)
+# Vultr VKE Browser Pool (Primary - Custom implementation)
 # Deployed via: ./browser-pool/deploy-vultr.sh
-# SECURITY: Should use HTTPS in production. Configure TLS termination on ingress.
-# Note: Using nip.io domain because Cloudflare Workers can't fetch raw IPs
-# TODO: Set up proper domain with TLS certificate (e.g., browser-pool.heyargus.ai)
-BROWSER_POOL_URL = "https://browser-pool.heyargus.ai"
+# LoadBalancer IP: 65.20.72.251 (Vultr VKE)
+# DNS: browser-pool.heyargus.ai → 65.20.72.251 (Cloudflare DNS, proxy OFF)
+# TODO: Configure TLS termination on LoadBalancer for HTTPS
+BROWSER_POOL_URL = "http://browser-pool.heyargus.ai"
 
 # Selenium Grid 4 (Primary - Vultr VKE cluster)
 # Production-grade browser automation with KEDA autoscaling

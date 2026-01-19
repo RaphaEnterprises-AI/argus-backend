@@ -8,7 +8,7 @@ This client replaces ALL previous browser automation clients:
 - cloudflare_browser.py (CloudflareBrowserClient)
 
 It provides a single, unified interface for browser automation
-that routes to the Hetzner Browser Pool (or fallback to Claude Computer Use).
+that routes to the Vultr Browser Pool (or fallback to Claude Computer Use).
 """
 
 import asyncio
@@ -126,7 +126,7 @@ class BrowserPoolUnavailableError(BrowserPoolError):
 
 class BrowserPoolClient:
     """
-    Unified client for the Hetzner Browser Pool.
+    Unified client for the Vultr Browser Pool.
 
     This is the SINGLE entry point for all browser automation in Argus.
     It provides MCP-compatible endpoints and handles:
