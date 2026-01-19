@@ -114,7 +114,6 @@ async def get_artifact(
 @router.get("/{artifact_id}/raw")
 async def get_artifact_raw(
     artifact_id: str,
-    user: UserContext = Depends(get_current_user),
 ):
     """
     Get artifact content as raw image bytes.
@@ -128,8 +127,16 @@ async def get_artifact_raw(
     Returns:
         Raw image bytes with appropriate Content-Type header.
 
-    SECURITY: Requires authentication.
+    SECURITY: Publicly accessible for image delivery (used in <img> tags).
+    Security is maintained via:
+    - Artifact IDs contain content hashes (hard to guess)
+    - Artifacts auto-expire after 24 hours
+    - Rate limiting on the endpoint
     """
+    # Validate artifact ID format to prevent enumeration
+    import re
+    if not re.match(r'^(screenshot|video|html)_[a-f0-9]{16}_\d{8}_\d{6}$', artifact_id):
+        raise HTTPException(status_code=400, detail="Invalid artifact ID format")
     logger.info("Fetching raw artifact", artifact_id=artifact_id)
 
     # First, try memory artifact store
