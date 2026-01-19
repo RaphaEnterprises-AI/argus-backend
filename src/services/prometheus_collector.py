@@ -330,6 +330,7 @@ class PrometheusCollector:
         # KEDA min/max for browser workers
         min_replicas = 2
         max_replicas = 15
+        desired_replicas = current_replicas  # KEDA manages scaling
 
         return BrowserNodeMetrics(
             browser_type=browser_type,
@@ -351,7 +352,7 @@ class PrometheusCollector:
                 memory_usage_percent=memory_percent,
                 timestamp=datetime.now()
             ),
-            sessions_active=0,  # Would need Selenium Grid API
+            sessions_active=sessions_active,
             timestamp=datetime.now()
         )
 
