@@ -47,7 +47,7 @@ class CloudflareConfig:
     r2_secret_access_key: str = ""
     r2_presigned_url_expiry: int = 3600  # 1 hour default
     # Worker URL for public screenshot access (preferred over presigned URLs)
-    worker_url: str = "https://argus-api.anthropic.workers.dev"
+    worker_url: str = "https://argus-api.samuelvinay-kumar.workers.dev"
 
     @classmethod
     def from_env(cls) -> "CloudflareConfig":
@@ -63,7 +63,7 @@ class CloudflareConfig:
             r2_access_key_id=os.getenv("CLOUDFLARE_R2_ACCESS_KEY_ID", ""),
             r2_secret_access_key=os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", ""),
             r2_presigned_url_expiry=int(os.getenv("CLOUDFLARE_R2_PRESIGNED_URL_EXPIRY", "3600")),
-            worker_url=os.getenv("CLOUDFLARE_WORKER_URL", "https://argus-api.anthropic.workers.dev"),
+            worker_url=os.getenv("CLOUDFLARE_WORKER_URL", "https://argus-api.samuelvinay-kumar.workers.dev"),
         )
 
     @classmethod
@@ -91,7 +91,7 @@ class CloudflareConfig:
             r2_access_key_id=settings.cloudflare_r2_access_key_id or "",
             r2_secret_access_key=r2_secret,
             r2_presigned_url_expiry=settings.cloudflare_r2_presigned_url_expiry,
-            worker_url=getattr(settings, 'cloudflare_worker_url', None) or "https://argus-api.anthropic.workers.dev",
+            worker_url=getattr(settings, 'cloudflare_worker_url', None) or "https://argus-api.samuelvinay-kumar.workers.dev",
         )
 
 
