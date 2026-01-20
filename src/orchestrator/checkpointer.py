@@ -81,23 +81,28 @@ async def setup_checkpointer() -> CheckpointerType:
             # This fixes Railway IPv6 connectivity issues with Supabase
             parsed = urlparse(database_url)
             hostname = parsed.hostname
+            conninfo = database_url  # Default to original
+
             try:
-                # Resolve to IPv4 only
-                ipv4_addr = socket.gethostbyname(hostname)
-                logger.info(
-                    "Resolved database hostname to IPv4",
-                    hostname=hostname,
-                    ipv4=ipv4_addr,
-                )
-                # Add hostaddr parameter to connection string
-                if "?" in database_url:
-                    conninfo = f"{database_url}&hostaddr={ipv4_addr}"
+                # Use getaddrinfo with AF_INET to force IPv4 resolution
+                addrs = socket.getaddrinfo(hostname, 5432, socket.AF_INET, socket.SOCK_STREAM)
+                if addrs:
+                    ipv4_addr = addrs[0][4][0]  # Extract IP from first result
+                    logger.info(
+                        "Resolved database hostname to IPv4",
+                        hostname=hostname,
+                        ipv4=ipv4_addr,
+                    )
+                    # Add hostaddr parameter to connection string
+                    if "?" in database_url:
+                        conninfo = f"{database_url}&hostaddr={ipv4_addr}"
+                    else:
+                        conninfo = f"{database_url}?hostaddr={ipv4_addr}"
                 else:
-                    conninfo = f"{database_url}?hostaddr={ipv4_addr}"
-            except socket.gaierror:
+                    logger.warning("No IPv4 addresses found for hostname", hostname=hostname)
+            except socket.gaierror as e:
                 # Fall back to original URL if resolution fails
-                logger.warning("Could not resolve hostname to IPv4, using original URL")
-                conninfo = database_url
+                logger.warning("Could not resolve hostname to IPv4", hostname=hostname, error=str(e))
 
             # Create connection pool with production settings
             _connection_pool = AsyncConnectionPool(
