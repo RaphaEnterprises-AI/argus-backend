@@ -353,7 +353,7 @@ class TestSelfHealerAgent:
             assert len(fixes) == 1
             assert fixes[0].fix_type == FixType.NONE
 
-    def test_apply_fix_update_selector(self, mock_env_vars):
+    async def test_apply_fix_update_selector(self, mock_env_vars):
         """Test applying selector update fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
@@ -374,17 +374,19 @@ class TestSelfHealerAgent:
                 confidence=0.95,
             )
 
-            healed = agent._apply_fix(test_spec, fix)
+            healed = await agent._apply_fix(test_spec, fix)
 
             assert healed["steps"][0]["target"] == "#new-btn"
             assert healed["_healed"] is True
 
-    def test_apply_fix_add_wait(self, mock_env_vars):
+    async def test_apply_fix_add_wait(self, mock_env_vars):
         """Test applying add wait fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
+            import structlog
 
             agent = SelfHealerAgent()
+            agent.log = structlog.get_logger()
 
             test_spec = {
                 "id": "test-001",
@@ -399,17 +401,19 @@ class TestSelfHealerAgent:
                 confidence=0.85,
             )
 
-            healed = agent._apply_fix(test_spec, fix)
+            healed = await agent._apply_fix(test_spec, fix)
 
             # Wait step should be inserted
             assert any(s["action"] == "wait" for s in healed["steps"])
 
-    def test_apply_fix_increase_timeout(self, mock_env_vars):
+    async def test_apply_fix_increase_timeout(self, mock_env_vars):
         """Test applying increase timeout fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
+            import structlog
 
             agent = SelfHealerAgent()
+            agent.log = structlog.get_logger()
 
             test_spec = {
                 "id": "test-001",
@@ -425,11 +429,11 @@ class TestSelfHealerAgent:
                 confidence=0.8,
             )
 
-            healed = agent._apply_fix(test_spec, fix)
+            healed = await agent._apply_fix(test_spec, fix)
 
             assert healed["steps"][0]["timeout"] == 15000
 
-    def test_apply_fix_update_assertion(self, mock_env_vars):
+    async def test_apply_fix_update_assertion(self, mock_env_vars):
         """Test applying update assertion fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
@@ -450,11 +454,11 @@ class TestSelfHealerAgent:
                 confidence=0.9,
             )
 
-            healed = agent._apply_fix(test_spec, fix)
+            healed = await agent._apply_fix(test_spec, fix)
 
             assert healed["assertions"][0]["expected"] == "New Text"
 
-    def test_apply_fix_update_test_data(self, mock_env_vars):
+    async def test_apply_fix_update_test_data(self, mock_env_vars):
         """Test applying update test data fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
             from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
@@ -475,7 +479,7 @@ class TestSelfHealerAgent:
                 confidence=0.85,
             )
 
-            healed = agent._apply_fix(test_spec, fix)
+            healed = await agent._apply_fix(test_spec, fix)
 
             assert healed["steps"][0]["value"] == "new@example.com"
 

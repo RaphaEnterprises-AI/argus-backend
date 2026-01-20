@@ -5,16 +5,22 @@ Tracks all AI interactions for:
 - Security investigations
 - Cost attribution
 - Usage analytics
+
+Supports multiple backends:
+- Cloud (Supabase PostgreSQL) - default when DATABASE_URL is set
+- Local file (JSONL) - fallback for development
 """
 
 import hashlib
 import json
 import os
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -107,6 +113,357 @@ class AuditEvent:
         return cls(**data)
 
 
+# =============================================================================
+# Audit Backend Interface
+# =============================================================================
+
+
+class AuditBackend(ABC):
+    """Abstract base class for audit log storage backends."""
+
+    @abstractmethod
+    def log_event(self, event: AuditEvent) -> None:
+        """Log an audit event."""
+        pass
+
+    @abstractmethod
+    def query_events(
+        self,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        event_type: AuditEventType | None = None,
+        user_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[AuditEvent]:
+        """Query audit events."""
+        pass
+
+
+class CloudAuditBackend(AuditBackend):
+    """
+    Cloud-based audit backend using Supabase PostgreSQL.
+
+    Writes audit events to the security_audit_logs table.
+    This is the recommended backend for production use.
+    """
+
+    def __init__(self, database_url: str | None = None):
+        self.log = logger.bind(component="cloud_audit_backend")
+        self._database_url = database_url or os.environ.get("DATABASE_URL")
+        self._pool = None
+        self._initialized = False
+
+    async def _ensure_pool(self):
+        """Lazily initialize the connection pool."""
+        if self._pool is not None:
+            return
+
+        if not self._database_url:
+            raise RuntimeError("DATABASE_URL not configured for cloud audit backend")
+
+        try:
+            import asyncpg
+            self._pool = await asyncpg.create_pool(
+                self._database_url,
+                min_size=1,
+                max_size=5,
+            )
+            self._initialized = True
+            self.log.info("Cloud audit backend initialized")
+        except ImportError:
+            self.log.warning("asyncpg not installed, falling back to sync mode")
+            self._pool = None
+        except Exception as e:
+            self.log.error("Failed to initialize cloud audit backend", error=str(e))
+            raise
+
+    def _get_sync_connection(self):
+        """Get a synchronous database connection."""
+        import psycopg2
+        return psycopg2.connect(self._database_url)
+
+    def log_event(self, event: AuditEvent) -> None:
+        """Log an audit event to Supabase (synchronous)."""
+        if not self._database_url:
+            self.log.warning("DATABASE_URL not set, skipping cloud audit log")
+            return
+
+        try:
+            conn = self._get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO security_audit_logs (
+                            event_type, severity, user_id, session_id,
+                            action, resource_type, resource_id, description,
+                            outcome, metadata, model, input_tokens, output_tokens,
+                            cost_usd, content_hash, data_classification, retention_days
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s
+                        )
+                        """,
+                        (
+                            event.event_type.value if isinstance(event.event_type, AuditEventType) else event.event_type,
+                            "info" if event.success else "error",
+                            event.user_id,
+                            event.session_id,
+                            event.action,
+                            event.resource_type or None,
+                            event.resource or None,
+                            event.error_message if not event.success else f"{event.action} on {event.resource}",
+                            "success" if event.success else "failure",
+                            json.dumps(event.metadata),
+                            event.model,
+                            event.input_tokens,
+                            event.output_tokens,
+                            event.cost_usd,
+                            event.content_hash,
+                            event.data_classification,
+                            event.retention_days,
+                        ),
+                    )
+                    conn.commit()
+            finally:
+                conn.close()
+
+            self.log.debug("Audit event logged to cloud", event_type=event.event_type)
+
+        except ImportError:
+            self.log.warning("psycopg2 not installed, cannot log to cloud")
+        except Exception as e:
+            self.log.error("Failed to log audit event to cloud", error=str(e))
+
+    async def log_event_async(self, event: AuditEvent) -> None:
+        """Log an audit event to Supabase (asynchronous)."""
+        await self._ensure_pool()
+
+        if not self._pool:
+            self.log.warning("Pool not initialized, falling back to sync")
+            self.log_event(event)
+            return
+
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO security_audit_logs (
+                        event_type, severity, user_id, session_id,
+                        action, resource_type, resource_id, description,
+                        outcome, metadata, model, input_tokens, output_tokens,
+                        cost_usd, content_hash, data_classification, retention_days
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        $11, $12, $13, $14, $15, $16, $17
+                    )
+                    """,
+                    event.event_type.value if isinstance(event.event_type, AuditEventType) else event.event_type,
+                    "info" if event.success else "error",
+                    event.user_id,
+                    event.session_id,
+                    event.action,
+                    event.resource_type or None,
+                    event.resource or None,
+                    event.error_message if not event.success else f"{event.action} on {event.resource}",
+                    "success" if event.success else "failure",
+                    json.dumps(event.metadata),
+                    event.model,
+                    event.input_tokens,
+                    event.output_tokens,
+                    event.cost_usd,
+                    event.content_hash,
+                    event.data_classification,
+                    event.retention_days,
+                )
+
+            self.log.debug("Audit event logged to cloud (async)", event_type=event.event_type)
+
+        except Exception as e:
+            self.log.error("Failed to log audit event to cloud (async)", error=str(e))
+
+    def query_events(
+        self,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        event_type: AuditEventType | None = None,
+        user_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[AuditEvent]:
+        """Query audit events from Supabase."""
+        if not self._database_url:
+            return []
+
+        try:
+            conn = self._get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    query = """
+                        SELECT
+                            id, event_type, user_id, session_id, action,
+                            resource_type, resource_id, outcome, metadata,
+                            model, input_tokens, output_tokens, cost_usd,
+                            content_hash, data_classification, created_at
+                        FROM security_audit_logs
+                        WHERE 1=1
+                    """
+                    params = []
+
+                    if event_type:
+                        query += " AND event_type = %s"
+                        params.append(event_type.value if isinstance(event_type, AuditEventType) else event_type)
+                    if user_id:
+                        query += " AND user_id = %s"
+                        params.append(user_id)
+                    if start_date:
+                        query += " AND created_at >= %s"
+                        params.append(start_date)
+                    if end_date:
+                        query += " AND created_at <= %s"
+                        params.append(end_date)
+
+                    query += " ORDER BY created_at DESC LIMIT %s"
+                    params.append(limit)
+
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+
+                    events = []
+                    for row in rows:
+                        try:
+                            events.append(AuditEvent(
+                                id=str(row[0]),
+                                event_type=AuditEventType(row[1]) if row[1] in [e.value for e in AuditEventType] else AuditEventType.AI_REQUEST,
+                                user_id=row[2],
+                                session_id=row[3],
+                                action=row[4] or "",
+                                resource_type=row[5] or "",
+                                resource=row[6] or "",
+                                success=row[7] == "success",
+                                metadata=row[8] if isinstance(row[8], dict) else json.loads(row[8]) if row[8] else {},
+                                model=row[9],
+                                input_tokens=row[10] or 0,
+                                output_tokens=row[11] or 0,
+                                cost_usd=float(row[12]) if row[12] else 0.0,
+                                content_hash=row[13],
+                                data_classification=row[14] or "internal",
+                                timestamp=row[15].isoformat() if row[15] else datetime.now(UTC).isoformat(),
+                            ))
+                        except Exception as e:
+                            self.log.warning("Failed to parse audit event row", error=str(e))
+
+                    return events
+            finally:
+                conn.close()
+
+        except ImportError:
+            self.log.warning("psycopg2 not installed, cannot query cloud")
+            return []
+        except Exception as e:
+            self.log.error("Failed to query audit events from cloud", error=str(e))
+            return []
+
+    async def close(self):
+        """Close the connection pool."""
+        if self._pool:
+            await self._pool.close()
+            self._pool = None
+
+
+class FileAuditBackend(AuditBackend):
+    """
+    File-based audit backend using JSONL files.
+
+    Used as fallback when DATABASE_URL is not configured.
+    """
+
+    def __init__(
+        self,
+        output_dir: str = "./audit-logs",
+        max_file_size_mb: int = 100,
+    ):
+        self.log = logger.bind(component="file_audit_backend")
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.max_file_size = max_file_size_mb * 1024 * 1024
+        self._current_file = None
+        self._current_size = 0
+
+    def _get_log_file(self) -> Path:
+        """Get current log file, rotating if needed."""
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        base_path = self.output_dir / f"audit-{today}.jsonl"
+
+        if self._current_file != base_path:
+            self._current_file = base_path
+            self._current_size = base_path.stat().st_size if base_path.exists() else 0
+
+        if self._current_size >= self.max_file_size:
+            index = 1
+            while True:
+                rotated = self.output_dir / f"audit-{today}-{index:03d}.jsonl"
+                if not rotated.exists():
+                    self._current_file = rotated
+                    self._current_size = 0
+                    break
+                index += 1
+
+        return self._current_file
+
+    def log_event(self, event: AuditEvent) -> None:
+        """Log an audit event to file."""
+        event_json = event.to_json()
+        log_file = self._get_log_file()
+
+        with open(log_file, "a") as f:
+            f.write(event_json + "\n")
+
+        self._current_size += len(event_json) + 1
+        self.log.debug("Audit event logged to file", path=str(log_file))
+
+    def query_events(
+        self,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        event_type: AuditEventType | None = None,
+        user_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[AuditEvent]:
+        """Query audit events from files."""
+        events = []
+
+        for log_file in sorted(self.output_dir.glob("audit-*.jsonl")):
+            with open(log_file) as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+
+                    try:
+                        data = json.loads(line)
+                        event = AuditEvent.from_dict(data)
+
+                        if event_type and event.event_type != event_type:
+                            continue
+                        if user_id and event.user_id != user_id:
+                            continue
+
+                        event_time = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+                        if start_date and event_time < start_date:
+                            continue
+                        if end_date and event_time > end_date:
+                            continue
+
+                        events.append(event)
+
+                        if len(events) >= limit:
+                            return events
+
+                    except Exception as e:
+                        self.log.warning("Failed to parse audit event", error=str(e))
+
+        return events
+
+
 class AuditLogger:
     """
     Enterprise audit logger.
@@ -114,12 +471,20 @@ class AuditLogger:
     Features:
     - Immutable audit trail
     - Content hashing (never logs actual secrets)
-    - Multiple output destinations
+    - Multiple output destinations (cloud or file)
     - Rotation and retention policies
     - Compliance-ready format
 
+    Backends:
+    - Cloud (Supabase): Used when DATABASE_URL is set (production)
+    - File (JSONL): Fallback for development
+
     Usage:
-        audit = AuditLogger(output_dir="./audit-logs")
+        # Cloud mode (automatic when DATABASE_URL is set)
+        audit = AuditLogger()
+
+        # Force file mode
+        audit = AuditLogger(backend="file", output_dir="./audit-logs")
 
         # Log an AI request
         audit.log_ai_request(
@@ -139,58 +504,46 @@ class AuditLogger:
 
     def __init__(
         self,
+        backend: str | None = None,  # "cloud", "file", or None for auto-detect
         output_dir: str = "./audit-logs",
         log_to_stdout: bool = False,
-        log_to_file: bool = True,
         max_file_size_mb: int = 100,
         retention_days: int = 90,
+        database_url: str | None = None,
     ):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-
         self.log_to_stdout = log_to_stdout
-        self.log_to_file = log_to_file
-        self.max_file_size = max_file_size_mb * 1024 * 1024
         self.retention_days = retention_days
-
         self.log = logger.bind(component="audit")
-        self._current_file = None
-        self._current_size = 0
 
-    def _get_log_file(self) -> Path:
-        """Get current log file, rotating if needed."""
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
-        base_path = self.output_dir / f"audit-{today}.jsonl"
+        # Determine backend
+        database_url = database_url or os.environ.get("DATABASE_URL")
 
-        if self._current_file != base_path:
-            self._current_file = base_path
-            self._current_size = base_path.stat().st_size if base_path.exists() else 0
+        if backend == "cloud" or (backend is None and database_url):
+            # Use cloud backend
+            self._backend = CloudAuditBackend(database_url)
+            self._backend_type = "cloud"
+            self.log.info("Using cloud audit backend (Supabase)")
+        else:
+            # Use file backend
+            self._backend = FileAuditBackend(output_dir, max_file_size_mb)
+            self._backend_type = "file"
+            self.log.info("Using file audit backend", output_dir=output_dir)
 
-        # Rotate if too large
-        if self._current_size >= self.max_file_size:
-            index = 1
-            while True:
-                rotated = self.output_dir / f"audit-{today}-{index:03d}.jsonl"
-                if not rotated.exists():
-                    self._current_file = rotated
-                    self._current_size = 0
-                    break
-                index += 1
+        # Legacy compatibility
+        self.output_dir = Path(output_dir)
+        self.log_to_file = self._backend_type == "file"
 
-        return self._current_file
+    @property
+    def backend_type(self) -> str:
+        """Get the current backend type."""
+        return self._backend_type
 
     def log_event(self, event: AuditEvent) -> None:
         """Log an audit event."""
-        event_json = event.to_json()
-
         if self.log_to_stdout:
-            print(f"AUDIT: {event_json}")
+            print(f"AUDIT: {event.to_json()}")
 
-        if self.log_to_file:
-            log_file = self._get_log_file()
-            with open(log_file, "a") as f:
-                f.write(event_json + "\n")
-            self._current_size += len(event_json) + 1
+        self._backend.log_event(event)
 
     def log_ai_request(
         self,
@@ -371,39 +724,13 @@ class AuditLogger:
         limit: int = 1000,
     ) -> list[AuditEvent]:
         """Query audit events (for compliance reporting)."""
-        events = []
-
-        for log_file in sorted(self.output_dir.glob("audit-*.jsonl")):
-            with open(log_file) as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-
-                    try:
-                        data = json.loads(line)
-                        event = AuditEvent.from_dict(data)
-
-                        # Apply filters
-                        if event_type and event.event_type != event_type:
-                            continue
-                        if user_id and event.user_id != user_id:
-                            continue
-
-                        event_time = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
-                        if start_date and event_time < start_date:
-                            continue
-                        if end_date and event_time > end_date:
-                            continue
-
-                        events.append(event)
-
-                        if len(events) >= limit:
-                            return events
-
-                    except Exception as e:
-                        self.log.warning("Failed to parse audit event", error=str(e))
-
-        return events
+        return self._backend.query_events(
+            start_date=start_date,
+            end_date=end_date,
+            event_type=event_type,
+            user_id=user_id,
+            limit=limit,
+        )
 
     def generate_compliance_report(
         self,
