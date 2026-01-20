@@ -12,7 +12,6 @@ Production Features:
 """
 
 import os
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Union
 
 import structlog
@@ -28,9 +27,6 @@ CheckpointerType = Union["AsyncPostgresSaver", MemorySaver]
 
 # Global checkpointer instance (singleton pattern)
 _checkpointer: CheckpointerType | None = None
-
-# Global connection pool for cleanup
-_connection_pool = None
 
 
 def get_checkpointer() -> CheckpointerType:
@@ -62,7 +58,7 @@ async def setup_checkpointer() -> CheckpointerType:
     Returns:
         The initialized checkpointer instance
     """
-    global _checkpointer, _connection_pool
+    global _checkpointer
 
     if _checkpointer is not None:
         return _checkpointer
@@ -71,10 +67,9 @@ async def setup_checkpointer() -> CheckpointerType:
 
     if database_url:
         try:
-            # Import async checkpointer and connection pool
+            # Import async checkpointer
             import socket
-            from urllib.parse import urlparse, urlunparse
-            from psycopg_pool import AsyncConnectionPool
+            from urllib.parse import urlparse
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
             # Force IPv4 by resolving hostname and using hostaddr
@@ -104,35 +99,17 @@ async def setup_checkpointer() -> CheckpointerType:
                 # Fall back to original URL if resolution fails
                 logger.warning("Could not resolve hostname to IPv4", hostname=hostname, error=str(e))
 
-            # Create connection pool with production settings
-            _connection_pool = AsyncConnectionPool(
-                conninfo=conninfo,
-                min_size=2,      # Minimum connections in pool
-                max_size=10,     # Maximum connections in pool
-                open=False,      # Don't open immediately, we'll do it explicitly
-                timeout=60,      # Connection timeout
-                kwargs={
-                    "autocommit": True,
-                    "prepare_threshold": 0,  # Disable prepared statements for Supabase
-                },
-            )
-
-            # Open the connection pool
-            await _connection_pool.open()
-            await _connection_pool.wait()  # Wait for min_size connections
-
-            logger.info(
-                "PostgreSQL connection pool opened",
-                min_size=2,
-                max_size=10,
-                database=database_url.split("@")[-1].split("/")[0] if "@" in database_url else "unknown",
-            )
-
-            # Create AsyncPostgresSaver with the pool
-            _checkpointer = AsyncPostgresSaver(pool=_connection_pool)
+            # Create AsyncPostgresSaver using from_conn_string
+            # This handles connection pooling internally
+            _checkpointer = AsyncPostgresSaver.from_conn_string(conninfo)
 
             # Create checkpoint tables if they don't exist
             await _checkpointer.setup()
+
+            logger.info(
+                "PostgreSQL connection established",
+                database=database_url.split("@")[-1].split("/")[0] if "@" in database_url else "unknown",
+            )
 
             logger.info(
                 "AsyncPostgresSaver initialized for durable execution",
@@ -164,22 +141,19 @@ async def setup_checkpointer() -> CheckpointerType:
 
 
 async def shutdown_checkpointer() -> None:
-    """Gracefully shutdown the checkpointer and connection pool.
+    """Gracefully shutdown the checkpointer.
 
     This should be called during application shutdown to properly
     close database connections.
     """
-    global _checkpointer, _connection_pool
+    global _checkpointer
 
-    if _connection_pool is not None:
-        try:
-            await _connection_pool.close()
-            logger.info("PostgreSQL connection pool closed")
-        except Exception as e:
-            logger.error("Error closing connection pool", error=str(e))
+    if _checkpointer is not None:
+        # AsyncPostgresSaver manages its own connection pool
+        # Just clear the reference
+        logger.info("Checkpointer shutdown")
 
     _checkpointer = None
-    _connection_pool = None
 
 
 def reset_checkpointer() -> None:
