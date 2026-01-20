@@ -25,6 +25,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import structlog
+from functools import wraps
 
 from src.discovery.models import (
     CrawlError,
@@ -57,6 +58,54 @@ class CrawlProgress:
     current_url: str = ""
     errors_count: int = 0
     progress_percent: float = 0.0
+
+
+async def retry_with_backoff(
+    func,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    exponential_base: float = 2.0,
+    recoverable_errors: tuple = (TimeoutError, ConnectionError, asyncio.TimeoutError),
+    logger=None,
+):
+    """Execute an async function with exponential backoff retry.
+
+    Args:
+        func: Async callable to retry
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries (seconds)
+        max_delay: Maximum delay between retries (seconds)
+        exponential_base: Multiplier for exponential backoff
+        recoverable_errors: Exception types that trigger retry
+        logger: Logger instance for retry messages
+
+    Returns:
+        Result from successful function execution
+
+    Raises:
+        Last exception if all retries exhausted
+    """
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await func()
+        except recoverable_errors as e:
+            last_exception = e
+            if attempt < max_retries:
+                delay = min(base_delay * (exponential_base ** attempt), max_delay)
+                if logger:
+                    logger.warning(
+                        "Retry attempt",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                        error=str(e),
+                    )
+                await asyncio.sleep(delay)
+            else:
+                raise
+    raise last_exception
 
 
 class CrawleeBridge:
@@ -423,7 +472,13 @@ class CrawleeBridge:
         config: DiscoveryConfig,
         base_domain: str,
     ) -> DiscoveredPage | None:
-        """Crawl a single page and extract information.
+        """Crawl a single page and extract information with self-healing.
+
+        Enhanced with:
+        - Retry logic for transient failures
+        - Intelligent waiting for dynamic content (mutation observer)
+        - Shadow DOM and iframe support
+        - Robust error recovery
 
         Args:
             context: Playwright browser context
@@ -438,27 +493,26 @@ class CrawleeBridge:
         page = await context.new_page()
 
         try:
-            # Navigate to page
+            # Navigate with retry logic
             start_time = datetime.utcnow()
-            response = await page.goto(
-                url,
-                wait_until="networkidle",
-                timeout=30000,
-            )
+            response = await self._navigate_with_retry(page, url, max_retries=3)
             load_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
             if not response or response.status >= 400:
+                # Check if this is a recoverable error
+                is_recoverable = response.status in [429, 502, 503, 504] if response else True
                 self._errors.append(
                     CrawlError(
                         url=url,
                         error_type="http_error",
                         message=f"HTTP {response.status if response else 'no response'}",
+                        recoverable=is_recoverable,
                     )
                 )
                 return None
 
-            # Wait for JavaScript to settle
-            await page.wait_for_timeout(1000)
+            # Intelligent waiting: Wait for DOM mutations to settle
+            await self._wait_for_dynamic_content(page)
 
             # Get page info
             title = await page.title()
@@ -471,8 +525,8 @@ class CrawleeBridge:
                 }
             """)
 
-            # Extract elements
-            elements = await self._extract_elements(page, url)
+            # Extract elements with self-healing (includes shadow DOM and iframes)
+            elements = await self._extract_elements_robust(page, url)
 
             # Extract links
             links = await self._extract_links(page, base_domain)
@@ -485,6 +539,14 @@ class CrawleeBridge:
 
             # Classify page category
             category = self._classify_page(url, title, elements)
+
+            self.log.debug(
+                "Page crawled successfully",
+                url=url,
+                elements_count=len(elements),
+                links_count=len(links),
+                load_time_ms=load_time,
+            )
 
             return DiscoveredPage(
                 id=str(uuid.uuid4()),
@@ -500,18 +562,354 @@ class CrawleeBridge:
             )
 
         except Exception as e:
-            self.log.warning("Failed to crawl page", url=url, error=str(e))
+            error_type = "crawl_error"
+            is_recoverable = False
+
+            # Categorize errors for better handling
+            error_str = str(e).lower()
+            if "timeout" in error_str:
+                error_type = "timeout"
+                is_recoverable = True
+            elif "navigation" in error_str:
+                error_type = "navigation_error"
+                is_recoverable = True
+            elif "net::" in error_str:
+                error_type = "network_error"
+                is_recoverable = True
+
+            self.log.warning(
+                "Failed to crawl page",
+                url=url,
+                error_type=error_type,
+                recoverable=is_recoverable,
+                error=str(e),
+            )
             self._errors.append(
                 CrawlError(
                     url=url,
-                    error_type="crawl_error",
+                    error_type=error_type,
                     message=str(e),
+                    recoverable=is_recoverable,
                 )
             )
             return None
 
         finally:
             await page.close()
+
+    async def _navigate_with_retry(
+        self,
+        page,
+        url: str,
+        max_retries: int = 3,
+    ):
+        """Navigate to URL with retry logic for transient failures.
+
+        Args:
+            page: Playwright page
+            url: URL to navigate to
+            max_retries: Maximum retry attempts
+
+        Returns:
+            Response object from successful navigation
+        """
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = await page.goto(
+                    url,
+                    wait_until="domcontentloaded",  # Faster than networkidle
+                    timeout=30000,
+                )
+                # Try to wait for network idle, but don't fail if it times out
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass  # Page may have ongoing XHR, that's ok
+                return response
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                # Only retry on transient errors
+                if any(err in error_str for err in ["timeout", "net::", "connection"]):
+                    if attempt < max_retries - 1:
+                        delay = (attempt + 1) * 2  # 2s, 4s, 6s
+                        self.log.warning(
+                            "Navigation retry",
+                            url=url,
+                            attempt=attempt + 1,
+                            delay=delay,
+                            error=str(e),
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                raise
+
+        raise last_error
+
+    async def _wait_for_dynamic_content(
+        self,
+        page,
+        timeout_ms: int = 5000,
+        stability_ms: int = 500,
+    ) -> None:
+        """Wait for dynamic content to settle using mutation observer.
+
+        This is smarter than a fixed wait - it observes DOM mutations and
+        waits until the page stabilizes (no mutations for stability_ms).
+
+        Args:
+            page: Playwright page
+            timeout_ms: Maximum time to wait
+            stability_ms: Time with no mutations to consider stable
+        """
+        try:
+            await page.evaluate(f"""
+                () => new Promise((resolve) => {{
+                    let lastMutation = Date.now();
+                    const observer = new MutationObserver(() => {{
+                        lastMutation = Date.now();
+                    }});
+
+                    observer.observe(document.body, {{
+                        childList: true,
+                        subtree: true,
+                        attributes: true,
+                        characterData: true,
+                    }});
+
+                    const checkStable = () => {{
+                        const elapsed = Date.now() - lastMutation;
+                        if (elapsed >= {stability_ms}) {{
+                            observer.disconnect();
+                            resolve();
+                        }} else {{
+                            setTimeout(checkStable, 100);
+                        }}
+                    }};
+
+                    // Start checking after initial delay
+                    setTimeout(checkStable, 200);
+
+                    // Timeout fallback
+                    setTimeout(() => {{
+                        observer.disconnect();
+                        resolve();
+                    }}, {timeout_ms});
+                }})
+            """)
+        except Exception as e:
+            # If mutation observer fails, fall back to simple wait
+            self.log.debug("Mutation observer failed, using fallback", error=str(e))
+            await page.wait_for_timeout(1000)
+
+    async def _extract_elements_robust(
+        self,
+        page,
+        url: str,
+    ) -> list[DiscoveredElement]:
+        """Extract elements with robust self-healing approach.
+
+        Enhanced extraction that:
+        - Pierces shadow DOM
+        - Traverses iframes
+        - Generates multiple selector strategies
+        - Handles JavaScript framework components
+
+        Args:
+            page: Playwright page
+            url: Current page URL
+
+        Returns:
+            List of discovered elements
+        """
+        elements = []
+
+        # Extract from main document
+        main_elements = await self._extract_elements(page, url)
+        elements.extend(main_elements)
+
+        # Extract from shadow DOMs
+        try:
+            shadow_elements = await self._extract_shadow_dom_elements(page, url)
+            elements.extend(shadow_elements)
+        except Exception as e:
+            self.log.debug("Shadow DOM extraction failed", error=str(e))
+
+        # Extract from iframes
+        try:
+            iframe_elements = await self._extract_iframe_elements(page, url)
+            elements.extend(iframe_elements)
+        except Exception as e:
+            self.log.debug("Iframe extraction failed", error=str(e))
+
+        return elements
+
+    async def _extract_shadow_dom_elements(
+        self,
+        page,
+        url: str,
+    ) -> list[DiscoveredElement]:
+        """Extract elements from shadow DOMs.
+
+        Args:
+            page: Playwright page
+            url: Current page URL
+
+        Returns:
+            List of elements found in shadow DOMs
+        """
+        shadow_data = await page.evaluate("""
+            () => {
+                const elements = [];
+
+                function traverseShadowRoots(root, path = '') {
+                    const shadowHosts = root.querySelectorAll('*');
+                    shadowHosts.forEach((host, hostIdx) => {
+                        if (host.shadowRoot) {
+                            const shadowPath = path + (host.id ? `#${host.id}` : `[${hostIdx}]`) + ' >>> ';
+
+                            // Extract interactive elements from shadow root
+                            const interactives = host.shadowRoot.querySelectorAll(
+                                'button, a, input, textarea, select, [role="button"], [onclick]'
+                            );
+
+                            interactives.forEach((el, idx) => {
+                                const rect = el.getBoundingClientRect();
+                                elements.push({
+                                    type: el.tagName.toLowerCase(),
+                                    shadowPath: shadowPath,
+                                    selector: el.id ? `#${el.id}` :
+                                             el.className ? `.${el.className.split(' ')[0]}` :
+                                             `${el.tagName.toLowerCase()}:nth-of-type(${idx + 1})`,
+                                    label: el.textContent?.trim()?.slice(0, 100) ||
+                                           el.getAttribute('aria-label') || '',
+                                    bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                                    visible: rect.width > 0 && rect.height > 0,
+                                    inShadowDom: true,
+                                });
+                            });
+
+                            // Recurse into nested shadow roots
+                            traverseShadowRoots(host.shadowRoot, shadowPath);
+                        }
+                    });
+                }
+
+                traverseShadowRoots(document);
+                return elements;
+            }
+        """)
+
+        elements = []
+        for el_data in shadow_data:
+            bounds_data = el_data.get("bounds", {})
+            # Create a pierce selector for shadow DOM
+            shadow_selector = el_data.get("shadowPath", "") + el_data.get("selector", "")
+
+            elements.append(
+                DiscoveredElement(
+                    id=str(uuid.uuid4()),
+                    page_url=url,
+                    selector=shadow_selector,
+                    category=self._categorize_element(el_data),
+                    label=el_data.get("label"),
+                    bounds=ElementBounds(
+                        x=bounds_data.get("x", 0),
+                        y=bounds_data.get("y", 0),
+                        width=bounds_data.get("width", 0),
+                        height=bounds_data.get("height", 0),
+                    ),
+                    tag_name=el_data.get("type", "div"),
+                    html_attributes={"_shadow_dom": True},
+                    is_visible=el_data.get("visible", True),
+                )
+            )
+
+        return elements
+
+    async def _extract_iframe_elements(
+        self,
+        page,
+        url: str,
+    ) -> list[DiscoveredElement]:
+        """Extract elements from iframes.
+
+        Args:
+            page: Playwright page
+            url: Current page URL
+
+        Returns:
+            List of elements found in iframes
+        """
+        elements = []
+
+        # Get all frames
+        frames = page.frames
+        for frame in frames:
+            # Skip the main frame
+            if frame == page.main_frame:
+                continue
+
+            # Skip cross-origin frames (can't access)
+            try:
+                frame_url = frame.url
+                if not frame_url or frame_url == "about:blank":
+                    continue
+
+                # Extract elements from this frame
+                frame_elements = await frame.evaluate("""
+                    () => {
+                        const elements = [];
+                        document.querySelectorAll(
+                            'button, a[href], input, textarea, select, [role="button"]'
+                        ).forEach((el, idx) => {
+                            const rect = el.getBoundingClientRect();
+                            elements.push({
+                                type: el.tagName.toLowerCase(),
+                                selector: el.id ? `#${el.id}` :
+                                         el.name ? `[name="${el.name}"]` :
+                                         `${el.tagName.toLowerCase()}:nth-of-type(${idx + 1})`,
+                                label: el.textContent?.trim()?.slice(0, 100) ||
+                                       el.getAttribute('aria-label') || '',
+                                bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                                visible: rect.width > 0 && rect.height > 0,
+                            });
+                        });
+                        return elements;
+                    }
+                """)
+
+                for el_data in frame_elements:
+                    bounds_data = el_data.get("bounds", {})
+                    # Create iframe-aware selector
+                    iframe_selector = f"iframe >> {el_data.get('selector', '')}"
+
+                    elements.append(
+                        DiscoveredElement(
+                            id=str(uuid.uuid4()),
+                            page_url=url,
+                            selector=iframe_selector,
+                            category=self._categorize_element(el_data),
+                            label=el_data.get("label"),
+                            bounds=ElementBounds(
+                                x=bounds_data.get("x", 0),
+                                y=bounds_data.get("y", 0),
+                                width=bounds_data.get("width", 0),
+                                height=bounds_data.get("height", 0),
+                            ),
+                            tag_name=el_data.get("type", "div"),
+                            html_attributes={"_iframe": True, "_frame_url": frame_url},
+                            is_visible=el_data.get("visible", True),
+                        )
+                    )
+
+            except Exception as e:
+                # Cross-origin or other access error
+                self.log.debug("Cannot access iframe", error=str(e))
+                continue
+
+        return elements
 
     async def _extract_elements(
         self,

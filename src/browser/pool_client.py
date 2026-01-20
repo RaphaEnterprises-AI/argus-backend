@@ -37,6 +37,7 @@ from src.browser.pool_models import (
     StepResult,
     TestResult,
 )
+from src.config import get_settings
 from src.services.audit_logger import get_audit_logger
 
 logger = structlog.get_logger(__name__)
@@ -809,7 +810,8 @@ class BrowserPoolClient:
             from src.computer_use.client import ComputerUseClient
 
             if self._vision_client is None:
-                self._vision_client = ComputerUseClient()
+                settings = get_settings()
+                self._vision_client = ComputerUseClient(settings)
 
             logger.info("Executing with vision fallback", url=url, instruction=instruction)
 

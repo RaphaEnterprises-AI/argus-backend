@@ -131,7 +131,7 @@ Output must be valid JSON."""
         try:
             response = self._call_claude(
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=4096,
+                max_tokens=8192,  # Increased from 4096 to prevent JSON truncation
             )
 
             # Parse response

@@ -2284,7 +2284,15 @@ async function handleExtract(request: Request, env: Env, corsHeaders: Record<str
     }, env);
 
     if (poolResult.success) {
-      return Response.json({ ...poolResult.data, _backend: "vultr" }, { headers: corsHeaders });
+      // Ensure response matches MCP expected format: { success: true, data: {...} }
+      const responseData = poolResult.data;
+      if (responseData && 'success' in responseData) {
+        // Pool already returned proper format
+        return Response.json({ ...responseData, _backend: "vultr" }, { headers: corsHeaders });
+      } else {
+        // Pool returned raw data, wrap it
+        return Response.json({ success: true, data: responseData, _backend: "vultr" }, { headers: corsHeaders });
+      }
     } else {
       console.warn(`Vultr pool failed: ${poolResult.error}, falling back to local execution`);
     }
@@ -2313,7 +2321,8 @@ async function handleExtract(request: Request, env: Env, corsHeaders: Record<str
     const data = await extractWithAI(env, instruction, schema, content);
     await session.close();
 
-    return Response.json({ ...data, _backend: session.backendUsed }, { headers: corsHeaders });
+    // Wrap response to match MCP expected format: { success: true, data: {...} }
+    return Response.json({ success: true, data, _backend: session.backendUsed }, { headers: corsHeaders });
   };
 
   try {

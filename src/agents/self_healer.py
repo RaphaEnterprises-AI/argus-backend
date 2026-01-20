@@ -26,6 +26,7 @@ import base64
 import hashlib
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 
 from ..config import ModelName
@@ -254,6 +255,231 @@ class SelfHealerAgent(BaseAgent):
         """Generate a unique fingerprint for a healing pattern."""
         key = f"{original_selector}:{error_type}"
         return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    # =========================================================================
+    # INTELLIGENT TIMING DETECTION (Fixed Jan 2026)
+    # =========================================================================
+
+    async def _calculate_intelligent_timeout(
+        self,
+        selector: str,
+        page_url: str | None = None,
+        failure_count: int = 1,
+        base_timeout: int = 5000,
+    ) -> int:
+        """Calculate an intelligent timeout based on learned patterns.
+
+        Instead of hardcoded 5000ms, this method considers:
+        1. Historical timing patterns for this specific selector
+        2. Page complexity (if known)
+        3. Network latency patterns
+        4. Escalation based on failure count
+
+        Args:
+            selector: The CSS/XPath selector that needs waiting
+            page_url: The page URL for context-aware timeouts
+            failure_count: How many times this selector has failed
+            base_timeout: Starting timeout to scale from
+
+        Returns:
+            Intelligent timeout in milliseconds
+        """
+        timeout = base_timeout
+
+        if self.memory_store:
+            try:
+                # 1. Check selector-specific timing history
+                selector_fingerprint = self._generate_timing_fingerprint(selector)
+                selector_pattern = await self.memory_store.get(
+                    namespace=("element_timing_patterns",),
+                    key=selector_fingerprint,
+                )
+
+                if selector_pattern:
+                    # Use learned p95 timing + 20% buffer
+                    learned_timeout = selector_pattern.get("p95_timeout_ms", base_timeout)
+                    timeout = int(learned_timeout * 1.2)
+                    self.log.debug(
+                        "Using learned selector timing",
+                        selector=selector[:50],
+                        learned_timeout=learned_timeout,
+                        final_timeout=timeout,
+                    )
+
+                # 2. Check page-level timing patterns
+                if page_url:
+                    page_fingerprint = hashlib.sha256(page_url.encode()).hexdigest()[:16]
+                    page_pattern = await self.memory_store.get(
+                        namespace=("page_timing_patterns",),
+                        key=page_fingerprint,
+                    )
+
+                    if page_pattern:
+                        page_complexity = page_pattern.get("complexity", "medium")
+                        complexity_multiplier = {
+                            "simple": 0.8,
+                            "medium": 1.0,
+                            "complex": 1.5,
+                            "heavy": 2.0,
+                        }.get(page_complexity, 1.0)
+                        timeout = int(timeout * complexity_multiplier)
+                        self.log.debug(
+                            "Applied page complexity multiplier",
+                            page_url=page_url,
+                            complexity=page_complexity,
+                            multiplier=complexity_multiplier,
+                        )
+
+            except Exception as e:
+                self.log.warning("Failed to get timing patterns", error=str(e))
+
+        # 3. Apply escalation based on failure count
+        # Each failure increases timeout by 50% up to 4x max
+        escalation_multiplier = min(1.0 + (0.5 * (failure_count - 1)), 4.0)
+        timeout = int(timeout * escalation_multiplier)
+
+        # 4. Apply global bounds
+        timeout = max(1000, min(timeout, 60000))  # 1s to 60s bounds
+
+        self.log.info(
+            "Calculated intelligent timeout",
+            selector=selector[:50],
+            base_timeout=base_timeout,
+            failure_count=failure_count,
+            final_timeout=timeout,
+        )
+
+        return timeout
+
+    def _generate_timing_fingerprint(self, selector: str) -> str:
+        """Generate a fingerprint for timing pattern lookup."""
+        return hashlib.sha256(f"timing:{selector}".encode()).hexdigest()[:16]
+
+    async def _track_element_timing(
+        self,
+        selector: str,
+        page_url: str | None,
+        actual_wait_ms: int,
+        success: bool,
+    ) -> None:
+        """Track timing data for a specific element for future learning.
+
+        Args:
+            selector: The element selector
+            page_url: The page URL
+            actual_wait_ms: How long the wait actually took
+            success: Whether the element was found after waiting
+        """
+        if not self.memory_store:
+            return
+
+        try:
+            fingerprint = self._generate_timing_fingerprint(selector)
+
+            # Get existing pattern
+            existing = await self.memory_store.get(
+                namespace=("element_timing_patterns",),
+                key=fingerprint,
+            )
+
+            # Update rolling statistics
+            if existing:
+                samples = existing.get("samples", [])
+                samples.append(actual_wait_ms)
+                # Keep last 20 samples
+                samples = samples[-20:]
+
+                # Calculate p50, p95, p99
+                sorted_samples = sorted(samples)
+                n = len(sorted_samples)
+                p50 = sorted_samples[n // 2] if n > 0 else actual_wait_ms
+                p95 = sorted_samples[int(n * 0.95)] if n > 1 else actual_wait_ms
+                p99 = sorted_samples[int(n * 0.99)] if n > 2 else actual_wait_ms
+
+                success_count = existing.get("success_count", 0) + (1 if success else 0)
+                failure_count = existing.get("failure_count", 0) + (0 if success else 1)
+            else:
+                samples = [actual_wait_ms]
+                p50 = p95 = p99 = actual_wait_ms
+                success_count = 1 if success else 0
+                failure_count = 0 if success else 1
+
+            # Store updated pattern
+            await self.memory_store.put(
+                namespace=("element_timing_patterns",),
+                key=fingerprint,
+                value={
+                    "selector": selector,
+                    "page_url": page_url,
+                    "samples": samples,
+                    "p50_timeout_ms": p50,
+                    "p95_timeout_ms": p95,
+                    "p99_timeout_ms": p99,
+                    "success_count": success_count,
+                    "failure_count": failure_count,
+                    "success_rate": success_count / max(1, success_count + failure_count),
+                    "last_updated": datetime.now(UTC).isoformat(),
+                },
+            )
+
+            self.log.debug(
+                "Tracked element timing pattern",
+                selector=selector[:50],
+                p95_timeout=p95,
+                success_rate=success_count / max(1, success_count + failure_count),
+            )
+
+        except Exception as e:
+            self.log.warning("Failed to track element timing", error=str(e))
+
+    async def _track_page_complexity(
+        self,
+        page_url: str,
+        load_time_ms: int,
+        element_count: int,
+        has_animations: bool = False,
+        has_lazy_loading: bool = False,
+    ) -> None:
+        """Track page complexity for timing adjustments.
+
+        Args:
+            page_url: The page URL
+            load_time_ms: How long the page took to load
+            element_count: Number of interactive elements on page
+            has_animations: Whether page has CSS animations
+            has_lazy_loading: Whether page uses lazy loading
+        """
+        if not self.memory_store:
+            return
+
+        try:
+            fingerprint = hashlib.sha256(page_url.encode()).hexdigest()[:16]
+
+            # Determine complexity level
+            complexity = "simple"
+            if load_time_ms > 5000 or element_count > 100 or has_animations or has_lazy_loading:
+                complexity = "heavy"
+            elif load_time_ms > 3000 or element_count > 50:
+                complexity = "complex"
+            elif load_time_ms > 1500 or element_count > 20:
+                complexity = "medium"
+
+            await self.memory_store.put(
+                namespace=("page_timing_patterns",),
+                key=fingerprint,
+                value={
+                    "page_url": page_url,
+                    "complexity": complexity,
+                    "avg_load_time_ms": load_time_ms,
+                    "element_count": element_count,
+                    "has_animations": has_animations,
+                    "has_lazy_loading": has_lazy_loading,
+                    "last_updated": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        except Exception as e:
+            self.log.warning("Failed to track page complexity", error=str(e))
 
     async def _lookup_cached_healing(
         self,
@@ -775,7 +1001,7 @@ Output must be valid JSON."""
                     evidence=["Cached pattern matched"],
                 )
 
-                healed_spec = self._apply_fix(test_spec, cached_fix)
+                healed_spec = await self._apply_fix(test_spec, cached_fix, failure_details)
 
                 self.log.info(
                     "Applied cached healing pattern",
@@ -823,7 +1049,7 @@ Output must be valid JSON."""
                         ],
                     )
 
-                    healed_spec = self._apply_fix(test_spec, memory_fix)
+                    healed_spec = await self._apply_fix(test_spec, memory_fix, failure_details)
 
                     self.log.info(
                         "Applied memory store healing pattern",
@@ -891,7 +1117,7 @@ Output must be valid JSON."""
                 auto_healed = False
 
                 if code_fix.confidence >= self.auto_heal_threshold:
-                    healed_spec = self._apply_fix(test_spec, code_fix)
+                    healed_spec = await self._apply_fix(test_spec, code_fix, failure_details)
                     auto_healed = True
 
                     self.log.info(
@@ -1006,7 +1232,7 @@ Output must be valid JSON."""
             auto_healed = False
 
             if fixes and fixes[0].confidence >= self.auto_heal_threshold:
-                healed_spec = self._apply_fix(test_spec, fixes[0])
+                healed_spec = await self._apply_fix(test_spec, fixes[0], failure_details)
                 auto_healed = True
                 self.log.info(
                     "Auto-healed test",
@@ -1068,8 +1294,17 @@ Output must be valid JSON."""
         failure_details: dict,
         error_logs: str | None,
     ) -> str:
-        """Build the analysis prompt."""
+        """Build the analysis prompt with enhanced timing detection guidance."""
         import json
+
+        # Detect if this is likely a timing issue based on available data
+        is_timing_context = (
+            failure_details.get("type") == "timing_issue"
+            or failure_details.get("network_logs")
+            or failure_details.get("historical_runs")
+            or failure_details.get("timeout_ms")
+            or "timeout" in failure_details.get("message", "").lower()
+        )
 
         prompt_parts = [
             "Analyze this test failure and suggest how to fix it.",
@@ -1088,9 +1323,36 @@ Output must be valid JSON."""
                 error_logs[:2000],  # Truncate long logs
             ])
 
+        # Add specific guidance for timing issues
+        if is_timing_context:
+            prompt_parts.extend([
+                "",
+                "TIMING ANALYSIS GUIDANCE:",
+                "This appears to be a timing-related failure. Carefully analyze:",
+                "1. Network logs: Look at API response times, especially if they approach the timeout",
+                "2. Historical runs: Check if past runs show timing variance or intermittent failures",
+                "3. Timeout values: Compare current timeout against actual operation durations",
+                "",
+                "For timing issues, the diagnosis should be 'timing_issue' with evidence including:",
+                "- API slowdown patterns (if network_logs show slow responses)",
+                "- Timeout approaching durations (timeout_ms vs actual durations)",
+                "- Intermittent failure patterns (from historical_runs)",
+                "",
+                "For timing fixes, use 'increase_timeout' and set new_value to a number in milliseconds.",
+                "Recommended: Set timeout to at least 2x the observed maximum duration for safety margin.",
+            ])
+
         prompt_parts.extend([
             "",
-            "Analyze and respond with JSON:",
+            "FAILURE TYPE GUIDANCE:",
+            "- selector_changed: Element's CSS selector or XPath changed (look for git_diff, html_context)",
+            "- timing_issue: Element not ready in time (look for network_logs, timeout data, intermittent failures)",
+            "- ui_changed: Layout or visual changes (look for screenshot comparisons)",
+            "- data_changed: Test data no longer valid (look for assertion mismatches)",
+            "- real_bug: Actual application bug found",
+            "- unknown: Cannot determine cause",
+            "",
+            "Analyze and respond with JSON only (no markdown):",
             """{
     "diagnosis": {
         "failure_type": "selector_changed|timing_issue|ui_changed|data_changed|real_bug|unknown",
@@ -1103,7 +1365,7 @@ Output must be valid JSON."""
         {
             "fix_type": "update_selector|add_wait|increase_timeout|update_assertion|update_test_data|none",
             "old_value": "current value",
-            "new_value": "suggested new value",
+            "new_value": "suggested new value (for timeout, use milliseconds as integer e.g. 10000)",
             "confidence": 0.0-1.0,
             "explanation": "Why this fix should work"
         }
@@ -1159,11 +1421,30 @@ Output must be valid JSON."""
         fixes.sort(key=lambda f: f.confidence, reverse=True)
         return fixes
 
-    def _apply_fix(self, test_spec: dict, fix: FixSuggestion) -> dict:
-        """Apply a fix to a test specification."""
+    async def _apply_fix(
+        self,
+        test_spec: dict,
+        fix: FixSuggestion,
+        failure_details: dict | None = None,
+    ) -> dict:
+        """Apply a fix to a test specification with intelligent timing.
+
+        Args:
+            test_spec: The test specification to modify
+            fix: The fix suggestion to apply
+            failure_details: Optional failure context for intelligent timing
+
+        Returns:
+            Modified test specification with fix applied
+        """
         import copy
 
         healed_spec = copy.deepcopy(test_spec)
+
+        # Extract context for timing intelligence
+        page_url = failure_details.get("url") if failure_details else None
+        failure_count = failure_details.get("failure_count", 1) if failure_details else 1
+        selector = fix.old_value or fix.new_value or ""
 
         if fix.fix_type == FixType.UPDATE_SELECTOR:
             # Find and update the selector in steps
@@ -1173,21 +1454,67 @@ Output must be valid JSON."""
                     break
 
         elif fix.fix_type == FixType.ADD_WAIT:
-            # Add a wait step before the failing step
+            # INTELLIGENT TIMING: Calculate optimal wait time instead of hardcoded 5000ms
             if fix.new_value:
+                # Check if fix.new_value already contains a timeout
+                if isinstance(fix.new_value, dict) and "timeout" in fix.new_value:
+                    intelligent_timeout = fix.new_value["timeout"]
+                    wait_target = fix.new_value.get("target", selector)
+                else:
+                    # Calculate intelligent timeout based on learning
+                    intelligent_timeout = await self._calculate_intelligent_timeout(
+                        selector=fix.new_value,
+                        page_url=page_url,
+                        failure_count=failure_count,
+                        base_timeout=5000,
+                    )
+                    wait_target = fix.new_value
+
                 wait_step = {
                     "action": "wait",
-                    "target": fix.new_value,
-                    "timeout": 5000,
+                    "target": wait_target,
+                    "timeout": intelligent_timeout,
+                    "_timing_source": "intelligent",  # Mark as intelligent timing
                 }
-                # Insert before failing step (would need step index)
-                healed_spec.setdefault("steps", []).insert(0, wait_step)
+
+                # Try to insert before failing step if we have step index
+                failing_step_index = failure_details.get("step_index", 0) if failure_details else 0
+                healed_spec.setdefault("steps", []).insert(failing_step_index, wait_step)
+
+                self.log.info(
+                    "Applied intelligent wait",
+                    selector=wait_target[:50],
+                    timeout=intelligent_timeout,
+                    step_index=failing_step_index,
+                )
 
         elif fix.fix_type == FixType.INCREASE_TIMEOUT:
-            # Increase timeout for the failing step
+            # INTELLIGENT TIMING: Calculate new timeout based on learning
             for step in healed_spec.get("steps", []):
                 if step.get("target") == fix.old_value or step.get("timeout"):
-                    step["timeout"] = int(fix.new_value or 10000)
+                    current_timeout = step.get("timeout", 5000)
+
+                    # If fix provides a specific timeout, use it; otherwise calculate
+                    if fix.new_value and str(fix.new_value).isdigit():
+                        new_timeout = int(fix.new_value)
+                    else:
+                        # Calculate intelligent timeout with escalation
+                        new_timeout = await self._calculate_intelligent_timeout(
+                            selector=step.get("target", selector),
+                            page_url=page_url,
+                            failure_count=failure_count,
+                            base_timeout=current_timeout,
+                        )
+
+                    step["timeout"] = new_timeout
+                    step["_timing_source"] = "intelligent"
+
+                    self.log.info(
+                        "Increased timeout intelligently",
+                        old_timeout=current_timeout,
+                        new_timeout=new_timeout,
+                    )
+                    break
 
         elif fix.fix_type == FixType.UPDATE_ASSERTION:
             # Update assertion expected value
