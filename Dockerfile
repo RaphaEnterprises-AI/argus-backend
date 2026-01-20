@@ -29,6 +29,7 @@ RUN pip install --upgrade pip && \
     "langgraph-checkpoint>=2.0.0" \
     "langgraph-checkpoint-postgres>=2.0.0" \
     "psycopg[binary]>=3.1.0" \
+    "psycopg-pool>=3.2.0" \
     "asyncpg>=0.29.0" \
     "sqlalchemy>=2.0.0" \
     "httpx>=0.27.0" \

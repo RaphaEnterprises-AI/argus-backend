@@ -1,37 +1,68 @@
 """PostgreSQL checkpointer for durable execution.
 
 Provides memory and state persistence for chat conversations and test orchestration.
-Uses PostgresSaver when DATABASE_URL is set, otherwise falls back to MemorySaver.
+Uses AsyncPostgresSaver with connection pooling when DATABASE_URL is set,
+otherwise falls back to MemorySaver.
+
+Production Features:
+- Async connection pooling via psycopg_pool
+- Automatic table creation
+- Connection health checks
+- Graceful shutdown
 """
 
 import os
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Union
 
 import structlog
 from langgraph.checkpoint.memory import MemorySaver
 
 if TYPE_CHECKING:
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver as PostgresSaver
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 logger = structlog.get_logger()
 
 # Type alias for checkpointer types
-CheckpointerType = Union["PostgresSaver", MemorySaver]
+CheckpointerType = Union["AsyncPostgresSaver", MemorySaver]
 
 # Global checkpointer instance (singleton pattern)
 _checkpointer: CheckpointerType | None = None
 
+# Global connection pool for cleanup
+_connection_pool = None
+
 
 def get_checkpointer() -> CheckpointerType:
-    """Get or create the checkpointer instance.
+    """Get the checkpointer instance (sync access for compatibility).
 
-    Returns PostgresSaver if DATABASE_URL is set, otherwise falls back to MemorySaver.
-    The checkpointer is cached as a singleton for the lifetime of the application.
+    Note: For production, use get_async_checkpointer() or setup_checkpointer()
+    which properly initializes the async PostgresSaver with connection pooling.
 
     Returns:
-        PostgresSaver for durable execution or MemorySaver for in-memory (development)
+        The cached checkpointer or MemorySaver if not yet initialized
     """
     global _checkpointer
+
+    if _checkpointer is not None:
+        return _checkpointer
+
+    # Return MemorySaver as fallback - proper init happens in setup_checkpointer
+    logger.warning("get_checkpointer called before setup_checkpointer - using MemorySaver")
+    return MemorySaver()
+
+
+async def setup_checkpointer() -> CheckpointerType:
+    """Initialize checkpointer with async connection pooling.
+
+    This should be called during application startup to ensure the checkpointer
+    is ready before handling requests. Uses AsyncPostgresSaver with psycopg_pool
+    for production-grade performance.
+
+    Returns:
+        The initialized checkpointer instance
+    """
+    global _checkpointer, _connection_pool
 
     if _checkpointer is not None:
         return _checkpointer
@@ -40,22 +71,60 @@ def get_checkpointer() -> CheckpointerType:
 
     if database_url:
         try:
-            # Import here to avoid dependency issues when PostgresSaver is not installed
-            from langgraph.checkpoint.postgres import PostgresSaver
+            # Import async checkpointer and connection pool
+            from psycopg_pool import AsyncConnectionPool
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-            # Use PostgresSaver for production
-            _checkpointer = PostgresSaver.from_conn_string(database_url)
-            logger.info("Using PostgresSaver for durable execution")
-        except ImportError:
+            # Create connection pool with production settings
+            _connection_pool = AsyncConnectionPool(
+                conninfo=database_url,
+                min_size=2,      # Minimum connections in pool
+                max_size=10,     # Maximum connections in pool
+                open=False,      # Don't open immediately, we'll do it explicitly
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,  # Disable prepared statements for Supabase
+                },
+            )
+
+            # Open the connection pool
+            await _connection_pool.open()
+            await _connection_pool.wait()  # Wait for min_size connections
+
+            logger.info(
+                "PostgreSQL connection pool opened",
+                min_size=2,
+                max_size=10,
+                database=database_url.split("@")[-1].split("/")[0] if "@" in database_url else "unknown",
+            )
+
+            # Create AsyncPostgresSaver with the pool
+            _checkpointer = AsyncPostgresSaver(pool=_connection_pool)
+
+            # Create checkpoint tables if they don't exist
+            await _checkpointer.setup()
+
+            logger.info(
+                "AsyncPostgresSaver initialized for durable execution",
+                features=["connection_pooling", "async", "auto_tables"],
+            )
+
+        except ImportError as e:
             logger.warning(
-                "langgraph-checkpoint-postgres not installed, falling back to MemorySaver"
+                "Required packages not installed for PostgresSaver",
+                error=str(e),
+                hint="Install with: pip install langgraph-checkpoint-postgres psycopg[binary] psycopg-pool",
             )
             _checkpointer = MemorySaver()
+
         except Exception as e:
-            logger.warning(
-                f"Failed to create PostgresSaver: {e}, falling back to MemorySaver"
+            logger.error(
+                "Failed to create AsyncPostgresSaver",
+                error=str(e),
+                error_type=type(e).__name__,
             )
             _checkpointer = MemorySaver()
+            logger.info("Falling back to MemorySaver (not durable)")
     else:
         # Fallback to in-memory for development
         logger.info("DATABASE_URL not set, using MemorySaver (not durable)")
@@ -64,27 +133,23 @@ def get_checkpointer() -> CheckpointerType:
     return _checkpointer
 
 
-async def setup_checkpointer() -> CheckpointerType:
-    """Initialize checkpointer and ensure tables exist.
+async def shutdown_checkpointer() -> None:
+    """Gracefully shutdown the checkpointer and connection pool.
 
-    This should be called during application startup to ensure the checkpointer
-    is ready before handling requests.
-
-    Returns:
-        The initialized checkpointer instance
+    This should be called during application shutdown to properly
+    close database connections.
     """
-    checkpointer = get_checkpointer()
+    global _checkpointer, _connection_pool
 
-    # Check if it's a PostgresSaver for logging purposes
-    try:
-        from langgraph.checkpoint.postgres import PostgresSaver
-        if isinstance(checkpointer, PostgresSaver):
-            # PostgresSaver automatically creates tables on first use
-            logger.info("PostgresSaver initialized for durable execution")
-    except ImportError:
-        pass
+    if _connection_pool is not None:
+        try:
+            await _connection_pool.close()
+            logger.info("PostgreSQL connection pool closed")
+        except Exception as e:
+            logger.error("Error closing connection pool", error=str(e))
 
-    return checkpointer
+    _checkpointer = None
+    _connection_pool = None
 
 
 def reset_checkpointer() -> None:

@@ -70,7 +70,7 @@ from src.api.visual_ai import router as visual_ai_router
 from src.api.webhooks import router as webhooks_router
 from src.config import get_settings
 from src.integrations.reporter import create_report_from_state, create_reporter
-from src.orchestrator.checkpointer import setup_checkpointer
+from src.orchestrator.checkpointer import setup_checkpointer, shutdown_checkpointer
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
 
@@ -1962,6 +1962,9 @@ async def startup():
 async def shutdown():
     """Cleanup resources on shutdown."""
     logger.info("E2E Testing Agent API shutting down")
+
+    # Gracefully close database connection pool
+    await shutdown_checkpointer()
 
 
 # ============================================================================

@@ -39,9 +39,10 @@ class TestGetCheckpointer:
             from langgraph.checkpoint.memory import MemorySaver
             assert isinstance(checkpointer, MemorySaver)
 
-    def test_returns_same_instance_on_multiple_calls(self):
-        """Should return cached singleton instance."""
-        checkpointer1 = get_checkpointer()
+    async def test_returns_same_instance_on_multiple_calls(self):
+        """Should return cached singleton instance after setup."""
+        # Must call setup_checkpointer first for singleton behavior
+        checkpointer1 = await setup_checkpointer()
         checkpointer2 = get_checkpointer()
 
         assert checkpointer1 is checkpointer2
