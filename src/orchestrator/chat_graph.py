@@ -111,7 +111,7 @@ def prune_messages_for_context(messages: list[BaseMessage], max_tokens: int = MA
 
 
 class ChatState(TypedDict):
-    """State for chat conversations."""
+    """State for chat conversations with context tracking."""
     messages: Annotated[list[BaseMessage], add_messages]
     app_url: str
     current_tool: str | None
@@ -119,37 +119,136 @@ class ChatState(TypedDict):
     session_id: str
     should_continue: bool  # Flag to allow cancellation of execution
 
+    # Context tracking for intelligent responses
+    current_task: str | None  # "discovery" | "test_creation" | "test_execution" | "analysis"
+    task_progress: dict | None  # {"current_step": 3, "total_steps": 10, "last_action": "..."}
+    recent_failures: list[dict] | None  # Last N failures with healing suggestions
+    discovered_elements: list[dict] | None  # Cached page elements from last discovery
+    active_test: dict | None  # Currently running test details
+    healing_suggestions: list[dict] | None  # Suggestions from VectorizeMemory
 
-def create_system_prompt(app_url: str = "") -> str:
-    """Create system prompt for Argus chat."""
-    return f'''You are Argus, an AI-powered E2E Testing Agent. You help users:
 
-1. Create tests from natural language descriptions
-2. Run tests and report results with self-healing capabilities
-3. Discover application flows automatically
-4. Detect visual regressions
-5. Analyze codebases and generate comprehensive test plans
+def create_system_prompt(
+    app_url: str = "",
+    current_task: str | None = None,
+    task_progress: dict | None = None,
+    recent_failures: list[dict] | None = None,
+    discovered_elements: list[dict] | None = None,
+    healing_suggestions: list[dict] | None = None,
+) -> str:
+    """Create context-aware system prompt for Argus chat.
 
-Current Application URL: {app_url or "Not specified"}
+    This enhanced prompt includes:
+    - Current session context and task progress
+    - Recent failures with healing suggestions
+    - Discovered elements for reference
+    - Self-healing recommendations from memory
+    """
+    base_prompt = f'''You are Argus, an intelligent AI-powered E2E Testing Agent. You help users:
 
-You have access to tools for:
-- Running browser tests (runTest)
-- Executing single actions (executeAction)
-- Discovering page elements (discoverElements)
-- Creating tests from descriptions (createTest)
-- Visual comparison (visualCompare)
-- Checking system status (checkStatus)
+1. **Create tests** from natural language descriptions with smart step generation
+2. **Run tests** and report results with automatic self-healing on failures
+3. **Discover** application flows and interactive elements automatically
+4. **Detect regressions** through visual comparison and assertion validation
+5. **Analyze failures** with root cause analysis and fix suggestions
 
-Be helpful, concise, and proactive. Format test results clearly with pass/fail status.
-When showing test steps, use numbered lists. When showing code or selectors, use code blocks.
-Report any self-healing that occurred during tests.
+## Current Application
+URL: {app_url or "Not specified - ask user for the URL to test"}
 
-IMPORTANT: You are connected to the Argus Orchestrator with full LangGraph capabilities:
-- Durable execution (survives crashes)
-- Long-term memory (learns from past failures)
-- Human-in-the-loop (can pause for approval)
-- Multi-agent coordination (specialized agents for different tasks)
+## Available Tools
+| Tool | Description | When to Use |
+|------|-------------|-------------|
+| `runTest` | Execute multi-step E2E test with screenshots | Running complete test scenarios |
+| `executeAction` | Execute single browser action | Quick actions or debugging |
+| `discoverElements` | Discover interactive elements on page | Before creating tests, to understand the page |
+| `createTest` | Generate test from description | User wants to create a new test |
+| `checkStatus` | Check Argus system health | Debugging connection issues |
+
+## Response Guidelines
+1. **Be specific**: Reference actual elements, selectors, and URLs
+2. **Show evidence**: Include screenshot references when available
+3. **Explain failures**: Don't just say "failed" - explain WHY and suggest fixes
+4. **Track progress**: Use numbered steps and show completion status
+5. **Suggest healing**: When tests fail, offer concrete alternative selectors
+
+## Formatting
+- Test results: Use ✅/❌ status indicators with step numbers
+- Selectors: Use `code blocks` for CSS selectors and XPath
+- Screenshots: Reference by artifact ID when available
+- Errors: Quote exact error messages, then explain in plain language
 '''
+
+    # Add current task context
+    if current_task:
+        base_prompt += f'''
+## Current Task Context
+You are currently helping with: **{current_task}**
+'''
+        if task_progress:
+            steps_done = task_progress.get('current_step', 0)
+            total_steps = task_progress.get('total_steps', 0)
+            last_action = task_progress.get('last_action', '')
+            base_prompt += f'''Progress: Step {steps_done}/{total_steps}
+Last action: {last_action}
+'''
+
+    # Add discovered elements context
+    if discovered_elements and len(discovered_elements) > 0:
+        base_prompt += '''
+## Discovered Page Elements (from last discovery)
+'''
+        for elem in discovered_elements[:10]:  # Limit to 10 most relevant
+            elem_type = elem.get('type', 'unknown')
+            selector = elem.get('selector', '')
+            text = elem.get('text', '')[:50]  # Truncate long text
+            base_prompt += f'''- {elem_type}: `{selector}` {f'("{text}")' if text else ''}
+'''
+
+    # Add recent failures with healing suggestions
+    if recent_failures and len(recent_failures) > 0:
+        base_prompt += '''
+## Recent Failures (Learn from these!)
+'''
+        for i, failure in enumerate(recent_failures[:5], 1):  # Last 5 failures
+            step = failure.get('step', 'unknown')
+            error = failure.get('error', 'No error message')[:100]
+            selector = failure.get('selector', '')
+            base_prompt += f'''
+### Failure {i}: {step}
+- Error: `{error}`
+- Failed selector: `{selector}`
+'''
+            # Add healing suggestion if available
+            suggestion = failure.get('healing_suggestion')
+            if suggestion:
+                base_prompt += f'''- **Suggested fix**: `{suggestion.get('healed_selector', 'N/A')}`
+  (Confidence: {suggestion.get('confidence', 0):.0%})
+'''
+
+    # Add general healing suggestions from memory
+    if healing_suggestions and len(healing_suggestions) > 0:
+        base_prompt += '''
+## Self-Healing Suggestions (from past similar failures)
+The following fixes have worked for similar errors before:
+'''
+        for suggestion in healing_suggestions[:3]:
+            original = suggestion.get('failed_selector', 'unknown')
+            healed = suggestion.get('healed_selector', 'unknown')
+            confidence = suggestion.get('confidence', 0)
+            base_prompt += f'''- `{original}` → `{healed}` (confidence: {confidence:.0%})
+'''
+
+    # Add orchestrator capabilities reminder
+    base_prompt += '''
+## LangGraph Orchestrator Capabilities
+You have access to production-grade features powered by LangGraph:
+- **Durable execution**: State persists across crashes and restarts
+- **Long-term memory**: Learning from past failures via semantic search
+- **Human-in-the-loop**: Can pause for approval on destructive operations
+- **Self-healing**: Automatic selector repair when elements change
+'''
+
+    return base_prompt
 
 
 async def chat_node(state: ChatState, config) -> dict:
@@ -168,8 +267,15 @@ async def chat_node(state: ChatState, config) -> dict:
         api_key=api_key,
     )
 
-    # Build messages with system prompt
-    system_prompt = create_system_prompt(state.get("app_url", ""))
+    # Build context-aware system prompt with state information
+    system_prompt = create_system_prompt(
+        app_url=state.get("app_url", ""),
+        current_task=state.get("current_task"),
+        task_progress=state.get("task_progress"),
+        recent_failures=state.get("recent_failures"),
+        discovered_elements=state.get("discovered_elements"),
+        healing_suggestions=state.get("healing_suggestions"),
+    )
 
     # Prune messages to prevent context overflow
     pruned_messages = prune_messages_for_context(list(state["messages"]))
@@ -244,7 +350,7 @@ async def chat_node(state: ChatState, config) -> dict:
 
 
 async def tool_executor_node(state: ChatState, config) -> dict:
-    """Execute tools called by the chat node.
+    """Execute tools called by the chat node with self-healing intelligence.
 
     Uses the BrowserPoolClient for all browser operations, which routes to:
     1. BROWSER_POOL_URL (Vultr K8s) - Primary, production-grade
@@ -252,6 +358,11 @@ async def tool_executor_node(state: ChatState, config) -> dict:
     3. localhost:8080 - Local development
 
     The client handles JWT authentication, retries, and vision fallback.
+
+    Enhanced Features:
+    - Queries VectorizeMemory for healing suggestions on failures
+    - Tracks recent failures for context-aware responses
+    - Updates state with discovered elements and test progress
     """
     import uuid
 
@@ -264,7 +375,16 @@ async def tool_executor_node(state: ChatState, config) -> dict:
 
     tool_results = []
 
-    # Get Cloudflare client for artifact storage
+    # State updates for context tracking
+    state_updates = {
+        "recent_failures": list(state.get("recent_failures") or []),
+        "discovered_elements": state.get("discovered_elements"),
+        "healing_suggestions": state.get("healing_suggestions"),
+        "current_task": state.get("current_task"),
+        "task_progress": state.get("task_progress"),
+    }
+
+    # Get Cloudflare client for artifact storage and self-healing
     cf_client = get_cloudflare_client()
 
     # Create user context for audit logging
@@ -288,6 +408,14 @@ async def tool_executor_node(state: ChatState, config) -> dict:
 
             try:
                 if tool_name == "runTest":
+                    # Update task context
+                    state_updates["current_task"] = "test_execution"
+                    state_updates["task_progress"] = {
+                        "current_step": 0,
+                        "total_steps": len(tool_args.get("steps", [])),
+                        "last_action": "Starting test execution",
+                    }
+
                     # Use BrowserPoolClient.test() for multi-step tests
                     pool_result = await browser_pool.test(
                         url=tool_args["url"],
@@ -298,6 +426,64 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                     # Add backend info for debugging
                     result["_backend"] = "browser_pool"
                     result["_pool_url"] = browser_pool.pool_url
+
+                    # ============================================================
+                    # SELF-HEALING INTEGRATION: Query memory for similar failures
+                    # ============================================================
+                    if not result.get("success", True):
+                        # Extract failure details from result
+                        failed_steps = [
+                            step for step in result.get("steps", [])
+                            if not step.get("success", True)
+                        ]
+
+                        for failed_step in failed_steps:
+                            error_msg = failed_step.get("error", "")
+                            failed_selector = failed_step.get("selector", "")
+
+                            # Track failure for context
+                            failure_record = {
+                                "step": failed_step.get("instruction", "Unknown step"),
+                                "error": error_msg,
+                                "selector": failed_selector,
+                                "url": tool_args["url"],
+                                "timestamp": time.time(),
+                            }
+
+                            # Query VectorizeMemory for similar past failures
+                            try:
+                                if is_cloudflare_configured():
+                                    healing_suggestions = await cf_client.get_healing_suggestions(
+                                        error_message=error_msg,
+                                        selector=failed_selector,
+                                        limit=3,
+                                    )
+                                    if healing_suggestions:
+                                        failure_record["healing_suggestion"] = healing_suggestions[0]
+                                        result["_healing_suggestions"] = healing_suggestions
+                                        state_updates["healing_suggestions"] = healing_suggestions
+                                        logger.info(
+                                            "Found healing suggestions from memory",
+                                            count=len(healing_suggestions),
+                                            selector=failed_selector,
+                                        )
+                            except Exception as heal_err:
+                                logger.warning("Failed to get healing suggestions", error=str(heal_err))
+
+                            # Add to recent failures (keep last 10)
+                            state_updates["recent_failures"].insert(0, failure_record)
+                            state_updates["recent_failures"] = state_updates["recent_failures"][:10]
+
+                        # Add failure analysis to result for frontend
+                        result["_failure_analysis"] = {
+                            "failed_step_count": len(failed_steps),
+                            "has_healing_suggestions": bool(result.get("_healing_suggestions")),
+                            "recent_similar_failures": len(state_updates["recent_failures"]),
+                        }
+                    else:
+                        # Test passed - clear task context
+                        state_updates["current_task"] = None
+                        state_updates["task_progress"] = None
 
                     # Store screenshots in Cloudflare R2 for persistence
                     if is_cloudflare_configured():
@@ -338,6 +524,9 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                             logger.warning("Failed to store screenshot in R2", error=str(e))
 
                 elif tool_name == "discoverElements":
+                    # Update task context
+                    state_updates["current_task"] = "discovery"
+
                     # Use BrowserPoolClient.observe() for element discovery
                     pool_result = await browser_pool.observe(
                         url=tool_args["url"],
@@ -345,6 +534,14 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                     result = pool_result.to_dict()
                     result["_backend"] = "browser_pool"
                     result["_pool_url"] = browser_pool.pool_url
+
+                    # Cache discovered elements in state for context
+                    discovered = result.get("elements", []) or result.get("actions", [])
+                    if discovered:
+                        state_updates["discovered_elements"] = discovered[:50]  # Keep top 50
+                        logger.info("Cached discovered elements in state", count=len(discovered))
+
+                    state_updates["current_task"] = None  # Discovery complete
 
                 elif tool_name == "createTest":
                     from src.agents.nlp_test_creator import NLPTestCreator
@@ -467,7 +664,16 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                 )
             )
 
-    return {"messages": tool_results}
+    # Return messages and state updates for context tracking
+    return {
+        "messages": tool_results,
+        # Context updates for intelligent responses
+        "recent_failures": state_updates.get("recent_failures"),
+        "discovered_elements": state_updates.get("discovered_elements"),
+        "healing_suggestions": state_updates.get("healing_suggestions"),
+        "current_task": state_updates.get("current_task"),
+        "task_progress": state_updates.get("task_progress"),
+    }
 
 
 def should_continue(state: ChatState) -> Literal["tools", "end"]:

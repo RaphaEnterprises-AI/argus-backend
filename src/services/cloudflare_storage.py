@@ -46,6 +46,8 @@ class CloudflareConfig:
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_presigned_url_expiry: int = 3600  # 1 hour default
+    # Worker URL for public screenshot access (preferred over presigned URLs)
+    worker_url: str = "https://argus-api.anthropic.workers.dev"
 
     @classmethod
     def from_env(cls) -> "CloudflareConfig":
@@ -61,6 +63,7 @@ class CloudflareConfig:
             r2_access_key_id=os.getenv("CLOUDFLARE_R2_ACCESS_KEY_ID", ""),
             r2_secret_access_key=os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", ""),
             r2_presigned_url_expiry=int(os.getenv("CLOUDFLARE_R2_PRESIGNED_URL_EXPIRY", "3600")),
+            worker_url=os.getenv("CLOUDFLARE_WORKER_URL", "https://argus-api.anthropic.workers.dev"),
         )
 
     @classmethod
@@ -88,6 +91,7 @@ class CloudflareConfig:
             r2_access_key_id=settings.cloudflare_r2_access_key_id or "",
             r2_secret_access_key=r2_secret,
             r2_presigned_url_expiry=settings.cloudflare_r2_presigned_url_expiry,
+            worker_url=getattr(settings, 'cloudflare_worker_url', None) or "https://argus-api.anthropic.workers.dev",
         )
 
 
@@ -159,17 +163,23 @@ class R2Storage:
                 if response.status_code in [200, 201]:
                     logger.info("Stored screenshot in R2", artifact_id=artifact_id, size_kb=len(image_bytes) // 1024)
 
-                    # Generate presigned URL if credentials are configured
-                    presigned_url = self.get_presigned_url(artifact_id)
+                    # Generate URL - prefer Worker URL (public, no auth) over presigned URLs
+                    # Worker URL format: {worker_url}/screenshots/{artifact_id}
+                    worker_url = f"{self.config.worker_url}/screenshots/{artifact_id}"
+
+                    # Fallback to presigned URL if Worker URL not configured
+                    presigned_url = None
+                    if not self.config.worker_url:
+                        presigned_url = self.get_presigned_url(artifact_id)
 
                     artifact_ref = {
                         "artifact_id": artifact_id,
                         "type": "screenshot",
                         "storage": "r2",
                         "key": key,
-                        "url": presigned_url or f"https://{self.config.r2_bucket}.r2.cloudflarestorage.com/{key}",
+                        "url": worker_url,  # Use Worker URL for public access
                         "presigned_url": presigned_url,
-                        "url_expiry_seconds": self.config.r2_presigned_url_expiry if presigned_url else None,
+                        "url_expiry_seconds": None,  # Worker URLs don't expire
                         "metadata": metadata,
                         "created_at": datetime.now(UTC).isoformat()
                     }
@@ -762,13 +772,27 @@ class CloudflareClient:
     async def get_healing_suggestions(
         self,
         error_message: str,
-        selector: str
+        selector: str,
+        limit: int = 5
     ) -> list[dict[str, Any]]:
-        """Get self-healing suggestions from Vectorize memory."""
+        """Get self-healing suggestions from Vectorize memory.
+
+        Queries the VectorizeMemory for similar past failures and returns
+        healing suggestions that have worked before.
+
+        Args:
+            error_message: The error message from the failed step
+            selector: The CSS selector that failed
+            limit: Maximum number of suggestions to return
+
+        Returns:
+            List of healing suggestions with confidence scores
+        """
         if not self.config.vectorize_index:
             return []
 
-        return await self.vectorize.find_similar_failures(error_message, selector)
+        suggestions = await self.vectorize.find_similar_failures(error_message, selector)
+        return suggestions[:limit] if suggestions else []
 
 
 # =============================================================================

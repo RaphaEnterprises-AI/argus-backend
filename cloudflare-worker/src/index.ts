@@ -3268,7 +3268,8 @@ export default {
           "POST /agent": "Run autonomous workflow",
           "POST /test": "Run cross-browser tests",
           "GET /health": "Health check",
-          "GET /storage/*": "Serve screenshots and artifacts from R2",
+          "GET /screenshots/:artifact_id": "Serve screenshots (public, no auth)",
+          "GET /storage/*": "Serve other artifacts from R2 (requires auth)",
         },
         backends: ["cloudflare (free, Chromium)", "testingbot (paid, all browsers + devices)"],
         devices: Object.keys(DEVICE_PRESETS),
@@ -3276,19 +3277,62 @@ export default {
       }, { headers: corsHeaders });
     }
 
-    // Serve files from R2 storage (screenshots, artifacts)
-    // SECURITY: Requires authentication to prevent unauthorized access to screenshots
+    // =========================================================================
+    // PUBLIC SCREENSHOT ACCESS (no auth required for UI display)
+    // Route: /screenshots/:artifact_id
+    // Screenshots are considered non-sensitive - they need to display in UI
+    // =========================================================================
+    if (path.startsWith("/screenshots/") && request.method === "GET") {
+      const artifactId = path.replace("/screenshots/", "");
+      if (!artifactId) {
+        return Response.json({ error: "Missing artifact ID" }, { status: 400, headers: corsHeaders });
+      }
+
+      // Validate artifact ID format (alphanumeric, underscore, hyphen only)
+      if (!artifactId.match(/^[a-zA-Z0-9_\-]+$/)) {
+        return Response.json({ error: "Invalid artifact ID format" }, { status: 400, headers: corsHeaders });
+      }
+
+      if (!env.ARTIFACTS) {
+        return Response.json({ error: "Storage not configured" }, { status: 503, headers: corsHeaders });
+      }
+
+      try {
+        // Screenshots are stored with .png extension
+        const key = `screenshots/${artifactId}.png`;
+        const object = await env.ARTIFACTS.get(key);
+
+        if (!object) {
+          return Response.json({ error: "Screenshot not found", artifact_id: artifactId }, { status: 404, headers: corsHeaders });
+        }
+
+        const headers = new Headers(corsHeaders);
+        headers.set("Content-Type", "image/png");
+        headers.set("Cache-Control", "public, max-age=86400"); // 24 hour cache
+        headers.set("ETag", object.etag);
+
+        return new Response(object.body, { headers });
+      } catch (error) {
+        console.error("Screenshot fetch error:", error);
+        return Response.json({ error: "Failed to fetch screenshot" }, { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // =========================================================================
+    // AUTHENTICATED STORAGE ACCESS (for other artifacts)
+    // Route: /storage/*
+    // =========================================================================
     if (path.startsWith("/storage/") && request.method === "GET") {
       // Require authentication for storage access
       if (!authenticate(request, env)) {
         return Response.json({ error: "Unauthorized - authentication required for storage access" }, { status: 401, headers: corsHeaders });
       }
-      
+
       const key = path.replace("/storage/", "");
       if (!key) {
         return Response.json({ error: "Missing file key" }, { status: 400, headers: corsHeaders });
       }
-      
+
       // Validate key format to prevent path traversal
       if (key.includes('..') || key.startsWith('/') || !key.match(/^[a-zA-Z0-9\-_\/\.]+$/)) {
         return Response.json({ error: "Invalid file key format" }, { status: 400, headers: corsHeaders });
