@@ -3573,6 +3573,56 @@ export default {
       }
     }
 
+    // =========================================================================
+    // BRAIN SERVICE PROXY - User API endpoints
+    // Routes: /api/v1/users/*, /api/v1/chat/*
+    // Proxies AI settings, preferences, and chat to Python backend
+    // =========================================================================
+    if (path.startsWith("/api/v1/users/") || path.startsWith("/api/v1/chat/")) {
+      if (!env.BRAIN_URL) {
+        return Response.json(
+          { error: "Brain service not configured" },
+          { status: 503, headers: corsHeaders }
+        );
+      }
+
+      try {
+        // Forward request to Brain service
+        const brainUrl = new URL(path, env.BRAIN_URL);
+        brainUrl.search = url.search; // Preserve query params
+
+        const headers = new Headers(request.headers);
+        headers.set("X-Forwarded-For", request.headers.get("CF-Connecting-IP") || "");
+        headers.set("X-Forwarded-Proto", "https");
+
+        const response = await fetch(brainUrl.toString(), {
+          method: request.method,
+          headers: headers,
+          body: request.method !== "GET" && request.method !== "HEAD"
+            ? await request.text()
+            : undefined,
+        });
+
+        // Add CORS headers to response
+        const responseHeaders = new Headers(response.headers);
+        Object.entries(corsHeaders).forEach(([key, value]) => {
+          responseHeaders.set(key, value);
+        });
+
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+        });
+      } catch (error) {
+        console.error("Brain proxy error:", error);
+        return Response.json(
+          { error: "Failed to connect to Brain service" },
+          { status: 502, headers: corsHeaders }
+        );
+      }
+    }
+
     // Auth for all other endpoints
     if (!authenticate(request, env)) {
       return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
