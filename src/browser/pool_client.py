@@ -589,6 +589,7 @@ class BrowserPoolClient:
         steps: list[str],
         browser: BrowserType = BrowserType.CHROMIUM,
         capture_screenshots: bool = True,
+        record_video: bool = False,
     ) -> TestResult:
         """
         Run a multi-step test on a web application.
@@ -601,11 +602,12 @@ class BrowserPoolClient:
             steps: List of test step instructions
             browser: Browser type to use
             capture_screenshots: Capture screenshot at each step
+            record_video: Record video of the entire test execution
 
         Returns:
             TestResult with detailed step results
         """
-        logger.info("Running test", url=url, step_count=len(steps))
+        logger.info("Running test", url=url, step_count=len(steps), record_video=record_video)
         start_time = time.time()
 
         try:
@@ -614,6 +616,7 @@ class BrowserPoolClient:
                 "steps": steps,
                 "browser": browser.value,
                 "captureScreenshots": capture_screenshots,
+                "recordVideo": record_video,
             })
 
             # Parse step results
@@ -673,6 +676,7 @@ class BrowserPoolClient:
                 success=success,
                 steps=step_results,
                 final_screenshot=data.get("finalScreenshot"),
+                video_artifact_id=data.get("videoArtifactId"),
             )
 
         except BrowserPoolError as e:
@@ -879,6 +883,11 @@ async def act(url: str, instruction: str, **kwargs) -> ActResult:
     return await get_browser_pool_client().act(url, instruction, **kwargs)
 
 
-async def test(url: str, steps: list[str], **kwargs) -> TestResult:
+async def test(
+    url: str,
+    steps: list[str],
+    record_video: bool = False,
+    **kwargs
+) -> TestResult:
     """Convenience function for running a test."""
-    return await get_browser_pool_client().test(url, steps, **kwargs)
+    return await get_browser_pool_client().test(url, steps, record_video=record_video, **kwargs)

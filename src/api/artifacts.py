@@ -31,6 +31,14 @@ class ArtifactResponse(BaseModel):
     metadata: dict | None = None
 
 
+class SignedUrlResponse(BaseModel):
+    """Response containing a signed URL for authenticated media access."""
+    artifact_id: str
+    url: str = Field(..., description="Signed URL with HMAC signature and expiration")
+    expires_in: int = Field(..., description="URL expiry time in seconds")
+    url_type: str = Field(default="signed", description="Type of URL (signed or presigned)")
+
+
 class ArtifactListResponse(BaseModel):
     """Response listing multiple artifacts."""
     artifacts: list[dict]
@@ -85,8 +93,21 @@ async def get_artifact(
             artifact_type = artifact_id.split("_")[0] if "_" in artifact_id else "screenshot"
 
             if artifact_type == "screenshot":
-                # If URL format requested, try to generate presigned URL first
+                # If URL format requested, try to generate signed URL first
                 if format == "url":
+                    # Prefer HMAC signed URL (faster, simpler)
+                    signed_url = cf_client.r2.generate_signed_url(artifact_id, artifact_type="screenshot")
+                    if signed_url:
+                        logger.info("Generated signed URL for artifact", artifact_id=artifact_id)
+                        return ArtifactResponse(
+                            artifact_id=artifact_id,
+                            type="screenshot",
+                            content=signed_url,
+                            content_type="url",
+                            metadata={"storage": "r2", "url_type": "signed", "expiry_seconds": cf_client.r2.config.media_url_expiry},
+                        )
+
+                    # Fallback to S3v4 presigned URL
                     presigned_url = cf_client.r2.get_presigned_url(artifact_id)
                     if presigned_url:
                         logger.info("Generated presigned URL for artifact", artifact_id=artifact_id)
@@ -97,8 +118,9 @@ async def get_artifact(
                             content_type="url",
                             metadata={"storage": "r2", "url_type": "presigned", "expiry_seconds": cf_client.r2.config.r2_presigned_url_expiry},
                         )
-                    # Fall back to base64 if presigned URL generation failed
-                    logger.warning("Presigned URL generation failed, falling back to base64", artifact_id=artifact_id)
+
+                    # Fall back to base64 if URL generation failed
+                    logger.warning("URL generation failed, falling back to base64", artifact_id=artifact_id)
 
                 # Fetch from R2 as base64
                 base64_content = await cf_client.r2.get_screenshot(artifact_id)
@@ -124,6 +146,88 @@ async def get_artifact(
         status_code=404,
         detail=f"Artifact not found: {artifact_id}. It may have expired or was stored in a different session."
     )
+
+
+@router.get("/{artifact_id}/url", response_model=SignedUrlResponse)
+async def get_artifact_signed_url(
+    artifact_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Generate a signed URL for authenticated artifact access.
+
+    This endpoint generates a time-limited signed URL that can be used
+    to fetch the artifact directly from the CDN without requiring
+    authentication headers on each request.
+
+    Args:
+        artifact_id: The artifact ID (e.g., screenshot_xxx_yyy)
+
+    Returns:
+        SignedUrlResponse containing:
+        - url: The signed URL (valid for ~15 minutes)
+        - expires_in: Seconds until URL expires
+        - url_type: 'signed' (HMAC) or 'presigned' (S3v4 fallback)
+
+    The signed URL format: /screenshots/{id}?sig=SIGNATURE&exp=EXPIRATION
+
+    SECURITY: Requires authentication. The signed URL verifies both
+    the artifact ID and expiration time via HMAC-SHA256.
+    """
+    logger.info("Generating signed URL for artifact", artifact_id=artifact_id, user_id=user.user_id)
+
+    # Validate artifact ID format (basic check)
+    if not artifact_id or "_" not in artifact_id:
+        raise HTTPException(status_code=400, detail="Invalid artifact ID format")
+
+    if not is_cloudflare_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Cloudflare storage not configured"
+        )
+
+    try:
+        cf_client = get_cloudflare_client()
+
+        # Determine artifact type from ID prefix
+        artifact_type = artifact_id.split("_")[0] if "_" in artifact_id else "screenshot"
+
+        # Try signed URL first (preferred - HMAC-based, lightweight)
+        signed_url = cf_client.r2.generate_signed_url(artifact_id, artifact_type=artifact_type)
+
+        if signed_url:
+            return SignedUrlResponse(
+                artifact_id=artifact_id,
+                url=signed_url,
+                expires_in=cf_client.r2.config.media_url_expiry,
+                url_type="signed",
+            )
+
+        # Fallback to S3v4 presigned URL if signing secret not configured
+        presigned_url = cf_client.r2.get_presigned_url(artifact_id)
+
+        if presigned_url:
+            return SignedUrlResponse(
+                artifact_id=artifact_id,
+                url=presigned_url,
+                expires_in=cf_client.r2.config.r2_presigned_url_expiry,
+                url_type="presigned",
+            )
+
+        # Neither signing method available - return error
+        raise HTTPException(
+            status_code=503,
+            detail="URL signing not configured. Set CLOUDFLARE_MEDIA_SIGNING_SECRET or R2 S3 credentials."
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error generating signed URL", artifact_id=artifact_id, error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate signed URL: {str(e)}"
+        )
 
 
 @router.get("/{artifact_id}/raw")

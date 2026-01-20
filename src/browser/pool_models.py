@@ -178,6 +178,7 @@ class TestResult:
     passed_steps: int = 0
     failed_steps: int = 0
     final_screenshot: str | None = None
+    video_artifact_id: str | None = None  # Video recording of test execution
     total_duration_ms: int = 0
     error: str | None = None
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
@@ -199,6 +200,7 @@ class TestResult:
                 "failed": self.failed_steps,
             },
             "finalScreenshot": self.final_screenshot,
+            "videoArtifactId": self.video_artifact_id,
             "totalDuration_ms": self.total_duration_ms,
             "error": self.error,
             "timestamp": self.timestamp,

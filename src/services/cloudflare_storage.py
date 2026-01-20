@@ -16,8 +16,10 @@ Architecture:
 """
 
 import hashlib
+import hmac
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -46,8 +48,12 @@ class CloudflareConfig:
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_presigned_url_expiry: int = 3600  # 1 hour default
-    # Worker URL for public screenshot access (preferred over presigned URLs)
+    # Worker URL for screenshot access
     worker_url: str = "https://argus-api.samuelvinay-kumar.workers.dev"
+    # Media URL signing (HMAC-SHA256)
+    # Must match MEDIA_SIGNING_SECRET in Cloudflare Worker
+    media_signing_secret: str = ""
+    media_url_expiry: int = 900  # 15 minutes default
 
     @classmethod
     def from_env(cls) -> "CloudflareConfig":
@@ -64,6 +70,8 @@ class CloudflareConfig:
             r2_secret_access_key=os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", ""),
             r2_presigned_url_expiry=int(os.getenv("CLOUDFLARE_R2_PRESIGNED_URL_EXPIRY", "3600")),
             worker_url=os.getenv("CLOUDFLARE_WORKER_URL", "https://argus-api.samuelvinay-kumar.workers.dev"),
+            media_signing_secret=os.getenv("CLOUDFLARE_MEDIA_SIGNING_SECRET", ""),
+            media_url_expiry=int(os.getenv("CLOUDFLARE_MEDIA_URL_EXPIRY", "900")),
         )
 
     @classmethod
@@ -80,6 +88,10 @@ class CloudflareConfig:
         if settings.cloudflare_r2_secret_access_key:
             r2_secret = settings.cloudflare_r2_secret_access_key.get_secret_value()
 
+        media_signing_secret = ""
+        if settings.cloudflare_media_signing_secret:
+            media_signing_secret = settings.cloudflare_media_signing_secret.get_secret_value()
+
         return cls(
             account_id=settings.cloudflare_account_id or "",
             api_token=api_token,
@@ -91,7 +103,9 @@ class CloudflareConfig:
             r2_access_key_id=settings.cloudflare_r2_access_key_id or "",
             r2_secret_access_key=r2_secret,
             r2_presigned_url_expiry=settings.cloudflare_r2_presigned_url_expiry,
-            worker_url=getattr(settings, 'cloudflare_worker_url', None) or "https://argus-api.samuelvinay-kumar.workers.dev",
+            worker_url=settings.cloudflare_worker_url,
+            media_signing_secret=media_signing_secret,
+            media_url_expiry=settings.cloudflare_media_url_expiry,
         )
 
 
@@ -304,6 +318,62 @@ class R2Storage:
             return None
         except Exception as e:
             logger.exception("Failed to generate presigned URL", error=str(e))
+            return None
+
+    def generate_signed_url(
+        self,
+        artifact_id: str,
+        artifact_type: str = "screenshot",
+        expiry_seconds: int | None = None
+    ) -> str | None:
+        """Generate an HMAC-signed URL for authenticated media access.
+
+        This method creates a short-lived signed URL that can be verified
+        by the Cloudflare Worker. Unlike S3 presigned URLs, these are
+        simpler and faster to generate.
+
+        Args:
+            artifact_id: The artifact ID (e.g., screenshot_xxx_yyy)
+            artifact_type: Type of artifact ('screenshot' or 'video')
+            expiry_seconds: URL expiry time (default from config, typically 15 min)
+
+        Returns:
+            Signed URL string or None if signing secret not configured
+        """
+        if not self.config.media_signing_secret:
+            logger.debug("Media signing secret not configured, signed URLs unavailable")
+            return None
+
+        try:
+            expiry = expiry_seconds or self.config.media_url_expiry
+            exp_timestamp = int(time.time()) + expiry
+
+            # Generate HMAC-SHA256 signature: HMAC(artifact_id:expiration, secret)
+            message = f"{artifact_id}:{exp_timestamp}"
+            signature = hmac.new(
+                self.config.media_signing_secret.encode(),
+                message.encode(),
+                hashlib.sha256
+            ).hexdigest()
+
+            # Build URL based on artifact type
+            if artifact_type == "video":
+                path = f"/videos/{artifact_id}"
+            else:
+                path = f"/screenshots/{artifact_id}"
+
+            signed_url = f"{self.config.worker_url}{path}?sig={signature}&exp={exp_timestamp}"
+
+            logger.info(
+                "Generated signed media URL",
+                artifact_id=artifact_id,
+                artifact_type=artifact_type,
+                expiry_seconds=expiry
+            )
+            return signed_url
+
+        except Exception as e:
+            logger.exception("Failed to generate signed URL", error=str(e))
             return None
 
     def _convert_buffer_to_base64(self, screenshot: Any) -> str | None:

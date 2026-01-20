@@ -118,6 +118,21 @@ class Settings(BaseSettings):
     cache_ttl_llm_responses: int = Field(86400, description="TTL for LLM responses in seconds (default: 24 hours)")
     cache_ttl_healing_patterns: int = Field(604800, description="TTL for healing patterns in seconds (default: 7 days)")
 
+    # Media URL Signing (screenshots/videos)
+    # Must match MEDIA_SIGNING_SECRET in Cloudflare Worker
+    cloudflare_media_signing_secret: SecretStr | None = Field(
+        None,
+        description="HMAC secret for signed media URLs (screenshots/videos)"
+    )
+    cloudflare_media_url_expiry: int = Field(
+        900,
+        description="Signed URL expiry in seconds (default: 15 minutes)"
+    )
+    cloudflare_worker_url: str = Field(
+        "https://argus-api.samuelvinay-kumar.workers.dev",
+        description="Cloudflare Worker URL for screenshot/video access"
+    )
+
     # Notifications (optional)
     slack_webhook_url: str | None = Field(None, description="Slack webhook for notifications")
 

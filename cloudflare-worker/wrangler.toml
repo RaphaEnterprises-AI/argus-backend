@@ -136,6 +136,12 @@ playwright = "@cloudflare/playwright"
 # Optional for API authentication:
 # - API_TOKEN (for authenticating incoming requests)
 #
+# Media URL Signing (screenshots/videos):
+# - MEDIA_SIGNING_SECRET (HMAC secret for signed URLs - 32+ char random string)
+#   Generate with: openssl rand -hex 32
+#   When set, /screenshots/:id URLs require ?sig=SIGNATURE&exp=EXPIRATION
+#   Must match CLOUDFLARE_MEDIA_SIGNING_SECRET in Python backend
+#
 # Quality Intelligence Platform:
 # - SUPABASE_URL (your Supabase project URL)
 # - SUPABASE_SERVICE_KEY (your Supabase service role key)

@@ -82,6 +82,10 @@ interface Env {
 
   // Environment - set to "production" to disable debug logging
   ENVIRONMENT?: string;
+
+  // Media signing secret for authenticated screenshot/video URLs
+  // Used for HMAC-SHA256 signature verification
+  MEDIA_SIGNING_SECRET?: string;
 }
 
 // ============================================================================
@@ -293,6 +297,83 @@ async function signPoolToken(
 
   const signatureB64 = base64UrlEncode(signature);
   return `${headerB64}.${payloadB64}.${signatureB64}`;
+}
+
+// ============================================================================
+// MEDIA URL SIGNING (Screenshots, Videos)
+// ============================================================================
+
+/**
+ * Generate HMAC-SHA256 signature for media URLs.
+ * Format: HMAC(artifactId:expiration, secret)
+ */
+async function generateMediaSignature(
+  artifactId: string,
+  expiration: number,
+  secret: string
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const message = `${artifactId}:${expiration}`;
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(message)
+  );
+
+  // Convert to hex string
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Verify HMAC-SHA256 signature for media URLs.
+ * Uses constant-time comparison to prevent timing attacks.
+ */
+async function verifyMediaSignature(
+  artifactId: string,
+  signature: string,
+  expiration: string,
+  secret: string
+): Promise<{ valid: boolean; reason?: string }> {
+  // Check expiration first
+  const exp = parseInt(expiration, 10);
+  if (isNaN(exp)) {
+    return { valid: false, reason: 'Invalid expiration format' };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (now > exp) {
+    return { valid: false, reason: 'URL has expired' };
+  }
+
+  // Generate expected signature
+  const expected = await generateMediaSignature(artifactId, exp, secret);
+
+  // Constant-time comparison to prevent timing attacks
+  if (signature.length !== expected.length) {
+    return { valid: false, reason: 'Invalid signature' };
+  }
+
+  let result = 0;
+  for (let i = 0; i < signature.length; i++) {
+    result |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+
+  if (result !== 0) {
+    return { valid: false, reason: 'Invalid signature' };
+  }
+
+  return { valid: true };
 }
 
 // ============================================================================
@@ -538,6 +619,7 @@ const TestRequestSchema = z.object({
   steps: z.array(z.string()),
   screenshot: z.boolean().optional().default(false),
   captureScreenshots: z.boolean().optional().default(false),
+  recordVideo: z.boolean().optional().default(false),  // Enable video recording (requires backend support)
   timeout: z.number().optional().default(30000),
   backend: BackendSchema,
   browsers: z.array(BrowserSchema).optional(),
@@ -2542,7 +2624,7 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
     return Response.json({ error: "Invalid request", details: parsed.error.message }, { status: 400, headers: corsHeaders });
   }
 
-  const { url, steps, screenshot, captureScreenshots, timeout, backend, browsers, device, devices, projectId, activityType, sessionConfig } = parsed.data;
+  const { url, steps, screenshot, captureScreenshots, recordVideo, timeout, backend, browsers, device, devices, projectId, activityType, sessionConfig } = parsed.data;
 
   // Convert Zod-parsed sessionConfig to our SessionConfig type
   const aiSessionConfig: SessionConfig | undefined = sessionConfig ? {
@@ -2566,7 +2648,7 @@ async function handleTest(request: Request, env: Env, corsHeaders: Record<string
   // Use Vultr browser pool if configured
   if (shouldUseVultrPool(backend as Backend, env)) {
     const poolResult = await callVultrPool<TestResult>("/test", {
-      url, steps, screenshot, captureScreenshots, timeout, backend: "vultr", browsers, device, devices, projectId, activityType, sessionConfig
+      url, steps, screenshot, captureScreenshots, recordVideo, timeout, backend: "vultr", browsers, device, devices, projectId, activityType, sessionConfig
     }, env);
 
     if (poolResult.success) {
@@ -3268,7 +3350,8 @@ export default {
           "POST /agent": "Run autonomous workflow",
           "POST /test": "Run cross-browser tests",
           "GET /health": "Health check",
-          "GET /screenshots/:artifact_id": "Serve screenshots (public, no auth)",
+          "GET /screenshots/:artifact_id?sig=SIG&exp=EXP": "Serve screenshots (signed URL required when MEDIA_SIGNING_SECRET set)",
+          "GET /videos/:artifact_id?sig=SIG&exp=EXP": "Serve videos (signed URL required when MEDIA_SIGNING_SECRET set)",
           "GET /storage/*": "Serve other artifacts from R2 (requires auth)",
         },
         backends: ["cloudflare (free, Chromium)", "testingbot (paid, all browsers + devices)"],
@@ -3278,9 +3361,10 @@ export default {
     }
 
     // =========================================================================
-    // PUBLIC SCREENSHOT ACCESS (no auth required for UI display)
-    // Route: /screenshots/:artifact_id
-    // Screenshots are considered non-sensitive - they need to display in UI
+    // SIGNED SCREENSHOT ACCESS
+    // Route: /screenshots/:artifact_id?sig=HMAC&exp=TIMESTAMP
+    // Requires valid HMAC signature when MEDIA_SIGNING_SECRET is configured
+    // Falls back to public access during rollout (when secret not set)
     // =========================================================================
     if (path.startsWith("/screenshots/") && request.method === "GET") {
       const artifactId = path.replace("/screenshots/", "");
@@ -3291,6 +3375,29 @@ export default {
       // Validate artifact ID format (alphanumeric, underscore, hyphen only)
       if (!artifactId.match(/^[a-zA-Z0-9_\-]+$/)) {
         return Response.json({ error: "Invalid artifact ID format" }, { status: 400, headers: corsHeaders });
+      }
+
+      // Signature verification when MEDIA_SIGNING_SECRET is configured
+      if (env.MEDIA_SIGNING_SECRET) {
+        const url = new URL(request.url);
+        const sig = url.searchParams.get('sig');
+        const exp = url.searchParams.get('exp');
+
+        if (!sig || !exp) {
+          return Response.json(
+            { error: "Missing signature parameters", hint: "URL requires ?sig=SIGNATURE&exp=EXPIRATION" },
+            { status: 403, headers: corsHeaders }
+          );
+        }
+
+        const verification = await verifyMediaSignature(artifactId, sig, exp, env.MEDIA_SIGNING_SECRET);
+        if (!verification.valid) {
+          debugLog(env, "Screenshot signature verification failed", { artifactId, reason: verification.reason });
+          return Response.json(
+            { error: verification.reason || "Invalid or expired signature" },
+            { status: 403, headers: corsHeaders }
+          );
+        }
       }
 
       if (!env.ARTIFACTS) {
@@ -3308,13 +3415,83 @@ export default {
 
         const headers = new Headers(corsHeaders);
         headers.set("Content-Type", "image/png");
-        headers.set("Cache-Control", "public, max-age=86400"); // 24 hour cache
+        // Cache based on signature expiry - max 15 min when signed, 24h when public
+        const cacheTime = env.MEDIA_SIGNING_SECRET ? 900 : 86400;
+        headers.set("Cache-Control", `public, max-age=${cacheTime}`);
         headers.set("ETag", object.etag);
 
         return new Response(object.body, { headers });
       } catch (error) {
         console.error("Screenshot fetch error:", error);
         return Response.json({ error: "Failed to fetch screenshot" }, { status: 500, headers: corsHeaders });
+      }
+    }
+
+    // =========================================================================
+    // SIGNED VIDEO ACCESS
+    // Route: /videos/:artifact_id?sig=HMAC&exp=TIMESTAMP
+    // Same signature verification as screenshots
+    // =========================================================================
+    if (path.startsWith("/videos/") && request.method === "GET") {
+      const artifactId = path.replace("/videos/", "");
+      if (!artifactId) {
+        return Response.json({ error: "Missing artifact ID" }, { status: 400, headers: corsHeaders });
+      }
+
+      // Validate artifact ID format (alphanumeric, underscore, hyphen only)
+      if (!artifactId.match(/^[a-zA-Z0-9_\-]+$/)) {
+        return Response.json({ error: "Invalid artifact ID format" }, { status: 400, headers: corsHeaders });
+      }
+
+      // Signature verification when MEDIA_SIGNING_SECRET is configured
+      if (env.MEDIA_SIGNING_SECRET) {
+        const url = new URL(request.url);
+        const sig = url.searchParams.get('sig');
+        const exp = url.searchParams.get('exp');
+
+        if (!sig || !exp) {
+          return Response.json(
+            { error: "Missing signature parameters", hint: "URL requires ?sig=SIGNATURE&exp=EXPIRATION" },
+            { status: 403, headers: corsHeaders }
+          );
+        }
+
+        const verification = await verifyMediaSignature(artifactId, sig, exp, env.MEDIA_SIGNING_SECRET);
+        if (!verification.valid) {
+          debugLog(env, "Video signature verification failed", { artifactId, reason: verification.reason });
+          return Response.json(
+            { error: verification.reason || "Invalid or expired signature" },
+            { status: 403, headers: corsHeaders }
+          );
+        }
+      }
+
+      if (!env.ARTIFACTS) {
+        return Response.json({ error: "Storage not configured" }, { status: 503, headers: corsHeaders });
+      }
+
+      try {
+        // Videos are stored with .webm extension
+        const key = `videos/${artifactId}.webm`;
+        const object = await env.ARTIFACTS.get(key);
+
+        if (!object) {
+          return Response.json({ error: "Video not found", artifact_id: artifactId }, { status: 404, headers: corsHeaders });
+        }
+
+        const headers = new Headers(corsHeaders);
+        headers.set("Content-Type", "video/webm");
+        // Cache based on signature expiry - max 15 min when signed, 24h when public
+        const cacheTime = env.MEDIA_SIGNING_SECRET ? 900 : 86400;
+        headers.set("Cache-Control", `public, max-age=${cacheTime}`);
+        headers.set("ETag", object.etag);
+        // Allow video seeking
+        headers.set("Accept-Ranges", "bytes");
+
+        return new Response(object.body, { headers });
+      } catch (error) {
+        console.error("Video fetch error:", error);
+        return Response.json({ error: "Failed to fetch video" }, { status: 500, headers: corsHeaders });
       }
     }
 
