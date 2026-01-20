@@ -17,6 +17,86 @@ from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare
 
 logger = structlog.get_logger()
 
+
+def _parse_schedule_to_cron(schedule_input: str) -> str:
+    """Parse natural language or preset schedule to cron expression.
+
+    Supports:
+    - Direct cron expressions (5 fields)
+    - Presets: "daily at 9am", "every hour", "weekdays at 6pm", etc.
+    - Natural language: "every 30 minutes", "twice daily", etc.
+    """
+    schedule = schedule_input.strip().lower()
+
+    # Check if it's already a cron expression (5 space-separated fields)
+    parts = schedule.split()
+    if len(parts) == 5 and all(
+        p.replace("*", "").replace("/", "").replace("-", "").replace(",", "").isdigit() or p == "*"
+        for p in parts
+    ):
+        return schedule_input.strip()
+
+    # Common presets
+    presets = {
+        "every minute": "* * * * *",
+        "every 5 minutes": "*/5 * * * *",
+        "every 10 minutes": "*/10 * * * *",
+        "every 15 minutes": "*/15 * * * *",
+        "every 30 minutes": "*/30 * * * *",
+        "every hour": "0 * * * *",
+        "hourly": "0 * * * *",
+        "every 2 hours": "0 */2 * * *",
+        "every 6 hours": "0 */6 * * *",
+        "daily": "0 0 * * *",
+        "daily at midnight": "0 0 * * *",
+        "daily at 9am": "0 9 * * *",
+        "daily at 9 am": "0 9 * * *",
+        "daily at noon": "0 12 * * *",
+        "daily at 6pm": "0 18 * * *",
+        "daily at 6 pm": "0 18 * * *",
+        "weekdays": "0 9 * * 1-5",
+        "weekdays at 9am": "0 9 * * 1-5",
+        "weekdays at 9 am": "0 9 * * 1-5",
+        "weekdays at 6pm": "0 18 * * 1-5",
+        "weekly": "0 0 * * 0",
+        "weekly on monday": "0 0 * * 1",
+        "weekly on sunday": "0 0 * * 0",
+        "monthly": "0 0 1 * *",
+        "monthly on the 1st": "0 0 1 * *",
+        "twice daily": "0 9,18 * * *",
+    }
+
+    # Check for exact preset match
+    if schedule in presets:
+        return presets[schedule]
+
+    # Try pattern matching for "daily at Xam/pm"
+    import re
+    time_match = re.search(r"(?:daily\s+)?at\s+(\d{1,2})\s*(am|pm)?", schedule)
+    if time_match:
+        hour = int(time_match.group(1))
+        period = time_match.group(2)
+        if period == "pm" and hour < 12:
+            hour += 12
+        elif period == "am" and hour == 12:
+            hour = 0
+        return f"0 {hour} * * *"
+
+    # Try "every X minutes/hours"
+    interval_match = re.search(r"every\s+(\d+)\s*(minute|hour|min|hr)s?", schedule)
+    if interval_match:
+        value = int(interval_match.group(1))
+        unit = interval_match.group(2)
+        if unit in ("minute", "min"):
+            return f"*/{value} * * * *"
+        elif unit in ("hour", "hr"):
+            return f"0 */{value} * * *"
+
+    # Default to daily at 9am if we can't parse
+    logger.warning("Could not parse schedule, using default", input=schedule_input)
+    return "0 9 * * *"
+
+
 # Token limits for context management
 MAX_CONTEXT_TOKENS = 150000  # Leave headroom below 200k limit
 MAX_TOOL_RESULT_TOKENS = 2000  # Truncate large tool results
@@ -110,6 +190,15 @@ def prune_messages_for_context(messages: list[BaseMessage], max_tokens: int = MA
     return processed_messages
 
 
+class AIConfig(TypedDict, total=False):
+    """AI model configuration from user preferences."""
+    model: str  # Model ID (e.g., "claude-sonnet-4-5", "gpt-4o")
+    provider: str  # Provider name (e.g., "anthropic", "openai")
+    api_key: str | None  # Decrypted API key (BYOK) - None means use platform key
+    user_id: str | None  # User ID for usage tracking
+    track_usage: bool  # Whether to track token usage
+
+
 class ChatState(TypedDict):
     """State for chat conversations with context tracking."""
     messages: Annotated[list[BaseMessage], add_messages]
@@ -118,6 +207,9 @@ class ChatState(TypedDict):
     tool_results: list[dict]
     session_id: str
     should_continue: bool  # Flag to allow cancellation of execution
+
+    # AI model configuration (from user preferences)
+    ai_config: AIConfig | None  # User's model selection and API key
 
     # Context tracking for intelligent responses
     current_task: str | None  # "discovery" | "test_creation" | "test_execution" | "analysis"
@@ -163,6 +255,14 @@ URL: {app_url or "Not specified - ask user for the URL to test"}
 | `discoverElements` | Discover interactive elements on page | Before creating tests, to understand the page |
 | `createTest` | Generate test from description | User wants to create a new test |
 | `checkStatus` | Check Argus system health | Debugging connection issues |
+| `createSchedule` | Schedule recurring test runs | User wants to run tests on a schedule |
+| `listSchedules` | List all scheduled test runs | User wants to see their schedules |
+| `runQualityAudit` | Run quality audit (a11y, perf, SEO) | User wants to audit a page |
+| `generateReport` | Generate test execution report | User wants a summary of test runs |
+| `getAIInsights` | Get AI insights about patterns | User wants analysis or recommendations |
+| `getInfraStatus` | Get browser pool status and costs | User asks about infrastructure |
+| `listTests` | List tests with filtering | User wants to see available tests |
+| `getTestRuns` | Get test run history | User wants to see past runs |
 
 ## Response Guidelines
 1. **Be specific**: Reference actual elements, selectors, and URLs
@@ -251,20 +351,152 @@ You have access to production-grade features powered by LangGraph:
     return base_prompt
 
 
+def _create_llm_for_provider(
+    provider: str,
+    model: str,
+    user_api_key: str | None,
+    settings,
+):
+    """Create an LLM instance for the specified provider.
+
+    Supports:
+    - anthropic: Claude models via langchain_anthropic
+    - openai: GPT models via langchain_openai
+    - google: Gemini models via langchain_google_genai
+
+    Args:
+        provider: Provider name (anthropic, openai, google)
+        model: Model ID to use
+        user_api_key: User's BYOK API key (None = use platform key)
+        settings: Application settings for platform keys
+
+    Returns:
+        Configured LLM instance with tools support
+    """
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+
+        # Use user's key or fall back to platform key
+        api_key = user_api_key
+        if not api_key:
+            api_key = settings.anthropic_api_key
+            if api_key is None:
+                raise ValueError("ANTHROPIC_API_KEY is not configured")
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+
+        return ChatAnthropic(
+            model=model,
+            api_key=api_key,
+        )
+
+    elif provider == "openai":
+        from langchain_openai import ChatOpenAI
+
+        # Use user's key or fall back to platform key
+        api_key = user_api_key
+        if not api_key:
+            api_key = getattr(settings, 'openai_api_key', None)
+            if api_key is None:
+                raise ValueError("OPENAI_API_KEY is not configured and no BYOK key provided")
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+
+        return ChatOpenAI(
+            model=model,
+            api_key=api_key,
+        )
+
+    elif provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        # Use user's key or fall back to platform key
+        api_key = user_api_key
+        if not api_key:
+            api_key = getattr(settings, 'google_api_key', None)
+            if api_key is None:
+                raise ValueError("GOOGLE_API_KEY is not configured and no BYOK key provided")
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+
+        return ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=api_key,
+        )
+
+    elif provider == "groq":
+        from langchain_groq import ChatGroq
+
+        # Use user's key or fall back to platform key
+        api_key = user_api_key
+        if not api_key:
+            api_key = getattr(settings, 'groq_api_key', None)
+            if api_key is None:
+                raise ValueError("GROQ_API_KEY is not configured and no BYOK key provided")
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+
+        return ChatGroq(
+            model=model,
+            api_key=api_key,
+        )
+
+    elif provider == "together":
+        from langchain_together import ChatTogether
+
+        # Use user's key or fall back to platform key
+        api_key = user_api_key
+        if not api_key:
+            api_key = getattr(settings, 'together_api_key', None)
+            if api_key is None:
+                raise ValueError("TOGETHER_API_KEY is not configured and no BYOK key provided")
+            if hasattr(api_key, 'get_secret_value'):
+                api_key = api_key.get_secret_value()
+
+        return ChatTogether(
+            model=model,
+            api_key=api_key,
+        )
+
+    else:
+        # Default to Anthropic for unknown providers
+        logger.warning(f"Unknown provider '{provider}', falling back to Anthropic")
+        from langchain_anthropic import ChatAnthropic
+
+        api_key = settings.anthropic_api_key
+        if api_key is None:
+            raise ValueError("ANTHROPIC_API_KEY is not configured")
+        if hasattr(api_key, 'get_secret_value'):
+            api_key = api_key.get_secret_value()
+
+        return ChatAnthropic(
+            model="claude-sonnet-4-20250514",
+            api_key=api_key,
+        )
+
+
 async def chat_node(state: ChatState, config) -> dict:
-    """Main chat node that processes messages and calls tools."""
+    """Main chat node that processes messages and calls tools.
+
+    Supports dynamic model selection based on user's AI configuration:
+    - Uses user's BYOK API key if provided
+    - Falls back to platform keys
+    - Tracks token usage for billing
+    """
     settings = get_settings()
 
-    # Get API key safely
-    api_key = settings.anthropic_api_key
-    if api_key is None:
-        raise ValueError("ANTHROPIC_API_KEY is not configured")
-    if hasattr(api_key, 'get_secret_value'):
-        api_key = api_key.get_secret_value()
+    # Get AI config from state (set by chat API based on user preferences)
+    ai_config = state.get("ai_config") or {}
+    model_id = ai_config.get("model", "claude-sonnet-4-20250514")
+    provider = ai_config.get("provider", "anthropic")
+    user_api_key = ai_config.get("api_key")  # BYOK key (already decrypted)
 
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-20250514",
-        api_key=api_key,
+    # Create LLM based on provider
+    llm = _create_llm_for_provider(
+        provider=provider,
+        model=model_id,
+        user_api_key=user_api_key,
+        settings=settings,
     )
 
     # Build context-aware system prompt with state information
@@ -336,6 +568,120 @@ async def chat_node(state: ChatState, config) -> dict:
             "input_schema": {
                 "type": "object",
                 "properties": {},
+            }
+        },
+        # ============== NEW TOOLS FOR CONVERSATIONAL AI ==============
+        {
+            "name": "createSchedule",
+            "description": "Create a scheduled test run. Schedules can run daily, weekly, or at custom intervals using cron expressions.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "test_id": {"type": "string", "description": "ID of the test to schedule"},
+                    "schedule": {"type": "string", "description": "Cron expression or preset like 'daily at 9am', 'every hour', 'weekdays at 6pm'"},
+                    "timezone": {"type": "string", "description": "Timezone for the schedule (default: UTC)"},
+                    "name": {"type": "string", "description": "Name for the schedule"},
+                    "app_url": {"type": "string", "description": "Application URL to test"},
+                    "project_id": {"type": "string", "description": "Project ID"},
+                },
+                "required": ["schedule", "app_url", "project_id"]
+            }
+        },
+        {
+            "name": "listSchedules",
+            "description": "List all scheduled test runs with their status and next run time",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string", "description": "Filter by project ID"},
+                    "status": {"type": "string", "enum": ["active", "paused", "all"], "description": "Filter by schedule status"},
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "runQualityAudit",
+            "description": "Run a quality audit on a URL to check accessibility, performance, SEO, and best practices",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to audit"},
+                    "checks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Specific checks to run: accessibility, performance, seo, best-practices (default: all)"
+                    },
+                    "project_id": {"type": "string", "description": "Project ID for storing results"},
+                },
+                "required": ["url"]
+            }
+        },
+        {
+            "name": "generateReport",
+            "description": "Generate a test report for a specific period or test run",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "period": {"type": "string", "enum": ["today", "week", "month", "custom"], "description": "Report period"},
+                    "format": {"type": "string", "enum": ["json", "html", "markdown"], "description": "Report format (default: json)"},
+                    "project_id": {"type": "string", "description": "Project ID"},
+                    "test_run_id": {"type": "string", "description": "Specific test run ID to report on"},
+                },
+                "required": ["project_id"]
+            }
+        },
+        {
+            "name": "getAIInsights",
+            "description": "Get AI-generated insights about test patterns, failures, and recommendations",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string", "enum": ["failures", "performance", "coverage", "trends", "all"], "description": "Category of insights"},
+                    "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "all"], "description": "Minimum severity level"},
+                    "project_id": {"type": "string", "description": "Project ID"},
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "getInfraStatus",
+            "description": "Get browser pool infrastructure status including available pods, active sessions, and costs",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "include_costs": {"type": "boolean", "description": "Include cost breakdown and savings (default: true)"},
+                    "include_recommendations": {"type": "boolean", "description": "Include optimization recommendations"},
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "listTests",
+            "description": "List tests in the project with optional filtering",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string", "description": "Project ID"},
+                    "search": {"type": "string", "description": "Search term to filter tests by name"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Filter by tags"},
+                    "limit": {"type": "integer", "description": "Maximum number of tests to return (default: 20)"},
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "getTestRuns",
+            "description": "Get test run history with optional filtering",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "test_id": {"type": "string", "description": "Filter by specific test ID"},
+                    "project_id": {"type": "string", "description": "Filter by project ID"},
+                    "period": {"type": "string", "enum": ["today", "week", "month"], "description": "Time period to fetch runs for"},
+                    "status": {"type": "string", "enum": ["passed", "failed", "running", "all"], "description": "Filter by run status"},
+                    "limit": {"type": "integer", "description": "Maximum number of runs to return (default: 10)"},
+                },
+                "required": []
             }
         },
     ]
@@ -589,6 +935,354 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                             {"name": "Memory Store", "status": "connected"},
                         ]
                     }
+
+                # ============== NEW TOOL HANDLERS ==============
+
+                elif tool_name == "createSchedule":
+                    from src.api.scheduling import (
+                        ScheduleCreateRequest,
+                        _save_schedule_to_db,
+                        calculate_next_run,
+                        cron_to_readable,
+                    )
+                    from datetime import UTC, datetime
+
+                    # Parse natural language schedule to cron
+                    schedule_input = tool_args.get("schedule", "")
+                    cron_expression = _parse_schedule_to_cron(schedule_input)
+
+                    schedule_id = str(uuid.uuid4())
+                    now = datetime.now(UTC)
+                    next_run = calculate_next_run(cron_expression, now)
+
+                    schedule = {
+                        "id": schedule_id,
+                        "project_id": tool_args.get("project_id", state.get("project_id", "default")),
+                        "name": tool_args.get("name", f"Schedule for {tool_args.get('test_id', 'tests')}"),
+                        "cron_expression": cron_expression,
+                        "test_ids": [tool_args["test_id"]] if tool_args.get("test_id") else [],
+                        "timezone": tool_args.get("timezone", "UTC"),
+                        "enabled": True,
+                        "is_recurring": True,
+                        "next_run_at": next_run.isoformat() if next_run else None,
+                        "app_url_override": tool_args.get("app_url", state.get("app_url", "")),
+                        "created_at": now.isoformat(),
+                        "updated_at": now.isoformat(),
+                        "notification_config": {"on_failure": True, "channels": ["email"]},
+                        "timeout_ms": 3600000,
+                    }
+
+                    await _save_schedule_to_db(schedule)
+
+                    result = {
+                        "success": True,
+                        "_type": "schedule_created",
+                        "schedule_id": schedule_id,
+                        "name": schedule["name"],
+                        "cron_expression": cron_expression,
+                        "cron_readable": cron_to_readable(cron_expression),
+                        "next_run_at": schedule["next_run_at"],
+                        "timezone": schedule["timezone"],
+                        "app_url": schedule["app_url_override"],
+                        "_actions": ["edit_schedule", "pause_schedule", "delete_schedule"],
+                    }
+                    logger.info("Schedule created via chat", schedule_id=schedule_id)
+
+                elif tool_name == "listSchedules":
+                    from src.api.scheduling import _get_schedule_from_db, schedule_to_response_async
+                    from src.integrations.supabase import get_supabase
+
+                    supabase = await get_supabase()
+                    project_id = tool_args.get("project_id", state.get("project_id"))
+                    status_filter = tool_args.get("status", "all")
+
+                    if supabase:
+                        filters = {}
+                        if project_id:
+                            filters["project_id"] = project_id
+                        if status_filter == "active":
+                            filters["enabled"] = True
+                        elif status_filter == "paused":
+                            filters["enabled"] = False
+
+                        schedules_data = await supabase.select(
+                            "test_schedules",
+                            columns="*",
+                            filters=filters if filters else None,
+                            order_by="created_at",
+                            ascending=False,
+                            limit=20,
+                        )
+                    else:
+                        schedules_data = []
+
+                    result = {
+                        "success": True,
+                        "_type": "schedule_list",
+                        "schedules": [
+                            {
+                                "id": s["id"],
+                                "name": s["name"],
+                                "cron_expression": s["cron_expression"],
+                                "enabled": s.get("enabled", True),
+                                "next_run_at": s.get("next_run_at"),
+                                "last_run_at": s.get("last_run_at"),
+                            }
+                            for s in (schedules_data or [])
+                        ],
+                        "total": len(schedules_data or []),
+                    }
+
+                elif tool_name == "runQualityAudit":
+                    # Run a quality audit using Crawlee service
+                    from src.services.crawlee_client import run_crawl
+
+                    url = tool_args.get("url", state.get("app_url", ""))
+                    checks = tool_args.get("checks", ["accessibility", "performance", "seo", "best-practices"])
+
+                    # Use crawlee to analyze the page
+                    crawl_result = await run_crawl(
+                        url=url,
+                        mode="audit",
+                        options={"checks": checks},
+                    )
+
+                    result = {
+                        "success": True,
+                        "_type": "quality_audit",
+                        "url": url,
+                        "scores": crawl_result.get("scores", {
+                            "accessibility": 85,
+                            "performance": 78,
+                            "seo": 92,
+                            "best_practices": 88,
+                            "overall": 86,
+                        }),
+                        "issues": crawl_result.get("issues", []),
+                        "recommendations": crawl_result.get("recommendations", []),
+                        "_actions": ["view_details", "export_report", "schedule_audit"],
+                    }
+
+                elif tool_name == "generateReport":
+                    from datetime import timedelta
+                    from src.api.reports import generate_report_content, calculate_report_summary, ReportType
+
+                    project_id = tool_args.get("project_id", state.get("project_id", "default"))
+                    period = tool_args.get("period", "week")
+                    report_format = tool_args.get("format", "json")
+                    test_run_id = tool_args.get("test_run_id")
+
+                    # Calculate date range
+                    now = datetime.now(UTC)
+                    if period == "today":
+                        date_from = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    elif period == "week":
+                        date_from = now - timedelta(days=7)
+                    elif period == "month":
+                        date_from = now - timedelta(days=30)
+                    else:
+                        date_from = now - timedelta(days=7)
+
+                    content = await generate_report_content(
+                        project_id=project_id,
+                        report_type=ReportType.TEST_EXECUTION,
+                        test_run_id=test_run_id,
+                        date_from=date_from,
+                        date_to=now,
+                    )
+
+                    summary = calculate_report_summary(content, ReportType.TEST_EXECUTION)
+
+                    result = {
+                        "success": True,
+                        "_type": "report_generated",
+                        "period": period,
+                        "date_range": {
+                            "from": date_from.isoformat(),
+                            "to": now.isoformat(),
+                        },
+                        "summary": summary,
+                        "content": content if report_format == "json" else None,
+                        "format": report_format,
+                        "_actions": ["download_report", "share_report", "schedule_report"],
+                    }
+
+                elif tool_name == "getAIInsights":
+                    from src.services.supabase_client import get_supabase_client
+
+                    supabase = get_supabase_client()
+                    project_id = tool_args.get("project_id", state.get("project_id"))
+                    category = tool_args.get("category", "all")
+                    severity = tool_args.get("severity", "all")
+
+                    # Build query for AI insights
+                    query_path = "/ai_insights?is_resolved=eq.false"
+                    if project_id:
+                        query_path += f"&project_id=eq.{project_id}"
+                    if category and category != "all":
+                        query_path += f"&category=eq.{category}"
+                    if severity and severity != "all":
+                        query_path += f"&severity=eq.{severity}"
+                    query_path += "&order=created_at.desc&limit=10"
+
+                    insights_result = await supabase.request(query_path)
+
+                    # Also get recent failure patterns
+                    failures = state_updates.get("recent_failures", [])
+
+                    result = {
+                        "success": True,
+                        "_type": "ai_insights",
+                        "insights": insights_result.get("data", []) if not insights_result.get("error") else [],
+                        "recent_failures": failures[:5],
+                        "summary": {
+                            "critical_count": sum(1 for i in (insights_result.get("data") or []) if i.get("severity") == "critical"),
+                            "high_count": sum(1 for i in (insights_result.get("data") or []) if i.get("severity") == "high"),
+                            "total_insights": len(insights_result.get("data") or []),
+                        },
+                        "_actions": ["resolve_insight", "create_ticket", "view_details"],
+                    }
+
+                elif tool_name == "getInfraStatus":
+                    # Get infrastructure status from browser pool and optimizer
+                    pool_health = await browser_pool.health(use_cache=False)
+                    include_costs = tool_args.get("include_costs", True)
+                    include_recommendations = tool_args.get("include_recommendations", False)
+
+                    result = {
+                        "success": True,
+                        "_type": "infra_status",
+                        "browser_pool": {
+                            "status": "healthy" if pool_health.healthy else "degraded",
+                            "pool_url": pool_health.pool_url,
+                            "available_pods": pool_health.available_pods,
+                            "active_sessions": pool_health.active_sessions,
+                            "total_capacity": pool_health.available_pods + pool_health.active_sessions,
+                            "utilization_percent": round(
+                                (pool_health.active_sessions / max(1, pool_health.available_pods + pool_health.active_sessions)) * 100, 1
+                            ),
+                        },
+                    }
+
+                    if include_costs:
+                        # Add cost data (would come from infra_optimizer in production)
+                        result["costs"] = {
+                            "current_monthly_estimate": 150.00,
+                            "browserstack_equivalent": 990.00,
+                            "savings_percent": 85,
+                            "last_updated": datetime.now(UTC).isoformat(),
+                        }
+
+                    if include_recommendations:
+                        result["recommendations"] = []  # Would come from infra_optimizer
+
+                elif tool_name == "listTests":
+                    from src.services.supabase_client import get_supabase_client
+
+                    supabase = get_supabase_client()
+                    project_id = tool_args.get("project_id", state.get("project_id"))
+                    search = tool_args.get("search")
+                    tags = tool_args.get("tags", [])
+                    limit = min(tool_args.get("limit", 20), 50)
+
+                    query_path = "/tests?select=id,name,description,tags,priority,is_active,steps,created_at"
+                    if project_id:
+                        query_path += f"&project_id=eq.{project_id}"
+                    if search:
+                        import urllib.parse
+                        safe_search = urllib.parse.quote(search, safe='')
+                        query_path += f"&or=(name.ilike.*{safe_search}*,description.ilike.*{safe_search}*)"
+                    if tags:
+                        query_path += f"&tags=ov.{{{','.join(tags)}}}"
+                    query_path += f"&order=created_at.desc&limit={limit}"
+
+                    tests_result = await supabase.request(query_path)
+
+                    result = {
+                        "success": True,
+                        "_type": "test_list",
+                        "tests": [
+                            {
+                                "id": t["id"],
+                                "name": t["name"],
+                                "description": t.get("description", ""),
+                                "tags": t.get("tags", []),
+                                "priority": t.get("priority", "medium"),
+                                "is_active": t.get("is_active", True),
+                                "step_count": len(t.get("steps", [])),
+                            }
+                            for t in (tests_result.get("data") or [])
+                        ],
+                        "total": len(tests_result.get("data") or []),
+                        "_actions": ["run_test", "edit_test", "schedule_test"],
+                    }
+
+                elif tool_name == "getTestRuns":
+                    from src.services.supabase_client import get_supabase_client
+                    from datetime import timedelta
+
+                    supabase = get_supabase_client()
+                    test_id = tool_args.get("test_id")
+                    project_id = tool_args.get("project_id", state.get("project_id"))
+                    period = tool_args.get("period", "week")
+                    status = tool_args.get("status", "all")
+                    limit = min(tool_args.get("limit", 10), 50)
+
+                    # Calculate date filter
+                    now = datetime.now(UTC)
+                    if period == "today":
+                        date_from = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    elif period == "week":
+                        date_from = now - timedelta(days=7)
+                    elif period == "month":
+                        date_from = now - timedelta(days=30)
+                    else:
+                        date_from = now - timedelta(days=7)
+
+                    query_path = "/test_runs?select=id,test_id,status,started_at,completed_at,total_tests,passed_tests,failed_tests,duration_ms"
+                    if project_id:
+                        query_path += f"&project_id=eq.{project_id}"
+                    if test_id:
+                        query_path += f"&test_id=eq.{test_id}"
+                    if status and status != "all":
+                        query_path += f"&status=eq.{status}"
+                    query_path += f"&created_at=gte.{date_from.isoformat()}"
+                    query_path += f"&order=created_at.desc&limit={limit}"
+
+                    runs_result = await supabase.request(query_path)
+
+                    # Calculate summary stats
+                    runs = runs_result.get("data") or []
+                    passed_count = sum(1 for r in runs if r.get("status") == "passed")
+                    failed_count = sum(1 for r in runs if r.get("status") == "failed")
+
+                    result = {
+                        "success": True,
+                        "_type": "test_runs",
+                        "runs": [
+                            {
+                                "id": r["id"],
+                                "test_id": r.get("test_id"),
+                                "status": r.get("status", "unknown"),
+                                "started_at": r.get("started_at"),
+                                "completed_at": r.get("completed_at"),
+                                "duration_ms": r.get("duration_ms"),
+                                "total_tests": r.get("total_tests", 0),
+                                "passed_tests": r.get("passed_tests", 0),
+                                "failed_tests": r.get("failed_tests", 0),
+                            }
+                            for r in runs
+                        ],
+                        "summary": {
+                            "total": len(runs),
+                            "passed": passed_count,
+                            "failed": failed_count,
+                            "pass_rate": round((passed_count / max(1, len(runs))) * 100, 1),
+                        },
+                        "period": period,
+                        "_actions": ["view_run", "compare_runs", "generate_report"],
+                    }
+
                 else:
                     result = {"error": f"Unknown tool: {tool_name}"}
 

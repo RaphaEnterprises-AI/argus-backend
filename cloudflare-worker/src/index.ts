@@ -22,6 +22,7 @@ import { z } from "zod";
 import { chromium as cfChromium } from "@cloudflare/playwright";
 import { createCache, createStorage } from "./utils";
 import { RealtimeSession, broadcastEvent } from "./realtime";
+import { handleKeyVaultRequest, type KeyVaultEnv } from "./key-vault";
 
 // ============================================================================
 // ENVIRONMENT & TYPES
@@ -36,6 +37,12 @@ interface Env {
 
   // KV Namespace for caching
   CACHE?: KVNamespace;
+
+  // KV Namespace for Key Vault (BYOK encryption keys)
+  KEY_VAULT?: KVNamespace;
+
+  // Key Encryption Key for envelope encryption (BYOK)
+  KEK_SECRET?: string;
 
   // R2 Bucket for artifact storage
   ARTIFACTS?: R2Bucket;
@@ -3358,6 +3365,35 @@ export default {
         devices: Object.keys(DEVICE_PRESETS),
         note: "For intelligence features (webhooks, test generation, quality scoring), use the Brain service.",
       }, { headers: corsHeaders });
+    }
+
+    // =========================================================================
+    // KEY VAULT - BYOK Encryption Service
+    // Routes: /key-vault/encrypt, /key-vault/decrypt, /key-vault/dek/*, /key-vault/health
+    // Provides envelope encryption for secure API key storage
+    // =========================================================================
+    if (path.startsWith("/key-vault/")) {
+      // Verify internal auth (only backend should call this)
+      const authHeader = request.headers.get("Authorization");
+      const expectedToken = env.API_TOKEN;
+
+      if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+        return Response.json(
+          { error: "Unauthorized - Key Vault requires API token" },
+          { status: 401, headers: corsHeaders }
+        );
+      }
+
+      const response = await handleKeyVaultRequest(request, env as KeyVaultEnv);
+      // Add CORS headers to response
+      const responseHeaders = new Headers(response.headers);
+      Object.entries(corsHeaders).forEach(([key, value]) => {
+        responseHeaders.set(key, value);
+      });
+      return new Response(response.body, {
+        status: response.status,
+        headers: responseHeaders,
+      });
     }
 
     // =========================================================================

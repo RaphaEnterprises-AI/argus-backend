@@ -65,6 +65,7 @@ from src.api.tests import router as tests_router
 from src.api.time_travel import router as time_travel_router
 from src.api.users import router as users_router
 from src.api.visual_ai import router as visual_ai_router
+from src.api.ai_settings import router as ai_settings_router
 
 # API Routers
 from src.api.webhooks import router as webhooks_router
@@ -276,6 +277,7 @@ app.include_router(time_travel_router)
 app.include_router(invitations_router)
 app.include_router(organizations_router)
 app.include_router(users_router)
+app.include_router(ai_settings_router)
 app.include_router(projects_router)
 app.include_router(device_auth_router)
 app.include_router(visual_ai_router)

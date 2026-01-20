@@ -1,4 +1,10 @@
-"""Chat API endpoint that routes through LangGraph orchestrator."""
+"""Chat API endpoint that routes through LangGraph orchestrator.
+
+This module provides the chat API with support for:
+- User-configurable AI model selection (BYOK)
+- Multi-provider routing (Anthropic, OpenAI, Google, Groq, Together)
+- Token usage tracking for billing
+"""
 
 import json
 import uuid
@@ -6,12 +12,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel
 
-from src.orchestrator.chat_graph import ChatState, create_chat_graph
+from src.orchestrator.chat_graph import AIConfig, ChatState, create_chat_graph
 from src.orchestrator.checkpointer import get_checkpointer
 from src.services.audit_logger import (
     AuditAction,
@@ -30,11 +36,20 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class AIConfigRequest(BaseModel):
+    """AI configuration from frontend (user's model selection)."""
+    model: str | None = None  # Model ID (e.g., "claude-sonnet-4-5", "gpt-4o")
+    provider: str | None = None  # Provider name (e.g., "anthropic", "openai")
+    use_byok: bool = True  # Whether to use user's BYOK key if available
+
+
 class ChatRequest(BaseModel):
     """Request to send a chat message."""
     messages: list[ChatMessage]
     thread_id: str | None = None
     app_url: str | None = None
+    ai_config: AIConfigRequest | None = None  # User's AI model selection
+    user_id: str | None = None  # User ID for BYOK key lookup (from auth)
 
 
 class ChatResponse(BaseModel):
@@ -44,11 +59,85 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict] | None = None
 
 
+async def _build_ai_config(
+    ai_config_request: AIConfigRequest | None,
+    user_id: str | None,
+) -> AIConfig | None:
+    """Build AI configuration for chat graph from user request.
+
+    This function:
+    1. Gets user's AI preferences if no model specified
+    2. Looks up and decrypts user's BYOK key if available
+    3. Returns config for chat graph to use
+
+    Args:
+        ai_config_request: AI config from frontend request
+        user_id: User ID for BYOK key lookup
+
+    Returns:
+        AIConfig dict for chat graph, or None to use defaults
+    """
+    if not ai_config_request:
+        return None
+
+    model = ai_config_request.model
+    provider = ai_config_request.provider
+
+    # If no model specified, use defaults
+    if not model:
+        model = "claude-sonnet-4-20250514"
+        provider = "anthropic"
+
+    # Build base config
+    config: AIConfig = {
+        "model": model,
+        "provider": provider or "anthropic",
+        "api_key": None,
+        "user_id": user_id,
+        "track_usage": True,
+    }
+
+    # Try to get user's BYOK key if requested and user_id provided
+    if ai_config_request.use_byok and user_id and provider:
+        try:
+            from src.services.provider_router import get_provider_router
+
+            router_instance = get_provider_router()
+            ai_config_result = await router_instance.get_ai_config(
+                user_id=user_id,
+                model=model,
+                allow_platform_fallback=True,
+            )
+
+            # If user has a BYOK key for this provider, use the decrypted key
+            if ai_config_result.api_key:
+                config["api_key"] = ai_config_result.api_key
+                logger.info(
+                    "Using BYOK key for chat",
+                    user_id=user_id,
+                    provider=provider,
+                    model=model,
+                )
+        except Exception as e:
+            # Log but don't fail - fall back to platform key
+            logger.warning(
+                "Failed to get BYOK key, using platform key",
+                user_id=user_id,
+                provider=provider,
+                error=str(e),
+            )
+
+    return config
+
+
 @router.post("/message")
 async def send_message(request: ChatRequest):
     """Send a message and get a response (non-streaming)."""
 
     thread_id = request.thread_id or str(uuid.uuid4())
+
+    # Build AI config from user preferences
+    ai_config = await _build_ai_config(request.ai_config, request.user_id)
 
     # Create graph with checkpointer
     checkpointer = get_checkpointer()
@@ -65,13 +154,14 @@ async def send_message(request: ChatRequest):
         elif msg.role == "assistant":
             lc_messages.append(AIMessage(content=msg.content))
 
-    # Create initial state
+    # Create initial state with AI config
     initial_state: ChatState = {
         "messages": lc_messages,
         "app_url": request.app_url or "",
         "current_tool": None,
         "tool_results": [],
         "session_id": thread_id,
+        "ai_config": ai_config,  # Pass AI config for model selection
     }
 
     logger.info("Processing chat message", thread_id=thread_id, message_count=len(lc_messages))
@@ -106,9 +196,18 @@ async def send_message(request: ChatRequest):
 
 @router.post("/stream")
 async def stream_message(request: ChatRequest):
-    """Send a message and stream the response using Vercel AI SDK compatible format."""
+    """Send a message and stream the response using Vercel AI SDK compatible format.
+
+    Supports user-configurable AI models via the ai_config field:
+    - model: Model ID (e.g., "claude-sonnet-4-5", "gpt-4o")
+    - provider: Provider name (e.g., "anthropic", "openai")
+    - use_byok: Whether to use user's BYOK key if available
+    """
 
     thread_id = request.thread_id or str(uuid.uuid4())
+
+    # Build AI config from user preferences (outside the generator to avoid async issues)
+    ai_config = await _build_ai_config(request.ai_config, request.user_id)
 
     async def generate_ai_sdk_stream():
         """Generate stream in Vercel AI SDK format (text streaming protocol)."""
@@ -134,9 +233,21 @@ async def stream_message(request: ChatRequest):
                 "current_tool": None,
                 "tool_results": [],
                 "session_id": thread_id,
+                "ai_config": ai_config,  # Pass AI config for model selection
             }
 
-            logger.info("Starting chat stream", thread_id=thread_id)
+            # Get model info for logging
+            model_id = ai_config.get("model", "claude-sonnet-4-20250514") if ai_config else "claude-sonnet-4-20250514"
+            provider = ai_config.get("provider", "anthropic") if ai_config else "anthropic"
+            using_byok = bool(ai_config.get("api_key")) if ai_config else False
+
+            logger.info(
+                "Starting chat stream",
+                thread_id=thread_id,
+                model=model_id,
+                provider=provider,
+                using_byok=using_byok,
+            )
 
             # Log chat start to audit trail
             audit = get_audit_logger()
@@ -151,6 +262,9 @@ async def stream_message(request: ChatRequest):
                     "message_count": len(request.messages),
                     "app_url": request.app_url,
                     "last_user_message": request.messages[-1].content[:200] if request.messages else None,
+                    "model": model_id,
+                    "provider": provider,
+                    "using_byok": using_byok,
                 },
             )
 
@@ -277,8 +391,8 @@ async def stream_message(request: ChatRequest):
                 duration_ms=duration_ms,
             )
 
-            # AI SDK finish message: d:{"finishReason":"stop"}\n
-            yield f'd:{json.dumps({"finishReason": "stop", "threadId": thread_id})}\n'
+            # AI SDK finish message with model info: d:{"finishReason":"stop",...}\n
+            yield f'd:{json.dumps({"finishReason": "stop", "threadId": thread_id, "model": model_id, "provider": provider})}\n'
 
         except Exception as e:
             logger.exception("Chat stream error", error=str(e))

@@ -34,6 +34,16 @@ index_name = "argus-patterns"
 binding = "CACHE"
 id = "e1f3cdefb05c43b88528adb515bde16a"
 
+# ============================================================================
+# KEY_VAULT KV - Secure storage for encrypted DEKs (Data Encryption Keys)
+# Create with: wrangler kv:namespace create "KEY_VAULT"
+# This namespace stores per-user encryption keys for BYOK API key storage.
+# Keys are encrypted with KEK before storage (envelope encryption).
+# ============================================================================
+[[kv_namespaces]]
+binding = "KEY_VAULT"
+id = "7698d85a809c404d9fb12556b08c7c8e"
+
 # KV key patterns:
 # - dedup:{fingerprint}          → Event deduplication (TTL: 24h)
 # - session:{id}                 → User sessions (TTL: 24h)
@@ -122,6 +132,11 @@ SELENIUM_GRID_URL = "https://selenium.heyargus.ai"
 playwright = "@cloudflare/playwright"
 
 # Secrets (set via `wrangler secret put <NAME>`):
+#
+# Required - Key Vault (BYOK encryption):
+# - KEK_SECRET (Key Encryption Key - 32+ char random string for envelope encryption)
+#   Generate with: openssl rand -hex 32
+#   CRITICAL: Back this up securely! Loss = all BYOK keys unrecoverable.
 #
 # Required - AI Provider (just one key for 300+ models):
 # - OPENROUTER_API_KEY (get at https://openrouter.ai/keys)
