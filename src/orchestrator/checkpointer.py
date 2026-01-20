@@ -27,6 +27,7 @@ CheckpointerType = Union["AsyncPostgresSaver", MemorySaver]
 
 # Global checkpointer instance (singleton pattern)
 _checkpointer: CheckpointerType | None = None
+_checkpointer_cm = None  # Context manager for cleanup
 
 
 def get_checkpointer() -> CheckpointerType:
@@ -58,7 +59,7 @@ async def setup_checkpointer() -> CheckpointerType:
     Returns:
         The initialized checkpointer instance
     """
-    global _checkpointer
+    global _checkpointer, _checkpointer_cm
 
     if _checkpointer is not None:
         return _checkpointer
@@ -100,20 +101,17 @@ async def setup_checkpointer() -> CheckpointerType:
                 logger.warning("Could not resolve hostname to IPv4", hostname=hostname, error=str(e))
 
             # Create AsyncPostgresSaver using from_conn_string
-            # This handles connection pooling internally
-            _checkpointer = AsyncPostgresSaver.from_conn_string(conninfo)
+            # This is an async context manager - we need to enter it
+            _checkpointer_cm = AsyncPostgresSaver.from_conn_string(conninfo)
+            _checkpointer = await _checkpointer_cm.__aenter__()
 
             # Create checkpoint tables if they don't exist
             await _checkpointer.setup()
 
             logger.info(
-                "PostgreSQL connection established",
-                database=database_url.split("@")[-1].split("/")[0] if "@" in database_url else "unknown",
-            )
-
-            logger.info(
                 "AsyncPostgresSaver initialized for durable execution",
-                features=["connection_pooling", "async", "auto_tables"],
+                database=database_url.split("@")[-1].split("/")[0] if "@" in database_url else "unknown",
+                features=["durable", "async"],
             )
 
         except ImportError as e:
@@ -146,14 +144,17 @@ async def shutdown_checkpointer() -> None:
     This should be called during application shutdown to properly
     close database connections.
     """
-    global _checkpointer
+    global _checkpointer, _checkpointer_cm
 
-    if _checkpointer is not None:
-        # AsyncPostgresSaver manages its own connection pool
-        # Just clear the reference
-        logger.info("Checkpointer shutdown")
+    if _checkpointer_cm is not None:
+        try:
+            await _checkpointer_cm.__aexit__(None, None, None)
+            logger.info("PostgreSQL checkpointer shutdown complete")
+        except Exception as e:
+            logger.error("Error shutting down checkpointer", error=str(e))
 
     _checkpointer = None
+    _checkpointer_cm = None
 
 
 def reset_checkpointer() -> None:
