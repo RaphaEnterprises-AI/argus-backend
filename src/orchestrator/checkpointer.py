@@ -72,15 +72,40 @@ async def setup_checkpointer() -> CheckpointerType:
     if database_url:
         try:
             # Import async checkpointer and connection pool
+            import socket
+            from urllib.parse import urlparse, urlunparse
             from psycopg_pool import AsyncConnectionPool
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+            # Force IPv4 by resolving hostname and using hostaddr
+            # This fixes Railway IPv6 connectivity issues with Supabase
+            parsed = urlparse(database_url)
+            hostname = parsed.hostname
+            try:
+                # Resolve to IPv4 only
+                ipv4_addr = socket.gethostbyname(hostname)
+                logger.info(
+                    "Resolved database hostname to IPv4",
+                    hostname=hostname,
+                    ipv4=ipv4_addr,
+                )
+                # Add hostaddr parameter to connection string
+                if "?" in database_url:
+                    conninfo = f"{database_url}&hostaddr={ipv4_addr}"
+                else:
+                    conninfo = f"{database_url}?hostaddr={ipv4_addr}"
+            except socket.gaierror:
+                # Fall back to original URL if resolution fails
+                logger.warning("Could not resolve hostname to IPv4, using original URL")
+                conninfo = database_url
+
             # Create connection pool with production settings
             _connection_pool = AsyncConnectionPool(
-                conninfo=database_url,
+                conninfo=conninfo,
                 min_size=2,      # Minimum connections in pool
                 max_size=10,     # Maximum connections in pool
                 open=False,      # Don't open immediately, we'll do it explicitly
+                timeout=60,      # Connection timeout
                 kwargs={
                     "autocommit": True,
                     "prepare_threshold": 0,  # Disable prepared statements for Supabase
