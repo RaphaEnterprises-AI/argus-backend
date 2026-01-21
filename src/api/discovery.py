@@ -1306,7 +1306,8 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
         return True
 
     except Exception as e:
-        logger.warning("Failed to save discovery checkpoint", error=str(e))
+        # Use exception() to log full stack trace for debugging
+        logger.exception("Failed to save discovery checkpoint", session_id=session.get("id"), error=str(e))
         return False
 
 
