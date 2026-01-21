@@ -637,6 +637,7 @@ async def start_discovery(
                 "project_id": request.project_id,
                 "name": generate_session_name(request.app_url, datetime.now(UTC)),
                 "status": SessionStatus.PENDING.value,
+                "app_url": request.app_url,  # Legacy column - production DB has both
                 "start_url": request.app_url,
                 "mode": request.mode,
                 "strategy": request.strategy,
@@ -1360,6 +1361,7 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
             "project_id": project_id,
             "name": generate_session_name(app_url, datetime.now(UTC)),
             "status": session["status"],
+            "app_url": app_url,  # Legacy column - production DB has both and app_url is NOT NULL
             "start_url": app_url,
             "mode": session.get("config", {}).get("mode", "standard_crawl"),
             "strategy": session.get("config", {}).get("strategy", "breadth_first"),
@@ -1443,6 +1445,7 @@ async def _persist_discovery_session(session: dict) -> bool:
             "project_id": project_id,
             "name": generate_session_name(session.get("app_url", ""), datetime.now(UTC)),
             "status": session["status"],
+            "app_url": session.get("app_url", ""),  # Legacy column - production DB has both
             "start_url": session.get("app_url", ""),
             "mode": session.get("config", {}).get("mode", "standard_crawl"),
             "strategy": session.get("config", {}).get("strategy", "breadth_first"),
