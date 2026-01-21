@@ -17,9 +17,11 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import structlog
@@ -29,6 +31,8 @@ from src.browser.pool_models import (
     ActResult,
     BrowserPoolConfig,
     BrowserType,
+    DiscoveredPage,
+    DiscoveryResult,
     ElementInfo,
     ExecutionMode,
     ExtractResult,
@@ -384,6 +388,7 @@ class BrowserPoolClient:
         url: str,
         instruction: str | None = None,
         use_cache: bool = True,
+        session_id: str | None = None,
     ) -> ObserveResult:
         """
         Observe/discover interactive elements on a page.
@@ -395,18 +400,23 @@ class BrowserPoolClient:
             url: URL of the page to analyze
             instruction: Optional instruction for what to look for
             use_cache: Use cached selectors if available
+            session_id: Optional session ID for authenticated sessions
 
         Returns:
             ObserveResult with discovered elements
         """
-        logger.info("Observing page", url=url, instruction=instruction)
+        logger.info("Observing page", url=url, instruction=instruction, session_id=session_id)
         start_time = time.time()
 
         try:
-            data = await self._request("POST", "/observe", {
+            request_data = {
                 "url": url,
                 "instruction": instruction or "What actions can I take on this page?",
-            })
+            }
+            if session_id:
+                request_data["sessionId"] = session_id
+
+            data = await self._request("POST", "/observe", request_data)
 
             # Parse elements
             elements = []
@@ -853,6 +863,296 @@ class BrowserPoolClient:
                 url=url,
                 execution_mode=ExecutionMode.VISION,
             )
+
+    async def discover(
+        self,
+        start_url: str,
+        max_pages: int = 50,
+        max_depth: int = 3,
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
+        capture_screenshots: bool = True,
+        record_video: bool = False,
+        auth_config: dict | None = None,
+    ) -> "DiscoveryResult":
+        """
+        Discover pages and elements by crawling from a starting URL.
+
+        Uses the browser pool to crawl pages iteratively, extracting
+        elements, forms, and links from each page.
+
+        Args:
+            start_url: URL to start crawling from
+            max_pages: Maximum number of pages to discover
+            max_depth: Maximum depth to crawl from start URL
+            include_patterns: URL patterns to include (regex)
+            exclude_patterns: URL patterns to exclude (regex)
+            capture_screenshots: Capture screenshot of each page
+            record_video: Record video of the entire discovery session
+            auth_config: Authentication configuration (cookies, headers, credentials)
+
+        Returns:
+            DiscoveryResult with discovered pages and elements
+        """
+        logger.info(
+            "Starting discovery",
+            start_url=start_url,
+            max_pages=max_pages,
+            max_depth=max_depth,
+            record_video=record_video,
+        )
+        start_time = time.time()
+
+        visited_urls: set[str] = set()
+        discovered_pages: list[DiscoveredPage] = []
+        base_domain = urlparse(start_url).netloc
+        total_elements = 0
+        total_forms = 0
+        total_links = 0
+
+        # Compile patterns
+        include_regex = [re.compile(p) for p in (include_patterns or [])]
+        exclude_regex = [re.compile(p) for p in (exclude_patterns or [])]
+
+        def should_visit(url: str) -> bool:
+            """Check if URL should be visited based on patterns."""
+            # Check domain
+            if urlparse(url).netloc != base_domain:
+                return False
+            # Check exclude patterns
+            for pattern in exclude_regex:
+                if pattern.search(url):
+                    return False
+            # Check include patterns (if any specified, URL must match one)
+            if include_regex:
+                return any(p.search(url) for p in include_regex)
+            return True
+
+        # Queue: (url, depth)
+        queue: list[tuple[str, int]] = [(start_url, 0)]
+
+        try:
+            # Start a persistent session when auth or recording is needed
+            # This ensures authentication state is maintained across all observe calls
+            session_data = None
+            active_session_id = None
+            if record_video or auth_config:
+                try:
+                    session_data = await self._request("POST", "/session/start", {
+                        "url": start_url,
+                        "recordVideo": record_video,
+                        "auth": auth_config,
+                    })
+                    active_session_id = session_data.get("sessionId")
+                    logger.info(
+                        "Started browser session",
+                        session_id=active_session_id,
+                        has_auth=bool(auth_config),
+                        recording=record_video,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to start browser session, observe calls may fail for authenticated pages",
+                        error=str(e),
+                    )
+
+            while queue and len(discovered_pages) < max_pages:
+                url, depth = queue.pop(0)
+
+                # Skip if already visited or too deep
+                if url in visited_urls:
+                    continue
+                if depth > max_depth:
+                    continue
+                if not should_visit(url):
+                    continue
+
+                visited_urls.add(url)
+
+                try:
+                    # Use observe to get page elements (with session for auth)
+                    observe_result = await self.observe(
+                        url,
+                        instruction="Discover all interactive elements, forms, and links on this page",
+                        session_id=active_session_id,
+                    )
+
+                    if not observe_result.success:
+                        logger.warning("Failed to observe page", url=url, error=observe_result.error)
+                        continue
+
+                    # Extract links for further crawling
+                    links = []
+                    for element in observe_result.elements:
+                        if element.type == "link" and element.attributes:
+                            href = element.attributes.get("href", "")
+                            if href and not href.startswith("#") and not href.startswith("javascript:"):
+                                full_url = urljoin(url, href)
+                                links.append(full_url)
+                                if depth < max_depth and full_url not in visited_urls:
+                                    queue.append((full_url, depth + 1))
+
+                    # Capture screenshot if requested
+                    screenshot = None
+                    if capture_screenshots:
+                        screenshot = await self.screenshot(url)
+
+                    # Categorize elements
+                    forms = [e.to_dict() for e in observe_result.elements if e.type in ("form", "input", "select", "textarea")]
+                    page_elements = observe_result.elements
+
+                    # Create discovered page
+                    page = DiscoveredPage(
+                        url=url,
+                        title=observe_result.title,
+                        description=f"Page with {len(page_elements)} interactive elements",
+                        page_type=self._categorize_page(url, observe_result.title, page_elements),
+                        elements=page_elements,
+                        forms=forms,
+                        links=links,
+                        screenshot=screenshot,
+                    )
+                    discovered_pages.append(page)
+
+                    # Update totals
+                    total_elements += len(page_elements)
+                    total_forms += len(forms)
+                    total_links += len(links)
+
+                    logger.debug(
+                        "Discovered page",
+                        url=url,
+                        depth=depth,
+                        elements=len(page_elements),
+                        links=len(links),
+                        total_pages=len(discovered_pages),
+                    )
+
+                except Exception as e:
+                    logger.warning("Error discovering page", url=url, error=str(e))
+                    continue
+
+            # End session and get video URL if recording was enabled
+            video_artifact_id = None
+            recording_url = None
+            if active_session_id:
+                try:
+                    end_result = await self._request("POST", "/session/end", {
+                        "sessionId": active_session_id,
+                    })
+                    if record_video:
+                        video_artifact_id = end_result.get("videoArtifactId")
+                        recording_url = end_result.get("videoUrl")
+                        logger.info("Recording saved", video_id=video_artifact_id)
+                    logger.info("Browser session ended", session_id=active_session_id)
+                except Exception as e:
+                    logger.warning("Failed to end browser session", error=str(e))
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            logger.info(
+                "Discovery completed",
+                pages=len(discovered_pages),
+                total_elements=total_elements,
+                duration_ms=duration_ms,
+            )
+
+            # Log to audit trail
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="discover",
+                url=start_url,
+                success=True,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                metadata={
+                    "pages_discovered": len(discovered_pages),
+                    "total_elements": total_elements,
+                    "max_pages": max_pages,
+                    "max_depth": max_depth,
+                },
+            )
+
+            return DiscoveryResult(
+                success=True,
+                pages=discovered_pages,
+                total_elements=total_elements,
+                total_forms=total_forms,
+                total_links=total_links,
+                video_artifact_id=video_artifact_id,
+                recording_url=recording_url,
+                duration_ms=duration_ms,
+            )
+
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.error("Discovery failed", start_url=start_url, error=str(e))
+
+            # Clean up session if one was started
+            if active_session_id:
+                try:
+                    await self._request("POST", "/session/end", {
+                        "sessionId": active_session_id,
+                    })
+                    logger.info("Cleaned up browser session after error", session_id=active_session_id)
+                except Exception as cleanup_error:
+                    logger.warning("Failed to cleanup session", error=str(cleanup_error))
+
+            # Log failure
+            audit = get_audit_logger()
+            await audit.log_browser_operation(
+                operation="discover",
+                url=start_url,
+                success=False,
+                duration_ms=duration_ms,
+                user_id=self.user_context.user_id,
+                organization_id=self.user_context.org_id,
+                error=str(e),
+            )
+
+            return DiscoveryResult(
+                success=False,
+                error=str(e),
+                duration_ms=duration_ms,
+            )
+
+    def _categorize_page(self, url: str, title: str, elements: list) -> str:
+        """Categorize a page based on URL, title, and elements."""
+        url_lower = url.lower()
+        title_lower = (title or "").lower()
+
+        # Check URL patterns
+        if any(p in url_lower for p in ["/login", "/signin", "/auth"]):
+            return "auth"
+        if any(p in url_lower for p in ["/register", "/signup", "/join"]):
+            return "auth"
+        if any(p in url_lower for p in ["/dashboard", "/admin", "/panel"]):
+            return "dashboard"
+        if any(p in url_lower for p in ["/settings", "/preferences", "/config"]):
+            return "settings"
+        if any(p in url_lower for p in ["/search", "/find", "/query"]):
+            return "search"
+        if any(p in url_lower for p in ["/cart", "/checkout", "/payment"]):
+            return "form"
+
+        # Check title patterns
+        if any(p in title_lower for p in ["login", "sign in", "log in"]):
+            return "auth"
+        if any(p in title_lower for p in ["dashboard", "admin"]):
+            return "dashboard"
+
+        # Check element types
+        form_elements = sum(1 for e in elements if e.type in ("form", "input", "select"))
+        if form_elements > 3:
+            return "form"
+
+        # Default based on structure
+        link_count = sum(1 for e in elements if e.type == "link")
+        if link_count > 10:
+            return "list"
+
+        return "content"
 
 
 # Singleton instance for convenience

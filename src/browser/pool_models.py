@@ -293,3 +293,59 @@ class BrowserPoolConfig:
             "visionFallbackEnabled": self.vision_fallback_enabled,
             "visionFallbackTimeoutMs": self.vision_fallback_timeout_ms,
         }
+
+
+@dataclass
+class DiscoveredPage:
+    """A page discovered during crawling."""
+    url: str
+    title: str
+    description: str = ""
+    page_type: str = "unknown"
+    elements: list[ElementInfo] = field(default_factory=list)
+    forms: list[dict] = field(default_factory=list)
+    links: list[str] = field(default_factory=list)
+    screenshot: str | None = None
+    discovered_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    def to_dict(self) -> dict:
+        return {
+            "url": self.url,
+            "title": self.title,
+            "description": self.description,
+            "pageType": self.page_type,
+            "elements": [e.to_dict() for e in self.elements],
+            "forms": self.forms,
+            "links": self.links,
+            "screenshot": self.screenshot,
+            "discoveredAt": self.discovered_at,
+        }
+
+
+@dataclass
+class DiscoveryResult:
+    """Result of a discovery crawl operation."""
+    success: bool
+    pages: list[DiscoveredPage] = field(default_factory=list)
+    total_elements: int = 0
+    total_forms: int = 0
+    total_links: int = 0
+    video_artifact_id: str | None = None
+    recording_url: str | None = None
+    error: str | None = None
+    duration_ms: int = 0
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    def to_dict(self) -> dict:
+        return {
+            "success": self.success,
+            "pages": [p.to_dict() for p in self.pages],
+            "totalElements": self.total_elements,
+            "totalForms": self.total_forms,
+            "totalLinks": self.total_links,
+            "videoArtifactId": self.video_artifact_id,
+            "recordingUrl": self.recording_url,
+            "error": self.error,
+            "durationMs": self.duration_ms,
+            "timestamp": self.timestamp,
+        }

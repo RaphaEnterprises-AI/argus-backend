@@ -302,6 +302,34 @@ class Settings(BaseSettings):
     api_version_header: str = Field("X-API-Version", description="API version header name")
     deprecation_warning_enabled: bool = Field(True, description="Enable deprecation warnings")
 
+    # ==========================================================================
+    # Sentry Configuration (Error Monitoring & Performance)
+    # ==========================================================================
+    sentry_dsn: str | None = Field(
+        None,
+        description="Sentry DSN for error tracking. Get from Sentry project settings."
+    )
+    sentry_environment: str = Field(
+        "development",
+        description="Sentry environment (development, staging, production)"
+    )
+    sentry_traces_sample_rate: float = Field(
+        0.1,
+        description="Sample rate for performance monitoring (0.0 to 1.0). Use 0.1 for production."
+    )
+    sentry_profiles_sample_rate: float = Field(
+        0.1,
+        description="Sample rate for profiling (0.0 to 1.0). Requires traces to be enabled."
+    )
+    sentry_send_default_pii: bool = Field(
+        False,
+        description="Send Personally Identifiable Information to Sentry. Disable for GDPR compliance."
+    )
+    sentry_debug: bool = Field(
+        False,
+        description="Enable Sentry debug mode for troubleshooting integration issues."
+    )
+
 
 class AgentConfig(BaseSettings):
     """Configuration for individual agents."""

@@ -51,7 +51,8 @@ RUN pip install --upgrade pip && \
     "aiohttp>=3.9.0" \
     "openai>=1.0.0" \
     "PyJWT[crypto]>=2.8.0" \
-    "aiosmtplib>=3.0.0"
+    "aiosmtplib>=3.0.0" \
+    "sentry-sdk[fastapi]>=2.0.0"
 
 # Copy application code
 COPY src/ /app/src/

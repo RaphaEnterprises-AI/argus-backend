@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from src.agents.auto_discovery import AutoDiscovery, DiscoveryResult
+from src.browser.pool_client import BrowserPoolClient
 from src.discovery.engine import DiscoveryEngine, create_discovery_engine
 from src.discovery.repository import DiscoveryRepository
 from src.services.crawlee_client import get_crawlee_client
@@ -113,6 +114,13 @@ class AuthConfig(BaseModel):
     login_steps: list[dict] | None = Field(None, description="Steps to perform login")
 
 
+class ExecutionContext(str, Enum):
+    """Execution context determines which browser backend to use."""
+    DASHBOARD = "dashboard"  # Dashboard-triggered: Crawlee → BrowserPool (no local)
+    API = "api"              # API-triggered: Crawlee → BrowserPool (no local)
+    MCP = "mcp"              # MCP-triggered: Crawlee → Local Playwright (developer machine)
+
+
 class StartDiscoveryRequest(BaseModel):
     """Request to start a new discovery session."""
     project_id: str = Field(..., description="Project ID to associate discovery with")
@@ -129,6 +137,12 @@ class StartDiscoveryRequest(BaseModel):
     auth_config: AuthConfig | None = Field(None, description="Authentication config")
     custom_headers: dict | None = Field(None, description="Custom HTTP headers")
     timeout_seconds: int = Field(default=30, ge=5, le=120, description="Page timeout")
+    # New fields for execution context and recording
+    execution_context: ExecutionContext = Field(
+        default=ExecutionContext.DASHBOARD,
+        description="Execution context: dashboard (remote only), api (remote only), mcp (allows local)"
+    )
+    record_session: bool = Field(default=False, description="Record video of discovery session")
 
 
 class DiscoverySessionResponse(BaseModel):
@@ -153,6 +167,9 @@ class DiscoverySessionResponse(BaseModel):
     current_depth: int = 0
     estimated_time_remaining: int | None = None
     coverage_score: float | None = None
+    execution_context: str | None = None
+    video_artifact_id: str | None = None
+    recording_url: str | None = None
 
 
 class DiscoveredPageResponse(BaseModel):
@@ -389,6 +406,9 @@ def build_session_response(session: dict) -> DiscoverySessionResponse:
         current_depth=session.get("current_depth", 0),
         estimated_time_remaining=session.get("estimated_time_remaining"),
         coverage_score=session.get("coverage_score"),
+        execution_context=session.get("config", {}).get("execution_context"),
+        video_artifact_id=session.get("video_artifact_id"),
+        recording_url=session.get("recording_url"),
     )
 
 
@@ -617,6 +637,8 @@ async def start_discovery(
             "auth_config": request.auth_config.model_dump() if request.auth_config else None,
             "custom_headers": request.custom_headers,
             "timeout_seconds": request.timeout_seconds,
+            "execution_context": request.execution_context.value,
+            "record_session": request.record_session,
         },
         "pages": [],
         "flows": [],
@@ -1743,83 +1765,249 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             session["coverage_score"] = min(100, (total_elements / (total_pages * 10)) * 100) if total_pages > 0 else 0
 
         else:
-            logger.info("Crawlee service unavailable, using local discovery", session_id=session_id)
+            # Crawlee unavailable - check execution context for fallback strategy
+            execution_context = config.get("execution_context", ExecutionContext.DASHBOARD.value)
+            record_session = config.get("record_session", False)
 
-            # Fall back to local discovery
-            discovery = AutoDiscovery(
-                app_url=session["app_url"],
-                max_pages=config.get("max_pages", 50),
-                max_depth=config.get("max_depth", 3),
-            )
+            # For DASHBOARD and API contexts: Use BrowserPool (no local Playwright on VMs)
+            # For MCP context: Allow local Playwright (developer machines)
+            if execution_context in (ExecutionContext.DASHBOARD.value, ExecutionContext.API.value):
+                logger.info(
+                    "Crawlee unavailable, using BrowserPool for remote discovery",
+                    session_id=session_id,
+                    execution_context=execution_context,
+                    record_session=record_session,
+                )
 
-            # Run discovery
-            result: DiscoveryResult = await discovery.discover(
-                focus_areas=config.get("focus_areas"),
-            )
+                # Try BrowserPool as fallback
+                try:
+                    pool_client = BrowserPoolClient()
 
-            # Store discovered pages from local discovery
-            for i, page in enumerate(result.pages_discovered):
-                page_data = {
-                    "id": f"page-{session_id[:8]}-{i}",
-                    "url": page.url,
-                    "title": page.title,
-                    "description": page.description,
-                    "page_type": "unknown",
-                    "elements_count": len(page.elements),
-                    "forms_count": len(page.forms),
-                    "links_count": len(page.links),
-                    "discovered_at": datetime.now(UTC).isoformat(),
-                }
-                session["pages"].append(page_data)
+                    # Prepare auth config
+                    auth_config = None
+                    if config.get("auth_config"):
+                        auth_config = {
+                            "type": config["auth_config"].get("type", "cookie"),
+                            "credentials": config["auth_config"].get("credentials", {}),
+                            "login_url": config["auth_config"].get("login_url"),
+                            "login_steps": config["auth_config"].get("login_steps"),
+                        }
 
-                # Emit page discovered event
-                if events_queue:
-                    await events_queue.put({
-                        "event": "page_discovered",
-                        "data": json.dumps({
-                            "session_id": session_id,
-                            "page": page_data,
-                            "total_pages": len(session["pages"]),
+                    # Run discovery via BrowserPool
+                    pool_result = await pool_client.discover(
+                        start_url=session["app_url"],
+                        max_pages=config.get("max_pages", 50),
+                        max_depth=config.get("max_depth", 3),
+                        include_patterns=config.get("include_patterns", []),
+                        exclude_patterns=config.get("exclude_patterns", []),
+                        capture_screenshots=config.get("capture_screenshots", True),
+                        record_video=record_session,
+                        auth_config=auth_config,
+                    )
+
+                    if not pool_result.success:
+                        raise Exception(f"BrowserPool discovery failed: {pool_result.error}")
+
+                    # Store video artifact ID if recording was enabled
+                    if pool_result.video_artifact_id:
+                        session["video_artifact_id"] = pool_result.video_artifact_id
+                        session["recording_url"] = pool_result.recording_url
+
+                    # Process discovered pages from BrowserPool
+                    for i, page in enumerate(pool_result.pages):
+                        page_data = {
+                            "id": f"page-{session_id[:8]}-{i}",
+                            "url": page.url,
+                            "title": page.title,
+                            "description": page.description,
+                            "page_type": page.page_type,
+                            "elements_count": len(page.elements),
+                            "forms_count": len(page.forms),
+                            "links_count": len(page.links),
+                            "screenshot": page.screenshot,
+                            "discovered_at": page.discovered_at,
+                        }
+                        session["pages"].append(page_data)
+
+                        # Emit page discovered event
+                        if events_queue:
+                            await events_queue.put({
+                                "event": "page_discovered",
+                                "data": json.dumps({
+                                    "session_id": session_id,
+                                    "page": page_data,
+                                    "total_pages": len(session["pages"]),
+                                })
+                            })
+
+                        # Incremental persistence: save checkpoint every 5 pages
+                        if len(session["pages"]) % 5 == 0:
+                            await _persist_discovery_checkpoint(session)
+
+                    # Use AI to infer flows from BrowserPool pages
+                    try:
+                        from src.agents.auto_discovery import DiscoveredPage as AutoDiscoveredPage
+
+                        discovery = AutoDiscovery(
+                            app_url=session["app_url"],
+                            max_pages=config.get("max_pages", 50),
+                            max_depth=config.get("max_depth", 3),
+                        )
+
+                        # Convert BrowserPool pages to AutoDiscovery format
+                        for page in pool_result.pages:
+                            discovery.discovered_pages.append(AutoDiscoveredPage(
+                                url=page.url,
+                                title=page.title,
+                                description=page.description,
+                                elements=[],
+                                forms=page.forms,
+                                links=page.links,
+                                user_flows=[],
+                            ))
+
+                        # Run AI flow analysis
+                        flows_result = await discovery._analyze_flows()
+
+                        # Process discovered flows
+                        for i, flow in enumerate(flows_result):
+                            flow_id = f"flow-{session_id[:8]}-{i}"
+                            flow_data = {
+                                "id": flow_id,
+                                "session_id": session_id,
+                                "name": flow.name if hasattr(flow, 'name') else flow.get("name", f"Flow {i+1}"),
+                                "description": flow.description if hasattr(flow, 'description') else flow.get("description", ""),
+                                "category": flow.category if hasattr(flow, 'category') else flow.get("category", "user_journey"),
+                                "priority": flow.priority if hasattr(flow, 'priority') else flow.get("priority", "medium"),
+                                "start_url": flow.start_url if hasattr(flow, 'start_url') else flow.get("start_url", session["app_url"]),
+                                "steps": flow.steps if hasattr(flow, 'steps') else flow.get("steps", []),
+                                "pages_involved": [],
+                                "created_at": datetime.now(UTC).isoformat(),
+                                "validated": False,
+                                "test_generated": False,
+                            }
+                            session["flows"].append(flow_data)
+                            _discovered_flows[flow_id] = flow_data
+
+                            # Emit flow discovered event
+                            if events_queue:
+                                await events_queue.put({
+                                    "event": "flow_discovered",
+                                    "data": json.dumps({
+                                        "session_id": session_id,
+                                        "flow": flow_data,
+                                        "total_flows": len(session["flows"]),
+                                    })
+                                })
+
+                    except Exception as flow_error:
+                        logger.warning(
+                            "Flow inference failed for BrowserPool pages",
+                            session_id=session_id,
+                            error=str(flow_error),
+                        )
+
+                    # Calculate coverage
+                    session["coverage_score"] = min(
+                        100,
+                        (pool_result.total_elements / max(len(pool_result.pages) * 10, 1)) * 100
+                    )
+
+                except Exception as pool_error:
+                    # BrowserPool also failed - fail the session for dashboard/api contexts
+                    logger.error(
+                        "Both Crawlee and BrowserPool unavailable for remote discovery",
+                        session_id=session_id,
+                        error=str(pool_error),
+                    )
+                    raise Exception(
+                        f"Discovery failed: Both Crawlee and BrowserPool unavailable. "
+                        f"Cannot use local Playwright for {execution_context} context on remote VM."
+                    )
+
+            else:
+                # MCP context - allow local Playwright fallback (developer machine)
+                logger.info(
+                    "Crawlee unavailable, using local Playwright for MCP discovery",
+                    session_id=session_id,
+                    execution_context=execution_context,
+                )
+
+                # Fall back to local discovery (only for MCP on developer machines)
+                discovery = AutoDiscovery(
+                    app_url=session["app_url"],
+                    max_pages=config.get("max_pages", 50),
+                    max_depth=config.get("max_depth", 3),
+                )
+
+                # Run discovery
+                result: DiscoveryResult = await discovery.discover(
+                    focus_areas=config.get("focus_areas"),
+                )
+
+                # Store discovered pages from local discovery
+                for i, page in enumerate(result.pages_discovered):
+                    page_data = {
+                        "id": f"page-{session_id[:8]}-{i}",
+                        "url": page.url,
+                        "title": page.title,
+                        "description": page.description,
+                        "page_type": "unknown",
+                        "elements_count": len(page.elements),
+                        "forms_count": len(page.forms),
+                        "links_count": len(page.links),
+                        "discovered_at": datetime.now(UTC).isoformat(),
+                    }
+                    session["pages"].append(page_data)
+
+                    # Emit page discovered event
+                    if events_queue:
+                        await events_queue.put({
+                            "event": "page_discovered",
+                            "data": json.dumps({
+                                "session_id": session_id,
+                                "page": page_data,
+                                "total_pages": len(session["pages"]),
+                            })
                         })
-                    })
 
-                # Incremental persistence: save checkpoint every 5 pages
-                if len(session["pages"]) % 5 == 0:
-                    await _persist_discovery_checkpoint(session)
+                    # Incremental persistence: save checkpoint every 5 pages
+                    if len(session["pages"]) % 5 == 0:
+                        await _persist_discovery_checkpoint(session)
 
-            # Store discovered flows from local discovery
-            for i, flow in enumerate(result.flows_discovered):
-                flow_id = f"flow-{session_id[:8]}-{i}"
-                flow_data = {
-                    "id": flow_id,
-                    "session_id": session_id,
-                    "name": flow.name,
-                    "description": flow.description,
-                    "category": flow.category,
-                    "priority": flow.priority,
-                    "start_url": flow.start_url,
-                    "steps": flow.steps,
-                    "pages_involved": [],
-                    "created_at": datetime.now(UTC).isoformat(),
-                    "validated": False,
-                    "test_generated": False,
-                }
-                session["flows"].append(flow_data)
-                _discovered_flows[flow_id] = flow_data
+                # Store discovered flows from local discovery
+                for i, flow in enumerate(result.flows_discovered):
+                    flow_id = f"flow-{session_id[:8]}-{i}"
+                    flow_data = {
+                        "id": flow_id,
+                        "session_id": session_id,
+                        "name": flow.name,
+                        "description": flow.description,
+                        "category": flow.category,
+                        "priority": flow.priority,
+                        "start_url": flow.start_url,
+                        "steps": flow.steps,
+                        "pages_involved": [],
+                        "created_at": datetime.now(UTC).isoformat(),
+                        "validated": False,
+                        "test_generated": False,
+                    }
+                    session["flows"].append(flow_data)
+                    _discovered_flows[flow_id] = flow_data
 
-                # Emit flow discovered event
-                if events_queue:
-                    await events_queue.put({
-                        "event": "flow_discovered",
-                        "data": json.dumps({
-                            "session_id": session_id,
-                            "flow": flow_data,
-                            "total_flows": len(session["flows"]),
+                    # Emit flow discovered event
+                    if events_queue:
+                        await events_queue.put({
+                            "event": "flow_discovered",
+                            "data": json.dumps({
+                                "session_id": session_id,
+                                "flow": flow_data,
+                                "total_flows": len(session["flows"]),
+                            })
                         })
-                    })
 
-            # Calculate coverage score from local discovery
-            session["coverage_score"] = result.coverage_summary.get("coverage_score", 0)
+                # Calculate coverage score from local discovery
+                session["coverage_score"] = result.coverage_summary.get("coverage_score", 0)
 
         # Mark session as completed
         session["status"] = SessionStatus.COMPLETED.value

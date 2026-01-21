@@ -78,6 +78,9 @@ dependencies = [
 
     # Security / JWT
     "PyJWT[crypto]>=2.8.0",  # JWT with RS256 support for Clerk
+
+    # Error Monitoring
+    "sentry-sdk[fastapi]>=2.0.0",  # Sentry for error tracking and performance monitoring
 ]
 
 [project.optional-dependencies]

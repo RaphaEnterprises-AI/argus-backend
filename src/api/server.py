@@ -115,6 +115,93 @@ settings = get_settings()
 API_VERSION = "2.10.0"  # x-release-please-version
 API_VERSION_DATE = "2026-01-12"
 
+# ============================================================================
+# Sentry Initialization (MUST be before FastAPI app creation)
+# ============================================================================
+# Initialize Sentry for error tracking and performance monitoring.
+# This captures unhandled exceptions, performance traces, and can correlate
+# errors with structured logs.
+
+if settings.sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        release=f"argus-backend@{API_VERSION}",
+
+        # Performance Monitoring
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        profiles_sample_rate=settings.sentry_profiles_sample_rate,
+
+        # Privacy
+        send_default_pii=settings.sentry_send_default_pii,
+
+        # Debug mode for troubleshooting
+        debug=settings.sentry_debug,
+
+        # Integrations
+        integrations=[
+            FastApiIntegration(transaction_style="endpoint"),
+            StarletteIntegration(transaction_style="endpoint"),
+            LoggingIntegration(
+                level=None,  # Capture all log levels as breadcrumbs
+                event_level=None,  # Don't send logs as events (use structlog)
+            ),
+        ],
+
+        # Filter sensitive data from being sent to Sentry
+        before_send=lambda event, hint: _filter_sentry_event(event, hint),
+    )
+
+    logger.info(
+        "Sentry initialized",
+        environment=settings.sentry_environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+    )
+
+
+def _filter_sentry_event(event: dict, hint: dict) -> dict | None:
+    """Filter sensitive data from Sentry events before sending.
+
+    This function removes API keys, tokens, and other sensitive data
+    from error reports to ensure compliance with security policies.
+    """
+    # List of sensitive keys to redact
+    sensitive_keys = {
+        "authorization", "x-api-key", "api_key", "apikey",
+        "password", "secret", "token", "jwt", "bearer",
+        "anthropic_api_key", "openai_api_key", "supabase_service_key",
+    }
+
+    def redact_dict(d: dict) -> dict:
+        """Recursively redact sensitive values in a dictionary."""
+        if not isinstance(d, dict):
+            return d
+        return {
+            k: "[REDACTED]" if k.lower() in sensitive_keys else (
+                redact_dict(v) if isinstance(v, dict) else v
+            )
+            for k, v in d.items()
+        }
+
+    # Redact request data
+    if "request" in event:
+        if "headers" in event["request"]:
+            event["request"]["headers"] = redact_dict(event["request"]["headers"])
+        if "data" in event["request"]:
+            event["request"]["data"] = redact_dict(event["request"]["data"])
+
+    # Redact extra context
+    if "extra" in event:
+        event["extra"] = redact_dict(event["extra"])
+
+    return event
+
+
 app = FastAPI(
     title="Argus E2E Testing Agent API",
     description="""
