@@ -646,6 +646,8 @@ async def start_discovery(
                 "max_depth": request.max_depth,
                 "progress_percentage": 0,
                 "pages_discovered": 0,
+                "pages_found": 0,  # Dashboard reads pages_found
+                "flows_found": 0,  # Dashboard reads flows_found
                 "started_at": started_at,
             }
             supabase.table("discovery_sessions").insert(initial_record).execute()
@@ -1369,6 +1371,8 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
             "max_depth": session.get("config", {}).get("max_depth", 3),
             "progress_percentage": min(90, len(session.get("pages", [])) * 2),  # Rough progress
             "pages_discovered": len(session.get("pages", [])),
+            "pages_found": len(session.get("pages", [])),  # Dashboard reads pages_found
+            "flows_found": len(session.get("flows", [])),  # Dashboard reads flows_found
             "started_at": session.get("started_at"),
         }
 
@@ -1454,6 +1458,8 @@ async def _persist_discovery_session(session: dict) -> bool:
             "max_depth": session.get("config", {}).get("max_depth", 3),
             "progress_percentage": 100 if session["status"] == "completed" else 0,
             "pages_discovered": len(session.get("pages", [])),
+            "pages_found": len(session.get("pages", [])),  # Dashboard reads pages_found
+            "flows_found": len(session.get("flows", [])),  # Dashboard reads flows_found
             "quality_score": session.get("coverage_score"),
             "started_at": session.get("started_at"),
             "completed_at": session.get("completed_at"),
