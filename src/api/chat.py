@@ -247,7 +247,19 @@ async def stream_message(
     thread_id = request.thread_id or str(uuid.uuid4())
 
     # Build AI config from user preferences - use authenticated user_id
-    ai_config = await _build_ai_config(request.ai_config, user.user_id)
+    try:
+        ai_config = await _build_ai_config(request.ai_config, user.user_id)
+    except Exception as e:
+        logger.exception("Failed to build AI config", user_id=user.user_id, error=str(e))
+        # Return error in AI SDK stream format
+        async def error_stream():
+            error_msg = str(e) if str(e) else "Failed to configure AI model"
+            yield f'3:{json.dumps(error_msg)}\n'
+            yield f'd:{json.dumps({"finishReason": "error"})}\n'
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/plain; charset=utf-8",
+        )
 
     async def generate_ai_sdk_stream():
         """Generate stream in Vercel AI SDK format (text streaming protocol)."""
