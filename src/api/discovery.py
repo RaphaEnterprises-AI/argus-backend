@@ -535,6 +535,31 @@ async def start_discovery(
 
     _discovery_sessions[session_id] = session
 
+    # Persist initial session to database (required for checkpoint updates)
+    try:
+        supabase = get_raw_supabase_client()
+        if supabase:
+            initial_record = {
+                "id": session_id,
+                "project_id": request.project_id,
+                "name": f"Discovery {session_id[:8]}",
+                "status": SessionStatus.PENDING.value,
+                "start_url": request.app_url,
+                "mode": request.mode,
+                "strategy": request.strategy,
+                "config": session["config"],
+                "max_pages": request.max_pages,
+                "max_depth": request.max_depth,
+                "progress_percentage": 0,
+                "pages_discovered": 0,
+                "started_at": started_at,
+            }
+            supabase.table("discovery_sessions").insert(initial_record).execute()
+            logger.debug("Initial discovery session persisted to database", session_id=session_id)
+    except Exception as e:
+        # Log but don't fail - in-memory storage is fallback
+        logger.warning("Failed to persist initial session to database", error=str(e))
+
     # Start discovery in background
     background_tasks.add_task(run_discovery_session, session_id)
 
@@ -1214,13 +1239,23 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
             return False
 
         session_id = session["id"]
+        project_id = session.get("project_id", "")
+        app_url = session.get("app_url", "")
 
-        # Update session progress only
+        # Include all required NOT NULL fields for upsert (handles case where initial insert failed)
         checkpoint_record = {
             "id": session_id,
+            "project_id": project_id,
+            "name": f"Discovery {session_id[:8]}",
             "status": session["status"],
+            "start_url": app_url,
+            "mode": session.get("config", {}).get("mode", "standard_crawl"),
+            "strategy": session.get("config", {}).get("strategy", "breadth_first"),
+            "max_pages": session.get("config", {}).get("max_pages", 50),
+            "max_depth": session.get("config", {}).get("max_depth", 3),
             "progress_percentage": min(90, len(session.get("pages", [])) * 2),  # Rough progress
             "pages_discovered": len(session.get("pages", [])),
+            "started_at": session.get("started_at"),
         }
 
         supabase.table("discovery_sessions").upsert(checkpoint_record).execute()
