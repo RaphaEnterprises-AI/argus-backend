@@ -613,7 +613,7 @@ async def test_code_analysis_flow():
     tester = OrchestratorE2ETester()
     result = await tester.test_code_analysis_phase()
 
-    print(f"\nCode Analysis Result:")
+    print("\nCode Analysis Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Tokens: {result.tokens_used}")
@@ -634,7 +634,7 @@ async def test_test_planning_flow():
     tester = OrchestratorE2ETester()
     result = await tester.test_test_planning_phase()
 
-    print(f"\nTest Planning Result:")
+    print("\nTest Planning Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Tokens: {result.tokens_used}")
@@ -653,7 +653,7 @@ async def test_self_healing_flow():
     tester = OrchestratorE2ETester()
     result = await tester.test_self_healing_phase()
 
-    print(f"\nSelf-Healing Result:")
+    print("\nSelf-Healing Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Tokens: {result.tokens_used}")
@@ -672,7 +672,7 @@ async def test_nlp_test_creation_flow():
     tester = OrchestratorE2ETester()
     result = await tester.test_nlp_test_creation()
 
-    print(f"\nNLP Test Creation Result:")
+    print("\nNLP Test Creation Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  State: {result.state_snapshot}")
@@ -691,7 +691,7 @@ async def test_full_orchestrator():
     tester = OrchestratorE2ETester()
     result = await tester.test_full_orchestrator_flow()
 
-    print(f"\nFull Orchestrator Result:")
+    print("\nFull Orchestrator Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Tokens: {result.tokens_used}")
