@@ -1260,7 +1260,8 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
 
         supabase.table("discovery_sessions").upsert(checkpoint_record).execute()
 
-        # Persist any new pages (upsert handles duplicates)
+        # Persist any new pages
+        # Note: Don't include 'id' - let DB auto-generate UUID
         pages = session.get("pages", [])
         if pages:
             # Only persist pages that don't have a persisted flag
@@ -1268,19 +1269,27 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
             if new_pages:
                 page_records = []
                 for page in new_pages:
+                    # Map page_type to valid DB enum values
+                    page_type = page.get("page_type", "unknown")
+                    valid_page_types = ['landing', 'form', 'list', 'detail', 'dashboard', 'settings', 'auth', 'error', 'content', 'search', 'unknown']
+                    if page_type not in valid_page_types:
+                        page_type = "unknown"
+
                     page_records.append({
-                        "id": page.get("id"),
+                        # No 'id' - let DB generate UUID
                         "discovery_session_id": session_id,
                         "url": page.get("url", ""),
                         "title": page.get("title", ""),
-                        "page_type": page.get("page_type", "unknown"),
+                        "page_type": page_type,
                         "element_count": page.get("elements_count", 0),
-                        "discovered_at": page.get("discovered_at"),
+                        "form_count": page.get("forms_count", 0),
+                        "link_count": page.get("links_count", 0),
+                        "created_at": page.get("discovered_at"),
                     })
                     page["_persisted"] = True  # Mark as persisted
 
                 if page_records:
-                    supabase.table("discovered_pages").upsert(page_records).execute()
+                    supabase.table("discovered_pages").insert(page_records).execute()
 
         logger.debug(
             "Discovery checkpoint saved",
@@ -1339,41 +1348,76 @@ async def _persist_discovery_session(session: dict) -> bool:
         logger.debug("Persisted discovery session", session_id=session_id)
 
         # Persist discovered pages
+        # Note: Don't include 'id' - let DB auto-generate UUID
+        # The code-generated IDs like "page-abc12345-0" are strings, not valid UUIDs
         pages = session.get("pages", [])
         if pages:
             page_records = []
             for page in pages:
+                # Map page_type to valid DB enum values
+                page_type = page.get("page_type", "unknown")
+                valid_page_types = ['landing', 'form', 'list', 'detail', 'dashboard', 'settings', 'auth', 'error', 'content', 'search', 'unknown']
+                if page_type not in valid_page_types:
+                    page_type = "unknown"
+
                 page_records.append({
-                    "id": page.get("id"),
+                    # No 'id' - let DB generate UUID
                     "discovery_session_id": session_id,
                     "url": page.get("url", ""),
                     "title": page.get("title", ""),
-                    "page_type": page.get("page_type", "unknown"),
+                    "page_type": page_type,
                     "element_count": page.get("elements_count", 0),
-                    "discovered_at": page.get("discovered_at"),
+                    "form_count": page.get("forms_count", 0),
+                    "link_count": page.get("links_count", 0),
+                    "created_at": page.get("discovered_at"),
                 })
 
             if page_records:
-                supabase.table("discovered_pages").upsert(page_records).execute()
+                # Use insert instead of upsert since we don't have valid IDs
+                supabase.table("discovered_pages").insert(page_records).execute()
                 logger.debug("Persisted discovered pages", count=len(page_records))
 
         # Persist discovered flows
+        # Note: Don't include 'id' - let DB auto-generate UUID
         flows = session.get("flows", [])
         if flows:
+            # Map category values to valid flow_type enum values
+            flow_type_map = {
+                "authentication": "authentication",
+                "auth": "authentication",
+                "login": "authentication",
+                "registration": "registration",
+                "signup": "registration",
+                "checkout": "checkout",
+                "payment": "checkout",
+                "search": "search",
+                "crud": "crud",
+                "navigation": "navigation",
+                "nav": "navigation",
+                "form_submission": "form_submission",
+                "form": "form_submission",
+                "user_journey": "navigation",
+                "custom": "custom",
+            }
+
             flow_records = []
             for flow in flows:
+                category = flow.get("category", "navigation").lower()
+                flow_type = flow_type_map.get(category, "custom")
+
                 flow_records.append({
-                    "id": flow.get("id"),
+                    # No 'id' - let DB generate UUID
                     "discovery_session_id": session_id,
-                    "name": flow.get("name", ""),
+                    "name": flow.get("name", "Unnamed Flow"),
                     "description": flow.get("description", ""),
-                    "flow_type": flow.get("category", "navigation"),
+                    "flow_type": flow_type,
                     "steps": flow.get("steps", []),
                     "validated": flow.get("validated", False),
                 })
 
             if flow_records:
-                supabase.table("discovered_flows").upsert(flow_records).execute()
+                # Use insert instead of upsert since we don't have valid IDs
+                supabase.table("discovered_flows").insert(flow_records).execute()
                 logger.debug("Persisted discovered flows", count=len(flow_records))
 
         logger.info(
