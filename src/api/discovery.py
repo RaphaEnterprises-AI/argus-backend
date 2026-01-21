@@ -1472,78 +1472,85 @@ async def _persist_discovery_session(session: dict) -> bool:
 
         # Persist discovered pages
         # Note: Don't include 'id' - let DB auto-generate UUID
-        # The code-generated IDs like "page-abc12345-0" are strings, not valid UUIDs
+        # Only persist pages not already saved during checkpoints
         pages = session.get("pages", [])
         if pages:
-            page_records = []
-            for page in pages:
-                # Map page_type to valid DB enum values
-                page_type = page.get("page_type", "unknown")
-                valid_page_types = ['landing', 'form', 'list', 'detail', 'dashboard', 'settings', 'auth', 'error', 'content', 'search', 'unknown']
-                if page_type not in valid_page_types:
-                    page_type = "unknown"
+            # Filter out pages already persisted during checkpoints
+            new_pages = [p for p in pages if not p.get("_persisted")]
+            if new_pages:
+                page_records = []
+                for page in new_pages:
+                    # Map page_type to valid DB enum values
+                    page_type = page.get("page_type", "unknown")
+                    valid_page_types = ['landing', 'form', 'list', 'detail', 'dashboard', 'settings', 'auth', 'error', 'content', 'search', 'unknown']
+                    if page_type not in valid_page_types:
+                        page_type = "unknown"
 
-                page_records.append({
-                    # No 'id' - let DB generate UUID
-                    "discovery_session_id": session_id,
-                    "project_id": project_id,  # Required NOT NULL column
-                    "url": page.get("url", ""),
-                    "title": page.get("title", ""),
-                    "page_type": page_type,
-                    "element_count": page.get("elements_count", 0),
-                    "form_count": page.get("forms_count", 0),
-                    "link_count": page.get("links_count", 0),
-                    "created_at": page.get("discovered_at"),
-                })
+                    page_records.append({
+                        # No 'id' - let DB generate UUID
+                        "discovery_session_id": session_id,
+                        "project_id": project_id,  # Required NOT NULL column
+                        "url": page.get("url", ""),
+                        "title": page.get("title", ""),
+                        "page_type": page_type,
+                        "element_count": page.get("elements_count", 0),
+                        "form_count": page.get("forms_count", 0),
+                        "link_count": page.get("links_count", 0),
+                        "created_at": page.get("discovered_at"),
+                    })
+                    page["_persisted"] = True  # Mark as persisted
 
-            if page_records:
-                # Use insert instead of upsert since we don't have valid IDs
-                supabase.table("discovered_pages").insert(page_records).execute()
-                logger.debug("Persisted discovered pages", count=len(page_records))
+                if page_records:
+                    supabase.table("discovered_pages").insert(page_records).execute()
+                    logger.debug("Persisted discovered pages", count=len(page_records))
 
         # Persist discovered flows
         # Note: Don't include 'id' - let DB auto-generate UUID
+        # Only persist flows not already saved during checkpoints
         flows = session.get("flows", [])
         if flows:
-            # Map category values to valid flow_type enum values
-            flow_type_map = {
-                "authentication": "authentication",
-                "auth": "authentication",
-                "login": "authentication",
-                "registration": "registration",
-                "signup": "registration",
-                "checkout": "checkout",
-                "payment": "checkout",
-                "search": "search",
-                "crud": "crud",
-                "navigation": "navigation",
-                "nav": "navigation",
-                "form_submission": "form_submission",
-                "form": "form_submission",
-                "user_journey": "navigation",
-                "custom": "custom",
-            }
+            # Filter out flows already persisted during checkpoints
+            new_flows = [f for f in flows if not f.get("_persisted")]
+            if new_flows:
+                # Map category values to valid flow_type enum values
+                flow_type_map = {
+                    "authentication": "authentication",
+                    "auth": "authentication",
+                    "login": "authentication",
+                    "registration": "registration",
+                    "signup": "registration",
+                    "checkout": "checkout",
+                    "payment": "checkout",
+                    "search": "search",
+                    "crud": "crud",
+                    "navigation": "navigation",
+                    "nav": "navigation",
+                    "form_submission": "form_submission",
+                    "form": "form_submission",
+                    "user_journey": "navigation",
+                    "custom": "custom",
+                }
 
-            flow_records = []
-            for flow in flows:
-                category = flow.get("category", "navigation").lower()
-                flow_type = flow_type_map.get(category, "custom")
+                flow_records = []
+                for flow in new_flows:
+                    category = flow.get("category", "navigation").lower()
+                    flow_type = flow_type_map.get(category, "custom")
 
-                flow_records.append({
-                    # No 'id' - let DB generate UUID
-                    "discovery_session_id": session_id,
-                    "project_id": project_id,  # Required NOT NULL column
-                    "name": flow.get("name", "Unnamed Flow"),
-                    "description": flow.get("description", ""),
-                    "flow_type": flow_type,
-                    "steps": flow.get("steps", []),
-                    "validated": flow.get("validated", False),
-                })
+                    flow_records.append({
+                        # No 'id' - let DB generate UUID
+                        "discovery_session_id": session_id,
+                        "project_id": project_id,  # Required NOT NULL column
+                        "name": flow.get("name", "Unnamed Flow"),
+                        "description": flow.get("description", ""),
+                        "flow_type": flow_type,
+                        "steps": flow.get("steps", []),
+                        "validated": flow.get("validated", False),
+                    })
+                    flow["_persisted"] = True  # Mark as persisted
 
-            if flow_records:
-                # Use insert instead of upsert since we don't have valid IDs
-                supabase.table("discovered_flows").insert(flow_records).execute()
-                logger.debug("Persisted discovered flows", count=len(flow_records))
+                if flow_records:
+                    supabase.table("discovered_flows").insert(flow_records).execute()
+                    logger.debug("Persisted discovered flows", count=len(flow_records))
 
         logger.info(
             "Discovery session persisted to database",
