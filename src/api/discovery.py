@@ -1396,6 +1396,7 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
                     page_records.append({
                         # No 'id' - let DB generate UUID
                         "discovery_session_id": session_id,
+                        "project_id": project_id,  # Required NOT NULL column
                         "url": page.get("url", ""),
                         "title": page.get("title", ""),
                         "page_type": page_type,
@@ -1485,6 +1486,7 @@ async def _persist_discovery_session(session: dict) -> bool:
                 page_records.append({
                     # No 'id' - let DB generate UUID
                     "discovery_session_id": session_id,
+                    "project_id": project_id,  # Required NOT NULL column
                     "url": page.get("url", ""),
                     "title": page.get("title", ""),
                     "page_type": page_type,
@@ -1530,6 +1532,7 @@ async def _persist_discovery_session(session: dict) -> bool:
                 flow_records.append({
                     # No 'id' - let DB generate UUID
                     "discovery_session_id": session_id,
+                    "project_id": project_id,  # Required NOT NULL column
                     "name": flow.get("name", "Unnamed Flow"),
                     "description": flow.get("description", ""),
                     "flow_type": flow_type,
