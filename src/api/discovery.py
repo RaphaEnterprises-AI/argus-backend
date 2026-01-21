@@ -649,6 +649,7 @@ async def start_discovery(
                 "pages_found": 0,  # Dashboard reads pages_found
                 "flows_found": 0,  # Dashboard reads flows_found
                 "started_at": started_at,
+                "updated_at": started_at,  # Required for database trigger
             }
             supabase.table("discovery_sessions").insert(initial_record).execute()
             logger.debug("Initial discovery session persisted to database", session_id=session_id)
@@ -1374,6 +1375,7 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
             "pages_found": len(session.get("pages", [])),  # Dashboard reads pages_found
             "flows_found": len(session.get("flows", [])),  # Dashboard reads flows_found
             "started_at": session.get("started_at"),
+            "updated_at": datetime.now(UTC).isoformat(),  # Required for database trigger
         }
 
         supabase.table("discovery_sessions").upsert(checkpoint_record).execute()
@@ -1464,6 +1466,7 @@ async def _persist_discovery_session(session: dict) -> bool:
             "quality_score": session.get("coverage_score"),
             "started_at": session.get("started_at"),
             "completed_at": session.get("completed_at"),
+            "updated_at": datetime.now(UTC).isoformat(),  # Required for database trigger
         }
 
         # Upsert session
