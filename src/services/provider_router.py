@@ -3,17 +3,16 @@
 This service routes AI requests to the appropriate provider based on:
 1. User's BYOK (Bring Your Own Key) configuration
 2. Model requirements (which provider hosts the model)
-3. Fallback to platform keys if allowed
 
 The router handles:
-- Decrypting user's API keys on demand (via Cloudflare Key Vault or local)
+- Decrypting user's API keys on demand via Cloudflare Key Vault (zero-knowledge)
 - Validating keys before use
-- Tracking usage to correct tables (platform vs BYOK)
-- Graceful fallback when user keys are invalid
+- Tracking usage for billing
 
 Security Architecture:
-- When CLOUDFLARE_WORKER_URL is set: Uses Cloudflare Key Vault (zero-knowledge)
-- When not set: Falls back to local AES-256-GCM encryption (legacy)
+- CLOUDFLARE-ONLY: All encryption/decryption via Cloudflare Key Vault
+- Keys are NEVER decrypted on the backend - only at Cloudflare edge
+- Zero-knowledge architecture ensures backend never sees plaintext keys after initial storage
 """
 
 import uuid
@@ -26,7 +25,6 @@ from typing import Any
 import httpx
 import structlog
 
-from src.services.key_encryption import decrypt_api_key
 from src.services.cloudflare_key_vault import (
     is_key_vault_available,
     decrypt_api_key_secure,
@@ -169,10 +167,16 @@ class ProviderRouter:
         user_key = await self._get_user_key(user_id, provider)
 
         if user_key and user_key.is_valid:
-            try:
-                # Decrypt based on encryption method
-                if user_key.encryption_method == "cloudflare" and user_key.dek_reference:
-                    # Use Cloudflare Key Vault (zero-knowledge)
+            # CLOUDFLARE-ONLY: Decrypt via Cloudflare Key Vault
+            if not user_key.dek_reference:
+                logger.error(
+                    "Key has no DEK reference - cannot decrypt",
+                    user_id=user_id,
+                    provider=provider.value,
+                )
+                await self._mark_key_invalid(user_id, provider, "No DEK reference")
+            else:
+                try:
                     decrypted_key = await decrypt_api_key_secure(
                         user_key.encrypted_key,
                         user_key.dek_reference,
@@ -184,58 +188,28 @@ class ProviderRouter:
                         key_prefix=user_key.key_prefix,
                         dek_version=user_key.dek_version,
                     )
-                else:
-                    # Fall back to local decryption (legacy)
-                    decrypted_key = decrypt_api_key(user_key.encrypted_key)
-                    logger.debug(
-                        "Decrypted BYOK key via local encryption",
+
+                    return AIConfig(
+                        model=model,
+                        provider=provider,
+                        api_key=decrypted_key,
+                        key_source="byok",
+                        user_id=user_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to decrypt BYOK key via Cloudflare, marking invalid",
                         user_id=user_id,
                         provider=provider.value,
-                        key_prefix=user_key.key_prefix,
+                        dek_reference=user_key.dek_reference,
+                        error=str(e),
                     )
+                    await self._mark_key_invalid(user_id, provider, str(e))
 
-                return AIConfig(
-                    model=model,
-                    provider=provider,
-                    api_key=decrypted_key,
-                    key_source="byok",
-                    user_id=user_id,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to decrypt BYOK key, marking invalid",
-                    user_id=user_id,
-                    provider=provider.value,
-                    encryption_method=user_key.encryption_method,
-                    error=str(e),
-                )
-                await self._mark_key_invalid(user_id, provider, str(e))
-
-        # Fall back to platform key
-        if allow_platform_fallback:
-            import os
-
-            env_var = self.PLATFORM_KEY_VARS.get(provider)
-            platform_key = os.getenv(env_var) if env_var else None
-
-            if platform_key:
-                logger.debug(
-                    "Using platform key",
-                    user_id=user_id,
-                    provider=provider.value,
-                )
-                return AIConfig(
-                    model=model,
-                    provider=provider,
-                    api_key=platform_key,
-                    key_source="platform",
-                    user_id=user_id,
-                )
-
-        # No key available
+        # No BYOK key available - BYOK-only mode, no platform fallback
         raise ValueError(
-            f"No API key available for {provider.value}. "
-            f"Please add your API key in Settings > AI Configuration."
+            f"No API key configured for {provider.value}. "
+            f"Please add your {provider.value.title()} API key in Settings → AI Configuration."
         )
 
     async def validate_key(

@@ -17,10 +17,10 @@ from pydantic import BaseModel, Field
 from src.api.teams import get_current_user
 from src.api.users import get_or_create_profile
 from src.core.model_registry import ModelRegistry, Provider, get_model_registry
-from src.services.key_encryption import encrypt_api_key, decrypt_api_key
 from src.services.cloudflare_key_vault import (
     is_key_vault_available,
     encrypt_api_key_secure,
+    decrypt_api_key_secure,
     get_key_vault_client,
 )
 from src.services.pricing_service import get_pricing_service
@@ -334,89 +334,59 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
 
     supabase = get_supabase_client()
 
-    # Choose encryption method based on availability
-    # Try Cloudflare Key Vault first, fall back to local encryption if it fails
-    use_cloudflare = False
-    encrypted_bundle = None
-
-    if is_key_vault_available():
-        try:
-            logger.info(
-                "Encrypting API key via Cloudflare Key Vault",
-                user_id=user["user_id"],
-                provider=body.provider,
-            )
-            encrypted_bundle = await encrypt_api_key_secure(
-                user_id=user["user_id"],
-                provider=body.provider,
-                api_key=body.api_key,
-            )
-            use_cloudflare = True
-        except Exception as e:
-            logger.warning(
-                "Cloudflare Key Vault failed, falling back to local encryption",
-                user_id=user["user_id"],
-                provider=body.provider,
-                error=str(e),
-            )
-            use_cloudflare = False
-
-    if use_cloudflare and encrypted_bundle:
-        key_data = {
-            "user_id": user["user_id"],
-            "provider": body.provider,
-            "encrypted_key": encrypted_bundle.encrypted_key,
-            "key_prefix": encrypted_bundle.key_prefix,
-            "key_suffix": encrypted_bundle.key_suffix,
-            "is_valid": True,
-            "last_validated_at": datetime.now(UTC).isoformat(),
-            "validation_error": None,
-            "display_name": body.display_name,
-            "updated_at": datetime.now(UTC).isoformat(),
-            # Cloudflare Key Vault specific fields
-            "dek_reference": encrypted_bundle.dek_reference,
-            "dek_version": encrypted_bundle.dek_version,
-            "encryption_method": "cloudflare",
-            "encrypted_at": encrypted_bundle.encrypted_at.isoformat(),
-        }
-    else:
-        # Use local encryption (when Cloudflare not configured or failed)
-        logger.info(
-            "Encrypting API key via local encryption",
+    # CLOUDFLARE-ONLY: All encryption happens via Cloudflare Key Vault (zero-knowledge)
+    # No local encryption fallback - keys are never seen by the backend in plaintext
+    if not is_key_vault_available():
+        logger.error(
+            "Cloudflare Key Vault not configured - cannot store API keys",
             user_id=user["user_id"],
             provider=body.provider,
         )
-        try:
-            encrypted = encrypt_api_key(body.api_key)
-        except Exception as e:
-            logger.error(
-                "Failed to encrypt API key",
-                user_id=user["user_id"],
-                provider=body.provider,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to encrypt API key. Please try again.",
-            )
+        raise HTTPException(
+            status_code=503,
+            detail="Key storage service unavailable. Please contact support.",
+        )
 
-        key_data = {
-            "user_id": user["user_id"],
-            "provider": body.provider,
-            "encrypted_key": encrypted.encrypted_data,
-            "key_prefix": encrypted.key_prefix,
-            "key_suffix": encrypted.key_suffix,
-            "is_valid": True,
-            "last_validated_at": datetime.now(UTC).isoformat(),
-            "validation_error": None,
-            "display_name": body.display_name,
-            "updated_at": datetime.now(UTC).isoformat(),
-            # Local encryption fields
-            "dek_reference": None,
-            "dek_version": 1,
-            "encryption_method": "local",
-            "encrypted_at": datetime.now(UTC).isoformat(),
-        }
+    try:
+        logger.info(
+            "Encrypting API key via Cloudflare Key Vault",
+            user_id=user["user_id"],
+            provider=body.provider,
+        )
+        encrypted_bundle = await encrypt_api_key_secure(
+            user_id=user["user_id"],
+            provider=body.provider,
+            api_key=body.api_key,
+        )
+    except Exception as e:
+        logger.error(
+            "Cloudflare Key Vault encryption failed",
+            user_id=user["user_id"],
+            provider=body.provider,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to encrypt API key. Please try again.",
+        )
+
+    key_data = {
+        "user_id": user["user_id"],
+        "provider": body.provider,
+        "encrypted_key": encrypted_bundle.encrypted_key,
+        "key_prefix": encrypted_bundle.key_prefix,
+        "key_suffix": encrypted_bundle.key_suffix,
+        "is_valid": True,
+        "last_validated_at": datetime.now(UTC).isoformat(),
+        "validation_error": None,
+        "display_name": body.display_name,
+        "updated_at": datetime.now(UTC).isoformat(),
+        # Cloudflare Key Vault fields
+        "dek_reference": encrypted_bundle.dek_reference,
+        "dek_version": encrypted_bundle.dek_version,
+        "encryption_method": "cloudflare",
+        "encrypted_at": encrypted_bundle.encrypted_at.isoformat(),
+    }
 
     # Check if key exists
     existing = await supabase.select(
@@ -602,29 +572,28 @@ async def validate_provider_key(provider: str, request: Request):
 
     key_data = result["data"][0]
 
-    # Decrypt using the correct method based on how it was encrypted
-    try:
-        from src.services.cloudflare_key_vault import decrypt_api_key_secure
+    # CLOUDFLARE-ONLY: Decrypt using Cloudflare Key Vault
+    if not key_data.get("dek_reference"):
+        logger.error(
+            "Key has no DEK reference - cannot decrypt",
+            user_id=user["user_id"],
+            provider=provider,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Key validation failed. Key may be corrupted.",
+        )
 
-        if key_data.get("encryption_method") == "cloudflare" and key_data.get("dek_reference"):
-            # Use Cloudflare Key Vault decryption
-            decrypted_key = await decrypt_api_key_secure(
-                key_data["encrypted_key"],
-                key_data["dek_reference"],
-            )
-            logger.debug(
-                "Decrypted key via Cloudflare for validation",
-                user_id=user["user_id"],
-                provider=provider,
-            )
-        else:
-            # Use local AES-256 decryption
-            decrypted_key = decrypt_api_key(key_data["encrypted_key"])
-            logger.debug(
-                "Decrypted key via local encryption for validation",
-                user_id=user["user_id"],
-                provider=provider,
-            )
+    try:
+        decrypted_key = await decrypt_api_key_secure(
+            key_data["encrypted_key"],
+            key_data["dek_reference"],
+        )
+        logger.debug(
+            "Decrypted key via Cloudflare for validation",
+            user_id=user["user_id"],
+            provider=provider,
+        )
     except Exception as e:
         logger.error(
             "Failed to decrypt provider key",
