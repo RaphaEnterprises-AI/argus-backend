@@ -9,11 +9,8 @@
  */
 
 import { PlaywrightCrawler, Configuration, RequestQueue } from 'crawlee';
-import { Page, Browser } from 'playwright';
+import { Page } from 'playwright';
 import { v4 as uuidv4 } from 'uuid';
-
-// Type for browser.newPage() options which includes video recording
-type BrowserContextOptions = NonNullable<Parameters<Browser['newPage']>[0]>;
 
 export interface DiscoveryConfig {
   startUrl: string;
@@ -343,6 +340,21 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
     console.log(`Video directory created: ${fs.existsSync(videoDir)}`);
   }
 
+  // Build launch options with optional video recording
+  // Per Crawlee GitHub issue #1849, recordVideo is passed through launchOptions
+  const launchOptions: Record<string, unknown> = {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  };
+
+  if (config.recordVideo) {
+    console.log(`Enabling video recording for session ${sessionId} in ${videoDir}`);
+    launchOptions.recordVideo = {
+      dir: videoDir,
+      size: { width: config.viewport.width, height: config.viewport.height }
+    };
+  }
+
   const crawler = new PlaywrightCrawler({
     requestQueue,
     maxRequestsPerCrawl: config.maxPages,
@@ -350,39 +362,13 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
     requestHandlerTimeoutSecs: 60,
     navigationTimeoutSecs: 30,
 
+    // Pass recordVideo through launchOptions (supported since Crawlee issue #1849)
     launchContext: {
-      launchOptions: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      }
+      launchOptions
     },
 
     browserPoolOptions: {
-      useFingerprints: false,
-      preLaunchHooks: [
-        async (_pageId, launchContext) => {
-          launchContext.launchOptions = {
-            ...launchContext.launchOptions,
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-          };
-        }
-      ],
-      // Configure browser context options including video recording
-      // pageOptions is the browser.newPage() options (BrowserContextOptions) for Playwright
-      prePageCreateHooks: [
-        async (_pageId, _browserController, pageOptions) => {
-          if (config.recordVideo && pageOptions) {
-            console.log(`Configuring video recording for session ${sessionId} in ${videoDir}`);
-            // Cast to browser context options and add recordVideo
-            const opts = pageOptions as BrowserContextOptions;
-            opts.recordVideo = {
-              dir: videoDir,
-              size: { width: config.viewport.width, height: config.viewport.height }
-            };
-          }
-        }
-      ]
+      useFingerprints: false
     },
 
     preNavigationHooks: [
