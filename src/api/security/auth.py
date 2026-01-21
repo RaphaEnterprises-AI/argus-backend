@@ -312,8 +312,23 @@ async def authenticate_api_key(api_key: str, request: Request) -> UserContext | 
             }
         )
 
+        # Resolve the actual Clerk user_id from organization_members
+        # created_by is organization_members.id (UUID), we need user_id (Clerk ID)
+        resolved_user_id = "system"
+        if key_data.get("created_by"):
+            member_result = await supabase.request(
+                f"/organization_members?id=eq.{key_data['created_by']}&select=user_id"
+            )
+            if member_result.get("data") and len(member_result["data"]) > 0:
+                resolved_user_id = member_result["data"][0].get("user_id") or "system"
+                logger.debug(
+                    "Resolved API key creator to Clerk user_id",
+                    member_id=key_data["created_by"],
+                    clerk_user_id=resolved_user_id,
+                )
+
         return UserContext(
-            user_id=key_data.get("created_by") or "system",  # Handle NULL values
+            user_id=resolved_user_id,
             organization_id=key_data["organization_id"],
             roles=["api_user"],
             scopes=key_scopes,  # Use validated scopes (already checked non-empty)
