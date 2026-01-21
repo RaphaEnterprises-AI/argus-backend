@@ -9,8 +9,11 @@
  */
 
 import { PlaywrightCrawler, Configuration, RequestQueue } from 'crawlee';
-import { Page } from 'playwright';
+import { Page, Browser } from 'playwright';
 import { v4 as uuidv4 } from 'uuid';
+
+// Type for browser.newPage() options which includes video recording
+type BrowserContextOptions = NonNullable<Parameters<Browser['newPage']>[0]>;
 
 export interface DiscoveryConfig {
   startUrl: string;
@@ -332,15 +335,12 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
   // Create request queue
   const requestQueue = await RequestQueue.open(sessionId, { config: crawlerConfig });
 
-  // Build browser context options with optional video recording
-  const contextOptions: Record<string, unknown> = {};
+  // Set up video recording directory if enabled
   if (config.recordVideo) {
     const fs = await import('fs');
+    console.log(`Setting up video recording directory: ${videoDir}`);
     fs.mkdirSync(videoDir, { recursive: true });
-    contextOptions.recordVideo = {
-      dir: videoDir,
-      size: { width: config.viewport.width, height: config.viewport.height }
-    };
+    console.log(`Video directory created: ${fs.existsSync(videoDir)}`);
   }
 
   const crawler = new PlaywrightCrawler({
@@ -361,24 +361,34 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
       useFingerprints: false,
       preLaunchHooks: [
         async (_pageId, launchContext) => {
-          // Add video recording to context options
-          if (config.recordVideo) {
-            launchContext.launchOptions = {
-              ...launchContext.launchOptions,
+          launchContext.launchOptions = {
+            ...launchContext.launchOptions,
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+          };
+        }
+      ],
+      // Configure browser context options including video recording
+      // pageOptions is the browser.newPage() options (BrowserContextOptions) for Playwright
+      prePageCreateHooks: [
+        async (_pageId, _browserController, pageOptions) => {
+          if (config.recordVideo && pageOptions) {
+            console.log(`Configuring video recording for session ${sessionId} in ${videoDir}`);
+            // Cast to browser context options and add recordVideo
+            const opts = pageOptions as BrowserContextOptions;
+            opts.recordVideo = {
+              dir: videoDir,
+              size: { width: config.viewport.width, height: config.viewport.height }
             };
-            // Note: Video recording is configured via context, not launch options
-            // Crawlee creates contexts per page, so we use prePageCreationHooks
           }
         }
       ]
     },
 
-    // Configure browser context for video recording
     preNavigationHooks: [
       async ({ page }) => {
         if (config.recordVideo) {
-          // Video is recorded at context level - this is informational logging
-          console.log(`Recording enabled for session ${sessionId}`);
+          console.log(`Navigating with video recording enabled for session ${sessionId}`);
         }
       }
     ],
@@ -510,6 +520,9 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
   // Run the crawler
   await crawler.run();
 
+  // Ensure browser pool is properly torn down (flushes video files)
+  await crawler.teardown();
+
   const duration = Date.now() - startTime;
 
   // Get video file if recording was enabled
@@ -521,18 +534,29 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
       const fs = await import('fs');
       const path = await import('path');
 
-      // Find video files in the video directory
-      const files = fs.readdirSync(videoDir);
-      const videoFiles = files.filter(f => f.endsWith('.webm') || f.endsWith('.mp4'));
+      // Small delay to ensure video file is fully written
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      if (videoFiles.length > 0) {
-        // Use the first video file (there should be one per context)
-        videoPath = path.join(videoDir, videoFiles[0]);
-        videoArtifactId = sessionId;
-        // In production, upload to S3/R2 and return the URL
-        // For now, return local path that can be served via static file server
-        recordingUrl = `/videos/${sessionId}/${videoFiles[0]}`;
-        console.log(`Video recorded: ${videoPath}`);
+      // Check if video directory exists
+      if (!fs.existsSync(videoDir)) {
+        console.log(`Video directory does not exist: ${videoDir}`);
+      } else {
+        // Find video files in the video directory
+        const files = fs.readdirSync(videoDir);
+        console.log(`Files in video directory ${videoDir}: ${JSON.stringify(files)}`);
+        const videoFiles = files.filter(f => f.endsWith('.webm') || f.endsWith('.mp4'));
+
+        if (videoFiles.length > 0) {
+          // Use the first video file (there should be one per context)
+          videoPath = path.join(videoDir, videoFiles[0]);
+          videoArtifactId = sessionId;
+          // In production, upload to S3/R2 and return the URL
+          // For now, return local path that can be served via static file server
+          recordingUrl = `/videos/${sessionId}/${videoFiles[0]}`;
+          console.log(`Video recorded successfully: ${videoPath}`);
+        } else {
+          console.log(`No video files found in ${videoDir}`);
+        }
       }
     } catch (error) {
       console.error(`Failed to get video file: ${error}`);
