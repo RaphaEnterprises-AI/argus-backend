@@ -248,6 +248,34 @@ class DiscoveryComparisonResponse(BaseModel):
 # =============================================================================
 
 
+def generate_session_name(app_url: str, timestamp: datetime | None = None) -> str:
+    """Generate a meaningful session name from app URL and timestamp.
+
+    Examples:
+    - "demo.playwright.dev - Jan 21, 22:15"
+    - "localhost:3000 - Jan 21, 22:15"
+    """
+    from urllib.parse import urlparse
+
+    # Extract hostname from URL
+    try:
+        parsed = urlparse(app_url)
+        hostname = parsed.netloc or parsed.path.split('/')[0] or "Unknown"
+        # Remove port for common ports
+        if ':' in hostname:
+            host, port = hostname.rsplit(':', 1)
+            if port in ('80', '443'):
+                hostname = host
+    except Exception:
+        hostname = "Unknown"
+
+    # Format timestamp
+    ts = timestamp or datetime.now(UTC)
+    time_str = ts.strftime("%b %d, %H:%M")
+
+    return f"{hostname} - {time_str}"
+
+
 async def get_session_or_404(session_id: str) -> dict:
     """Get a session from memory or database, or raise 404.
 
@@ -607,7 +635,7 @@ async def start_discovery(
             initial_record = {
                 "id": session_id,
                 "project_id": request.project_id,
-                "name": f"Discovery {session_id[:8]}",
+                "name": generate_session_name(request.app_url, datetime.now(UTC)),
                 "status": SessionStatus.PENDING.value,
                 "start_url": request.app_url,
                 "mode": request.mode,
@@ -893,10 +921,11 @@ async def get_discovered_pages(
             description=p.get("description") or "",
             page_type=p.get("page_type") or "unknown",
             screenshot_url=p.get("screenshot_url"),
-            elements_count=p.get("elements_count") or 0,
-            forms_count=p.get("forms_count") or 0,
-            links_count=p.get("links_count") or 0,
-            discovered_at=p.get("discovered_at") or session.get("started_at", ""),
+            # Handle both singular (DB) and plural (code) field names
+            elements_count=p.get("element_count") or p.get("elements_count") or 0,
+            forms_count=p.get("form_count") or p.get("forms_count") or 0,
+            links_count=p.get("link_count") or p.get("links_count") or 0,
+            discovered_at=p.get("discovered_at") or p.get("created_at") or session.get("started_at", ""),
             load_time_ms=p.get("load_time_ms"),
             ai_analysis=p.get("ai_analysis"),
         )
@@ -1329,7 +1358,7 @@ async def _persist_discovery_checkpoint(session: dict) -> bool:
         checkpoint_record = {
             "id": session_id,
             "project_id": project_id,
-            "name": f"Discovery {session_id[:8]}",
+            "name": generate_session_name(app_url, datetime.now(UTC)),
             "status": session["status"],
             "start_url": app_url,
             "mode": session.get("config", {}).get("mode", "standard_crawl"),
@@ -1412,7 +1441,7 @@ async def _persist_discovery_session(session: dict) -> bool:
         session_record = {
             "id": session_id,
             "project_id": project_id,
-            "name": f"Discovery {session_id[:8]}",
+            "name": generate_session_name(session.get("app_url", ""), datetime.now(UTC)),
             "status": session["status"],
             "start_url": session.get("app_url", ""),
             "mode": session.get("config", {}).get("mode", "standard_crawl"),
