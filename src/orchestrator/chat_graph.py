@@ -351,152 +351,122 @@ You have access to production-grade features powered by LangGraph:
     return base_prompt
 
 
+class APIKeyNotConfiguredError(ValueError):
+    """Raised when user hasn't configured their BYOK API key."""
+
+    def __init__(self, provider: str):
+        self.provider = provider
+        super().__init__(
+            f"No API key configured for {provider}. "
+            f"Please add your {provider.title()} API key in Settings → AI Configuration."
+        )
+
+
 def _create_llm_for_provider(
     provider: str,
     model: str,
     user_api_key: str | None,
-    settings,
 ):
-    """Create an LLM instance for the specified provider.
+    """Create an LLM instance for the specified provider using BYOK.
+
+    This function ONLY uses user-provided API keys (BYOK - Bring Your Own Key).
+    Users must configure their API keys in the dashboard Settings → AI Configuration.
 
     Supports:
     - anthropic: Claude models via langchain_anthropic
     - openai: GPT models via langchain_openai
     - google: Gemini models via langchain_google_genai
+    - groq: Fast Llama models via langchain_groq
+    - together: Open models via langchain_together
 
     Args:
-        provider: Provider name (anthropic, openai, google)
+        provider: Provider name (anthropic, openai, google, groq, together)
         model: Model ID to use
-        user_api_key: User's BYOK API key (None = use platform key)
-        settings: Application settings for platform keys
+        user_api_key: User's BYOK API key (required - no platform fallback)
 
     Returns:
         Configured LLM instance with tools support
+
+    Raises:
+        APIKeyNotConfiguredError: If user hasn't configured their API key
     """
+    # BYOK-only: User must provide their own API key
+    if not user_api_key:
+        raise APIKeyNotConfiguredError(provider)
+
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        # Use user's key or fall back to platform key
-        api_key = user_api_key
-        if not api_key:
-            api_key = settings.anthropic_api_key
-            if api_key is None:
-                raise ValueError("ANTHROPIC_API_KEY is not configured")
-            if hasattr(api_key, 'get_secret_value'):
-                api_key = api_key.get_secret_value()
-
         return ChatAnthropic(
             model=model,
-            api_key=api_key,
+            api_key=user_api_key,
         )
 
     elif provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        # Use user's key or fall back to platform key
-        api_key = user_api_key
-        if not api_key:
-            api_key = getattr(settings, 'openai_api_key', None)
-            if api_key is None:
-                raise ValueError("OPENAI_API_KEY is not configured and no BYOK key provided")
-            if hasattr(api_key, 'get_secret_value'):
-                api_key = api_key.get_secret_value()
-
         return ChatOpenAI(
             model=model,
-            api_key=api_key,
+            api_key=user_api_key,
         )
 
     elif provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        # Use user's key or fall back to platform key
-        api_key = user_api_key
-        if not api_key:
-            api_key = getattr(settings, 'google_api_key', None)
-            if api_key is None:
-                raise ValueError("GOOGLE_API_KEY is not configured and no BYOK key provided")
-            if hasattr(api_key, 'get_secret_value'):
-                api_key = api_key.get_secret_value()
-
         return ChatGoogleGenerativeAI(
             model=model,
-            google_api_key=api_key,
+            google_api_key=user_api_key,
         )
 
     elif provider == "groq":
         from langchain_groq import ChatGroq
 
-        # Use user's key or fall back to platform key
-        api_key = user_api_key
-        if not api_key:
-            api_key = getattr(settings, 'groq_api_key', None)
-            if api_key is None:
-                raise ValueError("GROQ_API_KEY is not configured and no BYOK key provided")
-            if hasattr(api_key, 'get_secret_value'):
-                api_key = api_key.get_secret_value()
-
         return ChatGroq(
             model=model,
-            api_key=api_key,
+            api_key=user_api_key,
         )
 
     elif provider == "together":
         from langchain_together import ChatTogether
 
-        # Use user's key or fall back to platform key
-        api_key = user_api_key
-        if not api_key:
-            api_key = getattr(settings, 'together_api_key', None)
-            if api_key is None:
-                raise ValueError("TOGETHER_API_KEY is not configured and no BYOK key provided")
-            if hasattr(api_key, 'get_secret_value'):
-                api_key = api_key.get_secret_value()
-
         return ChatTogether(
             model=model,
-            api_key=api_key,
+            api_key=user_api_key,
         )
 
     else:
-        # Default to Anthropic for unknown providers
-        logger.warning(f"Unknown provider '{provider}', falling back to Anthropic")
+        # Unknown provider - still require BYOK key
+        logger.warning(f"Unknown provider '{provider}', attempting with Anthropic client")
         from langchain_anthropic import ChatAnthropic
 
-        api_key = settings.anthropic_api_key
-        if api_key is None:
-            raise ValueError("ANTHROPIC_API_KEY is not configured")
-        if hasattr(api_key, 'get_secret_value'):
-            api_key = api_key.get_secret_value()
-
         return ChatAnthropic(
-            model="claude-sonnet-4-20250514",
-            api_key=api_key,
+            model=model,
+            api_key=user_api_key,
         )
 
 
 async def chat_node(state: ChatState, config) -> dict:
     """Main chat node that processes messages and calls tools.
 
-    Supports dynamic model selection based on user's AI configuration:
-    - Uses user's BYOK API key if provided
-    - Falls back to platform keys
-    - Tracks token usage for billing
-    """
-    settings = get_settings()
+    BYOK-Only Model:
+    - Users MUST configure their API keys in Settings → AI Configuration
+    - No platform key fallback - this keeps costs with the user
+    - Supports: Anthropic, OpenAI, Google, Groq, Together
 
+    Raises:
+        APIKeyNotConfiguredError: If user hasn't configured their API key
+    """
     # Get AI config from state (set by chat API based on user preferences)
     ai_config = state.get("ai_config") or {}
     model_id = ai_config.get("model", "claude-sonnet-4-20250514")
     provider = ai_config.get("provider", "anthropic")
     user_api_key = ai_config.get("api_key")  # BYOK key (already decrypted)
 
-    # Create LLM based on provider
+    # Create LLM based on provider (BYOK only - no platform keys)
     llm = _create_llm_for_provider(
         provider=provider,
         model=model_id,
         user_api_key=user_api_key,
-        settings=settings,
     )
 
     # Build context-aware system prompt with state information
