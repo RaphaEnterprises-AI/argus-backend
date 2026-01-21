@@ -304,13 +304,27 @@ async def list_provider_keys(request: Request):
 @router.post("/provider-keys", response_model=ProviderKeyInfo)
 async def add_provider_key(body: AddProviderKeyRequest, request: Request):
     """Add or update a provider API key."""
-    user = await get_current_user(request)
+    try:
+        user = await get_current_user(request)
+    except Exception as e:
+        logger.error("Failed to get current user", error=str(e))
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
     # Validate the key first
-    router_service = get_provider_router()
-    provider = ProviderEnum(body.provider)
-
-    is_valid, error = await router_service.validate_key(provider, body.api_key)
+    try:
+        router_service = get_provider_router()
+        provider = ProviderEnum(body.provider)
+        is_valid, error = await router_service.validate_key(provider, body.api_key)
+    except Exception as e:
+        logger.error(
+            "Failed to validate API key",
+            provider=body.provider,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to validate API key. Please try again.",
+        )
 
     if not is_valid:
         raise HTTPException(
@@ -372,7 +386,19 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
             user_id=user["user_id"],
             provider=body.provider,
         )
-        encrypted = encrypt_api_key(body.api_key)
+        try:
+            encrypted = encrypt_api_key(body.api_key)
+        except Exception as e:
+            logger.error(
+                "Failed to encrypt API key",
+                user_id=user["user_id"],
+                provider=body.provider,
+                error=str(e),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to encrypt API key. Please try again.",
+            )
 
         key_data = {
             "user_id": user["user_id"],
@@ -426,16 +452,41 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
         raise HTTPException(status_code=500, detail="Failed to save provider key")
 
     # Get the saved key
-    saved = await supabase.select(
-        "user_provider_keys",
-        columns="*",
-        filters={
-            "user_id": f"eq.{user['user_id']}",
-            "provider": f"eq.{body.provider}",
-        },
-    )
+    try:
+        saved = await supabase.select(
+            "user_provider_keys",
+            columns="*",
+            filters={
+                "user_id": f"eq.{user['user_id']}",
+                "provider": f"eq.{body.provider}",
+            },
+        )
 
-    key = saved["data"][0]
+        if not saved.get("data") or len(saved["data"]) == 0:
+            logger.error(
+                "Provider key was saved but couldn't be retrieved",
+                user_id=user["user_id"],
+                provider=body.provider,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Key was saved but couldn't be retrieved. Please refresh.",
+            )
+
+        key = saved["data"][0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to retrieve saved provider key",
+            user_id=user["user_id"],
+            provider=body.provider,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve saved key. Please refresh.",
+        )
 
     logger.info(
         "Provider key saved",
@@ -447,11 +498,11 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
     return ProviderKeyInfo(
         id=key["id"],
         provider=key["provider"],
-        key_display=mask_key(key["key_prefix"], key.get("key_suffix")),
+        key_display=mask_key(key.get("key_prefix", "***"), key.get("key_suffix")),
         is_valid=key.get("is_valid", True),
         last_validated_at=key.get("last_validated_at"),
         validation_error=key.get("validation_error"),
-        created_at=key["created_at"],
+        created_at=key.get("created_at", datetime.now(UTC).isoformat()),
     )
 
 
@@ -577,24 +628,43 @@ async def validate_provider_key(provider: str, request: Request):
         )
 
     # Validate with provider
-    router_service = get_provider_router()
-    provider_enum = ProviderEnum(provider)
-    is_valid, error = await router_service.validate_key(provider_enum, decrypted_key)
+    try:
+        router_service = get_provider_router()
+        provider_enum = ProviderEnum(provider)
+        is_valid, error = await router_service.validate_key(provider_enum, decrypted_key)
+    except Exception as e:
+        logger.error(
+            "Failed to validate provider key",
+            user_id=user["user_id"],
+            provider=provider,
+            error=str(e),
+        )
+        is_valid = False
+        error = f"Validation error: {str(e)}"
 
     # Update validation status
-    await supabase.update(
-        "user_provider_keys",
-        {
-            "user_id": f"eq.{user['user_id']}",
-            "provider": f"eq.{provider}",
-        },
-        {
-            "is_valid": is_valid,
-            "last_validated_at": datetime.now(UTC).isoformat(),
-            "validation_error": error,
-            "updated_at": datetime.now(UTC).isoformat(),
-        },
-    )
+    try:
+        await supabase.update(
+            "user_provider_keys",
+            {
+                "user_id": f"eq.{user['user_id']}",
+                "provider": f"eq.{provider}",
+            },
+            {
+                "is_valid": is_valid,
+                "last_validated_at": datetime.now(UTC).isoformat(),
+                "validation_error": error,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to update validation status (non-critical)",
+            user_id=user["user_id"],
+            provider=provider,
+            error=str(e),
+        )
+        # Don't fail the request, just log it
 
     logger.info(
         "Provider key validated",
@@ -618,23 +688,35 @@ async def get_ai_usage(
     limit: int = 100,
 ):
     """Get detailed AI usage history."""
-    user = await get_current_user(request)
+    try:
+        user = await get_current_user(request)
+    except Exception as e:
+        logger.error("Failed to get current user for usage", error=str(e))
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_client()
+    except Exception as e:
+        logger.error("Failed to get Supabase client", error=str(e))
+        raise HTTPException(status_code=500, detail="Database connection failed")
 
     start_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
     # Get individual usage records
-    records_result = await supabase.select(
-        "user_ai_usage",
-        columns="*",
-        filters={
-            "user_id": f"eq.{user['user_id']}",
-            "created_at": f"gte.{start_date}",
-        },
-        order="created_at.desc",
-        limit=limit,
-    )
+    try:
+        records_result = await supabase.select(
+            "user_ai_usage",
+            columns="*",
+            filters={
+                "user_id": f"eq.{user['user_id']}",
+                "created_at": f"gte.{start_date}",
+            },
+            order="created_at.desc",
+            limit=limit,
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch usage records", user_id=user["user_id"], error=str(e))
+        records_result = {"data": []}  # Return empty on failure
 
     records = []
     for r in records_result.get("data", []):
@@ -653,15 +735,19 @@ async def get_ai_usage(
         )
 
     # Get daily summaries
-    daily_result = await supabase.select(
-        "user_ai_usage_daily",
-        columns="*",
-        filters={
-            "user_id": f"eq.{user['user_id']}",
-            "date": f"gte.{start_date[:10]}",  # Date only
-        },
-        order="date.desc",
-    )
+    try:
+        daily_result = await supabase.select(
+            "user_ai_usage_daily",
+            columns="*",
+            filters={
+                "user_id": f"eq.{user['user_id']}",
+                "date": f"gte.{start_date[:10]}",  # Date only
+            },
+            order="date.desc",
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch daily summaries", user_id=user["user_id"], error=str(e))
+        daily_result = {"data": []}  # Return empty on failure
 
     daily = []
     total_requests = 0
@@ -833,15 +919,23 @@ async def get_available_models(request: Request):
 
     Returns all models with availability based on user's configured keys.
     """
-    user = await get_current_user(request)
+    try:
+        user = await get_current_user(request)
+    except Exception as e:
+        logger.error("Failed to get current user for models", error=str(e))
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
     # Get user's configured providers
-    supabase = get_supabase_client()
-    keys_result = await supabase.select(
-        "user_provider_keys",
-        columns="provider,is_valid",
-        filters={"user_id": f"eq.{user['user_id']}"},
-    )
+    try:
+        supabase = get_supabase_client()
+        keys_result = await supabase.select(
+            "user_provider_keys",
+            columns="provider,is_valid",
+            filters={"user_id": f"eq.{user['user_id']}"},
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch user provider keys", user_id=user["user_id"], error=str(e))
+        keys_result = {"data": []}  # Return empty on failure
 
     user_providers = set()
     for key in keys_result.get("data", []):
@@ -874,28 +968,39 @@ async def get_available_models(request: Request):
         available_providers.update(platform_providers)
 
     # Get models from registry
-    registry = get_model_registry()
+    try:
+        registry = get_model_registry()
+        all_models = registry.list_all_models()
+    except Exception as e:
+        logger.error("Failed to get model registry", error=str(e))
+        # Return empty list instead of crashing
+        return AvailableModelsResponse(models=[], user_providers=list(user_providers))
+
     models = []
 
-    for model in registry.list_all_models():
-        provider = model.provider.value if hasattr(model.provider, "value") else str(model.provider)
+    for model in all_models:
+        try:
+            provider = model.provider.value if hasattr(model.provider, "value") else str(model.provider)
 
-        capabilities = []
-        for cap in model.capabilities:
-            cap_name = cap.value if hasattr(cap, "value") else str(cap)
-            capabilities.append(cap_name)
+            capabilities = []
+            for cap in model.capabilities:
+                cap_name = cap.value if hasattr(cap, "value") else str(cap)
+                capabilities.append(cap_name)
 
-        models.append(
-            ModelInfo(
-                model_id=model.model_id,
-                display_name=model.display_name,
-                provider=provider,
-                input_price=model.input_price,
-                output_price=model.output_price,
-                capabilities=capabilities,
-                is_available=provider in available_providers,
+            models.append(
+                ModelInfo(
+                    model_id=model.model_id,
+                    display_name=model.display_name,
+                    provider=provider,
+                    input_price=getattr(model, "input_price", 0.0),
+                    output_price=getattr(model, "output_price", 0.0),
+                    capabilities=capabilities,
+                    is_available=provider in available_providers,
+                )
             )
-        )
+        except Exception as e:
+            logger.warning("Failed to process model", model=str(model), error=str(e))
+            continue  # Skip this model but don't crash
 
     # Sort: available first, then by provider, then by name
     models.sort(key=lambda m: (not m.is_available, m.provider, m.display_name))
