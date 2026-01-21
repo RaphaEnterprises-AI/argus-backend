@@ -171,6 +171,13 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     if not user:
                         user = await authenticate_service_account(token, request)
 
+        # Check for token in query parameters (for SSE/EventSource which can't send headers)
+        if not user:
+            query_token = request.query_params.get("token")
+            if query_token:
+                logger.debug("Attempting auth via query param token")
+                user = await authenticate_jwt(query_token, request)
+
         # If still no user, return 401
         if not user:
             # Log failed authentication to audit trail
