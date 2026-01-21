@@ -427,7 +427,7 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
         "Provider key saved",
         user_id=user["user_id"],
         provider=body.provider,
-        key_prefix=encrypted.key_prefix,
+        key_prefix=key_data["key_prefix"],
     )
 
     return ProviderKeyInfo(
