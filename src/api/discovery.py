@@ -268,8 +268,15 @@ def build_session_response(session: dict) -> DiscoverySessionResponse:
     """Build session response from session data."""
     pages_found = len(session.get("pages", []))
     flows_found = len(session.get("flows", []))
-    elements_found = sum(p.get("elements_count", 0) for p in session.get("pages", []))
-    forms_found = sum(p.get("forms_count", 0) for p in session.get("pages", []))
+    # Handle both field names: DB uses singular (element_count), code uses plural (elements_count)
+    elements_found = sum(
+        p.get("element_count", 0) or p.get("elements_count", 0)
+        for p in session.get("pages", [])
+    )
+    forms_found = sum(
+        p.get("form_count", 0) or p.get("forms_count", 0)
+        for p in session.get("pages", [])
+    )
 
     # Calculate progress
     max_pages = session.get("config", {}).get("max_pages", 50)
