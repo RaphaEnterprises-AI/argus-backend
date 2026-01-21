@@ -73,6 +73,7 @@ interface DiscoveryRequest {
   includePatterns?: string[];
   excludePatterns?: string[];
   captureScreenshots?: boolean;
+  recordVideo?: boolean;
   viewport?: { width: number; height: number };
   authConfig?: {
     type: 'cookie' | 'form' | 'header';
@@ -100,6 +101,7 @@ app.post('/api/v1/crawl/discovery', async (req: Request, res: Response) => {
       includePatterns: body.includePatterns || [],
       excludePatterns: body.excludePatterns || [],
       captureScreenshots: body.captureScreenshots ?? true,
+      recordVideo: body.recordVideo ?? false,
       viewport: body.viewport || { width: 1920, height: 1080 },
       authConfig: body.authConfig
     };

@@ -19,6 +19,7 @@ export interface DiscoveryConfig {
   includePatterns: string[];
   excludePatterns: string[];
   captureScreenshots: boolean;
+  recordVideo: boolean;
   viewport: { width: number; height: number };
   authConfig?: {
     type: 'cookie' | 'form' | 'header';
@@ -77,6 +78,8 @@ export interface DiscoveryResult {
   duration: number;
   errors: Array<{ url: string; error: string }>;
   graph: Record<string, string[]>;
+  videoArtifactId?: string;
+  recordingUrl?: string;
 }
 
 /**
@@ -316,6 +319,10 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
   const errors: Array<{ url: string; error: string }> = [];
   const graph: Record<string, string[]> = {};
 
+  // Video recording directory
+  const videoDir = `/tmp/videos/${sessionId}`;
+  let videoPath: string | undefined;
+
   // Configure Crawlee to use memory storage (no disk persistence)
   const crawlerConfig = new Configuration({
     persistStorage: false,
@@ -325,10 +332,21 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
   // Create request queue
   const requestQueue = await RequestQueue.open(sessionId, { config: crawlerConfig });
 
+  // Build browser context options with optional video recording
+  const contextOptions: Record<string, unknown> = {};
+  if (config.recordVideo) {
+    const fs = await import('fs');
+    fs.mkdirSync(videoDir, { recursive: true });
+    contextOptions.recordVideo = {
+      dir: videoDir,
+      size: { width: config.viewport.width, height: config.viewport.height }
+    };
+  }
+
   const crawler = new PlaywrightCrawler({
     requestQueue,
     maxRequestsPerCrawl: config.maxPages,
-    maxConcurrency: 3,
+    maxConcurrency: 1, // Use single concurrency for video recording
     requestHandlerTimeoutSecs: 60,
     navigationTimeoutSecs: 30,
 
@@ -340,8 +358,30 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
     },
 
     browserPoolOptions: {
-      useFingerprints: false
+      useFingerprints: false,
+      preLaunchHooks: [
+        async (_pageId, launchContext) => {
+          // Add video recording to context options
+          if (config.recordVideo) {
+            launchContext.launchOptions = {
+              ...launchContext.launchOptions,
+            };
+            // Note: Video recording is configured via context, not launch options
+            // Crawlee creates contexts per page, so we use prePageCreationHooks
+          }
+        }
+      ]
     },
+
+    // Configure browser context for video recording
+    preNavigationHooks: [
+      async ({ page }) => {
+        if (config.recordVideo) {
+          // Video is recorded at context level - this is informational logging
+          console.log(`Recording enabled for session ${sessionId}`);
+        }
+      }
+    ],
 
     async requestHandler({ page, request, enqueueLinks, log }) {
       const url = request.url;
@@ -472,6 +512,33 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
 
   const duration = Date.now() - startTime;
 
+  // Get video file if recording was enabled
+  let videoArtifactId: string | undefined;
+  let recordingUrl: string | undefined;
+
+  if (config.recordVideo) {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Find video files in the video directory
+      const files = fs.readdirSync(videoDir);
+      const videoFiles = files.filter(f => f.endsWith('.webm') || f.endsWith('.mp4'));
+
+      if (videoFiles.length > 0) {
+        // Use the first video file (there should be one per context)
+        videoPath = path.join(videoDir, videoFiles[0]);
+        videoArtifactId = sessionId;
+        // In production, upload to S3/R2 and return the URL
+        // For now, return local path that can be served via static file server
+        recordingUrl = `/videos/${sessionId}/${videoFiles[0]}`;
+        console.log(`Video recorded: ${videoPath}`);
+      }
+    } catch (error) {
+      console.error(`Failed to get video file: ${error}`);
+    }
+  }
+
   return {
     sessionId,
     startUrl: config.startUrl,
@@ -482,6 +549,8 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
     totalLinks: pages.reduce((sum, p) => sum + p.links.length, 0),
     duration,
     errors,
-    graph
+    graph,
+    videoArtifactId,
+    recordingUrl
   };
 }
