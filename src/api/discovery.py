@@ -1486,6 +1486,8 @@ async def _persist_discovery_session(session: dict) -> bool:
             "quality_score": session.get("coverage_score"),
             "started_at": session.get("started_at"),
             "completed_at": session.get("completed_at"),
+            "video_artifact_id": session.get("video_artifact_id"),
+            "recording_url": session.get("recording_url"),
         }
 
         # Upsert session
@@ -1646,6 +1648,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 }
 
             # Run discovery via Crawlee service
+            record_session = config.get("record_session", False)
             crawlee_result = await crawlee_client.run_discovery(
                 start_url=session["app_url"],
                 max_pages=config.get("max_pages", 50),
@@ -1653,6 +1656,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 include_patterns=config.get("include_patterns", []),
                 exclude_patterns=config.get("exclude_patterns", []),
                 capture_screenshots=config.get("capture_screenshots", True),
+                record_session=record_session,
                 auth_config=auth_config
             )
 
@@ -1662,6 +1666,11 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             # Convert Crawlee result to internal format
             result_data = crawlee_result.data
             pages_discovered = result_data.get("pages", [])
+
+            # Extract video recording info if available
+            if record_session:
+                session["video_artifact_id"] = result_data.get("videoArtifactId")
+                session["recording_url"] = result_data.get("recordingUrl")
 
             # Process discovered pages
             for i, page in enumerate(pages_discovered):

@@ -99,6 +99,7 @@ class CrawleeClient:
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
         capture_screenshots: bool = True,
+        record_session: bool = False,
         viewport: dict[str, int] | None = None,
         auth_config: dict[str, Any] | None = None
     ) -> CrawleeResponse:
@@ -112,6 +113,7 @@ class CrawleeClient:
             include_patterns: Glob patterns for URLs to include
             exclude_patterns: Glob patterns for URLs to exclude
             capture_screenshots: Whether to capture screenshots
+            record_session: Record video of the discovery session
             viewport: Browser viewport size
             auth_config: Authentication configuration
 
@@ -128,6 +130,7 @@ class CrawleeClient:
                 "includePatterns": include_patterns or [],
                 "excludePatterns": exclude_patterns or [],
                 "captureScreenshots": capture_screenshots,
+                "recordVideo": record_session,
                 "viewport": viewport or {"width": 1920, "height": 1080}
             }
 
