@@ -78,11 +78,15 @@ async def _build_ai_config(
     Returns:
         AIConfig dict for chat graph, or None to use defaults
     """
-    if not ai_config_request:
-        return None
-
-    model = ai_config_request.model
-    provider = ai_config_request.provider
+    # Use provided config or create default one
+    if ai_config_request:
+        model = ai_config_request.model
+        provider = ai_config_request.provider
+        use_byok = ai_config_request.use_byok
+    else:
+        model = None
+        provider = None
+        use_byok = True  # Default to using BYOK if available
 
     # If no model specified, use defaults
     if not model:
@@ -99,7 +103,7 @@ async def _build_ai_config(
     }
 
     # Try to get user's BYOK key if requested and user_id provided
-    if ai_config_request.use_byok and user_id and provider:
+    if use_byok and user_id:
         try:
             from src.services.provider_router import get_provider_router
 
@@ -116,15 +120,15 @@ async def _build_ai_config(
                 logger.info(
                     "Using BYOK key for chat",
                     user_id=user_id,
-                    provider=provider,
+                    provider=config["provider"],
                     model=model,
                 )
         except Exception as e:
             # Log but don't fail - fall back to platform key
             logger.warning(
-                "Failed to get BYOK key, using platform key",
+                "Failed to get BYOK key, will fail if BYOK-only mode",
                 user_id=user_id,
-                provider=provider,
+                provider=config["provider"],
                 error=str(e),
             )
 
