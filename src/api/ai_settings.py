@@ -585,10 +585,10 @@ async def validate_provider_key(provider: str, request: Request):
 
     supabase = get_supabase_client()
 
-    # Get the encrypted key
+    # Get the encrypted key with encryption method info
     result = await supabase.select(
         "user_provider_keys",
-        columns="encrypted_key",
+        columns="encrypted_key,encryption_method,dek_reference",
         filters={
             "user_id": f"eq.{user['user_id']}",
             "provider": f"eq.{provider}",
@@ -600,9 +600,31 @@ async def validate_provider_key(provider: str, request: Request):
             status_code=404, detail=f"No {provider} key configured"
         )
 
-    # Decrypt and validate
+    key_data = result["data"][0]
+
+    # Decrypt using the correct method based on how it was encrypted
     try:
-        decrypted_key = decrypt_api_key(result["data"][0]["encrypted_key"])
+        from src.services.cloudflare_key_vault import decrypt_api_key_secure
+
+        if key_data.get("encryption_method") == "cloudflare" and key_data.get("dek_reference"):
+            # Use Cloudflare Key Vault decryption
+            decrypted_key = await decrypt_api_key_secure(
+                key_data["encrypted_key"],
+                key_data["dek_reference"],
+            )
+            logger.debug(
+                "Decrypted key via Cloudflare for validation",
+                user_id=user["user_id"],
+                provider=provider,
+            )
+        else:
+            # Use local AES-256 decryption
+            decrypted_key = decrypt_api_key(key_data["encrypted_key"])
+            logger.debug(
+                "Decrypted key via local encryption for validation",
+                user_id=user["user_id"],
+                provider=provider,
+            )
     except Exception as e:
         logger.error(
             "Failed to decrypt provider key",
