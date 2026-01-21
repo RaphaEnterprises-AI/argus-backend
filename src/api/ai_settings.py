@@ -321,19 +321,33 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
     supabase = get_supabase_client()
 
     # Choose encryption method based on availability
-    if is_key_vault_available():
-        # Use Cloudflare Key Vault (zero-knowledge encryption)
-        logger.info(
-            "Encrypting API key via Cloudflare Key Vault",
-            user_id=user["user_id"],
-            provider=body.provider,
-        )
-        encrypted_bundle = await encrypt_api_key_secure(
-            user_id=user["user_id"],
-            provider=body.provider,
-            api_key=body.api_key,
-        )
+    # Try Cloudflare Key Vault first, fall back to local encryption if it fails
+    use_cloudflare = False
+    encrypted_bundle = None
 
+    if is_key_vault_available():
+        try:
+            logger.info(
+                "Encrypting API key via Cloudflare Key Vault",
+                user_id=user["user_id"],
+                provider=body.provider,
+            )
+            encrypted_bundle = await encrypt_api_key_secure(
+                user_id=user["user_id"],
+                provider=body.provider,
+                api_key=body.api_key,
+            )
+            use_cloudflare = True
+        except Exception as e:
+            logger.warning(
+                "Cloudflare Key Vault failed, falling back to local encryption",
+                user_id=user["user_id"],
+                provider=body.provider,
+                error=str(e),
+            )
+            use_cloudflare = False
+
+    if use_cloudflare and encrypted_bundle:
         key_data = {
             "user_id": user["user_id"],
             "provider": body.provider,
@@ -352,9 +366,9 @@ async def add_provider_key(body: AddProviderKeyRequest, request: Request):
             "encrypted_at": encrypted_bundle.encrypted_at.isoformat(),
         }
     else:
-        # Fall back to local encryption (legacy)
+        # Use local encryption (when Cloudflare not configured or failed)
         logger.info(
-            "Encrypting API key via local encryption (Cloudflare not configured)",
+            "Encrypting API key via local encryption",
             user_id=user["user_id"],
             provider=body.provider,
         )
