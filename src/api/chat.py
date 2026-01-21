@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel
 
+from src.api.security.auth import UserContext, get_current_user
 from src.orchestrator.chat_graph import AIConfig, ChatState, create_chat_graph
 from src.orchestrator.checkpointer import get_checkpointer
 from src.services.audit_logger import (
@@ -131,13 +132,23 @@ async def _build_ai_config(
 
 
 @router.post("/message")
-async def send_message(request: ChatRequest):
+async def send_message(
+    request: ChatRequest,
+    user: UserContext = Depends(get_current_user),
+):
     """Send a message and get a response (non-streaming)."""
 
     thread_id = request.thread_id or str(uuid.uuid4())
 
-    # Build AI config from user preferences
-    ai_config = await _build_ai_config(request.ai_config, request.user_id)
+    logger.info(
+        "Chat message request",
+        thread_id=thread_id,
+        user_id=user.user_id,
+        auth_method=user.auth_method,
+    )
+
+    # Build AI config from user preferences - use authenticated user_id
+    ai_config = await _build_ai_config(request.ai_config, user.user_id)
 
     # Create graph with checkpointer
     checkpointer = get_checkpointer()
@@ -195,7 +206,10 @@ async def send_message(request: ChatRequest):
 
 
 @router.post("/stream")
-async def stream_message(request: ChatRequest):
+async def stream_message(
+    request: ChatRequest,
+    user: UserContext = Depends(get_current_user),
+):
     """Send a message and stream the response using Vercel AI SDK compatible format.
 
     Supports user-configurable AI models via the ai_config field:
@@ -206,8 +220,8 @@ async def stream_message(request: ChatRequest):
 
     thread_id = request.thread_id or str(uuid.uuid4())
 
-    # Build AI config from user preferences (outside the generator to avoid async issues)
-    ai_config = await _build_ai_config(request.ai_config, request.user_id)
+    # Build AI config from user preferences - use authenticated user_id
+    ai_config = await _build_ai_config(request.ai_config, user.user_id)
 
     async def generate_ai_sdk_stream():
         """Generate stream in Vercel AI SDK format (text streaming protocol)."""
