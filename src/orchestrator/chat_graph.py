@@ -352,13 +352,14 @@ You have access to production-grade features powered by LangGraph:
 
 
 class APIKeyNotConfiguredError(ValueError):
-    """Raised when user hasn't configured their BYOK API key."""
+    """Raised when no API key is available (neither BYOK nor platform)."""
 
     def __init__(self, provider: str):
         self.provider = provider
         super().__init__(
-            f"No API key configured for {provider}. "
-            f"Please add your {provider.title()} API key in Settings → AI Configuration."
+            f"No API key available for {provider}. "
+            f"Either configure your own key in Settings → AI Configuration, "
+            f"or contact support if the platform key should be available."
         )
 
 

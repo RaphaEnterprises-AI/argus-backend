@@ -102,8 +102,8 @@ async def _build_ai_config(
         "track_usage": True,
     }
 
-    # Try to get user's BYOK key if requested and user_id provided
-    if use_byok and user_id:
+    # Try to get user's API key (BYOK or platform fallback)
+    if user_id:
         try:
             from src.services.provider_router import get_provider_router
 
@@ -111,26 +111,48 @@ async def _build_ai_config(
             ai_config_result = await router_instance.get_ai_config(
                 user_id=user_id,
                 model=model,
-                allow_platform_fallback=True,
+                allow_platform_fallback=True,  # Always allow platform fallback
             )
 
-            # If user has a BYOK key for this provider, use the decrypted key
+            # Use the key (could be BYOK or platform)
             if ai_config_result.api_key:
                 config["api_key"] = ai_config_result.api_key
                 logger.info(
-                    "Using BYOK key for chat",
+                    "Got API key for chat",
                     user_id=user_id,
                     provider=config["provider"],
                     model=model,
+                    key_source=ai_config_result.key_source,
                 )
         except Exception as e:
-            # Log but don't fail - fall back to platform key
+            # Log the error - will try platform fallback below
             logger.warning(
-                "Failed to get BYOK key, will fail if BYOK-only mode",
+                "Failed to get API key from provider router",
                 user_id=user_id,
                 provider=config["provider"],
                 error=str(e),
             )
+
+    # If still no API key, try direct platform key fallback
+    if not config["api_key"]:
+        import os
+        platform_key_vars = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "groq": "GROQ_API_KEY",
+            "together": "TOGETHER_API_KEY",
+        }
+        key_var = platform_key_vars.get(provider)
+        if key_var:
+            platform_key = os.environ.get(key_var)
+            if platform_key:
+                config["api_key"] = platform_key
+                logger.info(
+                    "Using platform API key directly",
+                    provider=config["provider"],
+                    model=model,
+                )
 
     return config
 

@@ -206,7 +206,28 @@ class ProviderRouter:
                     )
                     await self._mark_key_invalid(user_id, provider, str(e))
 
-        # No BYOK key available - BYOK-only mode, no platform fallback
+        # No BYOK key available - try platform fallback if allowed
+        if allow_platform_fallback:
+            import os
+            platform_key_var = self.PLATFORM_KEY_VARS.get(provider)
+            if platform_key_var:
+                platform_key = os.environ.get(platform_key_var)
+                if platform_key:
+                    logger.info(
+                        "Using platform API key (BYOK not configured)",
+                        user_id=user_id,
+                        provider=provider.value,
+                        model=model,
+                    )
+                    return AIConfig(
+                        model=model,
+                        provider=provider,
+                        api_key=platform_key,
+                        key_source="platform",
+                        user_id=user_id,
+                    )
+
+        # No key available at all
         raise ValueError(
             f"No API key configured for {provider.value}. "
             f"Please add your {provider.value.title()} API key in Settings → AI Configuration."
