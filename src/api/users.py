@@ -112,6 +112,36 @@ class UpdateTestDefaultsRequest(BaseModel):
     video_recording: bool | None = None
 
 
+class DiscoveryPreferences(BaseModel):
+    """User discovery configuration preferences."""
+    mode: str = Field(default="standard", pattern="^(quick|standard|deep|focused|autonomous)$")
+    strategy: str = Field(default="bfs", pattern="^(bfs|dfs|priority|ai-guided)$")
+    maxPages: int = Field(default=50, ge=1, le=500)
+    maxDepth: int = Field(default=3, ge=1, le=10)
+    includePatterns: str = ""
+    excludePatterns: str = "/api/*, /static/*, *.pdf, *.jpg, *.png"
+    focusAreas: list[str] = Field(default_factory=list)
+    captureScreenshots: bool = True
+    useVisionAi: bool = False
+    authRequired: bool | None = None
+    authConfig: dict | None = None
+
+
+class UpdateDiscoveryPreferencesRequest(BaseModel):
+    """Request to update discovery preferences."""
+    mode: str | None = Field(None, pattern="^(quick|standard|deep|focused|autonomous)$")
+    strategy: str | None = Field(None, pattern="^(bfs|dfs|priority|ai-guided)$")
+    maxPages: int | None = Field(None, ge=1, le=500)
+    maxDepth: int | None = Field(None, ge=1, le=10)
+    includePatterns: str | None = None
+    excludePatterns: str | None = None
+    focusAreas: list[str] | None = None
+    captureScreenshots: bool | None = None
+    useVisionAi: bool | None = None
+    authRequired: bool | None = None
+    authConfig: dict | None = None
+
+
 class SetDefaultOrganizationRequest(BaseModel):
     """Request to set default organization."""
     organization_id: str = Field(..., min_length=1)
@@ -131,6 +161,7 @@ class UserProfileResponse(BaseModel):
     theme: str | None
     notification_preferences: NotificationPreferences
     test_defaults: TestDefaults
+    discovery_preferences: DiscoveryPreferences
     default_organization_id: str | None
     default_project_id: str | None
     onboarding_completed: bool
@@ -202,6 +233,21 @@ def get_default_test_defaults() -> dict:
         "max_retries": 2,
         "screenshot_on_failure": True,
         "video_recording": False,
+    }
+
+
+def get_default_discovery_preferences() -> dict:
+    """Get default discovery preferences."""
+    return {
+        "mode": "standard",
+        "strategy": "bfs",
+        "maxPages": 50,
+        "maxDepth": 3,
+        "includePatterns": "",
+        "excludePatterns": "/api/*, /static/*, *.pdf, *.jpg, *.png",
+        "focusAreas": [],
+        "captureScreenshots": True,
+        "useVisionAi": False,
     }
 
 
@@ -278,9 +324,10 @@ async def get_my_profile(request: Request):
         {"last_active_at": datetime.now(UTC).isoformat()}
     )
 
-    # Parse notification preferences and test defaults
+    # Parse notification preferences, test defaults, and discovery preferences
     notification_prefs = profile.get("notification_preferences") or get_default_notification_preferences()
     test_defaults = profile.get("test_defaults") or get_default_test_defaults()
+    discovery_prefs = profile.get("discovery_preferences") or get_default_discovery_preferences()
 
     return UserProfileResponse(
         id=profile["id"],
@@ -294,6 +341,7 @@ async def get_my_profile(request: Request):
         theme=profile.get("theme"),
         notification_preferences=NotificationPreferences(**notification_prefs),
         test_defaults=TestDefaults(**test_defaults),
+        discovery_preferences=DiscoveryPreferences(**discovery_prefs),
         default_organization_id=profile.get("default_organization_id"),
         default_project_id=profile.get("default_project_id"),
         onboarding_completed=profile.get("onboarding_completed", False),
@@ -532,6 +580,64 @@ async def update_test_defaults(
         raise HTTPException(status_code=500, detail="Failed to update test defaults")
 
     logger.info("User test defaults updated", user_id=user["user_id"])
+
+    # Return updated profile
+    return await get_my_profile(request)
+
+
+@router.put("/me/discovery-preferences", response_model=UserProfileResponse)
+async def update_discovery_preferences(
+    body: UpdateDiscoveryPreferencesRequest,
+    request: Request
+):
+    """Update discovery preferences."""
+    user = await get_current_user(request)
+
+    # Ensure profile exists
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Get current discovery preferences
+    current_prefs = profile.get("discovery_preferences") or get_default_discovery_preferences()
+
+    # Merge updates
+    if body.mode is not None:
+        current_prefs["mode"] = body.mode
+    if body.strategy is not None:
+        current_prefs["strategy"] = body.strategy
+    if body.maxPages is not None:
+        current_prefs["maxPages"] = body.maxPages
+    if body.maxDepth is not None:
+        current_prefs["maxDepth"] = body.maxDepth
+    if body.includePatterns is not None:
+        current_prefs["includePatterns"] = body.includePatterns
+    if body.excludePatterns is not None:
+        current_prefs["excludePatterns"] = body.excludePatterns
+    if body.focusAreas is not None:
+        current_prefs["focusAreas"] = body.focusAreas
+    if body.captureScreenshots is not None:
+        current_prefs["captureScreenshots"] = body.captureScreenshots
+    if body.useVisionAi is not None:
+        current_prefs["useVisionAi"] = body.useVisionAi
+    if body.authRequired is not None:
+        current_prefs["authRequired"] = body.authRequired
+    if body.authConfig is not None:
+        current_prefs["authConfig"] = body.authConfig
+
+    result = await supabase.update(
+        "user_profiles",
+        {"id": f"eq.{profile['id']}"},
+        {
+            "discovery_preferences": current_prefs,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to update discovery preferences")
+
+    logger.info("User discovery preferences updated", user_id=user["user_id"])
 
     # Return updated profile
     return await get_my_profile(request)

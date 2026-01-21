@@ -242,8 +242,18 @@ class TestSerializeMessage:
 class TestSendMessageEndpoint:
     """Tests for POST /api/v1/chat/message endpoint."""
 
+    @pytest.fixture
+    def mock_user(self):
+        """Create a mock user context."""
+        from src.api.security.auth import UserContext, AuthMethod
+        return UserContext(
+            user_id="test-user-123",
+            organization_id="test-org-123",
+            auth_method=AuthMethod.JWT,
+        )
+
     @pytest.mark.asyncio
-    async def test_send_message_success(self, mock_env_vars, mock_ai_message):
+    async def test_send_message_success(self, mock_env_vars, mock_ai_message, mock_user):
         """Test successful message send."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
 
@@ -262,13 +272,13 @@ class TestSendMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await send_message(request)
+            response = await send_message(request, user=mock_user)
 
             assert response.message == "AI response"
             assert response.thread_id == "thread-123"
 
     @pytest.mark.asyncio
-    async def test_send_message_generates_thread_id(self, mock_env_vars, mock_ai_message):
+    async def test_send_message_generates_thread_id(self, mock_env_vars, mock_ai_message, mock_user):
         """Test that thread_id is generated if not provided."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
 

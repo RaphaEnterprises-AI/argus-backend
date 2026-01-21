@@ -176,7 +176,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             query_token = request.query_params.get("token")
             if query_token:
                 logger.debug("Attempting auth via query param token")
-                user = await authenticate_jwt(query_token, request)
+                # Try API key first (argus_sk_...)
+                if query_token.startswith("argus_"):
+                    user = await authenticate_api_key(query_token, request)
+                else:
+                    # Try JWT
+                    user = await authenticate_jwt(query_token, request)
 
         # If still no user, return 401
         if not user:

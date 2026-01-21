@@ -1196,6 +1196,164 @@ async def delete_session(session_id: str):
 # =============================================================================
 
 
+async def _persist_discovery_checkpoint(session: dict) -> bool:
+    """Persist a lightweight checkpoint during discovery.
+
+    Saves session progress and newly discovered pages without full flow data.
+    Used for incremental persistence to prevent data loss on crashes.
+
+    Args:
+        session: The in-memory session dict to checkpoint
+
+    Returns:
+        True if checkpoint succeeded, False otherwise
+    """
+    try:
+        supabase = get_raw_supabase_client()
+        if not supabase:
+            return False
+
+        session_id = session["id"]
+
+        # Update session progress only
+        checkpoint_record = {
+            "id": session_id,
+            "status": session["status"],
+            "progress_percentage": min(90, len(session.get("pages", [])) * 2),  # Rough progress
+            "pages_discovered": len(session.get("pages", [])),
+        }
+
+        supabase.table("discovery_sessions").upsert(checkpoint_record).execute()
+
+        # Persist any new pages (upsert handles duplicates)
+        pages = session.get("pages", [])
+        if pages:
+            # Only persist pages that don't have a persisted flag
+            new_pages = [p for p in pages if not p.get("_persisted")]
+            if new_pages:
+                page_records = []
+                for page in new_pages:
+                    page_records.append({
+                        "id": page.get("id"),
+                        "discovery_session_id": session_id,
+                        "url": page.get("url", ""),
+                        "title": page.get("title", ""),
+                        "page_type": page.get("page_type", "unknown"),
+                        "element_count": page.get("elements_count", 0),
+                        "discovered_at": page.get("discovered_at"),
+                    })
+                    page["_persisted"] = True  # Mark as persisted
+
+                if page_records:
+                    supabase.table("discovered_pages").upsert(page_records).execute()
+
+        logger.debug(
+            "Discovery checkpoint saved",
+            session_id=session_id,
+            pages=len(pages),
+        )
+        return True
+
+    except Exception as e:
+        logger.warning("Failed to save discovery checkpoint", error=str(e))
+        return False
+
+
+async def _persist_discovery_session(session: dict) -> bool:
+    """Persist discovery session data to Supabase.
+
+    Saves session metadata, discovered pages, and flows to the database.
+    Uses the raw Supabase client for table operations.
+
+    Args:
+        session: The in-memory session dict to persist
+
+    Returns:
+        True if persistence succeeded, False otherwise
+    """
+    try:
+        supabase = get_raw_supabase_client()
+        if not supabase:
+            logger.warning("No Supabase client available for persistence")
+            return False
+
+        session_id = session["id"]
+        project_id = session["project_id"]
+
+        # Persist session to discovery_sessions table
+        session_record = {
+            "id": session_id,
+            "project_id": project_id,
+            "name": f"Discovery {session_id[:8]}",
+            "status": session["status"],
+            "start_url": session.get("app_url", ""),
+            "mode": session.get("config", {}).get("mode", "standard_crawl"),
+            "strategy": session.get("config", {}).get("strategy", "breadth_first"),
+            "config": session.get("config", {}),
+            "max_pages": session.get("config", {}).get("max_pages", 50),
+            "max_depth": session.get("config", {}).get("max_depth", 3),
+            "progress_percentage": 100 if session["status"] == "completed" else 0,
+            "pages_discovered": len(session.get("pages", [])),
+            "quality_score": session.get("coverage_score"),
+            "started_at": session.get("started_at"),
+            "completed_at": session.get("completed_at"),
+        }
+
+        # Upsert session
+        supabase.table("discovery_sessions").upsert(session_record).execute()
+        logger.debug("Persisted discovery session", session_id=session_id)
+
+        # Persist discovered pages
+        pages = session.get("pages", [])
+        if pages:
+            page_records = []
+            for page in pages:
+                page_records.append({
+                    "id": page.get("id"),
+                    "discovery_session_id": session_id,
+                    "url": page.get("url", ""),
+                    "title": page.get("title", ""),
+                    "page_type": page.get("page_type", "unknown"),
+                    "element_count": page.get("elements_count", 0),
+                    "discovered_at": page.get("discovered_at"),
+                })
+
+            if page_records:
+                supabase.table("discovered_pages").upsert(page_records).execute()
+                logger.debug("Persisted discovered pages", count=len(page_records))
+
+        # Persist discovered flows
+        flows = session.get("flows", [])
+        if flows:
+            flow_records = []
+            for flow in flows:
+                flow_records.append({
+                    "id": flow.get("id"),
+                    "discovery_session_id": session_id,
+                    "name": flow.get("name", ""),
+                    "description": flow.get("description", ""),
+                    "flow_type": flow.get("category", "navigation"),
+                    "steps": flow.get("steps", []),
+                    "validated": flow.get("validated", False),
+                })
+
+            if flow_records:
+                supabase.table("discovered_flows").upsert(flow_records).execute()
+                logger.debug("Persisted discovered flows", count=len(flow_records))
+
+        logger.info(
+            "Discovery session persisted to database",
+            session_id=session_id,
+            pages=len(pages),
+            flows=len(flows),
+        )
+        return True
+
+    except Exception as e:
+        logger.exception("Failed to persist discovery session", error=str(e))
+        return False
+
+
 async def run_discovery_session(session_id: str, resume: bool = False) -> None:
     """Background task to run discovery session.
 
@@ -1281,6 +1439,10 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                             "total_pages": len(session["pages"]),
                         })
                     })
+
+                # Incremental persistence: save checkpoint every 5 pages
+                if len(session["pages"]) % 5 == 0:
+                    await _persist_discovery_checkpoint(session)
 
             # Use local AI to infer flows from Crawlee pages
             # Wrap in try/except so flow inference failure doesn't fail the session
@@ -1393,6 +1555,10 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                         })
                     })
 
+                # Incremental persistence: save checkpoint every 5 pages
+                if len(session["pages"]) % 5 == 0:
+                    await _persist_discovery_checkpoint(session)
+
             # Store discovered flows from local discovery
             for i, flow in enumerate(result.flows_discovered):
                 flow_id = f"flow-{session_id[:8]}-{i}"
@@ -1431,6 +1597,9 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
         session["status"] = SessionStatus.COMPLETED.value
         session["completed_at"] = datetime.now(UTC).isoformat()
 
+        # Persist to database
+        await _persist_discovery_session(session)
+
         # Emit completion event
         if events_queue:
             await events_queue.put({
@@ -1458,6 +1627,9 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
         session["status"] = SessionStatus.FAILED.value
         session["error"] = str(e)
         session["completed_at"] = datetime.now(UTC).isoformat()
+
+        # Persist failed session to database
+        await _persist_discovery_session(session)
 
         if events_queue:
             await events_queue.put({
