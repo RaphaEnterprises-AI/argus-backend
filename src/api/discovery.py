@@ -249,11 +249,69 @@ class DiscoveryComparisonResponse(BaseModel):
 
 
 async def get_session_or_404(session_id: str) -> dict:
-    """Get a session or raise 404."""
+    """Get a session from memory or database, or raise 404.
+
+    First checks in-memory storage for active sessions.
+    Falls back to database for completed/persisted sessions.
+    """
+    # First check in-memory storage (for active sessions)
     session = _discovery_sessions.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Discovery session not found")
-    return session
+    if session:
+        return session
+
+    # Fall back to database for completed sessions
+    try:
+        supabase = get_raw_supabase_client()
+        if supabase:
+            # Get session from database
+            result = supabase.table("discovery_sessions").select("*").eq("id", session_id).single().execute()
+            if result.data:
+                db_session = result.data
+                # Also load pages and flows from database
+                pages_result = supabase.table("discovered_pages").select("*").eq("discovery_session_id", session_id).execute()
+                flows_result = supabase.table("discovered_flows").select("*").eq("discovery_session_id", session_id).execute()
+
+                # Convert DB format to internal session format
+                return {
+                    "id": db_session["id"],
+                    "project_id": db_session["project_id"],
+                    "app_url": db_session.get("start_url", ""),
+                    "status": db_session.get("status", "completed"),
+                    "config": db_session.get("config", {}),
+                    "pages": [
+                        {
+                            "id": p["id"],
+                            "url": p.get("url", ""),
+                            "title": p.get("title", ""),
+                            "page_type": p.get("page_type", "unknown"),
+                            "element_count": p.get("element_count", 0),
+                            "form_count": p.get("form_count", 0),
+                            "link_count": p.get("link_count", 0),
+                        }
+                        for p in (pages_result.data or [])
+                    ],
+                    "flows": [
+                        {
+                            "id": f["id"],
+                            "name": f.get("name", ""),
+                            "description": f.get("description", ""),
+                            "category": f.get("flow_type", "navigation"),
+                            "steps": f.get("steps", []),
+                            "priority": f.get("priority", "medium"),
+                        }
+                        for f in (flows_result.data or [])
+                    ],
+                    "started_at": db_session.get("started_at", db_session.get("created_at")),
+                    "completed_at": db_session.get("completed_at"),
+                    "errors": [],
+                    "coverage_score": db_session.get("quality_score", 0),
+                    # No events_queue for completed sessions loaded from DB
+                    "events_queue": None,
+                }
+    except Exception as e:
+        logger.warning("Failed to load session from database", session_id=session_id, error=str(e))
+
+    raise HTTPException(status_code=404, detail="Discovery session not found")
 
 
 async def get_flow_or_404(flow_id: str) -> dict:
@@ -613,16 +671,34 @@ async def stream_discovery(session_id: str):
                     "status": session["status"],
                     "pages_found": len(session.get("pages", [])),
                     "flows_found": len(session.get("flows", [])),
-                    "started_at": session["started_at"],
+                    "started_at": session.get("started_at", ""),
                 })
             }
 
-            # Get events queue
+            # Check if session is already completed (e.g., loaded from database)
+            if session["status"] in [SessionStatus.COMPLETED.value, "completed", SessionStatus.FAILED.value, "failed", SessionStatus.CANCELLED.value, "cancelled"]:
+                # Session already completed - emit final state and close
+                yield {
+                    "event": "complete",
+                    "data": json.dumps({
+                        "session_id": session_id,
+                        "status": session["status"],
+                        "pages_found": len(session.get("pages", [])),
+                        "flows_found": len(session.get("flows", [])),
+                        "coverage_score": session.get("coverage_score", 0),
+                        "completed_at": session.get("completed_at", ""),
+                    })
+                }
+                return
+
+            # Get events queue for active sessions
             events_queue = session.get("events_queue")
             if not events_queue:
+                # No queue means session was loaded from DB but status shows active
+                # This shouldn't happen but handle gracefully
                 yield {
                     "event": "error",
-                    "data": json.dumps({"error": "Events queue not available"})
+                    "data": json.dumps({"error": "Session state unavailable - please refresh"})
                 }
                 return
 
