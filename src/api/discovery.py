@@ -1501,8 +1501,17 @@ async def _persist_discovery_session(session: dict) -> bool:
                     page["_persisted"] = True  # Mark as persisted
 
                 if page_records:
-                    supabase.table("discovered_pages").insert(page_records).execute()
-                    logger.debug("Persisted discovered pages", count=len(page_records))
+                    try:
+                        supabase.table("discovered_pages").insert(page_records).execute()
+                        logger.debug("Persisted discovered pages", count=len(page_records))
+                    except Exception as page_err:
+                        # Log error but continue - pages may already exist from previous sessions
+                        # The unique constraint on (project_id, url) prevents duplicates
+                        logger.warning(
+                            "Failed to persist pages (may already exist)",
+                            error=str(page_err),
+                            session_id=session_id,
+                        )
 
         # Persist discovered flows
         # Note: Don't include 'id' - let DB auto-generate UUID
@@ -1549,8 +1558,16 @@ async def _persist_discovery_session(session: dict) -> bool:
                     flow["_persisted"] = True  # Mark as persisted
 
                 if flow_records:
-                    supabase.table("discovered_flows").insert(flow_records).execute()
-                    logger.debug("Persisted discovered flows", count=len(flow_records))
+                    try:
+                        supabase.table("discovered_flows").insert(flow_records).execute()
+                        logger.debug("Persisted discovered flows", count=len(flow_records))
+                    except Exception as flow_err:
+                        # Log error but don't fail the overall persist
+                        logger.warning(
+                            "Failed to persist flows",
+                            error=str(flow_err),
+                            session_id=session_id,
+                        )
 
         logger.info(
             "Discovery session persisted to database",
