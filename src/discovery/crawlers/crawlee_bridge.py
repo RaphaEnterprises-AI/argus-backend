@@ -20,12 +20,12 @@ import uuid
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import structlog
-from functools import wraps
 
 from src.discovery.models import (
     CrawlError,

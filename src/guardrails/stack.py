@@ -6,13 +6,14 @@ Safety comes from layered guardrails that assume failure, monitor
 continuously, and keep a human hand on the override.
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Callable
 import asyncio
 import hashlib
 import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any
 
 import structlog
 

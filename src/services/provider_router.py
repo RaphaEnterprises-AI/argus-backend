@@ -25,12 +25,12 @@ from typing import Any
 import httpx
 import structlog
 
+from src.services.ai_cost_tracker import MODEL_PRICING, get_cost_tracker
 from src.services.cloudflare_key_vault import (
-    is_key_vault_available,
     decrypt_api_key_secure,
+    is_key_vault_available,
 )
 from src.services.supabase_client import get_supabase_client
-from src.services.ai_cost_tracker import MODEL_PRICING, get_cost_tracker
 
 logger = structlog.get_logger()
 

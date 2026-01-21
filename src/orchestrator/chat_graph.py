@@ -910,13 +910,14 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                 # ============== NEW TOOL HANDLERS ==============
 
                 elif tool_name == "createSchedule":
+                    from datetime import UTC, datetime
+
                     from src.api.scheduling import (
                         ScheduleCreateRequest,
                         _save_schedule_to_db,
                         calculate_next_run,
                         cron_to_readable,
                     )
-                    from datetime import UTC, datetime
 
                     # Parse natural language schedule to cron
                     schedule_input = tool_args.get("schedule", "")
@@ -1036,7 +1037,8 @@ async def tool_executor_node(state: ChatState, config) -> dict:
 
                 elif tool_name == "generateReport":
                     from datetime import timedelta
-                    from src.api.reports import generate_report_content, calculate_report_summary, ReportType
+
+                    from src.api.reports import ReportType, calculate_report_summary, generate_report_content
 
                     project_id = tool_args.get("project_id", state.get("project_id", "default"))
                     period = tool_args.get("period", "week")
@@ -1189,8 +1191,9 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                     }
 
                 elif tool_name == "getTestRuns":
-                    from src.services.supabase_client import get_supabase_client
                     from datetime import timedelta
+
+                    from src.services.supabase_client import get_supabase_client
 
                     supabase = get_supabase_client()
                     test_id = tool_args.get("test_id")

@@ -10,15 +10,15 @@ L5: Human-in-the-Loop (risk-tiered approvals)
 """
 
 from .stack import (
+    ActionClassifier,
     GuardrailResult,
     GuardrailStack,
     RiskTier,
-    ActionClassifier,
 )
 from .validators import (
-    PromptInjectionDetector,
     InputSanitizer,
     OutputFilter,
+    PromptInjectionDetector,
 )
 
 __all__ = [

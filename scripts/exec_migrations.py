@@ -37,7 +37,7 @@ def main():
 
         print(f"📝 Applying: {migration_file}")
 
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             sql = f.read()
 
         try:
@@ -56,10 +56,10 @@ def main():
                 print(f"✅ Successfully applied: {migration_file}")
             else:
                 print(f"⚠️  Response {response.status_code}: {response.text[:200]}")
-                print(f"   Migration may need manual application")
+                print("   Migration may need manual application")
         except Exception as e:
             print(f"⚠️  Could not execute via API: {e}")
-            print(f"   Please apply manually in Supabase SQL Editor")
+            print("   Please apply manually in Supabase SQL Editor")
 
         print()
 

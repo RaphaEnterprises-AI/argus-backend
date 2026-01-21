@@ -26,6 +26,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from src.api.ai_settings import router as ai_settings_router
 from src.api.api_keys import router as api_keys_router
 from src.api.approvals import router as approvals_router
 from src.api.artifacts import router as artifacts_router
@@ -65,7 +66,6 @@ from src.api.tests import router as tests_router
 from src.api.time_travel import router as time_travel_router
 from src.api.users import router as users_router
 from src.api.visual_ai import router as visual_ai_router
-from src.api.ai_settings import router as ai_settings_router
 
 # API Routers
 from src.api.webhooks import router as webhooks_router

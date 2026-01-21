@@ -11,11 +11,11 @@ import os
 import sys
 
 try:
-    from uptime_kuma_api import UptimeKumaApi, MonitorType
+    from uptime_kuma_api import MonitorType, UptimeKumaApi
 except ImportError:
     print("Installing uptime-kuma-api...")
     os.system("pip install uptime-kuma-api")
-    from uptime_kuma_api import UptimeKumaApi, MonitorType
+    from uptime_kuma_api import MonitorType, UptimeKumaApi
 
 # Configuration - Load from environment (required)
 UPTIME_KUMA_URL = os.environ.get("UPTIME_KUMA_URL", "https://status.heyargus.ai")

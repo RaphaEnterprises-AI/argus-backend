@@ -239,7 +239,7 @@ class WorldClassRunner:
             self.report.cost_metrics.total_cost_usd += metrics.cost_usd
             self.report.cost_metrics.total_tokens += metrics.input_tokens + metrics.output_tokens
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             metrics.timeout_occurred = True
             metrics.error_type = "timeout"
             metrics.error_message = f"Task exceeded {scenario.timeout_seconds}s timeout"
@@ -318,9 +318,10 @@ class WorldClassRunner:
 
         Uses Claude directly with a specialized security audit prompt.
         """
-        import anthropic
         import json
         import re
+
+        import anthropic
 
         client = anthropic.Anthropic()
 
@@ -477,6 +478,7 @@ Be thorough - this code has multiple serious vulnerabilities including SQL injec
     ) -> dict[str, Any]:
         """Execute web scenario with real browser pool."""
         import os
+
         from src.browser.pool_client import BrowserPoolClient, UserContext
 
         jwt_secret = os.environ.get("BROWSER_POOL_JWT_SECRET")
@@ -727,8 +729,9 @@ Respond with JSON:
         This allows Claude to complete complex tool chains by simulating
         tool results and continuing the conversation.
         """
-        import anthropic
         import json
+
+        import anthropic
 
         client = anthropic.Anthropic()
 
@@ -1408,4 +1411,4 @@ if __name__ == "__main__":
     with open("/tmp/world_class_eval_report.json", "w") as f:
         json.dump(report.to_dict(), f, indent=2, default=str)
 
-    print(f"\n📄 Report saved to /tmp/world_class_eval_report.json")
+    print("\n📄 Report saved to /tmp/world_class_eval_report.json")

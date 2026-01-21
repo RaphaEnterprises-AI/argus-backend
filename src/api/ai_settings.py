@@ -18,13 +18,14 @@ from src.api.teams import get_current_user
 from src.api.users import get_or_create_profile
 from src.core.model_registry import ModelRegistry, Provider, get_model_registry
 from src.services.cloudflare_key_vault import (
-    is_key_vault_available,
-    encrypt_api_key_secure,
     decrypt_api_key_secure,
+    encrypt_api_key_secure,
     get_key_vault_client,
+    is_key_vault_available,
 )
 from src.services.pricing_service import get_pricing_service
-from src.services.provider_router import get_provider_router, Provider as ProviderEnum
+from src.services.provider_router import Provider as ProviderEnum
+from src.services.provider_router import get_provider_router
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()

@@ -23,7 +23,7 @@ References:
 - https://www.evidentlyai.com/blog/ai-agent-benchmarks
 """
 
-from .metrics import EvaluationMetrics, AgentScore
+from .metrics import AgentScore, EvaluationMetrics
 from .runner import EvaluationRunner
 
 __all__ = ["EvaluationMetrics", "AgentScore", "EvaluationRunner"]

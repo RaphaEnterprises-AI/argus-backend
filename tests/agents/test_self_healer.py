@@ -382,8 +382,9 @@ class TestSelfHealerAgent:
     async def test_apply_fix_add_wait(self, mock_env_vars):
         """Test applying add wait fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
             import structlog
+
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
             agent.log = structlog.get_logger()
@@ -409,8 +410,9 @@ class TestSelfHealerAgent:
     async def test_apply_fix_increase_timeout(self, mock_env_vars):
         """Test applying increase timeout fix."""
         with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
-            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
             import structlog
+
+            from src.agents.self_healer import FixSuggestion, FixType, SelfHealerAgent
 
             agent = SelfHealerAgent()
             agent.log = structlog.get_logger()

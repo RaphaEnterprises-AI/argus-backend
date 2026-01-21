@@ -15,8 +15,9 @@ Each scenario includes:
 - Cost tracking for efficiency metrics
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from .world_class_metrics import EvalDomain, TaskDifficulty
 

@@ -460,14 +460,14 @@ class TestAgentIntegration:
     @pytest.mark.smoke
     def test_all_agents_importable(self):
         """All agents should be importable."""
-        from src.agents.code_analyzer import CodeAnalyzerAgent
-        from src.agents.test_planner import TestPlannerAgent
-        from src.agents.self_healer import SelfHealerAgent
-        from src.agents.nlp_test_creator import NLPTestCreator
-        from src.agents.visual_ai import VisualAI
-        from src.agents.ui_tester_v2 import UITesterAgentV2
         from src.agents.api_tester import APITesterAgent
+        from src.agents.code_analyzer import CodeAnalyzerAgent
+        from src.agents.nlp_test_creator import NLPTestCreator
         from src.agents.reporter import ReporterAgent
+        from src.agents.self_healer import SelfHealerAgent
+        from src.agents.test_planner import TestPlannerAgent
+        from src.agents.ui_tester_v2 import UITesterAgentV2
+        from src.agents.visual_ai import VisualAI
 
         assert CodeAnalyzerAgent is not None
         assert TestPlannerAgent is not None
@@ -482,6 +482,7 @@ class TestAgentIntegration:
     def test_evaluation_framework_works(self):
         """Evaluation framework should run successfully."""
         import asyncio
+
         from tests.evaluation.runner import run_quick_evaluation
 
         # Run with mocked APIs
@@ -489,7 +490,7 @@ class TestAgentIntegration:
 
         assert metrics.total_tests > 0
         assert metrics.pass_rate >= 0.0
-        print(f"\n📊 Quick Evaluation Results:")
+        print("\n📊 Quick Evaluation Results:")
         print(f"   Total Tests: {metrics.total_tests}")
         print(f"   Pass Rate: {metrics.pass_rate:.1%}")
         print(f"   Overall Score: {metrics.avg_overall_score:.2f}")
@@ -507,6 +508,7 @@ class TestBenchmarks:
     def test_code_analysis_latency(self, mock_anthropic):
         """Code analysis should complete within acceptable time."""
         import time
+
         from src.agents.code_analyzer import CodeAnalyzerAgent
 
         mock_response = MagicMock()
@@ -529,9 +531,10 @@ class TestBenchmarks:
     def test_memory_usage(self):
         """Agents should have reasonable memory footprint."""
         import sys
+
         from src.agents.code_analyzer import CodeAnalyzerAgent
-        from src.agents.test_planner import TestPlannerAgent
         from src.agents.self_healer import SelfHealerAgent
+        from src.agents.test_planner import TestPlannerAgent
 
         agents = [
             CodeAnalyzerAgent(),

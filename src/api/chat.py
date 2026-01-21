@@ -249,12 +249,13 @@ async def stream_message(
     # Build AI config from user preferences - use authenticated user_id
     try:
         ai_config = await _build_ai_config(request.ai_config, user.user_id)
-    except Exception as e:
-        logger.exception("Failed to build AI config", user_id=user.user_id, error=str(e))
+    except Exception as config_error:
+        logger.exception("Failed to build AI config", user_id=user.user_id, error=str(config_error))
+        # Capture error message before it goes out of scope
+        error_message = str(config_error) if str(config_error) else "Failed to configure AI model"
         # Return error in AI SDK stream format
         async def error_stream():
-            error_msg = str(e) if str(e) else "Failed to configure AI model"
-            yield f'3:{json.dumps(error_msg)}\n'
+            yield f'3:{json.dumps(error_message)}\n'
             yield f'd:{json.dumps({"finishReason": "error"})}\n'
         return StreamingResponse(
             error_stream(),

@@ -28,7 +28,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 # Add project root to path
@@ -217,7 +217,7 @@ Examples:
                 "domains": args.domain,
                 "difficulties": args.difficulty,
                 "attempts": args.attempts,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             report_path.write_text(json.dumps(report_data, indent=2, default=str))
             print(f"\n📄 Detailed report saved to: {args.report}")

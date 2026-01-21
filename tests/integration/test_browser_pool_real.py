@@ -483,7 +483,7 @@ async def test_observe_page():
     tester = BrowserPoolTester()
     result = await tester.test_observe_simple_page()
 
-    print(f"\nObserve Result:")
+    print("\nObserve Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Details: {result.details}")
@@ -499,7 +499,7 @@ async def test_act_screenshot():
     tester = BrowserPoolTester()
     result = await tester.test_act_screenshot()
 
-    print(f"\nScreenshot Result:")
+    print("\nScreenshot Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Mode: {result.execution_mode}")
@@ -516,7 +516,7 @@ async def test_multi_step():
     tester = BrowserPoolTester()
     result = await tester.test_multi_step_flow()
 
-    print(f"\nMulti-step Result:")
+    print("\nMulti-step Result:")
     print(f"  Passed: {result.passed}")
     print(f"  Latency: {result.latency_ms:.0f}ms")
     print(f"  Details: {result.details}")

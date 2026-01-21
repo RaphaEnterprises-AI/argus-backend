@@ -11,10 +11,10 @@ Use this for initial setup or when you need to create keys for users who can't a
 import argparse
 import asyncio
 import hashlib
+import os
 import secrets
 import sys
-import os
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import uuid4
 
 # Add project root to path
@@ -49,7 +49,7 @@ async def get_user_organization(supabase, email: str) -> tuple[str, str, str]:
         # Try finding by user_id pattern (Clerk user IDs)
         result = await supabase.request(
             "GET",
-            f"/organization_members?select=id,user_id,organization_id,organizations(id,name)"
+            "/organization_members?select=id,user_id,organization_id,organizations(id,name)"
         )
 
         if not result.get("data"):
@@ -95,7 +95,7 @@ async def create_api_key(
     # Calculate expiration
     expires_at = None
     if expires_in_days:
-        expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_in_days)).isoformat()
+        expires_at = (datetime.now(UTC) + timedelta(days=expires_in_days)).isoformat()
 
     # Default scopes
     if scopes is None:
@@ -112,7 +112,7 @@ async def create_api_key(
         "scopes": scopes,
         "expires_at": expires_at,
         "created_by": user_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "request_count": 0,
     }
 

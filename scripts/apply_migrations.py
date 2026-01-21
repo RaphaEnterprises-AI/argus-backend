@@ -6,6 +6,7 @@ Apply pending Supabase migrations.
 import os
 import sys
 from pathlib import Path
+
 import httpx
 from dotenv import load_dotenv
 
@@ -33,7 +34,7 @@ def apply_migration(migration_file: Path):
     print(f"Applying migration: {migration_file.name}")
     print(f"{'=' * 80}")
 
-    with open(migration_file, "r") as f:
+    with open(migration_file) as f:
         sql = f.read()
 
     # Execute via Supabase REST API using PostgREST RPC
@@ -65,8 +66,8 @@ def apply_migration(migration_file: Path):
         # Or we can execute via the Management API
 
         print(f"✓ Migration {migration_file.name} would be applied")
-        print(f"  (In production, execute this SQL manually in Supabase SQL Editor)")
-        print(f"\nSQL Preview (first 500 chars):")
+        print("  (In production, execute this SQL manually in Supabase SQL Editor)")
+        print("\nSQL Preview (first 500 chars):")
         print(sql[:500])
         print("...")
 
@@ -74,7 +75,7 @@ def apply_migration(migration_file: Path):
 
     except ImportError:
         print("Note: psycopg not installed. Showing SQL for manual execution.")
-        print(f"\nPlease execute this in Supabase SQL Editor:")
+        print("\nPlease execute this in Supabase SQL Editor:")
         print(f"\n{sql[:1000]}\n...")
         return False
 

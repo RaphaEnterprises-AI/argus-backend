@@ -10,11 +10,12 @@ Based on Anthropic's architecture:
 - Result synthesis by supervisor
 """
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable
-import asyncio
+from typing import Any
 
 import structlog
 

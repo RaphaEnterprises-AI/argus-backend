@@ -71,6 +71,7 @@ async def setup_checkpointer() -> CheckpointerType:
             # Import async checkpointer
             import socket
             from urllib.parse import urlparse
+
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
             # Force IPv4 by resolving hostname and using hostaddr
