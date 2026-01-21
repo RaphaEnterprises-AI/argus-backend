@@ -74,6 +74,7 @@ from src.integrations.reporter import create_report_from_state, create_reporter
 from src.orchestrator.checkpointer import setup_checkpointer, shutdown_checkpointer
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 
@@ -301,8 +302,11 @@ jobs: dict[str, dict] = {}
 class TestRunRequest(BaseModel):
     """Request to start a test run."""
 
+    project_id: str = Field(..., description="Project ID for storing test results")
     codebase_path: str = Field(..., description="Path to codebase to analyze")
     app_url: str = Field(..., description="URL of the application to test")
+    name: str | None = Field(None, description="Name for the test run")
+    trigger: str = Field("ci", description="Trigger source: manual, scheduled, webhook, ci")
     pr_number: int | None = Field(None, description="PR number for GitHub integration")
     changed_files: list[str] | None = Field(None, description="Specific files to focus on")
     max_tests: int | None = Field(None, description="Maximum number of tests to run")
@@ -313,6 +317,7 @@ class TestRunResponse(BaseModel):
     """Response after starting a test run."""
 
     job_id: str
+    run_id: str  # Supabase test_runs record ID
     status: str
     message: str
     created_at: str
@@ -550,12 +555,49 @@ async def start_test_run(request: TestRunRequest, background_tasks: BackgroundTa
     Start a new test run.
 
     The test run executes in the background. Use the returned job_id to check status.
+    Results are persisted to Supabase test_runs table for UI visibility.
     """
     job_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    created_at = datetime.now(UTC).isoformat()
 
+    # Create test_runs record in Supabase
+    supabase = get_supabase_client()
+    test_run_data = {
+        "id": run_id,
+        "project_id": request.project_id,
+        "name": request.name or f"API Test Run - {created_at[:10]}",
+        "trigger": request.trigger,
+        "status": "pending",
+        "app_url": request.app_url,
+        "environment": "production",
+        "browser": "chromium",
+        "total_tests": 0,
+        "passed_tests": 0,
+        "failed_tests": 0,
+        "skipped_tests": 0,
+        "ci_metadata": {
+            "job_id": job_id,
+            "pr_number": request.pr_number,
+            "codebase_path": request.codebase_path,
+            "focus_areas": request.focus_areas,
+        },
+        "created_at": created_at,
+    }
+
+    result = await supabase.insert("test_runs", test_run_data)
+    if result.get("error"):
+        logger.error("Failed to create test_runs record", error=result["error"], run_id=run_id)
+        raise HTTPException(status_code=500, detail=f"Failed to create test run: {result['error']}")
+
+    logger.info("Created test_runs record in Supabase", run_id=run_id, project_id=request.project_id)
+
+    # Store in memory for job status tracking
     jobs[job_id] = {
         "status": "pending",
-        "created_at": datetime.now(UTC).isoformat(),
+        "run_id": run_id,
+        "project_id": request.project_id,
+        "created_at": created_at,
         "request": request.model_dump(),
         "progress": {"phase": "initializing", "tests_completed": 0},
     }
@@ -564,6 +606,8 @@ async def start_test_run(request: TestRunRequest, background_tasks: BackgroundTa
     background_tasks.add_task(
         run_tests_background,
         job_id,
+        run_id,
+        request.project_id,
         request.codebase_path,
         request.app_url,
         request.pr_number,
@@ -571,28 +615,41 @@ async def start_test_run(request: TestRunRequest, background_tasks: BackgroundTa
         request.focus_areas,
     )
 
-    logger.info("Test run started", job_id=job_id, app_url=request.app_url)
+    logger.info("Test run started", job_id=job_id, run_id=run_id, app_url=request.app_url)
 
     return TestRunResponse(
         job_id=job_id,
+        run_id=run_id,
         status="pending",
         message="Test run started. Use /api/v1/jobs/{job_id} to check status.",
-        created_at=jobs[job_id]["created_at"],
+        created_at=created_at,
     )
 
 
 async def run_tests_background(
     job_id: str,
+    run_id: str,
+    project_id: str,
     codebase_path: str,
     app_url: str,
     pr_number: int | None,
     changed_files: list[str] | None,
     focus_areas: list[str] | None,
 ):
-    """Background task to run tests."""
+    """Background task to run tests. Updates Supabase test_runs record."""
+    supabase = get_supabase_client()
+    started_at = datetime.now(UTC).isoformat()
+
     try:
         jobs[job_id]["status"] = "running"
         jobs[job_id]["progress"]["phase"] = "analyzing"
+
+        # Update Supabase: status = running
+        await supabase.update(
+            "test_runs",
+            {"id": f"eq.{run_id}"},
+            {"status": "running", "started_at": started_at},
+        )
 
         # Create orchestrator
         orchestrator = TestingOrchestrator(
@@ -620,20 +677,64 @@ async def run_tests_background(
         # Get summary
         summary = orchestrator.get_run_summary(final_state)
 
+        completed_at = datetime.now(UTC).isoformat()
+        duration_ms = int((datetime.fromisoformat(completed_at.replace("Z", "+00:00")) -
+                          datetime.fromisoformat(started_at.replace("Z", "+00:00"))).total_seconds() * 1000)
+
+        # Determine final status based on results
+        total_tests = summary.get("total_tests", 0)
+        passed_tests = summary.get("passed", 0)
+        failed_tests = summary.get("failed", 0)
+        skipped_tests = summary.get("skipped", 0)
+        final_status = "passed" if failed_tests == 0 else "failed"
+
+        # Update Supabase with final results
+        await supabase.update(
+            "test_runs",
+            {"id": f"eq.{run_id}"},
+            {
+                "status": final_status,
+                "total_tests": total_tests,
+                "passed_tests": passed_tests,
+                "failed_tests": failed_tests,
+                "skipped_tests": skipped_tests,
+                "duration_ms": duration_ms,
+                "completed_at": completed_at,
+            },
+        )
+
         jobs[job_id]["status"] = "completed"
-        jobs[job_id]["completed_at"] = datetime.now(UTC).isoformat()
+        jobs[job_id]["completed_at"] = completed_at
         jobs[job_id]["result"] = {
+            "run_id": run_id,
             "summary": summary,
             "report_paths": {k: str(v) for k, v in report_paths.items()},
         }
 
-        logger.info("Test run completed", job_id=job_id, summary=summary)
+        logger.info(
+            "Test run completed",
+            job_id=job_id,
+            run_id=run_id,
+            status=final_status,
+            total=total_tests,
+            passed=passed_tests,
+            failed=failed_tests,
+        )
 
     except Exception as e:
-        logger.exception("Test run failed", job_id=job_id, error=str(e))
+        completed_at = datetime.now(UTC).isoformat()
+        logger.exception("Test run failed", job_id=job_id, run_id=run_id, error=str(e))
+
+        # Update Supabase with failure status
+        await supabase.update(
+            "test_runs",
+            {"id": f"eq.{run_id}"},
+            {"status": "failed", "completed_at": completed_at},
+        )
+
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
-        jobs[job_id]["completed_at"] = datetime.now(UTC).isoformat()
+        jobs[job_id]["completed_at"] = completed_at
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse, tags=["Testing"])
