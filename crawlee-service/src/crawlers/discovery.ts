@@ -441,6 +441,28 @@ export async function runDiscoveryCrawl(config: DiscoveryConfig): Promise<Discov
           screenshot = buffer.toString('base64');
         }
 
+        // Save video if recording is enabled
+        // video.saveAs() waits until the video is fully saved
+        if (config.recordVideo) {
+          try {
+            const video = page.video();
+            if (video) {
+              const path = await import('path');
+              const videoFileName = `${sessionId}-${depth}.webm`;
+              const videoFilePath = path.join(videoDir, videoFileName);
+              console.log(`Saving video to: ${videoFilePath}`);
+              await video.saveAs(videoFilePath);
+              console.log(`Video saved successfully: ${videoFilePath}`);
+              // Store the path for later retrieval
+              videoPath = videoFilePath;
+            } else {
+              console.log('No video object available for this page');
+            }
+          } catch (videoError) {
+            console.error(`Failed to save video: ${videoError}`);
+          }
+        }
+
         const loadTimeMs = Date.now() - pageStartTime;
 
         // Store page data
