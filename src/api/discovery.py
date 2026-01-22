@@ -472,6 +472,8 @@ async def get_session_or_404(session_id: str) -> dict:
                     "completed_at": db_session.get("completed_at"),
                     "errors": [],
                     "coverage_score": db_session.get("quality_score", 0),
+                    # Video recording info (for signed URL regeneration)
+                    "video_artifact_id": db_session.get("video_artifact_id"),
                     # No events_queue for completed sessions loaded from DB
                     "events_queue": None,
                 }
