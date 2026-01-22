@@ -19,6 +19,12 @@ global:
 # ============================================================================
 # VIDEO RECORDER - Global settings for all browser nodes
 # Uses rclone for S3-compatible upload to Cloudflare R2
+#
+# Architecture:
+# 1. Video recorder sidecar captures screen during session
+# 2. When session ends, video is saved as {session_id}.mp4
+# 3. Uploader copies video to R2: R2://argus-artifacts/videos/{session_id}.mp4
+# 4. Python backend constructs URL: /artifacts/video/{session_id}
 # ============================================================================
 videoRecorder:
   # Enable video recording for all browser sessions
@@ -27,6 +33,15 @@ videoRecorder:
   sidecarContainer: true
   # Video storage directory inside container
   targetFolder: "/videos"
+
+  # CRITICAL: These env vars enable upload functionality
+  # SE_VIDEO_FILE_NAME=auto uses session ID as filename
+  extraEnvs:
+    - name: SE_VIDEO_UPLOAD_ENABLED
+      value: "true"
+    - name: SE_VIDEO_FILE_NAME
+      value: "auto"
+
   # Resource limits for video recorder container
   resources:
     requests:

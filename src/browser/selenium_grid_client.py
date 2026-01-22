@@ -203,12 +203,21 @@ class SeleniumGridClient:
         except Exception as e:
             raise SeleniumGridError(f"Failed to start session: {e}")
 
-    async def end_session(self) -> dict:
+    async def end_session(self, wait_for_upload: bool = True) -> dict:
         """
         End the current browser session.
 
         This triggers the video sidecar to stop recording and upload to R2.
-        Video path: r2://argus-artifacts/videos/{session_id}.mp4
+        Video upload happens asynchronously after session close.
+
+        Architecture (from Selenium Grid docs):
+        1. Session delete triggers video recorder to stop
+        2. Video file is finalized as {session_id}.mp4
+        3. Uploader copies to R2://argus-artifacts/videos/{session_id}.mp4
+        4. This takes 5-30 seconds depending on video length
+
+        Args:
+            wait_for_upload: Wait a bit for upload to complete (default True)
 
         Returns:
             Session end result with video info
@@ -223,23 +232,30 @@ class SeleniumGridClient:
             response = await self._client.delete(f"session/{session_id}")
             response.raise_for_status()
 
-            # Video is uploaded to R2 by the sidecar
+            # Video is uploaded to R2 by the Selenium Grid sidecar
             # Path convention: videos/{session_id}.mp4
+            # SE_VIDEO_FILE_NAME=auto ensures filename = session_id
             video_path = f"videos/{session_id}.mp4"
 
             logger.info(
-                "Ended Selenium session",
+                "Ended Selenium session - video upload starting",
                 session_id=session_id,
                 video_path=video_path,
             )
 
             self._session_id = None
 
+            # Give the uploader sidecar time to finish
+            # Video upload is async and may take 5-30 seconds
+            if wait_for_upload:
+                logger.info("Waiting for video upload to complete...", session_id=session_id)
+                await asyncio.sleep(10)  # Wait for upload to start/complete
+
             return {
                 "success": True,
                 "session_id": session_id,
                 "video_path": video_path,
-                "video_artifact_id": session_id,  # Use session ID as artifact ID
+                "video_artifact_id": session_id,  # Session ID = video filename
             }
 
         except Exception as e:
