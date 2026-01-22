@@ -57,14 +57,19 @@ RUN pip install --upgrade pip && \
 # Copy application code
 COPY src/ /app/src/
 
-# Create output directories
-RUN mkdir -p /app/test-results /app/baselines
-
-# Expose port (Railway sets PORT env var)
-EXPOSE 8000
+# Create output directories and non-root user
+RUN mkdir -p /app/test-results /app/baselines && \
+    groupadd -r argus && useradd -r -g argus argus && \
+    chown -R argus:argus /app
 
 # Create startup script that handles PORT properly
 RUN echo '#!/bin/sh\necho "Starting Argus Backend on port ${PORT:-8000}"\nexec uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-8000}' > /app/start.sh && chmod +x /app/start.sh
+
+# Switch to non-root user
+USER argus
+
+# Expose port (Railway sets PORT env var)
+EXPOSE 8000
 
 # Use exec form with shell for variable expansion
 CMD ["/bin/sh", "/app/start.sh"]
