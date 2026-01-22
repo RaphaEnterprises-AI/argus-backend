@@ -347,7 +347,8 @@ class ChangeDetector:
         # Compare by content hash
         def hash_step(step: dict) -> str:
             return hashlib.md5(
-                json.dumps(step, sort_keys=True).encode()
+                json.dumps(step, sort_keys=True).encode(),
+                usedforsecurity=False
             ).hexdigest()
 
         old_hashes = set(hash_step(s) for s in old_steps)

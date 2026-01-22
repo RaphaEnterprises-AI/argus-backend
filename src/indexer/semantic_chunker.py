@@ -667,7 +667,7 @@ class SemanticChunker:
     def _generate_id(self, file_path: str, name: str, line: int) -> str:
         """Generate unique chunk ID."""
         key = f"{file_path}:{name}:{line}"
-        return hashlib.md5(key.encode()).hexdigest()[:12]
+        return hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()[:12]
 
     def _hash_content(self, content: str) -> str:
         """Hash content for change detection."""

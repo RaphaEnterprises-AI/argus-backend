@@ -1946,8 +1946,11 @@ class TestResultSummary(BaseModel):
 
 
 def parse_junit_xml(report_data: str) -> TestResultSummary:
-    """Parse JUnit XML test results."""
-    import xml.etree.ElementTree as ET
+    """Parse JUnit XML test results.
+
+    Uses defusedxml to prevent XXE (XML External Entity) attacks.
+    """
+    import defusedxml.ElementTree as ET
 
     try:
         root = ET.fromstring(report_data)

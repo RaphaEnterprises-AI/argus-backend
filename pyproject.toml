@@ -17,39 +17,31 @@ dependencies = [
     "langgraph>=1.0.5,<2.0.0",  # Latest stable v1.x
     "langchain-anthropic>=1.3.0,<2.0.0",  # Latest v1.x
     "langchain-core>=1.2.5,<2.0.0",  # Latest v1.x
-
     # Web automation (multi-framework support)
     "playwright>=1.48.0",
     "selenium>=4.25.0",
     "webdriver-manager>=4.0.0",
     "httpx>=0.27.0",
     "websockets>=13.0",
-
     # Cloud storage (S3-compatible presigned URLs)
     "boto3>=1.34.0",
-
     # Data validation
     "pydantic>=2.9.0",
     "pydantic-settings>=2.5.0",
     "email-validator>=2.1.0",  # Required for EmailStr
-
     # Database
     "sqlalchemy>=2.0.0",
     "asyncpg>=0.29.0",
-
     # LangGraph Checkpointing (durable execution)
     "langgraph-checkpoint>=2.0.0",
     "langgraph-checkpoint-postgres>=2.0.0",
     "psycopg[binary]>=3.1.0",
     "psycopg-pool>=3.2.0",  # Async connection pooling for PostgresSaver
-
     # MCP
     "mcp>=1.0.0",
     "langchain-mcp-adapters>=0.1.0",
-
     # Docker
     "docker>=7.0.0",
-
     # Utilities
     "rich>=13.9.0",
     "structlog>=24.4.0",
@@ -59,28 +51,23 @@ dependencies = [
     "numpy>=1.26.0",
     "imagehash>=4.3.0",  # Perceptual image hashing
     "scikit-image>=0.22.0",  # SSIM and image metrics
-
     # API server (for webhooks)
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     "python-multipart>=0.0.6",
     "sse-starlette>=2.0.0",
-
     # Supabase integration
     "supabase>=2.0.0",
     "aiohttp>=3.9.0",
-
     # Email
     "aiosmtplib>=3.0.0",
-
     # Embeddings for memory store
     "openai>=1.0.0",
-
     # Security / JWT
     "PyJWT[crypto]>=2.8.0",  # JWT with RS256 support for Clerk
-
     # Error Monitoring
     "sentry-sdk[fastapi]>=2.0.0",  # Sentry for error tracking and performance monitoring
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]

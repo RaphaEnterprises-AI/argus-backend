@@ -365,7 +365,7 @@ Key analysis patterns to consider:
             context.test_name,
             context.error_message[:100] if context.error_message else "",
         ]
-        return hashlib.md5("|".join(key_parts).encode()).hexdigest()
+        return hashlib.md5("|".join(key_parts).encode(), usedforsecurity=False).hexdigest()
 
     def _record_failure(self, context: FailureContext, result: RootCauseResult):
         """Record failure for future pattern detection."""

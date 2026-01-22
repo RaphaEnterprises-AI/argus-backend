@@ -346,7 +346,7 @@ class BrowserPoolClient:
     def _cache_key(self, url: str, description: str) -> str:
         """Generate a cache key for selector caching."""
         content = f"{url}:{description}"
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
 
     async def health(self, use_cache: bool = True) -> PoolHealth:
         """

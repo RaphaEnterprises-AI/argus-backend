@@ -1329,7 +1329,7 @@ async def semantic_search(request: SemanticSearchRequest):
                     {
                         "id": event.get("id"),
                         "score": round(score, 3),
-                        "pattern_hash": hashlib.md5(event_text[:100].encode()).hexdigest()[:12],
+                        "pattern_hash": hashlib.md5(event_text[:100].encode(), usedforsecurity=False).hexdigest()[:12],
                         "category": event.get("severity", "error"),
                         "example_message": event.get("message", "")[:200],
                         "known_solutions": [],
