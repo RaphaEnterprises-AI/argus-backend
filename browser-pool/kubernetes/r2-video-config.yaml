@@ -1,0 +1,67 @@
+# Cloudflare R2 Configuration for Video Recording
+# This file contains the ConfigMap and Secret templates for R2 video upload
+#
+# Deploy with:
+#   kubectl apply -f r2-video-config.yaml -n selenium-grid
+#
+# IMPORTANT: Update the secret with your actual R2 credentials before applying!
+
+---
+# ConfigMap with non-sensitive R2 configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: r2-config
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: video-storage
+data:
+  # Cloudflare Account ID (found in R2 dashboard)
+  account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
+
+  # R2 Bucket name
+  bucket: "argus-artifacts"
+
+  # Optional: API callback URL for metadata persistence
+  # Leave empty if not using callback
+  api_callback_url: "https://argus-brain-production.up.railway.app"
+
+---
+# Secret with sensitive R2 credentials
+# IMPORTANT: Replace placeholder values with actual credentials!
+#
+# Get these from Cloudflare Dashboard:
+# 1. Go to R2 > Overview
+# 2. Click "Manage R2 API Tokens"
+# 3. Create a token with "Edit" permissions for your bucket
+#
+apiVersion: v1
+kind: Secret
+metadata:
+  name: r2-credentials
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: video-storage
+type: Opaque
+stringData:
+  # R2 Access Key ID (starts with a hex string)
+  access_key_id: "YOUR_R2_ACCESS_KEY_ID"
+
+  # R2 Secret Access Key
+  secret_access_key: "YOUR_R2_SECRET_ACCESS_KEY"
+
+---
+# Alternative: Use SealedSecret for GitOps (if you have sealed-secrets installed)
+# Encrypt your secret with: kubeseal --format yaml < secret.yaml > sealed-secret.yaml
+#
+# apiVersion: bitnami.com/v1alpha1
+# kind: SealedSecret
+# metadata:
+#   name: r2-credentials
+#   namespace: selenium-grid
+# spec:
+#   encryptedData:
+#     access_key_id: <encrypted>
+#     secret_access_key: <encrypted>

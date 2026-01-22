@@ -376,6 +376,312 @@ class R2Storage:
             logger.exception("Failed to generate signed URL", error=str(e))
             return None
 
+    # =========================================================================
+    # Video Storage Methods (Following Official R2 Documentation)
+    # https://developers.cloudflare.com/r2/api/s3/presigned-urls/
+    # https://developers.cloudflare.com/r2/objects/upload-objects/
+    # =========================================================================
+
+    def generate_video_upload_url(
+        self,
+        artifact_id: str,
+        content_type: str = "video/webm",
+        expiry_seconds: int = 3600,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Generate a presigned PUT URL for direct video upload to R2.
+
+        This follows the official R2 presigned URL pattern where external services
+        (like BrowserPool) can upload directly to R2 without exposing credentials.
+
+        Per Cloudflare docs:
+        - Presigned URLs support GET, PUT, HEAD, DELETE operations
+        - Max expiry: 7 days (604,800 seconds)
+        - Must use signature_version='s3v4'
+
+        Args:
+            artifact_id: Unique identifier for the video (e.g., video_abc123_timestamp)
+            content_type: MIME type (video/webm, video/mp4). Must match upload Content-Type header.
+            expiry_seconds: URL validity (default 1 hour, max 604,800 = 7 days)
+            metadata: Optional metadata to associate with the upload
+
+        Returns:
+            Dict with upload_url, artifact_id, storage_key, and expiry info
+            None if R2 credentials not configured
+        """
+        if not self.config.r2_access_key_id or not self.config.r2_secret_access_key:
+            logger.warning("R2 access keys not configured, cannot generate upload URL")
+            return None
+
+        try:
+            import boto3
+            from botocore.config import Config
+
+            # R2 S3-compatible endpoint (per official docs)
+            endpoint_url = f"https://{self.config.account_id}.r2.cloudflarestorage.com"
+
+            # Create S3 client with proper R2 configuration
+            # Per docs: signature_version='s3v4' is required
+            s3_client = boto3.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                aws_access_key_id=self.config.r2_access_key_id,
+                aws_secret_access_key=self.config.r2_secret_access_key,
+                config=Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "path"},
+                ),
+                region_name="auto",  # R2 uses 'auto' region
+            )
+
+            # Determine file extension from content type
+            ext = "webm" if "webm" in content_type else "mp4"
+            storage_key = f"videos/{artifact_id}.{ext}"
+
+            # Enforce max expiry per R2 docs (7 days = 604,800 seconds)
+            expiry = min(expiry_seconds, 604800)
+
+            # Generate presigned PUT URL
+            # Per docs: ContentType in Params restricts upload to matching Content-Type header
+            upload_url = s3_client.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": self.config.r2_bucket,
+                    "Key": storage_key,
+                    "ContentType": content_type,
+                },
+                ExpiresIn=expiry,
+            )
+
+            logger.info(
+                "Generated video upload presigned URL",
+                artifact_id=artifact_id,
+                storage_key=storage_key,
+                content_type=content_type,
+                expiry_seconds=expiry,
+            )
+
+            return {
+                "upload_url": upload_url,
+                "artifact_id": artifact_id,
+                "storage_key": storage_key,
+                "content_type": content_type,
+                "bucket": self.config.r2_bucket,
+                "expiry_seconds": expiry,
+                "metadata": metadata or {},
+            }
+
+        except ImportError:
+            logger.error("boto3 not installed, presigned URLs unavailable")
+            return None
+        except Exception as e:
+            logger.exception("Failed to generate video upload URL", error=str(e))
+            return None
+
+    async def confirm_video_upload(
+        self,
+        artifact_id: str,
+        storage_key: str,
+        file_size_bytes: int | None = None,
+        duration_seconds: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Confirm video upload and save metadata to Supabase.
+
+        Call this after BrowserPool successfully uploads to the presigned URL.
+        This saves the artifact reference to Supabase for querying/serving.
+
+        Args:
+            artifact_id: The artifact ID used when generating upload URL
+            storage_key: The R2 object key (e.g., videos/video_abc123.webm)
+            file_size_bytes: Size of uploaded video (optional but recommended)
+            duration_seconds: Video duration (optional)
+            metadata: Additional metadata (session_id, project_id, etc.)
+
+        Returns:
+            Artifact reference dict with URLs
+        """
+        metadata = metadata or {}
+
+        # Determine content type from storage key
+        content_type = "video/webm" if storage_key.endswith(".webm") else "video/mp4"
+
+        # Generate serving URL via Worker (preferred - no expiry)
+        worker_url = f"{self.config.worker_url}/videos/{artifact_id}"
+
+        # Also generate presigned GET URL as fallback
+        presigned_url = self._generate_video_presigned_get_url(storage_key)
+
+        artifact_ref = {
+            "artifact_id": artifact_id,
+            "type": "video",
+            "storage": "r2",
+            "storage_key": storage_key,
+            "url": worker_url,
+            "presigned_url": presigned_url,
+            "content_type": content_type,
+            "file_size_bytes": file_size_bytes,
+            "duration_seconds": duration_seconds,
+            "metadata": metadata,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+
+        # Save metadata to Supabase artifacts table
+        try:
+            from src.integrations.supabase import get_supabase
+
+            supabase = await get_supabase()
+            if supabase:
+                await supabase.insert(
+                    "artifacts",
+                    {
+                        "id": artifact_id,
+                        "organization_id": metadata.get("organization_id"),
+                        "project_id": metadata.get("project_id"),
+                        "user_id": metadata.get("user_id", "anonymous"),
+                        "type": "video",
+                        "storage_backend": "r2",
+                        "storage_key": storage_key,
+                        "storage_url": worker_url,
+                        "test_id": metadata.get("test_id"),
+                        "test_run_id": metadata.get("test_run_id"),
+                        "thread_id": metadata.get("thread_id"),
+                        "step_index": metadata.get("step_index"),
+                        "action_description": metadata.get("description", "Session recording"),
+                        "file_size_bytes": file_size_bytes,
+                        "content_type": content_type,
+                        "metadata": {
+                            **metadata,
+                            "duration_seconds": duration_seconds,
+                        },
+                    },
+                )
+                logger.info(
+                    "Saved video artifact metadata to Supabase",
+                    artifact_id=artifact_id,
+                    file_size_kb=file_size_bytes // 1024 if file_size_bytes else None,
+                )
+        except Exception as db_error:
+            logger.warning(
+                "Failed to save video artifact metadata to Supabase",
+                artifact_id=artifact_id,
+                error=str(db_error),
+            )
+
+        return artifact_ref
+
+    def _generate_video_presigned_get_url(
+        self,
+        storage_key: str,
+        expiry_seconds: int | None = None,
+    ) -> str | None:
+        """Generate presigned GET URL for video download."""
+        if not self.config.r2_access_key_id or not self.config.r2_secret_access_key:
+            return None
+
+        try:
+            import boto3
+            from botocore.config import Config
+
+            endpoint_url = f"https://{self.config.account_id}.r2.cloudflarestorage.com"
+
+            s3_client = boto3.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                aws_access_key_id=self.config.r2_access_key_id,
+                aws_secret_access_key=self.config.r2_secret_access_key,
+                config=Config(signature_version="s3v4"),
+                region_name="auto",
+            )
+
+            expiry = expiry_seconds or self.config.r2_presigned_url_expiry
+
+            return s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.config.r2_bucket,
+                    "Key": storage_key,
+                },
+                ExpiresIn=expiry,
+            )
+        except Exception as e:
+            logger.warning("Failed to generate video presigned GET URL", error=str(e))
+            return None
+
+    async def store_video_from_bytes(
+        self,
+        video_bytes: bytes,
+        content_type: str = "video/webm",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Store video directly from bytes (for smaller videos < 5GB).
+
+        Use this when you have the video data in memory.
+        For larger videos or external uploads, use generate_video_upload_url().
+
+        Per R2 docs: Single-part upload limit is 5GB (4.995 GiB).
+
+        Args:
+            video_bytes: Raw video data
+            content_type: MIME type (video/webm, video/mp4)
+            metadata: Optional metadata
+
+        Returns:
+            Artifact reference dict with URLs
+        """
+        metadata = metadata or {}
+
+        # Generate content-based ID for deduplication
+        content_hash = hashlib.sha256(video_bytes[:10000]).hexdigest()[:16]
+        artifact_id = f"video_{content_hash}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+        # Determine extension
+        ext = "webm" if "webm" in content_type else "mp4"
+        storage_key = f"videos/{artifact_id}.{ext}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{self.base_url}/objects/{storage_key}",
+                    headers={
+                        **self.headers,
+                        "Content-Type": content_type,
+                    },
+                    content=video_bytes,
+                    timeout=120.0,  # Longer timeout for video uploads
+                )
+
+                if response.status_code in [200, 201]:
+                    logger.info(
+                        "Stored video in R2",
+                        artifact_id=artifact_id,
+                        size_mb=len(video_bytes) / (1024 * 1024),
+                    )
+
+                    # Confirm upload and save metadata
+                    return await self.confirm_video_upload(
+                        artifact_id=artifact_id,
+                        storage_key=storage_key,
+                        file_size_bytes=len(video_bytes),
+                        metadata=metadata,
+                    )
+                else:
+                    logger.error(
+                        "Failed to store video in R2",
+                        status=response.status_code,
+                        response=response.text[:200],
+                    )
+                    raise Exception(f"R2 video upload failed: {response.status_code}")
+
+        except Exception as e:
+            logger.exception("R2 video storage error", error=str(e))
+            return {
+                "artifact_id": artifact_id,
+                "type": "video",
+                "storage": "failed",
+                "error": str(e),
+            }
+
     def _convert_buffer_to_base64(self, screenshot: Any) -> str | None:
         """Convert various screenshot formats to base64 string.
 

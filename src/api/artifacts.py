@@ -9,6 +9,8 @@ receives artifact IDs in tool results.
 """
 
 import base64
+import hashlib
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -379,6 +381,360 @@ async def list_recent_artifacts(
         artifacts=artifacts[:limit],
         total=len(artifacts),
     )
+
+
+# =============================================================================
+# Video Upload Endpoints (Following Official R2 Documentation)
+# https://developers.cloudflare.com/r2/api/s3/presigned-urls/
+# =============================================================================
+
+
+class VideoUploadRequest(BaseModel):
+    """Request for generating a video upload presigned URL."""
+    content_type: str = Field(default="video/webm", description="Video MIME type (video/webm or video/mp4)")
+    file_size_bytes: int | None = Field(default=None, description="Expected file size for validation")
+    session_id: str | None = Field(default=None, description="Discovery session ID")
+    project_id: str | None = Field(default=None, description="Project ID")
+    metadata: dict | None = Field(default=None, description="Additional metadata")
+
+
+class VideoUploadUrlResponse(BaseModel):
+    """Response with presigned URL for video upload."""
+    artifact_id: str
+    upload_url: str = Field(..., description="Presigned PUT URL for direct R2 upload")
+    storage_key: str = Field(..., description="R2 object key")
+    content_type: str
+    expiry_seconds: int
+    callback_url: str = Field(..., description="URL to call after upload completes")
+
+
+class VideoUploadConfirmRequest(BaseModel):
+    """Request to confirm video upload completion."""
+    artifact_id: str
+    storage_key: str
+    file_size_bytes: int | None = None
+    duration_seconds: float | None = None
+    session_id: str | None = None
+    project_id: str | None = None
+    metadata: dict | None = None
+
+
+class VideoArtifactResponse(BaseModel):
+    """Response with video artifact details."""
+    artifact_id: str
+    type: str = "video"
+    url: str = Field(..., description="Worker URL for video access")
+    presigned_url: str | None = Field(None, description="Presigned GET URL (backup)")
+    content_type: str
+    file_size_bytes: int | None = None
+    duration_seconds: float | None = None
+    metadata: dict | None = None
+
+
+@router.post("/videos/upload-url", response_model=VideoUploadUrlResponse)
+async def generate_video_upload_url(
+    request: VideoUploadRequest,
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Generate a presigned URL for direct video upload to R2.
+
+    This follows the official Cloudflare R2 presigned URL pattern:
+    1. External service (BrowserPool) requests upload URL
+    2. Service uploads directly to R2 using presigned PUT URL
+    3. Service calls callback URL to confirm upload
+
+    Per R2 docs:
+    - Presigned URLs valid for up to 7 days (604,800 seconds)
+    - Content-Type in URL must match upload header
+    - Single-part upload limit: 5GB
+
+    Args:
+        request: Video upload parameters including content type
+
+    Returns:
+        Presigned PUT URL and callback endpoint
+    """
+    if not is_cloudflare_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Cloudflare R2 storage not configured"
+        )
+
+    # Validate content type
+    valid_types = ["video/webm", "video/mp4", "video/x-matroska"]
+    if request.content_type not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid content type. Supported: {', '.join(valid_types)}"
+        )
+
+    # Check file size if provided (R2 single-part limit is 5GB)
+    max_size = 5 * 1024 * 1024 * 1024  # 5GB
+    if request.file_size_bytes and request.file_size_bytes > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail="File too large. Maximum single-part upload: 5GB. Use multipart for larger files."
+        )
+
+    try:
+        cf_client = get_cloudflare_client()
+
+        # Generate unique artifact ID
+        unique_str = f"{user.user_id}:{request.session_id or 'none'}:{datetime.now(UTC).isoformat()}"
+        content_hash = hashlib.sha256(unique_str.encode()).hexdigest()[:16]
+        artifact_id = f"video_{content_hash}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+        # Prepare metadata
+        metadata = request.metadata or {}
+        metadata.update({
+            "user_id": user.user_id,
+            "organization_id": user.organization_id,
+            "session_id": request.session_id,
+            "project_id": request.project_id,
+        })
+
+        # Generate presigned PUT URL
+        upload_info = cf_client.r2.generate_video_upload_url(
+            artifact_id=artifact_id,
+            content_type=request.content_type,
+            expiry_seconds=3600,  # 1 hour to upload
+            metadata=metadata,
+        )
+
+        if not upload_info:
+            raise HTTPException(
+                status_code=503,
+                detail="Failed to generate upload URL. R2 credentials may not be configured."
+            )
+
+        logger.info(
+            "Generated video upload URL",
+            artifact_id=artifact_id,
+            user_id=user.user_id,
+            content_type=request.content_type,
+        )
+
+        # Build callback URL for upload confirmation
+        import os
+        base_url = os.getenv("API_BASE_URL", "https://argus-brain-production.up.railway.app")
+        callback_url = f"{base_url}/api/v1/artifacts/videos/confirm"
+
+        return VideoUploadUrlResponse(
+            artifact_id=artifact_id,
+            upload_url=upload_info["upload_url"],
+            storage_key=upload_info["storage_key"],
+            content_type=request.content_type,
+            expiry_seconds=upload_info["expiry_seconds"],
+            callback_url=callback_url,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error generating video upload URL", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate upload URL: {str(e)}"
+        )
+
+
+@router.post("/videos/confirm", response_model=VideoArtifactResponse)
+async def confirm_video_upload(
+    request: VideoUploadConfirmRequest,
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Confirm video upload completion and save metadata to database.
+
+    Call this endpoint after successfully uploading to the presigned URL.
+    This saves the artifact reference to Supabase for querying and generates
+    the serving URL via Cloudflare Worker.
+
+    Args:
+        request: Upload confirmation with artifact details
+
+    Returns:
+        Video artifact with serving URLs
+    """
+    if not is_cloudflare_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Cloudflare R2 storage not configured"
+        )
+
+    try:
+        cf_client = get_cloudflare_client()
+
+        # Prepare metadata
+        metadata = request.metadata or {}
+        metadata.update({
+            "user_id": user.user_id,
+            "organization_id": user.organization_id,
+            "session_id": request.session_id,
+            "project_id": request.project_id,
+        })
+
+        # Confirm upload and save to Supabase
+        artifact_ref = await cf_client.r2.confirm_video_upload(
+            artifact_id=request.artifact_id,
+            storage_key=request.storage_key,
+            file_size_bytes=request.file_size_bytes,
+            duration_seconds=request.duration_seconds,
+            metadata=metadata,
+        )
+
+        logger.info(
+            "Confirmed video upload",
+            artifact_id=request.artifact_id,
+            file_size_bytes=request.file_size_bytes,
+            duration_seconds=request.duration_seconds,
+        )
+
+        return VideoArtifactResponse(
+            artifact_id=artifact_ref["artifact_id"],
+            url=artifact_ref["url"],
+            presigned_url=artifact_ref.get("presigned_url"),
+            content_type=artifact_ref["content_type"],
+            file_size_bytes=artifact_ref.get("file_size_bytes"),
+            duration_seconds=artifact_ref.get("duration_seconds"),
+            metadata=artifact_ref.get("metadata"),
+        )
+
+    except Exception as e:
+        logger.exception("Error confirming video upload", artifact_id=request.artifact_id, error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to confirm upload: {str(e)}"
+        )
+
+
+@router.get("/videos/{artifact_id}", response_model=VideoArtifactResponse)
+async def get_video_artifact(
+    artifact_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Get video artifact details and serving URL.
+
+    Args:
+        artifact_id: The video artifact ID (e.g., video_abc123_20260122_123456)
+
+    Returns:
+        Video artifact with Worker URL and optional presigned URL
+    """
+    # Validate artifact ID format
+    if not artifact_id.startswith("video_"):
+        raise HTTPException(status_code=400, detail="Invalid video artifact ID format")
+
+    # Try to fetch from Supabase first
+    try:
+        from src.integrations.supabase import get_supabase
+        supabase = await get_supabase()
+        if supabase:
+            artifacts = await supabase.select(
+                "artifacts",
+                columns="*",
+                filters={"id": artifact_id},
+                limit=1,
+            )
+            if artifacts:
+                artifact = artifacts[0]
+
+                # Generate fresh presigned URL if needed
+                presigned_url = None
+                if is_cloudflare_configured():
+                    cf_client = get_cloudflare_client()
+                    presigned_url = cf_client.r2._generate_video_presigned_get_url(
+                        artifact.get("storage_key", f"videos/{artifact_id}.webm")
+                    )
+
+                return VideoArtifactResponse(
+                    artifact_id=artifact["id"],
+                    url=artifact.get("storage_url", ""),
+                    presigned_url=presigned_url,
+                    content_type=artifact.get("content_type", "video/webm"),
+                    file_size_bytes=artifact.get("file_size_bytes"),
+                    duration_seconds=artifact.get("metadata", {}).get("duration_seconds"),
+                    metadata=artifact.get("metadata"),
+                )
+    except Exception as e:
+        logger.warning("Failed to fetch video from Supabase", artifact_id=artifact_id, error=str(e))
+
+    # Fallback: construct URLs directly
+    if is_cloudflare_configured():
+        cf_client = get_cloudflare_client()
+        worker_url = f"{cf_client.r2.config.worker_url}/videos/{artifact_id}"
+        presigned_url = cf_client.r2._generate_video_presigned_get_url(f"videos/{artifact_id}.webm")
+
+        return VideoArtifactResponse(
+            artifact_id=artifact_id,
+            url=worker_url,
+            presigned_url=presigned_url,
+            content_type="video/webm",
+            metadata={"source": "fallback"},
+        )
+
+    raise HTTPException(status_code=404, detail=f"Video artifact not found: {artifact_id}")
+
+
+@router.get("/videos/{artifact_id}/url", response_model=SignedUrlResponse)
+async def get_video_signed_url(
+    artifact_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Generate a signed URL for authenticated video access.
+
+    Similar to screenshot signed URLs but for video content.
+
+    Args:
+        artifact_id: The video artifact ID
+
+    Returns:
+        Signed URL with expiration
+    """
+    if not artifact_id.startswith("video_"):
+        raise HTTPException(status_code=400, detail="Invalid video artifact ID format")
+
+    if not is_cloudflare_configured():
+        raise HTTPException(status_code=503, detail="Cloudflare storage not configured")
+
+    try:
+        cf_client = get_cloudflare_client()
+
+        # Try HMAC signed URL first
+        signed_url = cf_client.r2.generate_signed_url(artifact_id, artifact_type="video")
+
+        if signed_url:
+            return SignedUrlResponse(
+                artifact_id=artifact_id,
+                url=signed_url,
+                expires_in=cf_client.r2.config.media_url_expiry,
+                url_type="signed",
+            )
+
+        # Fallback to presigned URL
+        presigned_url = cf_client.r2._generate_video_presigned_get_url(f"videos/{artifact_id}.webm")
+
+        if presigned_url:
+            return SignedUrlResponse(
+                artifact_id=artifact_id,
+                url=presigned_url,
+                expires_in=cf_client.r2.config.r2_presigned_url_expiry,
+                url_type="presigned",
+            )
+
+        raise HTTPException(
+            status_code=503,
+            detail="URL signing not configured"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error generating video signed URL", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to generate signed URL: {str(e)}")
 
 
 @router.post("/resolve")

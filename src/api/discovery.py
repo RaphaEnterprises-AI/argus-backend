@@ -25,6 +25,7 @@ from src.agents.auto_discovery import AutoDiscovery, DiscoveryResult
 from src.browser.pool_client import BrowserPoolClient
 from src.discovery.engine import DiscoveryEngine, create_discovery_engine
 from src.discovery.repository import DiscoveryRepository
+from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 from src.services.crawlee_client import get_crawlee_client
 from src.services.supabase_client import get_raw_supabase_client, get_supabase_client
 
@@ -67,6 +68,122 @@ def get_discovery_repository() -> DiscoveryRepository:
 
 _discovery_sessions: dict[str, dict] = {}
 _discovered_flows: dict[str, dict] = {}
+
+
+# =============================================================================
+# Video Migration Helper (Vultr → R2)
+# Following official Cloudflare R2 documentation:
+# https://developers.cloudflare.com/r2/objects/upload-objects/
+# =============================================================================
+
+
+async def _migrate_video_to_r2(
+    source_url: str,
+    session_id: str,
+    project_id: str | None = None,
+    user_id: str = "anonymous",
+    organization_id: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Migrate video from external storage (Vultr) to R2.
+
+    Downloads video from source URL and re-uploads to R2 for permanent storage.
+    This ensures videos are accessible even if BrowserPool/Vultr is down.
+
+    Args:
+        source_url: URL to download video from (Vultr)
+        session_id: Discovery session ID for metadata
+        project_id: Optional project ID
+        user_id: User who initiated the discovery
+        organization_id: Organization ID for access control
+
+    Returns:
+        Tuple of (artifact_id, r2_url) or (None, None) if migration fails
+    """
+    import hashlib
+
+    import httpx
+
+    if not source_url:
+        logger.debug("No source video URL provided, skipping migration")
+        return None, None
+
+    if not is_cloudflare_configured():
+        logger.warning("Cloudflare R2 not configured, keeping original video URL")
+        return None, source_url
+
+    try:
+        cf_client = get_cloudflare_client()
+
+        logger.info(
+            "Migrating video to R2",
+            source_url=source_url[:100],
+            session_id=session_id,
+        )
+
+        # Download video from source URL
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.get(source_url)
+            response.raise_for_status()
+            video_bytes = response.content
+
+        if not video_bytes or len(video_bytes) < 1000:
+            logger.warning("Downloaded video too small, likely an error", size=len(video_bytes) if video_bytes else 0)
+            return None, source_url
+
+        # Determine content type from response or URL
+        content_type = response.headers.get("content-type", "video/webm")
+        if "mp4" in source_url.lower():
+            content_type = "video/mp4"
+        elif "webm" in source_url.lower():
+            content_type = "video/webm"
+
+        # Store in R2
+        artifact_ref = await cf_client.r2.store_video_from_bytes(
+            video_bytes=video_bytes,
+            content_type=content_type,
+            metadata={
+                "session_id": session_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                "organization_id": organization_id,
+                "source_url": source_url[:200],  # Keep reference to original
+                "migrated_from": "vultr",
+            },
+        )
+
+        if artifact_ref.get("storage") == "failed":
+            logger.warning(
+                "Failed to store video in R2, keeping original URL",
+                error=artifact_ref.get("error"),
+            )
+            return None, source_url
+
+        artifact_id = artifact_ref.get("artifact_id")
+        r2_url = artifact_ref.get("url")
+
+        logger.info(
+            "Video migrated to R2 successfully",
+            artifact_id=artifact_id,
+            size_mb=len(video_bytes) / (1024 * 1024),
+            session_id=session_id,
+        )
+
+        return artifact_id, r2_url
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to download video from source",
+            source_url=source_url[:100],
+            status_code=e.response.status_code,
+        )
+        return None, source_url
+    except Exception as e:
+        logger.exception(
+            "Error migrating video to R2",
+            source_url=source_url[:100],
+            error=str(e),
+        )
+        return None, source_url
 
 
 # =============================================================================
@@ -1678,10 +1795,23 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             result_data = crawlee_result.data
             pages_discovered = result_data.get("pages", [])
 
-            # Extract video recording info if available
+            # Extract and migrate video recording to R2 if available
             if record_session:
-                session["video_artifact_id"] = result_data.get("videoArtifactId")
-                session["recording_url"] = result_data.get("recordingUrl")
+                source_video_url = result_data.get("recordingUrl")
+                if source_video_url:
+                    # Migrate video from Crawlee storage to R2
+                    r2_artifact_id, r2_url = await _migrate_video_to_r2(
+                        source_url=source_video_url,
+                        session_id=session_id,
+                        project_id=config.get("project_id"),
+                        user_id=config.get("user_id", "anonymous"),
+                        organization_id=config.get("organization_id"),
+                    )
+                    session["video_artifact_id"] = r2_artifact_id or result_data.get("videoArtifactId")
+                    session["recording_url"] = r2_url or source_video_url
+                else:
+                    session["video_artifact_id"] = result_data.get("videoArtifactId")
+                    session["recording_url"] = None
 
             # Process discovered pages
             for i, page in enumerate(pages_discovered):
@@ -1830,8 +1960,19 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     if not pool_result.success:
                         raise Exception(f"BrowserPool discovery failed: {pool_result.error}")
 
-                    # Store video artifact ID if recording was enabled
-                    if pool_result.video_artifact_id:
+                    # Migrate video recording from BrowserPool storage to R2
+                    if pool_result.recording_url:
+                        r2_artifact_id, r2_url = await _migrate_video_to_r2(
+                            source_url=pool_result.recording_url,
+                            session_id=session_id,
+                            project_id=config.get("project_id"),
+                            user_id=config.get("user_id", "anonymous"),
+                            organization_id=config.get("organization_id"),
+                        )
+                        session["video_artifact_id"] = r2_artifact_id or pool_result.video_artifact_id
+                        session["recording_url"] = r2_url or pool_result.recording_url
+                    elif pool_result.video_artifact_id:
+                        # Fallback if only artifact ID is provided
                         session["video_artifact_id"] = pool_result.video_artifact_id
                         session["recording_url"] = pool_result.recording_url
 
