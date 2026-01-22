@@ -541,6 +541,72 @@ async def service_health_check():
     }
 
 
+@app.get("/health/selenium-test", tags=["Health"])
+async def test_selenium_session():
+    """Test Selenium Grid session creation and video recording.
+
+    This diagnostic endpoint:
+    1. Creates a Selenium session
+    2. Navigates to example.com
+    3. Ends the session (triggers video upload)
+    4. Returns session details including video path
+
+    Use this to verify:
+    - Selenium Grid is reachable from Railway
+    - Session creation works (no capability mismatch)
+    - Video recording is enabled
+    """
+    from src.browser.selenium_grid_client import SeleniumGridClient, is_selenium_grid_available
+
+    result = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "test": "selenium_session_creation",
+    }
+
+    # Check availability
+    is_available = await is_selenium_grid_available()
+    result["grid_available"] = is_available
+
+    if not is_available:
+        result["error"] = "Selenium Grid not available"
+        return result
+
+    try:
+        client = SeleniumGridClient()
+
+        # Start session
+        result["step_1"] = "Starting session..."
+        session_id = await client.start_session()
+        result["session_id"] = session_id
+        result["step_1_result"] = "SUCCESS"
+
+        # Navigate
+        result["step_2"] = "Navigating to example.com..."
+        await client.navigate("https://example.com")
+        result["step_2_result"] = "SUCCESS"
+
+        # Get page info
+        page_info = await client.get_page_info()
+        result["page_title"] = page_info.get("title", "N/A")
+
+        # End session (triggers video upload)
+        result["step_3"] = "Ending session (video upload starts)..."
+        end_result = await client.end_session(wait_for_upload=False)  # Don't wait, let caller check later
+        result["step_3_result"] = "SUCCESS"
+        result["video_artifact_id"] = end_result.get("video_artifact_id")
+        result["video_path"] = end_result.get("video_path")
+
+        result["status"] = "SUCCESS"
+        result["note"] = "Video upload is async - wait 10-30 seconds before checking R2"
+
+    except Exception as e:
+        result["status"] = "FAILED"
+        result["error"] = str(e)
+        result["error_type"] = type(e).__name__
+
+    return result
+
+
 @app.get("/api/v1/security/info", response_model=SecurityInfoResponse, tags=["Security"])
 async def security_info():
     """Get security configuration info (public endpoint)."""
