@@ -488,6 +488,59 @@ async def health_check():
     )
 
 
+@app.get("/health/services", tags=["Health"])
+async def service_health_check():
+    """Check connectivity to external services (Selenium Grid, Crawlee, etc.)."""
+    import httpx
+
+    results = {}
+
+    # Check Selenium Grid
+    if settings.selenium_grid_url:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{settings.selenium_grid_url}/status")
+                data = resp.json()
+                results["selenium_grid"] = {
+                    "url": settings.selenium_grid_url,
+                    "reachable": True,
+                    "ready": data.get("value", {}).get("ready", False),
+                    "nodes": len(data.get("value", {}).get("nodes", [])),
+                }
+        except Exception as e:
+            results["selenium_grid"] = {
+                "url": settings.selenium_grid_url,
+                "reachable": False,
+                "error": str(e),
+            }
+    else:
+        results["selenium_grid"] = {"configured": False}
+
+    # Check Browser Pool
+    if settings.browser_pool_url:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{settings.browser_pool_url}/health")
+                results["browser_pool"] = {
+                    "url": settings.browser_pool_url,
+                    "reachable": True,
+                    "status": resp.json() if resp.status_code == 200 else resp.status_code,
+                }
+        except Exception as e:
+            results["browser_pool"] = {
+                "url": settings.browser_pool_url,
+                "reachable": False,
+                "error": str(e),
+            }
+    else:
+        results["browser_pool"] = {"configured": False}
+
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "services": results,
+    }
+
+
 @app.get("/api/v1/security/info", response_model=SecurityInfoResponse, tags=["Security"])
 async def security_info():
     """Get security configuration info (public endpoint)."""
