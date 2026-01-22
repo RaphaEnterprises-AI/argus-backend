@@ -165,12 +165,13 @@ class SeleniumGridClient:
         await self._ensure_client()
 
         # WebDriver capabilities
+        # NOTE: Only use capabilities that are part of the node's stereotype!
+        # Video recording is enabled via Helm config (videoRecorder.enabled: true),
+        # NOT via session capabilities. Custom capabilities like se:recordVideo
+        # cause session matching failures because nodes don't advertise them.
         caps = {
             "browserName": browser,
             "platformName": "linux",
-            # Enable video recording via SE_VIDEO env var in sidecar
-            "se:recordVideo": True,
-            "se:screenResolution": "1920x1080",
         }
         if capabilities:
             caps.update(capabilities)
@@ -578,8 +579,8 @@ class SeleniumGridClient:
 
                 if is_cloudflare_configured():
                     cf_client = get_cloudflare_client()
-                    # generate_signed_url returns URL like: /videos/{id}?sig=X&exp=Y
-                    recording_url = cf_client.generate_signed_url(video_artifact_id, artifact_type="video")
+                    # generate_signed_url is on the R2StorageClient (cf_client.r2)
+                    recording_url = cf_client.r2.generate_signed_url(video_artifact_id, artifact_type="video")
                     logger.info("Generated signed video URL", video_artifact_id=video_artifact_id)
                 else:
                     # Fallback to unsigned URL (will fail if Worker requires signing)
