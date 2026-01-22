@@ -1,0 +1,246 @@
+# ============================================================================
+# KEDA ScaledObjects for Selenium Grid - Using Built-in Selenium Grid Scaler
+# ============================================================================
+#
+# This configuration uses KEDA's native selenium-grid scaler (available since 2.4+)
+# which queries the Selenium Grid GraphQL API directly.
+#
+# IMPORTANT: This does NOT require:
+#   - Prometheus (disabled in our Helm values)
+#   - External KEDA scaler service
+#   - Custom metrics endpoints
+#
+# The scaler queries: http://selenium-hub:4444/graphql
+# and scales based on: pending sessions / nodeMaxSessions
+#
+# Deploy with:
+#   kubectl apply -f keda-selenium-grid-builtin.yaml -n selenium-grid
+#
+# References:
+#   - https://keda.sh/docs/2.17/scalers/selenium-grid-scaler/
+#   - https://www.selenium.dev/blog/2022/scaling-grid-with-keda/
+# ============================================================================
+
+---
+# Chrome Nodes ScaledObject
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-chrome-scaledobject
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: chrome-nodes
+    scaler: keda-builtin
+spec:
+  # Target the Helm-deployed Chrome node Deployment
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-chrome
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Replica bounds
+  minReplicaCount: 2          # Always keep 2 Chrome nodes for availability
+  maxReplicaCount: 20         # Maximum for cost control
+
+  # Fallback if scaler fails
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+
+  # How often to check the queue
+  pollingInterval: 10         # Check every 10 seconds
+
+  # Wait before scaling down (prevents thrashing)
+  cooldownPeriod: 60          # Wait 60s after queue empties
+
+  # HPA behavior customization
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300  # 5 min stabilization
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 0    # Immediate scale up
+          policies:
+          - type: Pods
+            value: 5
+            periodSeconds: 15
+          - type: Percent
+            value: 100
+            periodSeconds: 15
+          selectPolicy: Max
+
+  triggers:
+    # Built-in Selenium Grid scaler - queries GraphQL directly
+    - type: selenium-grid
+      metadata:
+        # GraphQL endpoint of Selenium Hub
+        url: 'http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444/graphql'
+        # Browser type to scale
+        browserName: 'chrome'
+        # Platform to match
+        platformName: 'linux'
+        # CRITICAL: Must match nodeMaxSessions in Helm values (we set 1)
+        nodeMaxSessions: '1'
+        # Activate scaler when queue has at least 1 pending request
+        activationThreshold: '0'
+        # Skip SSL verification (internal cluster communication)
+        unsafeSsl: 'true'
+
+---
+# Firefox Nodes ScaledObject
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-firefox-scaledobject
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: firefox-nodes
+    scaler: keda-builtin
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-firefox
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Firefox is heavier - more conservative limits
+  minReplicaCount: 1
+  maxReplicaCount: 10
+
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+
+  pollingInterval: 15         # Less frequent checks for Firefox
+  cooldownPeriod: 120         # Longer cooldown (2 min)
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600  # 10 min stabilization (Firefox is slow to start)
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 120
+          - type: Percent
+            value: 5
+            periodSeconds: 120
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 30
+          - type: Percent
+            value: 50
+            periodSeconds: 30
+          selectPolicy: Max
+
+  triggers:
+    - type: selenium-grid
+      metadata:
+        url: 'http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444/graphql'
+        browserName: 'firefox'
+        platformName: 'linux'
+        nodeMaxSessions: '1'
+        activationThreshold: '0'
+        unsafeSsl: 'true'
+
+---
+# Edge Nodes ScaledObject
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: selenium-edge-scaledobject
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: edge-nodes
+    scaler: keda-builtin
+spec:
+  scaleTargetRef:
+    name: selenium-grid-selenium-node-edge
+    apiVersion: apps/v1
+    kind: Deployment
+
+  # Edge can scale to zero - it's optional
+  minReplicaCount: 0
+  maxReplicaCount: 10
+
+  fallback:
+    failureThreshold: 3
+    replicas: 0
+
+  pollingInterval: 15
+  cooldownPeriod: 90
+
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 180  # 3 min before scaling down
+          policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+          - type: Percent
+            value: 20
+            periodSeconds: 60
+          selectPolicy: Min
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Pods
+            value: 5
+            periodSeconds: 15
+          - type: Percent
+            value: 100
+            periodSeconds: 15
+          selectPolicy: Max
+
+  triggers:
+    - type: selenium-grid
+      metadata:
+        url: 'http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444/graphql'
+        browserName: 'MicrosoftEdge'
+        platformName: 'linux'
+        nodeMaxSessions: '1'
+        activationThreshold: '0'
+        unsafeSsl: 'true'
+
+---
+# PodDisruptionBudget - Ensure minimum availability during cluster operations
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-chrome-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: selenium-node-chrome
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: selenium-firefox-pdb
+  namespace: selenium-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: selenium-node-firefox

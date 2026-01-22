@@ -13,8 +13,13 @@ global:
   seleniumGrid:
     imageTag: "4.27.0"
     logLevel: "INFO"
-    # Session timeout - auto-cleanup stuck sessions after 60 seconds
-    sessionTimeout: 60
+    # Session timeout at HUB level - auto-cleanup stuck sessions (seconds)
+    # Note: Node-level nodeSessionTimeout also set per-node for defense in depth
+    sessionTimeout: 120
+    # Request timeout - how long session queue waits before failing request (seconds)
+    sessionRequestTimeout: 60
+    # Retry interval for session requests (seconds)
+    sessionRetryInterval: 5
 
 # ============================================================================
 # VIDEO RECORDER - Global settings for all browser nodes
@@ -73,6 +78,10 @@ hub:
   serviceType: LoadBalancer
   annotations:
     service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+  # Hub-level timeout settings (seconds)
+  sessionRequestTimeout: 60
+  sessionRetryInterval: 5
+  newSessionThreadPoolSize: 4
   resources:
     requests:
       memory: "256Mi"
@@ -97,10 +106,24 @@ components:
 # ============================================================================
 # CHROME NODES
 # ============================================================================
+# Key settings for preventing zombie sessions:
+# - nodeDrainAfterSessionCount: Pod restarts after N sessions (built-in Helm value)
+# - nodeSessionTimeout: Session timeout at node level
+# - nodeMaxSessions=1: One session per pod for clean state and video
+# Reference: https://github.com/SeleniumHQ/docker-selenium/discussions/2512
 chromeNode:
   enabled: true
   replicas: 2
-  maxSessions: 2
+  # One session per pod - ensures clean state for each test + proper video recording
+  nodeMaxSessions: 1
+  # CRITICAL: Drain node after each session - prevents zombie sessions
+  # Pod restarts after N sessions, ensuring clean state
+  # Set to 1 for video recording (one video per pod lifecycle)
+  nodeDrainAfterSessionCount: 1
+  # Session timeout at NODE level (seconds) - cleanup if session goes stale
+  nodeSessionTimeout: 120
+  # Browser timeout - how long to wait for browser to respond
+  browserTimeout: 60
   resources:
     requests:
       memory: "768Mi"
@@ -115,7 +138,10 @@ chromeNode:
 firefoxNode:
   enabled: true
   replicas: 1
-  maxSessions: 1
+  nodeMaxSessions: 1
+  nodeDrainAfterSessionCount: 1
+  nodeSessionTimeout: 120
+  browserTimeout: 60
   resources:
     requests:
       memory: "768Mi"
@@ -130,7 +156,10 @@ firefoxNode:
 edgeNode:
   enabled: true
   replicas: 1
-  maxSessions: 1
+  nodeMaxSessions: 1
+  nodeDrainAfterSessionCount: 1
+  nodeSessionTimeout: 120
+  browserTimeout: 60
   resources:
     requests:
       memory: "768Mi"
