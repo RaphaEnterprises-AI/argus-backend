@@ -135,6 +135,33 @@ def _get_browser_type(browser: BrowserTypeEnum) -> BrowserType:
     return mapping.get(browser, BrowserType.CHROMIUM)
 
 
+def _convert_screenshot(screenshot: str | dict | None) -> str | None:
+    """Convert screenshot from various formats to base64 string.
+
+    The browser pool may return screenshots as:
+    - A base64 string (pass through)
+    - A JavaScript Buffer object: {'type': 'Buffer', 'data': [bytes...]}
+    - None (pass through)
+    """
+    import base64
+
+    if screenshot is None:
+        return None
+
+    if isinstance(screenshot, str):
+        return screenshot
+
+    if isinstance(screenshot, dict) and screenshot.get('type') == 'Buffer':
+        # Convert Buffer data array to base64
+        data = screenshot.get('data', [])
+        if data:
+            return base64.b64encode(bytes(data)).decode('utf-8')
+        return None
+
+    # Unknown format, try to convert to string
+    return str(screenshot) if screenshot else None
+
+
 async def _get_browser_client(request: Request) -> BrowserPoolClient:
     """Get a browser pool client with user context for audit logging."""
     try:
@@ -216,14 +243,14 @@ async def execute_browser_test(body: TestRequest, request: Request):
 
         duration_ms = int((time.time() - start_time) * 1000)
 
-        # Convert to response format
+        # Convert to response format with screenshot conversion
         step_results = [
             TestStepResult(
                 step_index=step.step_index,
                 instruction=step.instruction,
                 success=step.success,
                 duration_ms=step.duration_ms,
-                screenshot=step.screenshot,
+                screenshot=_convert_screenshot(step.screenshot),
                 error=step.error,
                 actions=[a.model_dump() if hasattr(a, 'model_dump') else a.__dict__ for a in step.actions] if step.actions else [],
             )
@@ -242,7 +269,7 @@ async def execute_browser_test(body: TestRequest, request: Request):
         return TestResponse(
             success=result.success,
             steps=step_results,
-            final_screenshot=result.final_screenshot,
+            final_screenshot=_convert_screenshot(result.final_screenshot),
             video_artifact_id=result.video_artifact_id,
             error=result.error,
             duration_ms=duration_ms,
