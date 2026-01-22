@@ -1632,9 +1632,21 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 })
             })
 
-        # Try Crawlee microservice first
+        # Determine which backend to use based on record_session
+        # - record_session: true → Use BrowserPool directly (Crawlee doesn't support video)
+        # - record_session: false → Use Crawlee if available (faster for non-video)
+        record_session = config.get("record_session", False)
         crawlee_client = get_crawlee_client()
-        use_crawlee = await crawlee_client.is_available()
+
+        # Skip Crawlee when video recording is requested (Crawlee doesn't support it)
+        use_crawlee = False if record_session else await crawlee_client.is_available()
+
+        if record_session:
+            logger.info(
+                "Using BrowserPool for video-enabled discovery (Crawlee doesn't support video)",
+                session_id=session_id,
+                record_session=record_session,
+            )
 
         if use_crawlee:
             logger.info("Using Crawlee microservice for discovery", session_id=session_id)
@@ -1647,8 +1659,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     "credentials": config["auth_config"].get("credentials", {})
                 }
 
-            # Run discovery via Crawlee service
-            record_session = config.get("record_session", False)
+            # Run discovery via Crawlee service (record_session already set above)
             crawlee_result = await crawlee_client.run_discovery(
                 start_url=session["app_url"],
                 max_pages=config.get("max_pages", 50),
@@ -1774,15 +1785,17 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             session["coverage_score"] = min(100, (total_elements / (total_pages * 10)) * 100) if total_pages > 0 else 0
 
         else:
-            # Crawlee unavailable - check execution context for fallback strategy
+            # BrowserPool path - either because:
+            # 1. record_session=True (Crawlee doesn't support video recording)
+            # 2. Crawlee is unavailable
             execution_context = config.get("execution_context", ExecutionContext.DASHBOARD.value)
-            record_session = config.get("record_session", False)
 
             # For DASHBOARD and API contexts: Use BrowserPool (no local Playwright on VMs)
             # For MCP context: Allow local Playwright (developer machines)
             if execution_context in (ExecutionContext.DASHBOARD.value, ExecutionContext.API.value):
+                reason = "video recording requested" if record_session else "Crawlee unavailable"
                 logger.info(
-                    "Crawlee unavailable, using BrowserPool for remote discovery",
+                    f"Using BrowserPool for discovery ({reason})",
                     session_id=session_id,
                     execution_context=execution_context,
                     record_session=record_session,
