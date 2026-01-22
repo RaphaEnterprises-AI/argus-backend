@@ -612,11 +612,16 @@ async def is_selenium_grid_available() -> bool:
     """Check if Selenium Grid is available."""
     settings = get_settings()
     if not settings.selenium_grid_url:
+        logger.warning("Selenium Grid URL not configured")
         return False
 
+    logger.info("Checking Selenium Grid availability", url=settings.selenium_grid_url)
     try:
         async with SeleniumGridClient() as client:
             health = await client.health()
-            return health.get("healthy", False)
-    except Exception:
+            is_healthy = health.get("healthy", False)
+            logger.info("Selenium Grid health check result", healthy=is_healthy, health=health)
+            return is_healthy
+    except Exception as e:
+        logger.error("Selenium Grid availability check failed", error=str(e))
         return False

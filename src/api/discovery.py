@@ -1733,8 +1733,11 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
     Attempts to use Crawlee microservice if available, falls back to local discovery.
     """
+    logger.info("=== Discovery background task started ===", session_id=session_id)
+
     session = _discovery_sessions.get(session_id)
     if not session:
+        logger.warning("Session not found in memory", session_id=session_id)
         return
 
     events_queue = session.get("events_queue")
@@ -1758,15 +1761,20 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
         # - record_session: true → Use Selenium Grid (has video recording via sidecars)
         # - record_session: false → Use Crawlee if available (faster for non-video)
         record_session = config.get("record_session", False)
+        logger.info("Discovery config", session_id=session_id, record_session=record_session, config=config)
+
         crawlee_client = get_crawlee_client()
 
         # Skip Crawlee when video recording is requested (Crawlee doesn't support it)
         use_crawlee = False if record_session else await crawlee_client.is_available()
+        logger.info("Crawlee check", session_id=session_id, use_crawlee=use_crawlee)
 
         # Check if Selenium Grid is available for video recording
         use_selenium_grid = False
         if record_session:
+            logger.info("Checking Selenium Grid availability...", session_id=session_id)
             use_selenium_grid = await is_selenium_grid_available()
+            logger.info("Selenium Grid availability result", session_id=session_id, use_selenium_grid=use_selenium_grid)
             if use_selenium_grid:
                 logger.info(
                     "Using Selenium Grid for video-enabled discovery",
