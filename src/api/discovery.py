@@ -507,6 +507,35 @@ def build_session_response(session: dict) -> DiscoverySessionResponse:
     max_pages = session.get("config", {}).get("max_pages", 50)
     progress = min(100.0, (pages_found / max_pages) * 100) if max_pages > 0 else 0
 
+    # Regenerate signed video URL on each fetch to prevent expiry issues
+    # Stored recording_url expires after 15 min, so we generate fresh URLs
+    video_artifact_id = session.get("video_artifact_id")
+    recording_url = None
+    if video_artifact_id:
+        if is_cloudflare_configured():
+            try:
+                cf_client = get_cloudflare_client()
+                recording_url = cf_client.r2.generate_signed_url(
+                    video_artifact_id,
+                    artifact_type="video",
+                    expiry_seconds=900  # 15 minutes from now
+                )
+                logger.debug(
+                    "Regenerated signed video URL",
+                    video_artifact_id=video_artifact_id,
+                    session_id=session.get("id")
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to regenerate video URL, using stored",
+                    error=str(e),
+                    video_artifact_id=video_artifact_id
+                )
+                recording_url = session.get("recording_url")
+        else:
+            # Fallback to stored URL if Cloudflare not configured
+            recording_url = session.get("recording_url")
+
     return DiscoverySessionResponse(
         id=session["id"],
         project_id=session["project_id"],
@@ -529,8 +558,8 @@ def build_session_response(session: dict) -> DiscoverySessionResponse:
         estimated_time_remaining=session.get("estimated_time_remaining"),
         coverage_score=session.get("coverage_score"),
         execution_context=session.get("config", {}).get("execution_context"),
-        video_artifact_id=session.get("video_artifact_id"),
-        recording_url=session.get("recording_url"),
+        video_artifact_id=video_artifact_id,
+        recording_url=recording_url,
     )
 
 
