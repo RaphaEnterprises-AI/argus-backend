@@ -31,6 +31,7 @@ from src.api.api_keys import router as api_keys_router
 from src.api.approvals import router as approvals_router
 from src.api.artifacts import router as artifacts_router
 from src.api.audit import router as audit_router
+from src.api.browser import router as browser_router
 from src.api.chat import router as chat_router
 from src.api.collaboration import router as collaboration_router
 from src.api.discovery import router as discovery_router
@@ -350,6 +351,7 @@ app.include_router(quality_router)
 app.include_router(teams_router)
 app.include_router(api_keys_router)
 app.include_router(audit_router)
+app.include_router(browser_router)
 app.include_router(healing_router)
 app.include_router(sync_router)
 app.include_router(export_router)
