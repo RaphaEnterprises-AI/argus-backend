@@ -362,7 +362,7 @@ async def execute_action(body: ActRequest, request: Request):
             success=result.success,
             message=result.message,
             url=result.url,
-            screenshot=result.screenshot,
+            screenshot=_convert_screenshot(result.screenshot),
             error=result.error,
             actions=[a.model_dump() if hasattr(a, 'model_dump') else a.__dict__ for a in result.actions] if result.actions else [],
         )
