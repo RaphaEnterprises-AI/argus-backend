@@ -100,13 +100,16 @@ class TestCostReport:
             breakdown={"compute": Decimal("80.00"), "network": Decimal("20.00")},
             daily_costs=[(datetime.now(), Decimal("14.28"))],
             projected_monthly=Decimal("428.40"),
-            comparison_to_browserstack=Decimal("990.00"),
-            savings_achieved=Decimal("561.60"),
             recommendations=[],
+            vultr_cost=Decimal("80.00"),
+            railway_cost=Decimal("15.00"),
+            cloudflare_cost=Decimal("5.00"),
+            ai_cost=Decimal("10.00"),
         )
 
         assert report.total_cost == Decimal("100.00")
-        assert report.savings_achieved == Decimal("561.60")
+        assert report.vultr_cost == Decimal("80.00")
+        assert report.ai_cost == Decimal("10.00")
 
 
 class TestDemandForecast:
@@ -630,23 +633,28 @@ class TestAIInfraOptimizerGetCostReport:
         ]
         mock_prometheus.query_range = AsyncMock(return_value=[mock_series])
 
-        mock_snapshot = MagicMock()
-        mock_snapshot.chrome_nodes = MagicMock(replicas_max=10)
-        mock_snapshot.firefox_nodes = MagicMock(replicas_max=5)
-        mock_snapshot.edge_nodes = MagicMock(replicas_max=5)
-        mock_prometheus.get_infrastructure_snapshot = AsyncMock(return_value=mock_snapshot)
-
         optimizer = AIInfraOptimizer(
             prometheus_collector=mock_prometheus,
             anthropic_client=mock_anthropic,
         )
+
+        # Mock supabase for AI costs query
+        mock_supabase = MagicMock()
+        mock_table = MagicMock()
+        mock_table.select = MagicMock(return_value=mock_table)
+        mock_table.gte = MagicMock(return_value=mock_table)
+        mock_table.lte = MagicMock(return_value=mock_table)
+        mock_table.execute = MagicMock(return_value=MagicMock(data=[{"cost_usd": 5.0}]))
+        mock_supabase.table = MagicMock(return_value=mock_table)
+        optimizer._supabase = mock_supabase
 
         # Mock analyze_and_recommend to avoid full analysis
         with patch.object(optimizer, "analyze_and_recommend", return_value=[]):
             report = await optimizer.get_cost_report("org-123", days=7)
 
         assert report.total_cost >= Decimal("0")
-        assert report.comparison_to_browserstack > Decimal("0")
+        assert report.vultr_cost >= Decimal("0")
+        assert report.ai_cost >= Decimal("0")
 
     @pytest.mark.asyncio
     async def test_get_cost_report_handles_empty_series(self, mock_env_vars):
@@ -1046,9 +1054,11 @@ class TestAIInfraOptimizerGetSavingsSummary:
             breakdown={},
             daily_costs=[],
             projected_monthly=Decimal("300.00"),
-            comparison_to_browserstack=Decimal("990.00"),
-            savings_achieved=Decimal("690.00"),
             recommendations=[],
+            vultr_cost=Decimal("250.00"),
+            railway_cost=Decimal("30.00"),
+            cloudflare_cost=Decimal("10.00"),
+            ai_cost=Decimal("10.00"),
         )
 
         with patch.object(optimizer, "get_cost_report", return_value=mock_cost_report):
@@ -1056,7 +1066,8 @@ class TestAIInfraOptimizerGetSavingsSummary:
 
         assert summary["total_monthly_savings"] == 75.0
         assert summary["recommendations_applied"] == 2
-        assert summary["savings_vs_browserstack"] == 690.0
+        assert summary["current_monthly_cost"] == 300.0
+        assert "cost_trend" in summary
 
     @pytest.mark.asyncio
     async def test_get_savings_summary_handles_errors(self, mock_env_vars):
@@ -1118,9 +1129,3 @@ class TestNodePricingConstants:
         from src.services.infra_optimizer import NODE_HOURLY_COST
 
         assert NODE_HOURLY_COST == Decimal("0.0667")
-
-    def test_browserstack_pricing_exists(self):
-        """Test that BrowserStack pricing is defined."""
-        from src.services.infra_optimizer import BROWSERSTACK_PER_SESSION_MONTHLY
-
-        assert BROWSERSTACK_PER_SESSION_MONTHLY == Decimal("99.00")

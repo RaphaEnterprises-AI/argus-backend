@@ -64,9 +64,11 @@ class CostReportResponse(BaseModel):
     breakdown: dict[str, float]
     daily_costs: list[dict]
     projected_monthly: float
-    comparison_to_browserstack: float
-    savings_achieved: float
-    savings_percentage: float
+    # Platform-specific costs
+    vultr_cost: float | None = None
+    railway_cost: float | None = None
+    cloudflare_cost: float | None = None
+    ai_cost: float | None = None
 
 
 class DemandForecastResponse(BaseModel):
@@ -105,9 +107,7 @@ class SavingsSummaryResponse(BaseModel):
     total_monthly_savings: float
     recommendations_applied: int
     current_monthly_cost: float
-    browserstack_equivalent: float
-    savings_vs_browserstack: float
-    savings_percentage: float
+    cost_trend: float  # Percentage change vs last period
 
 
 class InfraSnapshotResponse(BaseModel):
@@ -231,10 +231,6 @@ async def _get_cost_report_impl(
     try:
         report = await optimizer.get_cost_report(org_id, days=days)
 
-        savings_pct = 0.0
-        if report.comparison_to_browserstack > 0:
-            savings_pct = float(report.savings_achieved / report.comparison_to_browserstack * 100)
-
         return CostReportResponse(
             period_start=report.period_start.isoformat(),
             period_end=report.period_end.isoformat(),
@@ -245,9 +241,10 @@ async def _get_cost_report_impl(
                 for dt, cost in report.daily_costs
             ],
             projected_monthly=float(report.projected_monthly),
-            comparison_to_browserstack=float(report.comparison_to_browserstack),
-            savings_achieved=float(report.savings_achieved),
-            savings_percentage=savings_pct,
+            vultr_cost=float(report.vultr_cost),
+            railway_cost=float(report.railway_cost),
+            cloudflare_cost=float(report.cloudflare_cost),
+            ai_cost=float(report.ai_cost),
         )
 
     except Exception as e:
@@ -266,10 +263,9 @@ async def get_cost_overview(
     Alias for /cost-report. Provides detailed cost breakdown including:
     - Total cost for the period
     - Daily cost breakdown
-    - Cost by resource type (compute, network, storage)
+    - Cost by resource type (compute, network, storage, ai_inference)
     - Projected monthly cost
-    - Comparison to BrowserStack pricing
-    - Savings achieved through self-hosting
+    - Platform-specific costs (Vultr, Railway, Cloudflare, AI)
     """
     logger.info("getting_cost_overview", org_id=org_id, days=days)
     return await _get_cost_report_impl(org_id, days, optimizer)
@@ -286,15 +282,15 @@ async def get_cost_report(
     Provides detailed cost breakdown including:
     - Total cost for the period
     - Daily cost breakdown
-    - Cost by resource type (compute, network, storage)
+    - Cost by resource type (compute, network, storage, ai_inference)
     - Projected monthly cost
-    - Comparison to BrowserStack pricing
-    - Savings achieved through self-hosting
+    - Platform-specific costs (Vultr K8s, Railway, Cloudflare, AI)
 
-    **Example savings calculation:**
-    - 10 concurrent sessions on BrowserStack: $990/month
-    - Same capacity self-hosted: ~$200/month
-    - Savings: 80%
+    **Platform breakdown:**
+    - `vultr_cost`: Kubernetes node costs from Vultr VKE
+    - `railway_cost`: Backend service costs (API, Crawlee)
+    - `cloudflare_cost`: R2 storage and Workers
+    - `ai_cost`: LLM inference costs (Claude, embeddings)
     """
     logger.info("getting_cost_report", org_id=org_id, days=days)
     return await _get_cost_report_impl(org_id, days, optimizer)
@@ -440,8 +436,7 @@ async def get_savings_summary(
     - Total monthly savings from applied recommendations
     - Count of recommendations applied
     - Current infrastructure cost
-    - Equivalent BrowserStack cost
-    - Percentage saved vs cloud testing services
+    - Cost trend (percentage change vs previous period)
     """
     logger.info("getting_savings_summary", org_id=org_id)
 

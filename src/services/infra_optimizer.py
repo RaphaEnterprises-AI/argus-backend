@@ -89,9 +89,12 @@ class CostReport:
     breakdown: dict[str, Decimal]  # cost by resource type
     daily_costs: list[tuple[datetime, Decimal]]
     projected_monthly: Decimal
-    comparison_to_browserstack: Decimal
-    savings_achieved: Decimal
     recommendations: list[InfraRecommendation]
+    # Platform-specific costs
+    vultr_cost: Decimal = Decimal("0")
+    railway_cost: Decimal = Decimal("0")
+    cloudflare_cost: Decimal = Decimal("0")
+    ai_cost: Decimal = Decimal("0")
 
 
 @dataclass
@@ -121,7 +124,6 @@ class Anomaly:
 
 # Node pricing (Vultr vc2-4c-8gb at $48/mo = $0.0667/hr)
 NODE_HOURLY_COST = Decimal("0.0667")
-BROWSERSTACK_PER_SESSION_MONTHLY = Decimal("99.00")
 
 
 class AIInfraOptimizer:
@@ -311,7 +313,7 @@ class AIInfraOptimizer:
 - Node Hourly Cost: ${NODE_HOURLY_COST}
 - Current Nodes Running: {snapshot.total_nodes}
 - Estimated Daily Cost: ${NODE_HOURLY_COST * 24 * snapshot.total_nodes}
-- BrowserStack Equivalent (per session): ${BROWSERSTACK_PER_SESSION_MONTHLY}/month
+- Estimated Monthly Cost: ${NODE_HOURLY_COST * 24 * 30 * snapshot.total_nodes}
 """
 
     async def _get_ai_recommendations(
@@ -503,19 +505,20 @@ Return ONLY the JSON array, no other text."""
         else:
             projected_monthly = Decimal("0")
 
-        # Calculate BrowserStack comparison
+        # Get AI costs from ai_usage table
+        ai_cost = Decimal("0")
         try:
-            snapshot = await self.prometheus.get_infrastructure_snapshot()
-            max_concurrent = max(
-                snapshot.chrome_nodes.replicas_max,
-                snapshot.firefox_nodes.replicas_max,
-                snapshot.edge_nodes.replicas_max
-            )
+            ai_usage_result = self.supabase.table("ai_usage").select(
+                "cost_usd"
+            ).gte(
+                "created_at", start.isoformat()
+            ).lte(
+                "created_at", end.isoformat()
+            ).execute()
+            if ai_usage_result.data:
+                ai_cost = sum(Decimal(str(r.get("cost_usd", 0))) for r in ai_usage_result.data)
         except Exception as e:
-            logger.warning("failed_to_get_snapshot_for_cost_report", error=str(e))
-            max_concurrent = 10  # Default fallback
-
-        browserstack_equivalent = BROWSERSTACK_PER_SESSION_MONTHLY * max_concurrent
+            logger.warning("failed_to_get_ai_costs", error=str(e))
 
         # Get recommendations for this period (don't fail if this fails)
         try:
@@ -524,20 +527,30 @@ Return ONLY the JSON array, no other text."""
             logger.warning("failed_to_get_recommendations_for_cost_report", error=str(e))
             recommendations = []
 
+        # Platform-specific costs:
+        # - vultr_cost: K8s node costs (what we calculated from Prometheus)
+        # - railway_cost: Backend services (TODO: integrate Railway API)
+        # - cloudflare_cost: R2 storage + Workers (TODO: integrate Cloudflare API)
+        # - ai_cost: LLM inference costs from ai_usage table
+        vultr_cost = total_cost  # Node costs are Vultr K8s
+
         return CostReport(
             period_start=start,
             period_end=end,
-            total_cost=total_cost,
+            total_cost=total_cost + ai_cost,  # Total includes AI costs
             breakdown={
                 "compute": total_cost * Decimal("0.8"),  # 80% compute
                 "network": total_cost * Decimal("0.15"),  # 15% network
                 "storage": total_cost * Decimal("0.05"),  # 5% storage
+                "ai_inference": ai_cost,
             },
             daily_costs=daily_costs,
-            projected_monthly=projected_monthly,
-            comparison_to_browserstack=browserstack_equivalent,
-            savings_achieved=browserstack_equivalent - projected_monthly,
+            projected_monthly=projected_monthly + (ai_cost / days * 30 if days > 0 else Decimal("0")),
             recommendations=recommendations,
+            vultr_cost=vultr_cost,
+            railway_cost=Decimal("0"),  # TODO: Integrate Railway API
+            cloudflare_cost=Decimal("0"),  # TODO: Integrate Cloudflare API
+            ai_cost=ai_cost,
         )
 
     async def predict_demand(
@@ -824,7 +837,7 @@ Return ONLY the JSON array, no other text."""
             org_id: Organization ID
 
         Returns:
-            Savings summary
+            Savings summary with cost trend
         """
         total_savings = Decimal("0")
         recommendations_applied = 0
@@ -854,19 +867,28 @@ Return ONLY the JSON array, no other text."""
             # Continue with zero savings if we can't get recommendations
 
         try:
-            # Get cost comparison
-            cost_report = await self.get_cost_report(org_id, days=30)
+            # Get current period cost
+            current_report = await self.get_cost_report(org_id, days=30)
+            current_cost = current_report.projected_monthly
+
+            # Calculate cost trend by comparing to previous period
+            # Get cost for previous 30 days (days 31-60 ago)
+            cost_trend = 0.0
+            try:
+                previous_report = await self.get_cost_report(org_id, days=60)
+                # Previous period cost is roughly the difference
+                if previous_report.total_cost > current_report.total_cost:
+                    previous_cost = (previous_report.total_cost - current_report.total_cost) * 2
+                    if previous_cost > 0:
+                        cost_trend = float((current_cost - previous_cost) / previous_cost * 100)
+            except Exception:
+                pass  # If we can't get previous period, trend is 0
 
             return {
                 "total_monthly_savings": float(total_savings),
                 "recommendations_applied": recommendations_applied,
-                "current_monthly_cost": float(cost_report.projected_monthly),
-                "browserstack_equivalent": float(cost_report.comparison_to_browserstack),
-                "savings_vs_browserstack": float(cost_report.savings_achieved),
-                "savings_percentage": float(
-                    (cost_report.savings_achieved / cost_report.comparison_to_browserstack * 100)
-                    if cost_report.comparison_to_browserstack > 0 else 0
-                ),
+                "current_monthly_cost": float(current_cost),
+                "cost_trend": cost_trend,
             }
         except Exception as e:
             logger.warning(
@@ -879,9 +901,7 @@ Return ONLY the JSON array, no other text."""
                 "total_monthly_savings": float(total_savings),
                 "recommendations_applied": recommendations_applied,
                 "current_monthly_cost": 0.0,
-                "browserstack_equivalent": 0.0,
-                "savings_vs_browserstack": 0.0,
-                "savings_percentage": 0.0,
+                "cost_trend": 0.0,
             }
 
 
