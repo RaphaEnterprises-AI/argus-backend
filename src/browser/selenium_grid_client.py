@@ -571,11 +571,21 @@ class SeleniumGridClient:
             video_path = end_result.get("video_path")
 
             # Generate signed URL for video (will be available after upload completes)
+            # Uses HMAC-SHA256 signature verified by Cloudflare Worker
             recording_url = None
             if video_artifact_id:
-                settings = get_settings()
-                # Video is at: videos/{session_id}.mp4 in R2
-                recording_url = f"{settings.cloudflare_worker_url}/artifacts/video/{video_artifact_id}"
+                from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
+
+                if is_cloudflare_configured():
+                    cf_client = get_cloudflare_client()
+                    # generate_signed_url returns URL like: /videos/{id}?sig=X&exp=Y
+                    recording_url = cf_client.generate_signed_url(video_artifact_id, artifact_type="video")
+                    logger.info("Generated signed video URL", video_artifact_id=video_artifact_id)
+                else:
+                    # Fallback to unsigned URL (will fail if Worker requires signing)
+                    settings = get_settings()
+                    recording_url = f"{settings.cloudflare_worker_url}/videos/{video_artifact_id}"
+                    logger.warning("Cloudflare not configured, video URL may not work", video_artifact_id=video_artifact_id)
 
             logger.info(
                 "Selenium discovery completed",
