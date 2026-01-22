@@ -3507,16 +3507,21 @@ export default {
       }
 
       try {
-        // Videos are stored with .webm extension
-        const key = `videos/${artifactId}.webm`;
-        const object = await env.ARTIFACTS.get(key);
+        // Try both .mp4 (Selenium Grid) and .webm (browser recording) extensions
+        let object = await env.ARTIFACTS.get(`videos/${artifactId}.mp4`);
+        let contentType = "video/mp4";
+
+        if (!object) {
+          object = await env.ARTIFACTS.get(`videos/${artifactId}.webm`);
+          contentType = "video/webm";
+        }
 
         if (!object) {
           return Response.json({ error: "Video not found", artifact_id: artifactId }, { status: 404, headers: corsHeaders });
         }
 
         const headers = new Headers(corsHeaders);
-        headers.set("Content-Type", "video/webm");
+        headers.set("Content-Type", contentType);
         // Cache based on signature expiry - max 15 min when signed, 24h when public
         const cacheTime = env.MEDIA_SIGNING_SECRET ? 900 : 86400;
         headers.set("Cache-Control", `public, max-age=${cacheTime}`);

@@ -10,6 +10,9 @@ const { chromium, firefox, webkit } = require('playwright');
 const { v4: uuidv4 } = require('uuid');
 const promClient = require('prom-client');
 const winston = require('winston');
+const fs = require('fs');
+const path = require('path');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 // Logger
 const logger = winston.createLogger({
@@ -30,7 +33,14 @@ const CONFIG = {
   defaultTimeout: parseInt(process.env.DEFAULT_TIMEOUT_MS || '30000'),
   headless: process.env.HEADLESS !== 'false',
   podName: process.env.POD_NAME || 'local',
-  podIp: process.env.POD_IP || 'localhost'
+  podIp: process.env.POD_IP || 'localhost',
+  videoDir: process.env.VIDEO_DIR || '/tmp/videos',
+  // R2 configuration for video upload
+  r2Endpoint: process.env.R2_ENDPOINT || '',
+  r2Bucket: process.env.R2_BUCKET || 'argus-artifacts',
+  r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+  r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+  apiCallbackUrl: process.env.API_CALLBACK_URL || ''
 };
 
 // Express apps
@@ -70,7 +80,156 @@ const metrics = {
 
 // Browser pool
 const browserPool = [];
-const sessions = new Map();
+const sessions = new Map();  // sessionId -> { context, page, poolEntry, videoPath, recordVideo, createdAt }
+
+// Ensure video directory exists
+if (!fs.existsSync(CONFIG.videoDir)) {
+  fs.mkdirSync(CONFIG.videoDir, { recursive: true });
+}
+
+// S3 client for R2 upload (lazy initialized)
+let s3Client = null;
+function getS3Client() {
+  if (!s3Client && CONFIG.r2Endpoint && CONFIG.r2AccessKeyId) {
+    s3Client = new S3Client({
+      region: 'auto',
+      endpoint: CONFIG.r2Endpoint,
+      credentials: {
+        accessKeyId: CONFIG.r2AccessKeyId,
+        secretAccessKey: CONFIG.r2SecretAccessKey,
+      },
+    });
+  }
+  return s3Client;
+}
+
+/**
+ * Upload video to R2 and return the artifact ID
+ */
+async function uploadVideoToR2(videoPath, sessionId) {
+  const client = getS3Client();
+  if (!client) {
+    logger.warn('R2 not configured, skipping video upload');
+    return null;
+  }
+
+  try {
+    const videoBuffer = fs.readFileSync(videoPath);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const artifactId = `video_${sessionId.slice(0, 8)}_${timestamp}`;
+    const key = `videos/${artifactId}.webm`;
+
+    await client.send(new PutObjectCommand({
+      Bucket: CONFIG.r2Bucket,
+      Key: key,
+      Body: videoBuffer,
+      ContentType: 'video/webm',
+      Metadata: {
+        'session-id': sessionId,
+        'pod-name': CONFIG.podName,
+      },
+    }));
+
+    logger.info('Video uploaded to R2', { artifactId, size: videoBuffer.length });
+
+    // Notify backend API if configured
+    if (CONFIG.apiCallbackUrl) {
+      try {
+        const response = await fetch(`${CONFIG.apiCallbackUrl}/api/v1/artifacts/videos/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            artifact_id: artifactId,
+            storage_key: key,
+            file_size_bytes: videoBuffer.length,
+          }),
+        });
+        if (!response.ok) {
+          logger.warn('Failed to notify backend API', { status: response.status });
+        }
+      } catch (callbackError) {
+        logger.warn('Backend callback failed', { error: callbackError.message });
+      }
+    }
+
+    // Clean up local file
+    fs.unlinkSync(videoPath);
+
+    return artifactId;
+  } catch (error) {
+    logger.error('Failed to upload video to R2', { error: error.message });
+    return null;
+  }
+}
+
+/**
+ * Clean up expired sessions
+ */
+function cleanupSessions() {
+  const now = Date.now();
+  for (const [sessionId, session] of sessions.entries()) {
+    if (now - session.createdAt > CONFIG.sessionTimeout) {
+      logger.info('Cleaning up expired session', { sessionId });
+      endSession(sessionId).catch(() => {});
+    }
+  }
+}
+
+// Run cleanup every minute
+setInterval(cleanupSessions, 60000);
+
+/**
+ * End a session and return video info
+ */
+async function endSession(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+
+  let videoArtifactId = null;
+  let videoUrl = null;
+
+  try {
+    // Close context to finalize video
+    await session.context.close();
+
+    // Wait for video file to be written
+    if (session.recordVideo && session.videoPath) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Find the video file (Playwright names it with a UUID)
+      const videoDir = path.dirname(session.videoPath);
+      const files = fs.readdirSync(videoDir);
+      const videoFile = files.find(f => f.endsWith('.webm'));
+
+      if (videoFile) {
+        const fullPath = path.join(videoDir, videoFile);
+        videoArtifactId = await uploadVideoToR2(fullPath, sessionId);
+
+        if (videoArtifactId && CONFIG.r2Endpoint) {
+          // Generate presigned URL would require additional setup
+          // For now, return the artifact ID for backend to generate URL
+          videoUrl = null;
+        }
+      }
+    }
+
+    releaseBrowser(session.poolEntry);
+    sessions.delete(sessionId);
+
+    logger.info('Session ended', { sessionId, videoArtifactId });
+
+    return { videoArtifactId, videoUrl };
+  } catch (error) {
+    logger.error('Error ending session', { sessionId, error: error.message });
+    sessions.delete(sessionId);
+    if (session.poolEntry) {
+      releaseBrowser(session.poolEntry);
+    }
+    return null;
+  }
+}
 
 // Browser types
 const BROWSERS = {
@@ -387,10 +546,9 @@ app.get('/ready', (req, res) => {
   }
 });
 
-// OBSERVE endpoint - Discover interactive elements (MCP compatible)
-app.post('/observe', async (req, res) => {
-  const timer = metrics.actionDuration.startTimer({ action: 'observe' });
-  const { url, instruction } = req.body;
+// SESSION START endpoint - Create persistent session with optional video recording
+app.post('/session/start', async (req, res) => {
+  const { url, recordVideo = false, auth } = req.body;
 
   if (!url) {
     return res.status(400).json({ success: false, error: 'URL is required' });
@@ -403,40 +561,195 @@ app.post('/observe', async (req, res) => {
   }
 
   try {
-    const context = await poolEntry.browser.newContext({
+    const sessionId = uuidv4();
+
+    // Prepare context options
+    const contextOptions = {
       viewport: { width: 1920, height: 1080 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+
+    // Add video recording if requested
+    let videoPath = null;
+    if (recordVideo) {
+      const videoDir = path.join(CONFIG.videoDir, sessionId);
+      fs.mkdirSync(videoDir, { recursive: true });
+      contextOptions.recordVideo = {
+        dir: videoDir,
+        size: { width: 1920, height: 1080 }
+      };
+      videoPath = videoDir;
+      logger.info('Video recording enabled for session', { sessionId, videoDir });
+    }
+
+    // Add auth cookies/headers if provided
+    if (auth && auth.cookies) {
+      contextOptions.storageState = { cookies: auth.cookies };
+    }
+
+    const context = await poolEntry.browser.newContext(contextOptions);
+    const page = await context.newPage();
+
+    // Navigate to initial URL
+    await page.goto(url, { waitUntil: 'networkidle', timeout: CONFIG.defaultTimeout });
+
+    // Store session
+    sessions.set(sessionId, {
+      context,
+      page,
+      poolEntry,
+      videoPath,
+      recordVideo,
+      createdAt: Date.now()
     });
 
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: 'networkidle', timeout: CONFIG.defaultTimeout });
+    metrics.sessions.inc();
+    metrics.activeSessions.inc();
+
+    logger.info('Session started', { sessionId, recordVideo, url });
+
+    res.json({
+      success: true,
+      sessionId,
+      url: page.url(),
+      title: await page.title(),
+      recordVideo,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    releaseBrowser(poolEntry);
+    metrics.errors.inc({ type: 'session_start' });
+    logger.error('Session start failed', { error: error.message });
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// SESSION END endpoint - Close session and return video URL
+app.post('/session/end', async (req, res) => {
+  const { sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ success: false, error: 'sessionId is required' });
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ success: false, error: 'Session not found' });
+  }
+
+  try {
+    const result = await endSession(sessionId);
+    metrics.activeSessions.dec();
+
+    res.json({
+      success: true,
+      sessionId,
+      videoArtifactId: result?.videoArtifactId || null,
+      videoUrl: result?.videoUrl || null,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    metrics.errors.inc({ type: 'session_end' });
+    logger.error('Session end failed', { sessionId, error: error.message });
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// OBSERVE endpoint - Discover interactive elements (MCP compatible)
+// Supports sessionId parameter to use an existing session (for video recording)
+app.post('/observe', async (req, res) => {
+  const timer = metrics.actionDuration.startTimer({ action: 'observe' });
+  const { url, instruction, sessionId } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ success: false, error: 'URL is required' });
+  }
+
+  // Check if using existing session
+  const existingSession = sessionId ? sessions.get(sessionId) : null;
+
+  let page, context, poolEntry;
+  let shouldCleanup = !existingSession;
+
+  try {
+    if (existingSession) {
+      // Use existing session's page
+      page = existingSession.page;
+
+      // Navigate to new URL if different
+      if (page.url() !== url) {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: CONFIG.defaultTimeout });
+      }
+
+      logger.debug('Using existing session', { sessionId, url });
+    } else {
+      // Create new context for this request
+      poolEntry = acquireBrowser();
+      if (!poolEntry) {
+        metrics.errors.inc({ type: 'no_browser' });
+        return res.status(503).json({ success: false, error: 'No browsers available' });
+      }
+
+      context = await poolEntry.browser.newContext({
+        viewport: { width: 1920, height: 1080 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+
+      page = await context.newPage();
+      await page.goto(url, { waitUntil: 'networkidle', timeout: CONFIG.defaultTimeout });
+    }
 
     const actions = await extractElements(page);
     const pageTitle = await page.title();
     const pageUrl = page.url();
 
-    await context.close();
-    releaseBrowser(poolEntry);
+    // Only cleanup if we created a new context (not using existing session)
+    if (shouldCleanup && context) {
+      await context.close();
+      releaseBrowser(poolEntry);
+    }
 
     timer({ status: 'success' });
-    metrics.sessions.inc();
+    if (!existingSession) {
+      metrics.sessions.inc();
+    }
 
-    logger.info('Observe completed', { url, actionsFound: actions.length });
+    logger.info('Observe completed', { url, actionsFound: actions.length, sessionId: sessionId || 'none' });
 
     res.json({
       success: true,
       url: pageUrl,
       title: pageTitle,
       actions,
+      sessionId: sessionId || null,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    releaseBrowser(poolEntry);
+    if (shouldCleanup) {
+      if (context) {
+        try { await context.close(); } catch (e) {}
+      }
+      if (poolEntry) {
+        releaseBrowser(poolEntry);
+      }
+    }
     timer({ status: 'error' });
     metrics.errors.inc({ type: 'observe' });
 
-    logger.error('Observe failed', { url, error: error.message });
+    logger.error('Observe failed', { url, error: error.message, sessionId: sessionId || 'none' });
 
     res.status(500).json({
       success: false,

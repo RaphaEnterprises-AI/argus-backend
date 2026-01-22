@@ -1,8 +1,13 @@
-# Selenium Grid 4 - Configuration with Video Recording to R2
+# Selenium Grid 4 - Configuration with Video Recording to Cloudflare R2
 # Deploy with: helm upgrade --install selenium-grid selenium/selenium-grid -f values-with-video.yaml -n selenium-grid --create-namespace
 #
 # IMPORTANT: This configuration enables video recording with automatic upload to Cloudflare R2
-# Requires R2 credentials to be set in the r2-video-uploader ConfigMap/Secret
+# Requires:
+#   1. r2-credentials Secret with access_key_id and secret_access_key
+#   2. r2-config ConfigMap with account_id and bucket
+#
+# Apply secrets first:
+#   kubectl apply -f ../kubernetes/r2-video-config.yaml -n selenium-grid
 
 global:
   seleniumGrid:
@@ -11,10 +16,48 @@ global:
     # Session timeout - auto-cleanup stuck sessions after 60 seconds
     sessionTimeout: 60
 
-# Use Hub mode (simpler, less resources than distributed mode)
+# ============================================================================
+# VIDEO RECORDER - Global settings for all browser nodes
+# Uses rclone for S3-compatible upload to Cloudflare R2
+# ============================================================================
+videoRecorder:
+  # Enable video recording for all browser sessions
+  enabled: true
+  # Run video recorder as sidecar container (separate from browser)
+  sidecarContainer: true
+  # Video storage directory inside container
+  targetFolder: "/videos"
+  # Resource limits for video recorder container
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  # Terminate gracefully to allow final upload
+  terminationGracePeriodSeconds: 60
+
+  # Video uploader configuration using rclone
+  uploader:
+    enabled: true
+    # rclone destination: remotename://bucket/path
+    # The remote name "R2" (uppercase) matches RCLONE_CONFIG_R2_* env vars
+    destinationPrefix: "R2://argus-artifacts/videos"
+    # Pull secrets from our r2-credentials Kubernetes secret
+    extraEnvFrom:
+      - secretRef:
+          name: r2-uploader-rclone-config
+
+# ============================================================================
+# HUB - Central Selenium Grid hub
+# ============================================================================
 hub:
   enabled: true
   replicas: 1
+  serviceType: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
   resources:
     requests:
       memory: "256Mi"
@@ -37,8 +80,7 @@ components:
     enabled: false
 
 # ============================================================================
-# Chrome nodes with video recording enabled
-# Videos are saved to /videos and automatically uploaded to R2
+# CHROME NODES
 # ============================================================================
 chromeNode:
   enabled: true
@@ -52,103 +94,8 @@ chromeNode:
       memory: "1.5Gi"
       cpu: "750m"
 
-  # Enable video recording (Selenium Grid 4 built-in feature)
-  videoRecording:
-    enabled: true
-    # Video container image (selenium's official video recorder)
-    image: "selenium/video:ffmpeg-7.0.2-20241101"
-    # Upload destination (handled by r2-uploader sidecar)
-    uploadDestinationPrefix: "/videos"
-    # Video format settings
-    screenSize: "1920x1080"
-    frameRate: 15
-
-  # Extra sidecar for R2 upload
-  extraContainers:
-    - name: r2-uploader
-      image: amazon/aws-cli:2.15.0  # Has S3-compatible CLI
-      command: ["/bin/sh", "-c"]
-      args:
-        - |
-          # R2 uploader script - watches for completed videos and uploads to R2
-          echo "Starting R2 video uploader..."
-
-          while true; do
-            # Find completed video files (older than 10 seconds, not being written)
-            for video in /videos/*.mp4 /videos/*.webm; do
-              if [ -f "$video" ]; then
-                # Check if file is complete (not modified in last 10 seconds)
-                if [ $(find "$video" -mmin +0.15 2>/dev/null | wc -l) -gt 0 ]; then
-                  filename=$(basename "$video")
-                  artifact_id="video_$(echo $filename | md5sum | cut -c1-16)_$(date +%Y%m%d_%H%M%S)"
-
-                  echo "Uploading $video as $artifact_id to R2..."
-
-                  # Upload to R2 using S3-compatible API
-                  aws s3 cp "$video" "s3://${R2_BUCKET}/videos/${artifact_id}.webm" \
-                    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                    --content-type "video/webm"
-
-                  if [ $? -eq 0 ]; then
-                    echo "Upload successful: $artifact_id"
-
-                    # Notify Python API to save metadata (optional callback)
-                    if [ -n "$API_CALLBACK_URL" ]; then
-                      curl -s -X POST "$API_CALLBACK_URL/api/v1/artifacts/videos/confirm" \
-                        -H "Content-Type: application/json" \
-                        -d "{\"artifact_id\":\"$artifact_id\",\"storage_key\":\"videos/${artifact_id}.webm\",\"file_size_bytes\":$(stat -c%s "$video" 2>/dev/null || stat -f%z "$video")}"
-                    fi
-
-                    # Remove local file after successful upload
-                    rm -f "$video"
-                  else
-                    echo "Upload failed for $video"
-                  fi
-                fi
-              fi
-            done
-            sleep 5
-          done
-      env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: r2-credentials
-              key: access_key_id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: r2-credentials
-              key: secret_access_key
-        - name: R2_ACCOUNT_ID
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: account_id
-        - name: R2_BUCKET
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: bucket
-        - name: API_CALLBACK_URL
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: api_callback_url
-              optional: true
-      volumeMounts:
-        - name: videos
-          mountPath: /videos
-      resources:
-        requests:
-          memory: "64Mi"
-          cpu: "50m"
-        limits:
-          memory: "128Mi"
-          cpu: "100m"
-
 # ============================================================================
-# Firefox nodes with video recording enabled
+# FIREFOX NODES
 # ============================================================================
 firefoxNode:
   enabled: true
@@ -162,71 +109,8 @@ firefoxNode:
       memory: "2Gi"
       cpu: "1000m"
 
-  videoRecording:
-    enabled: true
-    image: "selenium/video:ffmpeg-7.0.2-20241101"
-    uploadDestinationPrefix: "/videos"
-    screenSize: "1920x1080"
-    frameRate: 15
-
-  extraContainers:
-    - name: r2-uploader
-      image: amazon/aws-cli:2.15.0
-      command: ["/bin/sh", "-c"]
-      args:
-        - |
-          echo "Starting R2 video uploader for Firefox..."
-          while true; do
-            for video in /videos/*.mp4 /videos/*.webm; do
-              if [ -f "$video" ]; then
-                if [ $(find "$video" -mmin +0.15 2>/dev/null | wc -l) -gt 0 ]; then
-                  filename=$(basename "$video")
-                  artifact_id="video_$(echo $filename | md5sum | cut -c1-16)_$(date +%Y%m%d_%H%M%S)"
-                  aws s3 cp "$video" "s3://${R2_BUCKET}/videos/${artifact_id}.webm" \
-                    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                    --content-type "video/webm"
-                  if [ $? -eq 0 ]; then
-                    rm -f "$video"
-                  fi
-                fi
-              fi
-            done
-            sleep 5
-          done
-      env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: r2-credentials
-              key: access_key_id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: r2-credentials
-              key: secret_access_key
-        - name: R2_ACCOUNT_ID
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: account_id
-        - name: R2_BUCKET
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: bucket
-      volumeMounts:
-        - name: videos
-          mountPath: /videos
-      resources:
-        requests:
-          memory: "64Mi"
-          cpu: "50m"
-        limits:
-          memory: "128Mi"
-          cpu: "100m"
-
 # ============================================================================
-# Edge nodes with video recording enabled
+# EDGE NODES
 # ============================================================================
 edgeNode:
   enabled: true
@@ -240,78 +124,9 @@ edgeNode:
       memory: "1.5Gi"
       cpu: "750m"
 
-  videoRecording:
-    enabled: true
-    image: "selenium/video:ffmpeg-7.0.2-20241101"
-    uploadDestinationPrefix: "/videos"
-    screenSize: "1920x1080"
-    frameRate: 15
-
-  extraContainers:
-    - name: r2-uploader
-      image: amazon/aws-cli:2.15.0
-      command: ["/bin/sh", "-c"]
-      args:
-        - |
-          echo "Starting R2 video uploader for Edge..."
-          while true; do
-            for video in /videos/*.mp4 /videos/*.webm; do
-              if [ -f "$video" ]; then
-                if [ $(find "$video" -mmin +0.15 2>/dev/null | wc -l) -gt 0 ]; then
-                  filename=$(basename "$video")
-                  artifact_id="video_$(echo $filename | md5sum | cut -c1-16)_$(date +%Y%m%d_%H%M%S)"
-                  aws s3 cp "$video" "s3://${R2_BUCKET}/videos/${artifact_id}.webm" \
-                    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-                    --content-type "video/webm"
-                  if [ $? -eq 0 ]; then
-                    rm -f "$video"
-                  fi
-                fi
-              fi
-            done
-            sleep 5
-          done
-      env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: r2-credentials
-              key: access_key_id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: r2-credentials
-              key: secret_access_key
-        - name: R2_ACCOUNT_ID
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: account_id
-        - name: R2_BUCKET
-          valueFrom:
-            configMapKeyRef:
-              name: r2-config
-              key: bucket
-      volumeMounts:
-        - name: videos
-          mountPath: /videos
-      resources:
-        requests:
-          memory: "64Mi"
-          cpu: "50m"
-        limits:
-          memory: "128Mi"
-          cpu: "100m"
-
 # Ingress disabled - using LoadBalancer directly
 ingress:
   enabled: false
-
-# Service configuration
-hub:
-  serviceType: LoadBalancer
-  annotations:
-    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
 
 # Disable monitoring stack to save resources (use external Prometheus)
 prometheus:

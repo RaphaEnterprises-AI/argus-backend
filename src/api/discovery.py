@@ -23,6 +23,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.agents.auto_discovery import AutoDiscovery, DiscoveryResult
 from src.browser.pool_client import BrowserPoolClient
+from src.browser.selenium_grid_client import (
+    SeleniumGridClient,
+    SeleniumGridError,
+    is_selenium_grid_available,
+)
 from src.discovery.engine import DiscoveryEngine, create_discovery_engine
 from src.discovery.repository import DiscoveryRepository
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
@@ -1750,7 +1755,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             })
 
         # Determine which backend to use based on record_session
-        # - record_session: true → Use BrowserPool directly (Crawlee doesn't support video)
+        # - record_session: true → Use Selenium Grid (has video recording via sidecars)
         # - record_session: false → Use Crawlee if available (faster for non-video)
         record_session = config.get("record_session", False)
         crawlee_client = get_crawlee_client()
@@ -1758,14 +1763,112 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
         # Skip Crawlee when video recording is requested (Crawlee doesn't support it)
         use_crawlee = False if record_session else await crawlee_client.is_available()
 
+        # Check if Selenium Grid is available for video recording
+        use_selenium_grid = False
         if record_session:
-            logger.info(
-                "Using BrowserPool for video-enabled discovery (Crawlee doesn't support video)",
-                session_id=session_id,
-                record_session=record_session,
-            )
+            use_selenium_grid = await is_selenium_grid_available()
+            if use_selenium_grid:
+                logger.info(
+                    "Using Selenium Grid for video-enabled discovery",
+                    session_id=session_id,
+                    record_session=record_session,
+                )
+            else:
+                logger.warning(
+                    "Selenium Grid not available, falling back to BrowserPool (video may not work)",
+                    session_id=session_id,
+                )
 
-        if use_crawlee:
+        # Track which backend completed discovery (for fallback logic)
+        discovery_completed = False
+
+        # =====================================================================
+        # SELENIUM GRID PATH - Video Recording Enabled
+        # Uses Selenium Grid with ffmpeg sidecars that auto-upload to R2
+        # Video path: r2://argus-artifacts/videos/{session_id}.mp4
+        # =====================================================================
+        if use_selenium_grid:
+            logger.info("Using Selenium Grid for video-enabled discovery", session_id=session_id)
+
+            try:
+                selenium_client = SeleniumGridClient()
+
+                # Run discovery via Selenium Grid
+                selenium_result = await selenium_client.discover(
+                    start_url=session["app_url"],
+                    max_pages=config.get("max_pages", 50),
+                    max_depth=config.get("max_depth", 3),
+                    include_patterns=config.get("include_patterns", []),
+                    exclude_patterns=config.get("exclude_patterns", []),
+                    capture_screenshots=config.get("capture_screenshots", True),
+                )
+
+                if not selenium_result.success:
+                    raise SeleniumGridError(f"Discovery failed: {selenium_result.error}")
+
+                # Video is automatically uploaded to R2 by the sidecar
+                # Path: videos/{selenium_session_id}.mp4
+                if selenium_result.video_artifact_id:
+                    session["video_artifact_id"] = selenium_result.video_artifact_id
+                    session["recording_url"] = selenium_result.recording_url
+                    logger.info(
+                        "Video recording saved to R2",
+                        video_artifact_id=selenium_result.video_artifact_id,
+                        recording_url=selenium_result.recording_url,
+                    )
+
+                # Process discovered pages from Selenium Grid
+                for i, page in enumerate(selenium_result.pages):
+                    page_data = {
+                        "id": f"page-{session_id[:8]}-{i}",
+                        "url": page.url,
+                        "title": page.title,
+                        "description": f"Page with {len(page.elements)} elements",
+                        "page_type": "content",  # Selenium doesn't categorize
+                        "elements_count": len(page.elements),
+                        "forms_count": sum(1 for e in page.elements if e.tag_name in ("form", "input", "select", "textarea")),
+                        "links_count": len(page.links),
+                        "screenshot": page.screenshot,
+                        "discovered_at": datetime.now(UTC).isoformat(),
+                    }
+                    session["pages"].append(page_data)
+
+                    # Emit page discovered event
+                    if events_queue:
+                        await events_queue.put({
+                            "event": "page_discovered",
+                            "data": json.dumps({
+                                "session_id": session_id,
+                                "page": page_data,
+                                "total_pages": len(session["pages"]),
+                            })
+                        })
+
+                    # Incremental persistence: save checkpoint every 5 pages
+                    if len(session["pages"]) % 5 == 0:
+                        await _persist_discovery_checkpoint(session)
+
+                # Calculate coverage
+                total_elements = sum(len(p.elements) for p in selenium_result.pages)
+                total_pages = len(selenium_result.pages)
+                session["coverage_score"] = min(100, (total_elements / (total_pages * 10)) * 100) if total_pages > 0 else 0
+
+                logger.info(
+                    "Selenium Grid discovery completed",
+                    session_id=session_id,
+                    pages_discovered=len(selenium_result.pages),
+                    video_artifact_id=selenium_result.video_artifact_id,
+                )
+                discovery_completed = True
+
+            except SeleniumGridError as e:
+                logger.warning("Selenium Grid failed, will try fallback", error=str(e))
+                use_selenium_grid = False  # Allow fallback to BrowserPool
+
+        # =====================================================================
+        # CRAWLEE PATH - Fast, no video
+        # =====================================================================
+        if not discovery_completed and use_crawlee:
             logger.info("Using Crawlee microservice for discovery", session_id=session_id)
 
             # Prepare auth config for Crawlee service
@@ -1913,10 +2016,14 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             total_elements = result_data.get("totalElements", 0)
             total_pages = result_data.get("totalPages", 1)
             session["coverage_score"] = min(100, (total_elements / (total_pages * 10)) * 100) if total_pages > 0 else 0
+            discovery_completed = True
 
-        else:
+        # =====================================================================
+        # BROWSERPOOL PATH - Fallback when Selenium Grid and Crawlee unavailable
+        # =====================================================================
+        if not discovery_completed:
             # BrowserPool path - either because:
-            # 1. record_session=True (Crawlee doesn't support video recording)
+            # 1. Selenium Grid failed or unavailable for video recording
             # 2. Crawlee is unavailable
             execution_context = config.get("execution_context", ExecutionContext.DASHBOARD.value)
 

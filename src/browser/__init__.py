@@ -81,6 +81,15 @@ from .pool_models import (
     StepResult as PoolStepResult,
 )
 
+# Selenium Grid client for video recording
+from .selenium_grid_client import (
+    SeleniumDiscoveryResult,
+    SeleniumGridClient,
+    SeleniumGridError,
+    get_selenium_grid_client,
+    is_selenium_grid_available,
+)
+
 __all__ = [
     # Primary (New)
     "BrowserPoolClient",
@@ -105,4 +114,10 @@ __all__ = [
     "ExtractionSchema",
     "PageState",
     "run_test_with_e2e_client",
+    # Selenium Grid (Video Recording)
+    "SeleniumGridClient",
+    "SeleniumDiscoveryResult",
+    "SeleniumGridError",
+    "get_selenium_grid_client",
+    "is_selenium_grid_available",
 ]

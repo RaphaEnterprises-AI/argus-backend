@@ -234,6 +234,16 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Selenium Grid Configuration (Video Recording)
+    # ==========================================================================
+    # Selenium Grid is a separate system from browser-pool, used specifically for
+    # video recording. It runs with ffmpeg sidecars that auto-upload to R2.
+    selenium_grid_url: str | None = Field(
+        None,
+        description="URL of the Selenium Grid hub (e.g., http://65.20.71.218:4444). Used for video recording."
+    )
+
+    # ==========================================================================
     # Security Settings (SOC2 Compliance)
     # ==========================================================================
 

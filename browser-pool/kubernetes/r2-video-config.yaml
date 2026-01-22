@@ -1,10 +1,10 @@
 # Cloudflare R2 Configuration for Video Recording
-# This file contains the ConfigMap and Secret templates for R2 video upload
+# This file contains the ConfigMap and Secrets for R2 video upload with Selenium Grid
 #
 # Deploy with:
 #   kubectl apply -f r2-video-config.yaml -n selenium-grid
 #
-# IMPORTANT: Update the secret with your actual R2 credentials before applying!
+# IMPORTANT: Update the secrets with your actual R2 credentials before applying!
 
 ---
 # ConfigMap with non-sensitive R2 configuration
@@ -28,7 +28,7 @@ data:
   api_callback_url: "https://argus-brain-production.up.railway.app"
 
 ---
-# Secret with sensitive R2 credentials
+# Secret with raw R2 credentials (for custom sidecars, debugging)
 # IMPORTANT: Replace placeholder values with actual credentials!
 #
 # Get these from Cloudflare Dashboard:
@@ -53,15 +53,48 @@ stringData:
   secret_access_key: "YOUR_R2_SECRET_ACCESS_KEY"
 
 ---
+# Secret with rclone configuration for Selenium Grid's built-in video uploader
+# The uploader uses rclone, which reads config from RCLONE_CONFIG_<REMOTE>_<OPTION> env vars
+#
+# IMPORTANT: Replace placeholder values with actual credentials!
+# - YOUR_R2_ACCESS_KEY_ID: Your R2 access key (from Cloudflare R2 API Tokens)
+# - YOUR_R2_SECRET_ACCESS_KEY: Your R2 secret key
+# - YOUR_CLOUDFLARE_ACCOUNT_ID: Your Cloudflare account ID (found in R2 dashboard URL)
+#
+apiVersion: v1
+kind: Secret
+metadata:
+  name: r2-uploader-rclone-config
+  namespace: selenium-grid
+  labels:
+    app: selenium-grid
+    component: video-uploader
+type: Opaque
+stringData:
+  # rclone configuration for R2 remote
+  # Remote name "R2" must match the destination prefix in helm values (r2://bucket/path)
+  RCLONE_CONFIG_R2_TYPE: "s3"
+  RCLONE_CONFIG_R2_PROVIDER: "Cloudflare"
+  RCLONE_CONFIG_R2_ACCESS_KEY_ID: "YOUR_R2_ACCESS_KEY_ID"
+  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: "YOUR_R2_SECRET_ACCESS_KEY"
+  RCLONE_CONFIG_R2_ENDPOINT: "https://YOUR_CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+  RCLONE_CONFIG_R2_NO_CHECK_BUCKET: "true"
+  RCLONE_CONFIG_R2_ACL: "private"
+
+---
 # Alternative: Use SealedSecret for GitOps (if you have sealed-secrets installed)
 # Encrypt your secret with: kubeseal --format yaml < secret.yaml > sealed-secret.yaml
 #
 # apiVersion: bitnami.com/v1alpha1
 # kind: SealedSecret
 # metadata:
-#   name: r2-credentials
+#   name: r2-uploader-rclone-config
 #   namespace: selenium-grid
 # spec:
 #   encryptedData:
-#     access_key_id: <encrypted>
-#     secret_access_key: <encrypted>
+#     RCLONE_CONFIG_R2_TYPE: <encrypted>
+#     RCLONE_CONFIG_R2_PROVIDER: <encrypted>
+#     RCLONE_CONFIG_R2_ACCESS_KEY_ID: <encrypted>
+#     RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: <encrypted>
+#     RCLONE_CONFIG_R2_ENDPOINT: <encrypted>
+#     RCLONE_CONFIG_R2_NO_CHECK_BUCKET: <encrypted>
