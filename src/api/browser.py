@@ -77,6 +77,7 @@ class TestResponse(BaseModel):
     steps: list[TestStepResult]
     final_screenshot: str | None = None
     video_artifact_id: str | None = None
+    recording_url: str | None = None  # Signed URL for video playback
     error: str | None = None
     duration_ms: int = 0
     browser: str = "chromium"
@@ -414,6 +415,22 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
         video_artifact_id = end_result.get("video_artifact_id")
         final_screenshot = step_results[-1].screenshot if step_results else None
 
+        # Generate signed URL for video playback
+        recording_url = None
+        if video_artifact_id:
+            try:
+                from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
+                if is_cloudflare_configured():
+                    cf_client = get_cloudflare_client()
+                    recording_url = cf_client.r2.generate_signed_url(
+                        video_artifact_id,
+                        artifact_type="video",
+                        expiry_seconds=3600  # 1 hour expiry
+                    )
+                    logger.info("Generated signed video URL", video_artifact_id=video_artifact_id)
+            except Exception as e:
+                logger.warning("Failed to generate signed video URL", error=str(e))
+
         logger.info(
             "Browser test completed (selenium grid)",
             url=body.url,
@@ -422,6 +439,7 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
             steps_total=len(step_results),
             duration_ms=duration_ms,
             video_artifact_id=video_artifact_id,
+            recording_url=recording_url,
         )
 
         return TestResponse(
@@ -429,6 +447,7 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
             steps=step_results,
             final_screenshot=final_screenshot,
             video_artifact_id=video_artifact_id,
+            recording_url=recording_url,
             error=None if all_success else "One or more steps failed",
             duration_ms=duration_ms,
             browser=body.browser.value,
