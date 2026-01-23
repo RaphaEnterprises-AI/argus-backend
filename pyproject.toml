@@ -68,6 +68,8 @@ dependencies = [
     # Error Monitoring
     "sentry-sdk[fastapi]>=2.0.0",  # Sentry for error tracking and performance monitoring
     "defusedxml>=0.7.1",
+    # Scheduling
+    "croniter>=2.0.0",  # Cron expression parsing for scheduled test runs
 ]
 
 [project.optional-dependencies]

@@ -16,12 +16,16 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from src.integrations.supabase import get_supabase, is_supabase_configured
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/schedules", tags=["Scheduling"])
+
+# Active run queues for SSE streaming
+_active_run_queues: dict[str, asyncio.Queue] = {}
 
 
 # ============================================================================
@@ -670,52 +674,71 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: str |
     """
     Background task to run scheduled tests.
 
-    In production, this would:
-    1. Create a test run using the orchestrator
-    2. Track progress and update run status
-    3. Send notifications on completion
+    Executes tests using Selenium Grid and:
+    1. Streams progress events via SSE queue
+    2. Updates run status in real-time
+    3. Sends Slack notifications on failure
     """
+    from src.api.schedule_executor import execute_scheduled_run
+
     schedule = await _get_schedule_from_db(schedule_id)
     if not schedule:
+        logger.error("Schedule not found", schedule_id=schedule_id)
         return
+
+    # Create events queue for SSE streaming
+    events_queue: asyncio.Queue = asyncio.Queue()
+    queue_key = f"{schedule_id}:{run_id}"
+    _active_run_queues[queue_key] = events_queue
 
     try:
         # Update run status to running
         await _update_schedule_run_in_db(run_id, {"status": "running"})
         logger.info("Starting scheduled test run", schedule_id=schedule_id, run_id=run_id)
 
-        # Simulate test execution (replace with actual orchestrator call in production)
-        # In production:
-        # from src.orchestrator.graph import TestingOrchestrator
-        # orchestrator = TestingOrchestrator(
-        #     codebase_path="...",
-        #     app_url=schedule["app_url_override"],
-        # )
-        # result = await orchestrator.run(...)
+        # Execute tests using the schedule executor
+        results = await execute_scheduled_run(
+            schedule_id=schedule_id,
+            run_id=run_id,
+            schedule=schedule,
+            events_queue=events_queue,
+        )
 
-        await asyncio.sleep(2)  # Simulate work
+        # Determine final status
+        completed_at = datetime.now(UTC)
+        final_status = "passed" if results["tests_failed"] == 0 else "failed"
 
         # Update run with results
-        completed_at = datetime.now(UTC)
-        duration_ms = 2000  # Would be calculated from actual run
-
         await _update_schedule_run_in_db(run_id, {
-            "status": "passed",
+            "status": final_status,
             "completed_at": completed_at.isoformat(),
-            "duration_ms": duration_ms,
-            "tests_total": 10,
-            "tests_passed": 10,
-            "tests_failed": 0,
-            "tests_skipped": 0,
+            "duration_ms": results["duration_ms"],
+            "tests_total": results["tests_total"],
+            "tests_passed": results["tests_passed"],
+            "tests_failed": results["tests_failed"],
+            "tests_skipped": results["tests_skipped"],
+        })
+
+        # Update schedule statistics
+        await _update_schedule_in_db(schedule_id, {
+            "last_run_at": completed_at.isoformat(),
+            "run_count": schedule.get("run_count", 0) + 1,
+            "failure_count": schedule.get("failure_count", 0) + (1 if results["tests_failed"] > 0 else 0),
         })
 
         logger.info(
             "Scheduled test run completed",
             schedule_id=schedule_id,
             run_id=run_id,
-            status="success",
-            duration_ms=duration_ms,
+            status=final_status,
+            tests_passed=results["tests_passed"],
+            tests_failed=results["tests_failed"],
+            duration_ms=results["duration_ms"],
         )
+
+        # Send Slack notification on failure
+        if results["tests_failed"] > 0:
+            await _send_failure_notification(schedule, run_id, results)
 
     except Exception as e:
         logger.exception("Scheduled test run failed", schedule_id=schedule_id, run_id=run_id, error=str(e))
@@ -726,12 +749,63 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: str |
             "error_message": str(e),
         })
 
-        # Handle notifications on failure
+        # Send notification for exception
+        await _send_failure_notification(schedule, run_id, {
+            "tests_total": 0,
+            "tests_passed": 0,
+            "tests_failed": 0,
+            "duration_ms": 0,
+            "failures": [{"error": str(e)}],
+        })
+
+    finally:
+        # Clean up the events queue
+        if queue_key in _active_run_queues:
+            del _active_run_queues[queue_key]
+
+
+async def _send_failure_notification(schedule: dict, run_id: str, results: dict) -> None:
+    """Send Slack notification for failed test run."""
+    try:
         notification_config = schedule.get("notification_config", {})
         notify_on_failure = notification_config.get("on_failure", True) if isinstance(notification_config, dict) else True
-        if notify_on_failure:
-            # In production: send notifications via configured channels
-            logger.info("Would send failure notification", schedule_id=schedule_id, run_id=run_id)
+
+        if not notify_on_failure:
+            return
+
+        # Check if Slack is configured
+        import os
+        if not os.environ.get("SLACK_WEBHOOK_URL"):
+            logger.debug("Slack webhook not configured, skipping notification")
+            return
+
+        from src.integrations.slack_integration import SlackIntegration, TestSummary
+
+        slack = SlackIntegration()
+        summary = TestSummary(
+            total=results.get("tests_total", 0),
+            passed=results.get("tests_passed", 0),
+            failed=results.get("tests_failed", 0),
+            skipped=results.get("tests_skipped", 0),
+            duration_seconds=results.get("duration_ms", 0) / 1000,
+            cost_usd=0,
+            failures=[
+                {"name": f.get("test_name", "Unknown"), "error": f.get("error", "Unknown error")}
+                for f in results.get("failures", [])
+            ],
+            report_url=f"/schedules/{schedule['id']}/runs/{run_id}",
+        )
+
+        await slack.send_test_results(
+            summary,
+            title=f"❌ Schedule Failed: {schedule.get('name', 'Unknown')}"
+        )
+
+        logger.info("Sent Slack failure notification", schedule_id=schedule.get("id"), run_id=run_id)
+
+    except Exception as e:
+        # Don't fail the run if notification fails
+        logger.warning("Failed to send Slack notification", error=str(e))
 
 
 # ============================================================================
@@ -1173,6 +1247,103 @@ async def cancel_run(schedule_id: str, run_id: str):
         "message": "Run cancelled",
         "run_id": run_id,
     }
+
+
+@router.get("/{schedule_id}/runs/{run_id}/stream")
+async def stream_schedule_run(schedule_id: str, run_id: str):
+    """
+    Stream run progress via Server-Sent Events.
+
+    Events emitted:
+    - run_started: When the run begins
+    - tests_fetched: When tests are loaded (includes test count)
+    - test_started: When a test begins execution
+    - step_started: When a step begins
+    - step_completed: When a step completes (includes success/failure)
+    - test_completed: When a test completes (includes results)
+    - progress: Periodic progress updates (includes percent complete)
+    - run_completed: When the entire run finishes
+    - error: If an error occurs
+    - heartbeat: Periodic keepalive
+
+    Connection will close when:
+    - Run completes (run_completed event)
+    - Run is cancelled
+    - Client disconnects
+    - Timeout (5 minutes)
+    """
+    import json
+
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    queue_key = f"{schedule_id}:{run_id}"
+
+    async def event_generator():
+        """Generate SSE events from the run queue."""
+        heartbeat_interval = 15  # seconds
+        last_heartbeat = asyncio.get_event_loop().time()
+        timeout = 300  # 5 minutes max connection
+
+        start_time = asyncio.get_event_loop().time()
+
+        while True:
+            current_time = asyncio.get_event_loop().time()
+
+            # Check timeout
+            if current_time - start_time > timeout:
+                yield f"data: {json.dumps({'type': 'timeout', 'message': 'Stream timeout'})}\n\n"
+                break
+
+            # Send heartbeat if needed
+            if current_time - last_heartbeat > heartbeat_interval:
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now(UTC).isoformat()})}\n\n"
+                last_heartbeat = current_time
+
+            # Check if queue exists
+            if queue_key not in _active_run_queues:
+                # Run might have completed before we connected, or not started yet
+                # Check run status from DB
+                runs = await _get_schedule_runs_from_db(schedule_id, limit=1)
+                run = next((r for r in runs if r["id"] == run_id), None)
+
+                if run and run.get("status") in ("passed", "failed", "cancelled"):
+                    # Run already completed
+                    yield f"data: {json.dumps({'type': 'run_already_completed', 'status': run.get('status'), 'tests_passed': run.get('tests_passed', 0), 'tests_failed': run.get('tests_failed', 0)})}\n\n"
+                    break
+
+                # Wait a bit for the queue to be created
+                await asyncio.sleep(1)
+                continue
+
+            # Try to get an event from the queue
+            try:
+                queue = _active_run_queues[queue_key]
+                event = await asyncio.wait_for(queue.get(), timeout=1.0)
+
+                yield f"data: {json.dumps(event)}\n\n"
+
+                # Check for terminal events
+                if event.get("type") in ("run_completed", "error"):
+                    break
+
+            except asyncio.TimeoutError:
+                # No event available, continue loop
+                continue
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                break
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
 
 # ============================================================================

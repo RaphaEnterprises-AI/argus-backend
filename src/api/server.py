@@ -2268,11 +2268,27 @@ async def startup():
     # This sets up PostgresSaver if DATABASE_URL is configured
     await setup_checkpointer()
 
+    # Start background scheduler daemon for automatic cron-based test runs
+    try:
+        from src.api.schedule_daemon import start_scheduler
+        await start_scheduler()
+        logger.info("Background scheduler daemon started")
+    except Exception as e:
+        logger.warning("Failed to start scheduler daemon", error=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown():
     """Cleanup resources on shutdown."""
     logger.info("E2E Testing Agent API shutting down")
+
+    # Stop background scheduler daemon
+    try:
+        from src.api.schedule_daemon import stop_scheduler
+        await stop_scheduler()
+        logger.info("Background scheduler daemon stopped")
+    except Exception as e:
+        logger.warning("Failed to stop scheduler daemon", error=str(e))
 
     # Gracefully close database connection pool
     await shutdown_checkpointer()
