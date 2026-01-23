@@ -319,6 +319,7 @@ async def _execute_test_with_browser_pool(body: TestRequest, request: Request, s
 async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, start_time: float) -> TestResponse:
     """Execute test using SeleniumGridClient (video recording enabled)."""
     import asyncio
+    import re
     import time
 
     logger.info(
@@ -348,7 +349,7 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
         try:
             # Navigate to starting URL
             await grid_client.navigate(body.url)
-            await asyncio.sleep(1)  # Wait for page load
+            await asyncio.sleep(2)  # Wait for page load
 
             # Execute each step
             for idx, step_instruction in enumerate(body.steps):
@@ -356,29 +357,138 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
                 step_success = False
                 step_error = None
                 step_screenshot = None
+                actions_taken = []
 
                 try:
                     # Execute the step instruction using Selenium
-                    # For now, we'll use simple action parsing
                     instruction_lower = step_instruction.lower()
+                    logger.info(f"Executing step {idx}: {step_instruction}")
 
                     if instruction_lower.startswith("goto ") or instruction_lower.startswith("navigate to "):
                         # Extract URL from instruction
                         url = step_instruction.split(" ", 2)[-1].strip()
-                        await grid_client.navigate(url)
-                        step_success = True
+                        success = await grid_client.navigate(url)
+                        step_success = success
+                        actions_taken.append({"action": "navigate", "url": url, "success": success})
+                        await asyncio.sleep(1)
+
                     elif "wait" in instruction_lower:
-                        await asyncio.sleep(2)
+                        # Extract wait duration if specified
+                        match = re.search(r'(\d+)\s*(second|sec|s|ms|millisecond)', instruction_lower)
+                        if match:
+                            duration = int(match.group(1))
+                            if 'ms' in match.group(2) or 'millisecond' in match.group(2):
+                                duration = duration / 1000
+                            await asyncio.sleep(duration)
+                        else:
+                            await asyncio.sleep(2)
                         step_success = True
+                        actions_taken.append({"action": "wait", "success": True})
+
                     elif "screenshot" in instruction_lower:
                         step_success = True
-                    elif "click" in instruction_lower:
+                        actions_taken.append({"action": "screenshot", "success": True})
+
+                    elif "press enter" in instruction_lower or "hit enter" in instruction_lower or "press return" in instruction_lower:
+                        # Press Enter key
+                        success = await grid_client.press_key("enter")
+                        step_success = success
+                        actions_taken.append({"action": "press_key", "key": "enter", "success": success})
+                        await asyncio.sleep(0.5)
+
+                    elif "press tab" in instruction_lower:
+                        success = await grid_client.press_key("tab")
+                        step_success = success
+                        actions_taken.append({"action": "press_key", "key": "tab", "success": success})
+                        await asyncio.sleep(0.3)
+
+                    elif "press escape" in instruction_lower or "press esc" in instruction_lower:
+                        success = await grid_client.press_key("escape")
+                        step_success = success
+                        actions_taken.append({"action": "press_key", "key": "escape", "success": success})
+                        await asyncio.sleep(0.3)
+
+                    elif ("click" in instruction_lower or "tap" in instruction_lower or
+                          "select" in instruction_lower or "choose" in instruction_lower):
                         # Try to find and click element
-                        # Extract target from instruction
-                        step_success = True  # Simplified - actual click would need element finding
-                    else:
-                        # Default: assume step succeeded (AI would interpret)
+                        element_id = await _find_element_for_instruction(grid_client, step_instruction)
+                        if element_id:
+                            success = await grid_client.click_element(element_id)
+                            step_success = success
+                            actions_taken.append({"action": "click", "element_id": element_id, "success": success})
+                            await asyncio.sleep(0.5)
+                        else:
+                            step_error = f"Could not find element to click for: {step_instruction}"
+                            step_success = False
+                            actions_taken.append({"action": "click", "error": "element not found"})
+
+                    elif ("type" in instruction_lower or "enter" in instruction_lower or
+                          "fill" in instruction_lower or "input" in instruction_lower or
+                          "write" in instruction_lower):
+                        # Type text into an element
+                        element_id, text_to_type = await _find_element_and_text_for_instruction(grid_client, step_instruction)
+                        if element_id and text_to_type:
+                            # Clear first, then type
+                            await grid_client.clear_element(element_id)
+                            success = await grid_client.send_keys(element_id, text_to_type)
+                            step_success = success
+                            actions_taken.append({"action": "type", "element_id": element_id, "text": text_to_type, "success": success})
+                            await asyncio.sleep(0.3)
+                        elif text_to_type:
+                            # No specific element found, try typing into active element
+                            success = await grid_client.send_keys_to_active_element(text_to_type)
+                            step_success = success
+                            actions_taken.append({"action": "type_active", "text": text_to_type, "success": success})
+                            await asyncio.sleep(0.3)
+                        else:
+                            step_error = f"Could not determine what to type for: {step_instruction}"
+                            step_success = False
+                            actions_taken.append({"action": "type", "error": "could not parse instruction"})
+
+                    elif "verify" in instruction_lower or "check" in instruction_lower or "assert" in instruction_lower or "should" in instruction_lower:
+                        # Verification step - try to find the element/text mentioned
+                        verification_result = await _verify_instruction(grid_client, step_instruction)
+                        step_success = verification_result["success"]
+                        if not step_success:
+                            step_error = verification_result.get("error", "Verification failed")
+                        actions_taken.append({"action": "verify", "result": verification_result})
+
+                    elif "scroll" in instruction_lower:
+                        # Scroll the page
+                        if "down" in instruction_lower:
+                            await grid_client.execute_script("window.scrollBy(0, 300)")
+                        elif "up" in instruction_lower:
+                            await grid_client.execute_script("window.scrollBy(0, -300)")
+                        elif "top" in instruction_lower:
+                            await grid_client.execute_script("window.scrollTo(0, 0)")
+                        elif "bottom" in instruction_lower:
+                            await grid_client.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+                        else:
+                            await grid_client.execute_script("window.scrollBy(0, 300)")
                         step_success = True
+                        actions_taken.append({"action": "scroll", "success": True})
+                        await asyncio.sleep(0.5)
+
+                    else:
+                        # Unknown instruction - try to interpret as click or type
+                        # First, try to find an input field
+                        element_id = await grid_client.find_element("css selector", "input:focus, textarea:focus")
+                        if element_id:
+                            # There's a focused input, assume we should type
+                            success = await grid_client.send_keys(element_id, step_instruction)
+                            step_success = success
+                            actions_taken.append({"action": "type_fallback", "text": step_instruction, "success": success})
+                        else:
+                            # Try to find a clickable element with matching text
+                            element_id = await _find_element_for_instruction(grid_client, step_instruction)
+                            if element_id:
+                                success = await grid_client.click_element(element_id)
+                                step_success = success
+                                actions_taken.append({"action": "click_fallback", "element_id": element_id, "success": success})
+                            else:
+                                step_error = f"Could not interpret instruction: {step_instruction}"
+                                step_success = False
+                                actions_taken.append({"action": "unknown", "error": "could not interpret"})
 
                     # Capture screenshot after step
                     if body.screenshot:
@@ -398,11 +508,14 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
                     duration_ms=step_duration,
                     screenshot=step_screenshot,
                     error=step_error,
-                    actions=[],
+                    actions=actions_taken,
                 ))
 
                 if not step_success:
                     all_success = False
+                    # Don't stop on failure - continue to get full results
+                    # but log it clearly
+                    logger.warning(f"Step {idx} failed: {step_error}")
 
         finally:
             # End session (video stops, uploads to R2)
@@ -456,6 +569,180 @@ async def _execute_test_with_selenium_grid(body: TestRequest, request: Request, 
     except Exception as e:
         logger.exception("Selenium Grid test failed", error=str(e))
         raise HTTPException(status_code=500, detail=f"Test execution failed: {str(e)}")
+
+
+async def _find_element_for_instruction(grid_client: SeleniumGridClient, instruction: str) -> str | None:
+    """Find an element based on natural language instruction."""
+    import re
+
+    instruction_lower = instruction.lower()
+
+    # Common patterns to extract element identifiers
+    # Pattern: "click the X button", "click on X", "tap X"
+    patterns = [
+        r'(?:click|tap|select|choose|press)\s+(?:the\s+)?(?:on\s+)?["\']?([^"\']+)["\']?\s*(?:button|link|checkbox|radio|option)?',
+        r'(?:button|link)\s+["\']?([^"\']+)["\']?',
+        r'["\']([^"\']+)["\']',  # Quoted text
+    ]
+
+    target_text = None
+    for pattern in patterns:
+        match = re.search(pattern, instruction_lower)
+        if match:
+            target_text = match.group(1).strip()
+            break
+
+    if not target_text:
+        # Use the whole instruction as fallback
+        target_text = instruction_lower.replace("click", "").replace("tap", "").replace("the", "").replace("on", "").strip()
+
+    # Try various selectors to find the element
+    selectors_to_try = [
+        # By text content (buttons, links)
+        f"//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]",
+        f"//a[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]",
+        f"//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]",
+        # By aria-label
+        f"//*[@aria-label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]]",
+        # By placeholder
+        f"//input[@placeholder[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]]",
+        # By id or name containing the text
+        f"//*[@id[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]]",
+        f"//*[@name[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]]",
+    ]
+
+    for selector in selectors_to_try:
+        element_id = await grid_client.find_element("xpath", selector)
+        if element_id:
+            logger.debug(f"Found element for '{target_text}' with selector: {selector}")
+            return element_id
+
+    # Also try CSS selectors for common elements
+    css_selectors = [
+        f"button",  # Any button
+        f"input[type='submit']",
+        f"a",  # Any link
+        f"[role='button']",
+    ]
+
+    for css in css_selectors:
+        elements = await grid_client.find_elements(css)
+        for el in elements:
+            element_id = el.get("element_id")
+            if element_id:
+                # Check if element text matches
+                text = el.get("text", "").lower()
+                if target_text in text:
+                    logger.debug(f"Found element by CSS and text match: {css}")
+                    return element_id
+
+    logger.warning(f"Could not find element for instruction: {instruction}")
+    return None
+
+
+async def _find_element_and_text_for_instruction(grid_client: SeleniumGridClient, instruction: str) -> tuple[str | None, str | None]:
+    """Find an element and extract text to type from instruction."""
+    import re
+
+    instruction_lower = instruction.lower()
+
+    # Extract the text to type
+    # Patterns: "type 'hello'", "enter 'text' in field", "fill field with 'value'"
+    text_patterns = [
+        r'["\']([^"\']+)["\']',  # Quoted text
+        r'(?:type|enter|fill|input|write)\s+(.+?)(?:\s+in|\s+into|\s+to|\s+on|$)',
+    ]
+
+    text_to_type = None
+    for pattern in text_patterns:
+        match = re.search(pattern, instruction)
+        if match:
+            text_to_type = match.group(1).strip()
+            break
+
+    if not text_to_type:
+        return None, None
+
+    # Extract the target field
+    field_patterns = [
+        r'(?:in|into|to|on)\s+(?:the\s+)?["\']?([^"\']+)["\']?\s*(?:field|input|box|area)?',
+        r'(?:field|input|box|area)\s+["\']?([^"\']+)["\']?',
+    ]
+
+    target_field = None
+    for pattern in field_patterns:
+        match = re.search(pattern, instruction_lower)
+        if match:
+            target_field = match.group(1).strip()
+            break
+
+    # Find the input element
+    element_id = None
+    if target_field:
+        selectors = [
+            f"//input[@placeholder[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_field}')]]",
+            f"//input[@name[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_field}')]]",
+            f"//input[@id[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_field}')]]",
+            f"//textarea[@placeholder[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_field}')]]",
+            f"//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_field}')]/following::input[1]",
+        ]
+        for selector in selectors:
+            element_id = await grid_client.find_element("xpath", selector)
+            if element_id:
+                break
+
+    if not element_id:
+        # Try to find any visible input field
+        element_id = await grid_client.find_element("css selector", "input:not([type='hidden']):not([type='submit']):not([type='button'])")
+
+    if not element_id:
+        element_id = await grid_client.find_element("css selector", "textarea")
+
+    return element_id, text_to_type
+
+
+async def _verify_instruction(grid_client: SeleniumGridClient, instruction: str) -> dict:
+    """Verify a condition described in natural language."""
+    import re
+
+    instruction_lower = instruction.lower()
+
+    # Extract what to verify
+    # Patterns: "verify X appears", "check X exists", "should see X"
+    patterns = [
+        r'(?:verify|check|assert|should\s+see|should\s+contain|should\s+have|should\s+show)\s+(?:that\s+)?["\']?(.+?)["\']?(?:\s+appears|\s+exists|\s+is\s+visible|\s+is\s+shown|\s+in\s+list)?$',
+        r'["\']([^"\']+)["\']',  # Quoted text
+    ]
+
+    target_text = None
+    for pattern in patterns:
+        match = re.search(pattern, instruction_lower)
+        if match:
+            target_text = match.group(1).strip()
+            break
+
+    if not target_text:
+        target_text = instruction_lower.replace("verify", "").replace("check", "").replace("that", "").strip()
+
+    if not target_text:
+        return {"success": False, "error": "Could not determine what to verify"}
+
+    # Try to find element with the text
+    selectors = [
+        f"//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text}')]",
+    ]
+
+    for selector in selectors:
+        element_id = await grid_client.find_element("xpath", selector)
+        if element_id:
+            return {"success": True, "found": True, "element_id": element_id, "target": target_text}
+
+    # Also check page source for the text
+    page_source = await grid_client.execute_script("return document.body.innerText")
+    if page_source and target_text in page_source.lower():
+        return {"success": True, "found": True, "in_page_text": True, "target": target_text}
+
+    return {"success": False, "error": f"Could not find '{target_text}' on page"}
 
 
 @router.post("/observe", response_model=ObserveResponse)

@@ -401,6 +401,183 @@ class SeleniumGridClient:
         except Exception:
             return None
 
+    async def click_element(self, element_id: str) -> bool:
+        """Click an element by its WebDriver element ID."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/element/{element_id}/click",
+                json={}
+            )
+            response.raise_for_status()
+            logger.debug("Clicked element", element_id=element_id)
+            return True
+        except Exception as e:
+            logger.error("Click failed", element_id=element_id, error=str(e))
+            return False
+
+    async def send_keys(self, element_id: str, text: str) -> bool:
+        """Send keystrokes to an element."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/element/{element_id}/value",
+                json={"text": text}
+            )
+            response.raise_for_status()
+            logger.debug("Sent keys to element", element_id=element_id, text_length=len(text))
+            return True
+        except Exception as e:
+            logger.error("Send keys failed", element_id=element_id, error=str(e))
+            return False
+
+    async def clear_element(self, element_id: str) -> bool:
+        """Clear an input element."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/element/{element_id}/clear",
+                json={}
+            )
+            response.raise_for_status()
+            logger.debug("Cleared element", element_id=element_id)
+            return True
+        except Exception as e:
+            logger.error("Clear failed", element_id=element_id, error=str(e))
+            return False
+
+    async def find_element(self, using: str, value: str) -> str | None:
+        """
+        Find a single element and return its ID.
+
+        Args:
+            using: Locator strategy ('css selector', 'xpath', 'id', 'name', 'link text', 'partial link text')
+            value: Locator value
+
+        Returns:
+            Element ID if found, None otherwise
+        """
+        if not self._session_id:
+            return None
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/element",
+                json={"using": using, "value": value}
+            )
+            response.raise_for_status()
+            element = response.json().get("value", {})
+            # WebDriver returns element ID in different formats
+            element_id = element.get("ELEMENT") or element.get("element-6066-11e4-a52e-4f735466cecf")
+            return element_id
+        except Exception as e:
+            logger.debug("Element not found", using=using, value=value, error=str(e))
+            return None
+
+    async def send_keys_to_active_element(self, text: str) -> bool:
+        """Send keystrokes to the currently active element (e.g., for pressing Enter)."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/actions",
+                json={
+                    "actions": [{
+                        "type": "key",
+                        "id": "keyboard",
+                        "actions": [{"type": "keyDown", "value": c} for c in text] +
+                                   [{"type": "keyUp", "value": c} for c in reversed(text)]
+                    }]
+                }
+            )
+            response.raise_for_status()
+            logger.debug("Sent keys to active element", text_length=len(text))
+            return True
+        except Exception as e:
+            logger.error("Send keys to active element failed", error=str(e))
+            return False
+
+    async def press_key(self, key: str) -> bool:
+        """Press a special key (Enter, Tab, Escape, etc.)."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+
+        # WebDriver key codes for special keys
+        key_map = {
+            "enter": "\ue007",
+            "return": "\ue007",
+            "tab": "\ue004",
+            "escape": "\ue00c",
+            "esc": "\ue00c",
+            "backspace": "\ue003",
+            "delete": "\ue017",
+            "space": "\ue00d",
+            "arrow_up": "\ue013",
+            "arrow_down": "\ue015",
+            "arrow_left": "\ue012",
+            "arrow_right": "\ue014",
+        }
+
+        key_code = key_map.get(key.lower(), key)
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/actions",
+                json={
+                    "actions": [{
+                        "type": "key",
+                        "id": "keyboard",
+                        "actions": [
+                            {"type": "keyDown", "value": key_code},
+                            {"type": "keyUp", "value": key_code}
+                        ]
+                    }]
+                }
+            )
+            response.raise_for_status()
+            logger.debug("Pressed key", key=key)
+            return True
+        except Exception as e:
+            logger.error("Press key failed", key=key, error=str(e))
+            return False
+
+    async def execute_script(self, script: str, args: list | None = None) -> any:
+        """Execute JavaScript in the browser."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+
+        await self._ensure_client()
+
+        try:
+            response = await self._client.post(
+                f"session/{self._session_id}/execute/sync",
+                json={"script": script, "args": args or []}
+            )
+            response.raise_for_status()
+            return response.json().get("value")
+        except Exception as e:
+            logger.error("Execute script failed", error=str(e))
+            return None
+
     async def get_links(self) -> list[str]:
         """Get all links on the current page."""
         if not self._session_id:
