@@ -277,30 +277,91 @@ Key analysis patterns to consider:
     def _parse_analysis(self, response_text: str, context: FailureContext) -> RootCauseResult:
         """Parse Claude's analysis response."""
         try:
-            # Extract JSON from response
-            json_start = response_text.find("{")
-            json_end = response_text.rfind("}") + 1
+            # Extract JSON from response (handle markdown code blocks)
+            text = response_text
+
+            # Remove markdown code block wrappers if present
+            if "```json" in text:
+                text = text.split("```json", 1)[1]
+                if "```" in text:
+                    text = text.split("```", 1)[0]
+            elif "```" in text:
+                # Generic code block
+                parts = text.split("```")
+                if len(parts) >= 3:
+                    text = parts[1]  # Content between first pair of ```
+
+            json_start = text.find("{")
+            json_end = text.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
-                analysis = json.loads(response_text[json_start:json_end])
+                analysis = json.loads(text[json_start:json_end])
             else:
                 raise ValueError("No JSON found in response")
 
+            # Handle both flat format and nested root_cause format
+            root_cause = analysis.get("root_cause", {})
+            resolution = analysis.get("resolution", {})
+
+            # Try nested format first, then flat format
+            category_str = (
+                root_cause.get("category") or
+                analysis.get("category") or
+                "unknown"
+            )
+            # Normalize category names (e.g., "config_error" -> "environment")
+            category_map = {
+                "config_error": "environment",
+                "infrastructure": "environment",
+                "configuration_error": "environment",
+                "assertion_failure": "data_mismatch",
+                "element_not_found": "ui_change",
+                "selector_issue": "ui_change",
+            }
+            category_str = category_map.get(category_str, category_str)
+
+            # Validate category is in enum
+            try:
+                category = FailureCategory(category_str)
+            except ValueError:
+                category = FailureCategory.UNKNOWN
+
+            confidence = float(
+                root_cause.get("confidence") or
+                analysis.get("confidence") or
+                0.5
+            )
+            summary = (
+                root_cause.get("description") or
+                analysis.get("summary") or
+                "Unable to determine root cause"
+            )
+            detailed_analysis = (
+                analysis.get("detailed_analysis") or
+                json.dumps(analysis.get("causal_chain", []), indent=2) or
+                ""
+            )
+            suggested_fix = (
+                resolution.get("immediate_fix") or
+                analysis.get("suggested_fix") or
+                ""
+            )
+
             return RootCauseResult(
-                category=FailureCategory(analysis.get("category", "unknown")),
-                confidence=float(analysis.get("confidence", 0.5)),
-                summary=analysis.get("summary", "Unable to determine root cause"),
-                detailed_analysis=analysis.get("detailed_analysis", ""),
-                suggested_fix=analysis.get("suggested_fix", ""),
+                category=category,
+                confidence=confidence,
+                summary=summary[:500] if summary else "Unable to determine root cause",  # Truncate long summaries
+                detailed_analysis=detailed_analysis,
+                suggested_fix=suggested_fix,
                 code_location=analysis.get("code_location"),
                 is_flaky=analysis.get("is_flaky", False),
                 flaky_confidence=float(analysis.get("flaky_confidence", 0.0))
             )
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as e:
             # Fallback if parsing fails
             return RootCauseResult(
                 category=FailureCategory.UNKNOWN,
                 confidence=0.3,
-                summary="Analysis parsing failed",
+                summary=f"Analysis parsing failed: {str(e)[:100]}",
                 detailed_analysis=response_text,
                 suggested_fix="Manual investigation required"
             )

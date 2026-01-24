@@ -586,8 +586,19 @@ async def execute_single_test(
                 for step_result in step_results:
                     if not step_result.get("success") and step_result.get("error"):
                         effective_error = step_result["error"]
+                        logger.info(
+                            "Extracted error from step result",
+                            error=effective_error,
+                            step_index=step_result.get("step_index"),
+                        )
                         break
 
+            logger.info(
+                "Calling RootCauseAnalyzer",
+                effective_error=effective_error,
+                original_error_message=error_message,
+                step_count=len(step_results),
+            )
             analyzer = RootCauseAnalyzer()
             analysis = await analyzer.analyze(FailureContext(
                 test_id=test_id,
