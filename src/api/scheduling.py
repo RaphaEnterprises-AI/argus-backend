@@ -487,7 +487,7 @@ class ScheduleResponse(BaseModel):
     tags: list[str] | None
     next_run_at: str | None
     last_run_at: str | None
-    last_run_status: Literal["success", "failure", "running", "cancelled"] | None
+    last_run_status: Literal["pending", "queued", "running", "passed", "failed", "cancelled", "timeout", "success", "failure"] | None
     run_count: int
     success_count: int
     failure_count: int
