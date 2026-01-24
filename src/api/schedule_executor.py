@@ -250,7 +250,7 @@ async def _execute_step(
             await asyncio.sleep(1)
 
         elif "wait" in instruction_lower or action == "wait":
-            # Wait for specified duration
+            # Wait for specified duration or condition
             match = re.search(r'(\d+)\s*(second|sec|s|ms|millisecond)', instruction_lower)
             if match:
                 duration = int(match.group(1))
@@ -258,7 +258,19 @@ async def _execute_step(
                     duration = duration / 1000
                 await asyncio.sleep(duration)
             elif value:
-                await asyncio.sleep(float(value))
+                # Handle special wait types (networkidle, load, domcontentloaded)
+                value_lower = value.lower()
+                if value_lower in ("networkidle", "load", "domcontentloaded", "visible", "hidden"):
+                    # These are Playwright wait conditions - just wait a reasonable time
+                    # Selenium Grid doesn't have native support for these, so we approximate
+                    await asyncio.sleep(2)
+                else:
+                    # Try to parse as a number
+                    try:
+                        await asyncio.sleep(float(value))
+                    except ValueError:
+                        # Unknown wait type - default to 2 seconds
+                        await asyncio.sleep(2)
             else:
                 await asyncio.sleep(2)
             step_success = True
