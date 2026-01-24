@@ -35,6 +35,146 @@ _active_run_queues: dict[str, asyncio.Queue] = {}
 schedules: dict[str, dict] = {}
 schedule_runs: dict[str, list[dict]] = {}  # schedule_id -> list of runs
 
+# Background task control
+_stale_run_checker_running = False
+
+
+# ============================================================================
+# Stale Run Cleanup
+# ============================================================================
+
+async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
+    """
+    Mark runs stuck in 'running' status as 'timeout'.
+
+    This handles cases where:
+    - Background task crashed without updating status
+    - Server restarted/redeployed while runs were in progress
+    - Selenium Grid connection failed silently
+
+    Args:
+        max_running_minutes: Mark runs as timeout if running longer than this
+
+    Returns:
+        Number of runs marked as timeout
+    """
+    supabase = await get_supabase()
+    if not supabase:
+        logger.warning("Supabase not configured, skipping stale run cleanup")
+        return 0
+
+    cutoff_time = datetime.now(UTC) - timedelta(minutes=max_running_minutes)
+
+    # Find stale runs
+    result = await supabase.select(
+        "schedule_runs",
+        columns="id, schedule_id, started_at",
+        filters={
+            "status": "eq.running",
+            "started_at": f"lt.{cutoff_time.isoformat()}",
+        },
+    )
+
+    if result.get("error"):
+        logger.error("Failed to find stale runs", error=result.get("error"))
+        return 0
+
+    stale_runs = result.get("data", [])
+
+    if not stale_runs:
+        return 0
+
+    logger.info(f"Found {len(stale_runs)} stale runs to clean up")
+
+    # Mark each stale run as timeout
+    cleaned = 0
+    for run in stale_runs:
+        run_id = run["id"]
+        schedule_id = run["schedule_id"]
+
+        update_result = await supabase.update(
+            "schedule_runs",
+            {"id": run_id},
+            {
+                "status": "timeout",
+                "completed_at": datetime.now(UTC).isoformat(),
+                "error_message": f"Run exceeded maximum duration ({max_running_minutes} minutes). Marked as timeout by cleanup job.",
+                "ai_analysis": {
+                    "category": "environment",
+                    "confidence": 0.9,
+                    "summary": "Run timed out - likely due to server restart, infrastructure issue, or unresponsive Selenium Grid",
+                    "suggested_fix": "Check server logs, Selenium Grid status, and infrastructure health. Consider increasing timeout or investigating slow tests.",
+                    "is_flaky": False,
+                    "auto_healable": False,
+                },
+                "failure_category": "environment",
+                "failure_confidence": 0.9,
+            },
+        )
+
+        if update_result.get("error"):
+            logger.error("Failed to update stale run", run_id=run_id, error=update_result.get("error"))
+        else:
+            cleaned += 1
+            logger.info("Marked stale run as timeout", run_id=run_id, schedule_id=schedule_id)
+
+            # Update schedule status
+            await supabase.update(
+                "test_schedules",
+                {"id": schedule_id},
+                {
+                    "status": "error",
+                    "last_run_status": "timeout",
+                },
+            )
+
+    return cleaned
+
+
+async def start_stale_run_checker(check_interval_seconds: int = 300):
+    """
+    Start a background task that periodically checks for and cleans up stale runs.
+
+    Args:
+        check_interval_seconds: How often to check (default: 5 minutes)
+    """
+    global _stale_run_checker_running
+
+    if _stale_run_checker_running:
+        logger.info("Stale run checker already running")
+        return
+
+    _stale_run_checker_running = True
+    logger.info("Starting stale run checker", interval_seconds=check_interval_seconds)
+
+    # Initial cleanup on startup
+    try:
+        cleaned = await cleanup_stale_runs()
+        if cleaned > 0:
+            logger.info(f"Initial cleanup: marked {cleaned} stale runs as timeout")
+    except Exception as e:
+        logger.error("Initial stale run cleanup failed", error=str(e))
+
+    # Periodic cleanup loop
+    while _stale_run_checker_running:
+        try:
+            await asyncio.sleep(check_interval_seconds)
+            cleaned = await cleanup_stale_runs()
+            if cleaned > 0:
+                logger.info(f"Periodic cleanup: marked {cleaned} stale runs as timeout")
+        except asyncio.CancelledError:
+            logger.info("Stale run checker cancelled")
+            break
+        except Exception as e:
+            logger.error("Stale run checker error", error=str(e))
+
+
+def stop_stale_run_checker():
+    """Stop the stale run checker background task."""
+    global _stale_run_checker_running
+    _stale_run_checker_running = False
+    logger.info("Stopped stale run checker")
+
 
 # ============================================================================
 # Supabase Helper Functions
@@ -1951,3 +2091,30 @@ async def get_schedule_presets():
             },
         ]
     }
+
+
+@router.post("/cleanup-stale-runs")
+async def cleanup_stale_runs_endpoint(
+    max_running_minutes: int = Query(60, ge=5, le=480, description="Mark runs as timeout if running longer than this"),
+    request: Request = None,
+):
+    """
+    Manually trigger cleanup of stale (stuck) runs.
+
+    This endpoint marks runs that have been in 'running' status for longer than
+    max_running_minutes as 'timeout'. Use this to clean up runs that were stuck
+    due to server restarts, crashes, or infrastructure issues.
+
+    Returns the number of runs cleaned up.
+    """
+    try:
+        cleaned = await cleanup_stale_runs(max_running_minutes=max_running_minutes)
+        return {
+            "success": True,
+            "message": f"Cleaned up {cleaned} stale runs",
+            "runs_cleaned": cleaned,
+            "max_running_minutes": max_running_minutes,
+        }
+    except Exception as e:
+        logger.error("Failed to cleanup stale runs", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup stale runs: {str(e)}")

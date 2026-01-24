@@ -2276,6 +2276,14 @@ async def startup():
     except Exception as e:
         logger.warning("Failed to start scheduler daemon", error=str(e))
 
+    # Start stale run cleanup checker (marks stuck runs as timeout)
+    try:
+        from src.api.scheduling import start_stale_run_checker
+        asyncio.create_task(start_stale_run_checker(check_interval_seconds=300))
+        logger.info("Stale run checker started (checks every 5 minutes)")
+    except Exception as e:
+        logger.warning("Failed to start stale run checker", error=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -2289,6 +2297,14 @@ async def shutdown():
         logger.info("Background scheduler daemon stopped")
     except Exception as e:
         logger.warning("Failed to stop scheduler daemon", error=str(e))
+
+    # Stop stale run checker
+    try:
+        from src.api.scheduling import stop_stale_run_checker
+        stop_stale_run_checker()
+        logger.info("Stale run checker stopped")
+    except Exception as e:
+        logger.warning("Failed to stop stale run checker", error=str(e))
 
     # Gracefully close database connection pool
     await shutdown_checkpointer()
