@@ -579,11 +579,20 @@ async def execute_single_test(
                     last_screenshot = step_result["screenshot"]
                     break
 
+            # Extract error from failed step results if error_message is empty
+            # (assertion failures don't throw exceptions, they set step error)
+            effective_error = error_message
+            if not effective_error:
+                for step_result in step_results:
+                    if not step_result.get("success") and step_result.get("error"):
+                        effective_error = step_result["error"]
+                        break
+
             analyzer = RootCauseAnalyzer()
             analysis = await analyzer.analyze(FailureContext(
                 test_id=test_id,
                 test_name=test_name,
-                error_message=error_message or "",
+                error_message=effective_error or "Test failed (no error message captured)",
                 screenshot_base64=last_screenshot,
                 step_history=step_results,
             ))
