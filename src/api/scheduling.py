@@ -755,41 +755,35 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: str |
         final_status = "passed" if results["tests_failed"] == 0 else "failed"
 
         # =====================================================================
-        # AGGREGATE AI ANALYSIS FROM TEST RESULTS
-        # Extract AI analysis from individual test results and aggregate for the run
+        # AGGREGATE AI ANALYSIS FROM TEST RESULTS (with error handling)
         # =====================================================================
-        aggregated_ai_analysis = None
-        is_flaky = False
-        flaky_score = 0.0
-        failure_category = None
-        failure_confidence = None
-        auto_healed = False
-        healing_details = None
+        ai_update_fields = {}
+        try:
+            test_results = results.get("test_results", [])
+            if test_results and isinstance(test_results, list):
+                for tr in test_results:
+                    if isinstance(tr, dict) and tr.get("ai_analysis"):
+                        ai_analysis = tr["ai_analysis"]
+                        ai_update_fields["ai_analysis"] = ai_analysis
+                        ai_update_fields["failure_category"] = ai_analysis.get("category")
+                        ai_update_fields["failure_confidence"] = ai_analysis.get("confidence")
+                        ai_update_fields["is_flaky"] = ai_analysis.get("is_flaky", False)
+                        break
+                    if isinstance(tr, dict) and tr.get("auto_healed"):
+                        ai_update_fields["auto_healed"] = True
+                        ai_update_fields["healing_details"] = tr.get("healing_details")
 
-        test_results = results.get("test_results", [])
-        if test_results:
-            # Find the first failed test with AI analysis (most relevant)
-            for tr in test_results:
-                if tr.get("ai_analysis"):
-                    aggregated_ai_analysis = tr["ai_analysis"]
-                    failure_category = tr["ai_analysis"].get("category")
-                    failure_confidence = tr["ai_analysis"].get("confidence")
-                    is_flaky = tr["ai_analysis"].get("is_flaky", False)
-                    break
+                flaky_tests = results.get("flaky_tests", [])
+                if flaky_tests and isinstance(flaky_tests, list):
+                    ai_update_fields["is_flaky"] = True
+                    ai_update_fields["flaky_score"] = max(
+                        (ft.get("flaky_score", 0.0) for ft in flaky_tests if isinstance(ft, dict)),
+                        default=0.0
+                    )
+        except Exception as e:
+            logger.warning("Failed to aggregate AI analysis", error=str(e))
 
-                # Check for auto-healing info
-                if tr.get("auto_healed"):
-                    auto_healed = True
-                    healing_details = tr.get("healing_details")
-
-            # Calculate aggregate flaky score from flaky_tests
-            flaky_tests = results.get("flaky_tests", [])
-            if flaky_tests:
-                is_flaky = True
-                # Use max flaky score from detected flaky tests
-                flaky_score = max(ft.get("flaky_score", 0.0) for ft in flaky_tests)
-
-        # Update run with results including AI analysis
+        # Update run with results
         await _update_schedule_run_in_db(run_id, {
             "status": final_status,
             "completed_at": completed_at.isoformat(),
@@ -798,15 +792,7 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: str |
             "tests_passed": results["tests_passed"],
             "tests_failed": results["tests_failed"],
             "tests_skipped": results["tests_skipped"],
-            # AI Analysis fields
-            "ai_analysis": aggregated_ai_analysis,
-            "is_flaky": is_flaky,
-            "flaky_score": flaky_score,
-            "failure_category": failure_category,
-            "failure_confidence": failure_confidence,
-            # Auto-healing fields
-            "auto_healed": auto_healed,
-            "healing_details": healing_details,
+            **ai_update_fields,  # Include AI fields if aggregation succeeded
         })
 
         # Update schedule statistics
