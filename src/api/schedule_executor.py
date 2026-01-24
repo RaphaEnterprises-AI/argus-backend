@@ -2,9 +2,18 @@
 
 This module provides the core test execution logic for scheduled runs.
 It reuses the Selenium Grid execution patterns from browser.py.
+
+Auto-Healing Integration (Phase 4):
+When tests fail due to selector changes, the executor can automatically
+attempt to heal them using the SelfHealerAgent. This feature:
+- Analyzes failures for healable patterns (selector changes, timing issues)
+- Applies fixes above a confidence threshold
+- Re-runs healed tests to verify the fix works
+- Logs all healing attempts and outcomes
 """
 
 import asyncio
+import base64
 import re
 import time
 from datetime import UTC, datetime
@@ -16,6 +25,394 @@ from src.browser.selenium_grid_client import SeleniumGridClient
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
+
+
+# =============================================================================
+# AUTO-HEALING INTEGRATION (Phase 4)
+# =============================================================================
+
+
+async def attempt_auto_heal(
+    test: dict,
+    failure_result: dict,
+    schedule_config: dict,
+    app_url: str,
+    events_queue: asyncio.Queue | None = None,
+) -> dict | None:
+    """
+    Attempt to auto-heal a failed test.
+
+    This function uses the SelfHealerAgent to analyze test failures and
+    automatically apply fixes when confidence is above the threshold.
+
+    Args:
+        test: The original test specification that failed
+        failure_result: The result dict from the failed test execution
+        schedule_config: Schedule configuration containing auto_heal settings:
+            - auto_heal_enabled: Whether auto-healing is enabled (default: False)
+            - auto_heal_confidence_threshold: Minimum confidence for auto-apply (default: 0.9)
+            - auto_heal_max_attempts: Maximum healing attempts per test (default: 1)
+        app_url: Base URL of the application for re-running healed tests
+        events_queue: Optional queue for emitting progress events
+
+    Returns:
+        Healed result dict if successful, None if healing not possible or failed.
+        The healed result includes:
+        - auto_healed: True
+        - healing_details: Information about what was fixed
+    """
+    # Check if auto-healing is enabled
+    if not schedule_config.get("auto_heal_enabled", False):
+        logger.debug(
+            "Auto-healing disabled for schedule",
+            test_id=test.get("id"),
+        )
+        return None
+
+    threshold = schedule_config.get("auto_heal_confidence_threshold", 0.9)
+
+    test_id = test.get("id", "unknown")
+    test_name = test.get("name", "Unnamed Test")
+
+    logger.info(
+        "Attempting auto-heal for failed test",
+        test_id=test_id,
+        test_name=test_name,
+        confidence_threshold=threshold,
+    )
+
+    await emit_event(events_queue, "auto_heal_started", {
+        "test_id": test_id,
+        "test_name": test_name,
+        "original_error": failure_result.get("error"),
+    })
+
+    try:
+        # Import SelfHealerAgent (lazy import to avoid circular dependencies)
+        from src.agents.self_healer import FixType, SelfHealerAgent
+
+        # Initialize the healer with the configured threshold
+        healer = SelfHealerAgent(auto_heal_threshold=threshold)
+
+        # Build failure details from the result
+        failure_details = _build_failure_details(failure_result)
+
+        # Get screenshot from the last failed step if available
+        screenshot = None
+        failed_steps = [s for s in failure_result.get("steps", []) if not s.get("success")]
+        if failed_steps:
+            last_failed = failed_steps[-1]
+            screenshot_data = last_failed.get("screenshot")
+            if screenshot_data and isinstance(screenshot_data, str):
+                try:
+                    screenshot = base64.b64decode(screenshot_data)
+                except Exception:
+                    pass
+
+        # Analyze the failure
+        healing_result = await healer.execute(
+            test_spec=test,
+            failure_details=failure_details,
+            screenshot=screenshot,
+            error_logs=failure_result.get("error"),
+        )
+
+        if not healing_result.success or not healing_result.data:
+            logger.warning(
+                "Healing analysis failed or returned no data",
+                test_id=test_id,
+                error=healing_result.error,
+            )
+            await emit_event(events_queue, "auto_heal_failed", {
+                "test_id": test_id,
+                "reason": "Healing analysis failed",
+                "error": healing_result.error,
+            })
+            return None
+
+        analysis = healing_result.data
+
+        # Check if we have a fix with sufficient confidence
+        if not analysis.suggested_fixes:
+            logger.info(
+                "No fixes suggested by healer",
+                test_id=test_id,
+                diagnosis_type=analysis.diagnosis.failure_type.value,
+            )
+            await emit_event(events_queue, "auto_heal_failed", {
+                "test_id": test_id,
+                "reason": "No fixes suggested",
+                "diagnosis_type": analysis.diagnosis.failure_type.value,
+            })
+            return None
+
+        best_fix = analysis.suggested_fixes[0]
+
+        if best_fix.confidence < threshold:
+            logger.info(
+                "Fix confidence below threshold",
+                test_id=test_id,
+                fix_confidence=best_fix.confidence,
+                threshold=threshold,
+                fix_type=best_fix.fix_type.value,
+            )
+            await emit_event(events_queue, "auto_heal_failed", {
+                "test_id": test_id,
+                "reason": "Confidence below threshold",
+                "fix_confidence": best_fix.confidence,
+                "threshold": threshold,
+            })
+            return None
+
+        # Check if the fix type is actionable
+        if best_fix.fix_type == FixType.NONE:
+            logger.info(
+                "Healer determined no fix needed (possible real bug)",
+                test_id=test_id,
+                diagnosis_type=analysis.diagnosis.failure_type.value,
+            )
+            await emit_event(events_queue, "auto_heal_failed", {
+                "test_id": test_id,
+                "reason": "No fix applicable (possible real bug)",
+                "diagnosis_type": analysis.diagnosis.failure_type.value,
+            })
+            return None
+
+        # Get the healed test spec
+        healed_test = analysis.healed_test_spec
+        if not healed_test:
+            logger.warning(
+                "Healer did not return healed test spec",
+                test_id=test_id,
+            )
+            await emit_event(events_queue, "auto_heal_failed", {
+                "test_id": test_id,
+                "reason": "No healed test spec returned",
+            })
+            return None
+
+        logger.info(
+            "Applying healing fix",
+            test_id=test_id,
+            fix_type=best_fix.fix_type.value,
+            confidence=best_fix.confidence,
+            old_value=best_fix.old_value,
+            new_value=best_fix.new_value,
+        )
+
+        await emit_event(events_queue, "auto_heal_applying", {
+            "test_id": test_id,
+            "fix_type": best_fix.fix_type.value,
+            "confidence": best_fix.confidence,
+            "explanation": best_fix.explanation,
+        })
+
+        # Re-run the test with the healed specification
+        healed_result = await execute_single_test(
+            test=healed_test,
+            app_url=app_url,
+            events_queue=events_queue,
+            screenshot_enabled=True,
+        )
+
+        # Check if the healed test succeeded
+        if healed_result.get("success"):
+            logger.info(
+                "Auto-healing succeeded",
+                test_id=test_id,
+                fix_type=best_fix.fix_type.value,
+                confidence=best_fix.confidence,
+            )
+
+            # Enrich the result with healing information
+            healed_result["auto_healed"] = True
+            healed_result["healing_details"] = {
+                "original_error": failure_result.get("error"),
+                "diagnosis_type": analysis.diagnosis.failure_type.value,
+                "diagnosis_confidence": analysis.diagnosis.confidence,
+                "diagnosis_explanation": analysis.diagnosis.explanation,
+                "fix_type": best_fix.fix_type.value,
+                "fix_applied": best_fix.explanation,
+                "fix_confidence": best_fix.confidence,
+                "old_value": best_fix.old_value,
+                "new_value": best_fix.new_value,
+            }
+
+            # Include code-aware context if available
+            if analysis.diagnosis.code_context:
+                healed_result["healing_details"]["code_context"] = analysis.diagnosis.code_context.to_dict()
+
+            await emit_event(events_queue, "auto_heal_succeeded", {
+                "test_id": test_id,
+                "fix_type": best_fix.fix_type.value,
+                "confidence": best_fix.confidence,
+            })
+
+            # Record successful healing outcome for learning
+            if hasattr(analysis, "_memory_pattern_id") and analysis._memory_pattern_id:
+                await healer._record_memory_outcome(analysis._memory_pattern_id, success=True)
+
+            return healed_result
+
+        else:
+            logger.warning(
+                "Healed test still failed",
+                test_id=test_id,
+                fix_type=best_fix.fix_type.value,
+                new_error=healed_result.get("error"),
+            )
+            await emit_event(events_queue, "auto_heal_failed", {
+                "test_id": test_id,
+                "reason": "Healed test still failed",
+                "new_error": healed_result.get("error"),
+            })
+
+            # Record failed healing outcome for learning
+            if hasattr(analysis, "_memory_pattern_id") and analysis._memory_pattern_id:
+                await healer._record_memory_outcome(analysis._memory_pattern_id, success=False)
+
+            return None
+
+    except Exception as e:
+        logger.exception(
+            "Auto-heal attempt failed with exception",
+            test_id=test_id,
+            error=str(e),
+        )
+        await emit_event(events_queue, "auto_heal_failed", {
+            "test_id": test_id,
+            "reason": "Exception during healing",
+            "error": str(e),
+        })
+        return None
+
+
+def _build_failure_details(failure_result: dict) -> dict:
+    """
+    Build a failure details dict from a test result for the SelfHealerAgent.
+
+    Args:
+        failure_result: The result dict from a failed test execution
+
+    Returns:
+        Failure details dict with type, message, selector, etc.
+    """
+    # Find the first failed step
+    failed_steps = [s for s in failure_result.get("steps", []) if not s.get("success")]
+    failed_step = failed_steps[0] if failed_steps else None
+
+    failure_details = {
+        "message": failure_result.get("error") or "Test failed",
+        "type": "unknown",
+    }
+
+    if failed_step:
+        failure_details["step_index"] = failed_step.get("step_index", 0)
+        failure_details["instruction"] = failed_step.get("instruction")
+        step_error = failed_step.get("error", "")
+        failure_details["message"] = step_error or failure_details["message"]
+
+        # Try to extract selector from actions
+        actions = failed_step.get("actions", [])
+        for action in actions:
+            if action.get("error") == "element not found":
+                failure_details["type"] = "selector_changed"
+                # Try to extract the target selector from instruction
+                instruction = failed_step.get("instruction", "")
+                if "'" in instruction:
+                    # Extract quoted text as potential selector
+                    match = re.search(r"['\"]([^'\"]+)['\"]", instruction)
+                    if match:
+                        failure_details["selector"] = match.group(1)
+                break
+            elif "timeout" in str(action.get("error", "")).lower():
+                failure_details["type"] = "timing_issue"
+                break
+
+        # Detect timing issues from error message
+        error_lower = failure_details["message"].lower()
+        if "timeout" in error_lower or "timed out" in error_lower or "not ready" in error_lower:
+            failure_details["type"] = "timing_issue"
+        elif "not found" in error_lower or "could not find" in error_lower:
+            failure_details["type"] = "selector_changed"
+
+    return failure_details
+
+
+# =============================================================================
+# END AUTO-HEALING INTEGRATION
+# =============================================================================
+
+
+# =============================================================================
+# FLAKY TEST DETECTION INTEGRATION (Phase 3)
+# =============================================================================
+
+
+async def update_flaky_scores_after_run(
+    schedule_id: str,
+    run_id: str,
+    test_results: list[dict],
+) -> list[dict]:
+    """Update flaky scores for all tests after a scheduled run completes.
+
+    This function is called after each scheduled run to track test consistency
+    and flag flaky tests for investigation.
+
+    Args:
+        schedule_id: The schedule ID
+        run_id: The run ID
+        test_results: List of test result dicts with test_id and success status
+
+    Returns:
+        List of newly detected flaky tests
+    """
+    from src.api.flaky_detector import get_flaky_detector
+
+    detector = get_flaky_detector()
+    newly_flaky_tests = []
+
+    for result in test_results:
+        test_id = result.get("test_id")
+        if not test_id:
+            continue
+
+        try:
+            status = "passed" if result.get("success") else "failed"
+
+            # Record this outcome and check for flakiness
+            flaky_result = await detector.record_test_outcome(
+                test_id=test_id,
+                test_run_id=run_id,
+                status=status,
+                schedule_id=schedule_id,
+            )
+
+            if flaky_result:
+                newly_flaky_tests.append(flaky_result)
+
+        except Exception as e:
+            logger.warning(
+                "Failed to update flaky score for test",
+                test_id=test_id,
+                error=str(e),
+            )
+
+    if newly_flaky_tests:
+        logger.warning(
+            "Flaky tests detected in scheduled run",
+            schedule_id=schedule_id,
+            run_id=run_id,
+            flaky_count=len(newly_flaky_tests),
+            flaky_tests=[t["test_id"] for t in newly_flaky_tests],
+        )
+
+    return newly_flaky_tests
+
+
+# =============================================================================
+# END FLAKY TEST DETECTION INTEGRATION
+# =============================================================================
 
 
 async def emit_event(events_queue: asyncio.Queue | None, event_type: str, data: dict) -> None:
@@ -169,6 +566,54 @@ async def execute_single_test(
         "steps_passed": sum(1 for s in step_results if s.get("success")),
         "steps_failed": sum(1 for s in step_results if not s.get("success")),
     }
+
+    # AI-powered failure analysis for failed tests
+    if not all_success:
+        try:
+            from src.agents.root_cause_analyzer import FailureContext, RootCauseAnalyzer
+
+            # Get the last screenshot from step results for visual analysis
+            last_screenshot = None
+            for step_result in reversed(step_results):
+                if step_result.get("screenshot"):
+                    last_screenshot = step_result["screenshot"]
+                    break
+
+            analyzer = RootCauseAnalyzer()
+            analysis = await analyzer.analyze(FailureContext(
+                test_id=test_id,
+                test_name=test_name,
+                error_message=error_message or "",
+                screenshot_base64=last_screenshot,
+                step_history=step_results,
+            ))
+
+            result["ai_analysis"] = {
+                "category": analysis.category.value,
+                "confidence": analysis.confidence,
+                "summary": analysis.summary,
+                "suggested_fix": analysis.suggested_fix,
+                "is_flaky": analysis.is_flaky,
+                "detailed_analysis": analysis.detailed_analysis,
+                "auto_healable": analysis.auto_healable,
+                "healing_suggestion": analysis.healing_suggestion,
+            }
+
+            logger.info(
+                "AI failure analysis completed",
+                test_id=test_id,
+                category=analysis.category.value,
+                confidence=analysis.confidence,
+                is_flaky=analysis.is_flaky,
+            )
+        except Exception as e:
+            # Don't fail the whole run if AI analysis fails
+            logger.warning(
+                "AI failure analysis failed",
+                test_id=test_id,
+                error=str(e),
+            )
+            result["ai_analysis"] = None
 
     await emit_event(events_queue, "test_completed", {
         "test_id": test_id,
@@ -901,6 +1346,16 @@ async def execute_scheduled_run(
     failures = []
     tests_passed = 0
     tests_failed = 0
+    tests_auto_healed = 0
+
+    # Check if auto-healing is enabled for this schedule
+    auto_heal_enabled = schedule.get("auto_heal_enabled", False)
+    if auto_heal_enabled:
+        logger.info(
+            "Auto-healing enabled for schedule",
+            schedule_id=schedule_id,
+            confidence_threshold=schedule.get("auto_heal_confidence_threshold", 0.9),
+        )
 
     for idx, test in enumerate(tests):
         await emit_event(events_queue, "progress", {
@@ -919,20 +1374,58 @@ async def execute_scheduled_run(
                 events_queue=events_queue,
                 screenshot_enabled=True,
             )
-            test_results.append(result)
 
             if result["success"]:
                 tests_passed += 1
+                test_results.append(result)
             else:
-                tests_failed += 1
-                failures.append({
-                    "test_id": result["test_id"],
-                    "test_name": result["test_name"],
-                    "error": result.get("error"),
-                    "steps_passed": result["steps_passed"],
-                    "steps_failed": result["steps_failed"],
-                    "recording_url": result.get("recording_url"),
-                })
+                # =========================================================
+                # AUTO-HEALING INTEGRATION (Phase 4)
+                # When a test fails, attempt to auto-heal if enabled
+                # =========================================================
+                healed_result = None
+                if auto_heal_enabled:
+                    logger.info(
+                        "Test failed, attempting auto-heal",
+                        test_id=test.get("id"),
+                        test_name=test.get("name"),
+                    )
+                    healed_result = await attempt_auto_heal(
+                        test=test,
+                        failure_result=result,
+                        schedule_config=schedule,
+                        app_url=app_url,
+                        events_queue=events_queue,
+                    )
+
+                if healed_result and healed_result.get("success"):
+                    # Auto-healing succeeded - count as passed
+                    tests_passed += 1
+                    tests_auto_healed += 1
+                    test_results.append(healed_result)
+                    logger.info(
+                        "Test auto-healed successfully",
+                        test_id=test.get("id"),
+                        test_name=test.get("name"),
+                        fix_type=healed_result.get("healing_details", {}).get("fix_type"),
+                    )
+                else:
+                    # Auto-healing not attempted, not possible, or failed
+                    tests_failed += 1
+                    test_results.append(result)
+                    failure_entry = {
+                        "test_id": result["test_id"],
+                        "test_name": result["test_name"],
+                        "error": result.get("error"),
+                        "steps_passed": result["steps_passed"],
+                        "steps_failed": result["steps_failed"],
+                        "recording_url": result.get("recording_url"),
+                    }
+                    # Include info about healing attempt if it was tried
+                    if auto_heal_enabled:
+                        failure_entry["auto_heal_attempted"] = True
+                        failure_entry["auto_heal_succeeded"] = False
+                    failures.append(failure_entry)
 
         except Exception as e:
             tests_failed += 1
@@ -951,6 +1444,7 @@ async def execute_scheduled_run(
         "tests_total": len(tests),
         "tests_passed": tests_passed,
         "tests_failed": tests_failed,
+        "tests_auto_healed": tests_auto_healed,
         "duration_ms": duration_ms,
         "success": tests_failed == 0,
     })
@@ -962,15 +1456,46 @@ async def execute_scheduled_run(
         tests_total=len(tests),
         tests_passed=tests_passed,
         tests_failed=tests_failed,
+        tests_auto_healed=tests_auto_healed,
         duration_ms=duration_ms,
     )
+
+    # =========================================================================
+    # FLAKY TEST DETECTION (Phase 3)
+    # After each run completes, update flaky scores for all tests
+    # =========================================================================
+    flaky_tests = []
+    try:
+        flaky_tests = await update_flaky_scores_after_run(
+            schedule_id=schedule_id,
+            run_id=run_id,
+            test_results=test_results,
+        )
+        if flaky_tests:
+            await emit_event(events_queue, "flaky_tests_detected", {
+                "schedule_id": schedule_id,
+                "run_id": run_id,
+                "flaky_count": len(flaky_tests),
+                "flaky_tests": flaky_tests,
+            })
+    except Exception as e:
+        # Don't fail the run if flaky detection fails
+        logger.warning(
+            "Flaky test detection failed",
+            schedule_id=schedule_id,
+            run_id=run_id,
+            error=str(e),
+        )
 
     return {
         "tests_total": len(tests),
         "tests_passed": tests_passed,
         "tests_failed": tests_failed,
+        "tests_auto_healed": tests_auto_healed,
         "tests_skipped": 0,
         "duration_ms": duration_ms,
         "failures": failures,
         "test_results": test_results,
+        "auto_heal_enabled": auto_heal_enabled,
+        "flaky_tests": flaky_tests,
     }

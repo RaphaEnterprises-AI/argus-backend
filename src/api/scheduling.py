@@ -433,6 +433,18 @@ class ScheduleCreateRequest(BaseModel):
     environment_variables: dict | None = Field(None, description="Environment variables for test runs")
     tags: list[str] | None = Field(None, description="Tags for categorization")
 
+    # AI Configuration
+    auto_heal_enabled: bool = Field(False, description="Enable AI-powered auto-healing for failed tests")
+    auto_heal_confidence_threshold: float = Field(
+        0.9, ge=0.0, le=1.0,
+        description="Minimum confidence threshold for applying auto-healing fixes"
+    )
+    quarantine_flaky_tests: bool = Field(False, description="Automatically quarantine flaky tests")
+    flaky_threshold: float = Field(
+        0.3, ge=0.0, le=1.0,
+        description="Failure rate threshold to mark a test as flaky"
+    )
+
     @field_validator("cron_expression")
     @classmethod
     def validate_cron(cls, v: str) -> str:
@@ -456,6 +468,18 @@ class ScheduleUpdateRequest(BaseModel):
     retry_count: int | None = Field(None, ge=0, le=3)
     environment_variables: dict | None = None
     tags: list[str] | None = None
+
+    # AI Configuration
+    auto_heal_enabled: bool | None = Field(None, description="Enable AI-powered auto-healing for failed tests")
+    auto_heal_confidence_threshold: float | None = Field(
+        None, ge=0.0, le=1.0,
+        description="Minimum confidence threshold for applying auto-healing fixes"
+    )
+    quarantine_flaky_tests: bool | None = Field(None, description="Automatically quarantine flaky tests")
+    flaky_threshold: float | None = Field(
+        None, ge=0.0, le=1.0,
+        description="Failure rate threshold to mark a test as flaky"
+    )
 
     @field_validator("cron_expression")
     @classmethod
@@ -496,6 +520,12 @@ class ScheduleResponse(BaseModel):
     updated_at: str
     created_by: str | None
 
+    # AI Configuration
+    auto_heal_enabled: bool = False
+    auto_heal_confidence_threshold: float = 0.9
+    quarantine_flaky_tests: bool = False
+    flaky_threshold: float = 0.3
+
 
 class ScheduleRunResponse(BaseModel):
     """Schedule run history response."""
@@ -511,6 +541,17 @@ class ScheduleRunResponse(BaseModel):
     error_message: str | None
     retry_attempt: int
     logs_url: str | None
+
+    # AI Analysis
+    ai_analysis: dict | None = None
+    is_flaky: bool = False
+    flaky_score: float = 0.0
+    failure_category: str | None = None
+    failure_confidence: float | None = None
+
+    # Auto-healing
+    auto_healed: bool = False
+    healing_details: dict | None = None
 
 
 class ScheduleListResponse(BaseModel):
@@ -667,6 +708,11 @@ def _build_schedule_response(schedule: dict, runs: list[dict]) -> ScheduleRespon
         created_at=schedule["created_at"],
         updated_at=schedule.get("updated_at", schedule["created_at"]),
         created_by=schedule.get("created_by"),
+        # AI Configuration
+        auto_heal_enabled=schedule.get("auto_heal_enabled", False),
+        auto_heal_confidence_threshold=schedule.get("auto_heal_confidence_threshold", 0.9),
+        quarantine_flaky_tests=schedule.get("quarantine_flaky_tests", False),
+        flaky_threshold=schedule.get("flaky_threshold", 0.3),
     )
 
 
@@ -765,7 +811,16 @@ async def run_scheduled_tests(schedule_id: str, run_id: str, triggered_by: str |
 
 
 async def _send_failure_notification(schedule: dict, run_id: str, results: dict) -> None:
-    """Send Slack notification for failed test run."""
+    """Send AI-enhanced Slack notification for failed test run.
+
+    If `ai_analysis` is present in results, creates a rich notification with:
+    - Root cause category and confidence
+    - Human-readable summary
+    - Suggested fix
+    - Flakiness indicator
+
+    Otherwise falls back to basic failure notification.
+    """
     try:
         notification_config = schedule.get("notification_config", {})
         notify_on_failure = notification_config.get("on_failure", True) if isinstance(notification_config, dict) else True
@@ -779,33 +834,201 @@ async def _send_failure_notification(schedule: dict, run_id: str, results: dict)
             logger.debug("Slack webhook not configured, skipping notification")
             return
 
-        from src.integrations.slack_integration import SlackIntegration, TestSummary
+        from src.integrations.slack_integration import SlackIntegration
 
         slack = SlackIntegration()
-        summary = TestSummary(
-            total=results.get("tests_total", 0),
-            passed=results.get("tests_passed", 0),
-            failed=results.get("tests_failed", 0),
-            skipped=results.get("tests_skipped", 0),
-            duration_seconds=results.get("duration_ms", 0) / 1000,
-            cost_usd=0,
-            failures=[
-                {"name": f.get("test_name", "Unknown"), "error": f.get("error", "Unknown error")}
-                for f in results.get("failures", [])
-            ],
-            report_url=f"/schedules/{schedule['id']}/runs/{run_id}",
-        )
+        schedule_name = schedule.get("name", "Unknown")
+        tests_failed = results.get("tests_failed", 0)
+        tests_passed = results.get("tests_passed", 0)
 
-        await slack.send_test_results(
-            summary,
-            title=f"❌ Schedule Failed: {schedule.get('name', 'Unknown')}"
-        )
+        # Check for AI analysis in results
+        ai_analysis = results.get("ai_analysis")
+
+        if ai_analysis:
+            # Build rich AI-enhanced notification blocks
+            blocks = _build_ai_notification_blocks(
+                schedule_name=schedule_name,
+                schedule_id=schedule["id"],
+                run_id=run_id,
+                tests_failed=tests_failed,
+                tests_passed=tests_passed,
+                ai_analysis=ai_analysis,
+                failures=results.get("failures", []),
+            )
+
+            # Send using blocks directly
+            await slack._send_message(
+                text=f"Schedule Failed: {schedule_name} - {tests_failed} failure(s)",
+                blocks=blocks,
+            )
+        else:
+            # Fall back to basic notification
+            from src.integrations.slack_integration import TestSummary
+
+            summary = TestSummary(
+                total=results.get("tests_total", 0),
+                passed=tests_passed,
+                failed=tests_failed,
+                skipped=results.get("tests_skipped", 0),
+                duration_seconds=results.get("duration_ms", 0) / 1000,
+                cost_usd=0,
+                failures=[
+                    {"name": f.get("test_name", "Unknown"), "error": f.get("error", "Unknown error")}
+                    for f in results.get("failures", [])
+                ],
+                report_url=f"/schedules/{schedule['id']}/runs/{run_id}",
+            )
+
+            await slack.send_test_results(
+                summary,
+                title=f"Schedule Failed: {schedule_name}"
+            )
 
         logger.info("Sent Slack failure notification", schedule_id=schedule.get("id"), run_id=run_id)
 
     except Exception as e:
         # Don't fail the run if notification fails
         logger.warning("Failed to send Slack notification", error=str(e))
+
+
+def _build_ai_notification_blocks(
+    schedule_name: str,
+    schedule_id: str,
+    run_id: str,
+    tests_failed: int,
+    tests_passed: int,
+    ai_analysis: dict,
+    failures: list[dict],
+) -> list[dict]:
+    """Build rich Slack blocks with AI analysis.
+
+    Args:
+        schedule_name: Name of the schedule
+        schedule_id: ID of the schedule
+        run_id: ID of the run
+        tests_failed: Number of failed tests
+        tests_passed: Number of passed tests
+        ai_analysis: Dict with category, confidence, summary, suggested_fix, is_flaky
+        failures: List of failure dicts with test_name and error
+
+    Returns:
+        List of Slack block objects
+    """
+    # Extract AI analysis fields with defaults
+    category = ai_analysis.get("category", "UNKNOWN")
+    confidence = ai_analysis.get("confidence", 0)
+    summary = ai_analysis.get("summary", "No analysis available")
+    suggested_fix = ai_analysis.get("suggested_fix")
+    is_flaky = ai_analysis.get("is_flaky", False)
+    recent_failure_count = ai_analysis.get("recent_failure_count", 0)
+
+    # Build failure count text
+    failure_text = f"{tests_failed} Failure" if tests_failed == 1 else f"{tests_failed} Failures"
+
+    blocks = [
+        # Header
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f":x: {schedule_name} - {failure_text}",
+                "emoji": True,
+            }
+        },
+        # Root cause section
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":mag: *Root Cause:* {category} ({confidence}% confidence)\n{summary}"
+            }
+        },
+    ]
+
+    # Add suggested fix if available
+    if suggested_fix:
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":bulb: *Suggested Fix:* {suggested_fix}"
+            }
+        })
+
+    # Add flakiness warning if applicable
+    if is_flaky or recent_failure_count >= 3:
+        flaky_text = f":bar_chart: *Pattern:* This test has failed {recent_failure_count} times recently"
+        if is_flaky:
+            flaky_text += ", may be flaky."
+        else:
+            flaky_text += "."
+
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": flaky_text
+            }
+        })
+
+    # Add divider before failure details
+    if failures:
+        blocks.append({"type": "divider"})
+
+        # Show up to 3 failures with details
+        for failure in failures[:3]:
+            test_name = failure.get("test_name", "Unknown test")
+            error = failure.get("error", "Unknown error")[:150]  # Truncate long errors
+
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":small_red_triangle: *{test_name}*\n```{error}```"
+                }
+            })
+
+        # Note if there are more failures
+        if len(failures) > 3:
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"_...and {len(failures) - 3} more failure(s)_"
+                    }
+                ]
+            })
+
+    # Add action button to view full report
+    blocks.append({"type": "divider"})
+    blocks.append({
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "View Full Report",
+                    "emoji": True,
+                },
+                "url": f"/schedules/{schedule_id}/runs/{run_id}",
+            }
+        ]
+    })
+
+    # Footer with timestamp
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": f":robot_face: AI-analyzed by E2E Testing Agent | {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
+            }
+        ]
+    })
+
+    return blocks
 
 
 # ============================================================================
@@ -870,6 +1093,11 @@ async def create_schedule(body: ScheduleCreateRequest, request: Request):
         "description": body.description,
         "tags": body.tags,
         "environment_variables": body.environment_variables,
+        # AI Configuration
+        "auto_heal_enabled": body.auto_heal_enabled,
+        "auto_heal_confidence_threshold": body.auto_heal_confidence_threshold,
+        "quarantine_flaky_tests": body.quarantine_flaky_tests,
+        "flaky_threshold": body.flaky_threshold,
     }
 
     # Save to database
@@ -1178,6 +1406,15 @@ async def get_schedule_runs(
             error_message=r.get("error_message"),
             retry_attempt=r.get("retry_attempt", 0),
             logs_url=r.get("logs_url"),
+            # AI Analysis
+            ai_analysis=r.get("ai_analysis"),
+            is_flaky=r.get("is_flaky", False),
+            flaky_score=r.get("flaky_score", 0.0),
+            failure_category=r.get("failure_category"),
+            failure_confidence=r.get("failure_confidence"),
+            # Auto-healing
+            auto_healed=r.get("auto_healed", False),
+            healing_details=r.get("healing_details"),
         )
         for r in runs
     ]
@@ -1212,6 +1449,15 @@ async def get_schedule_run(schedule_id: str, run_id: str):
         error_message=run.get("error_message"),
         retry_attempt=run.get("retry_attempt", 0),
         logs_url=run.get("logs_url"),
+        # AI Analysis
+        ai_analysis=run.get("ai_analysis"),
+        is_flaky=run.get("is_flaky", False),
+        flaky_score=run.get("flaky_score", 0.0),
+        failure_category=run.get("failure_category"),
+        failure_confidence=run.get("failure_confidence"),
+        # Auto-healing
+        auto_healed=run.get("auto_healed", False),
+        healing_details=run.get("healing_details"),
     )
 
 
@@ -1344,6 +1590,244 @@ async def stream_schedule_run(schedule_id: str, run_id: str):
             "X-Accel-Buffering": "no",  # Disable nginx buffering
         }
     )
+
+
+# ============================================================================
+# AI Analysis Endpoints
+# ============================================================================
+
+
+class FlakyTestResponse(BaseModel):
+    """Response for a flaky test."""
+    test_id: str
+    test_name: str
+    flaky_score: float
+    total_runs: int
+    passed_runs: int
+    failed_runs: int
+    failure_rate: float
+    last_failure_at: str | None
+    last_success_at: str | None
+    is_quarantined: bool = False
+    failure_categories: list[str] = []
+    recommended_action: str | None = None
+
+
+@router.get("/{schedule_id}/flaky-tests", response_model=list[FlakyTestResponse])
+async def get_flaky_tests(
+    schedule_id: str,
+    min_runs: int = Query(5, ge=1, description="Minimum number of runs to consider a test"),
+    min_flaky_score: float = Query(0.1, ge=0.0, le=1.0, description="Minimum flaky score threshold"),
+    include_quarantined: bool = Query(True, description="Include quarantined tests"),
+):
+    """
+    Get list of flaky tests for this schedule.
+
+    Analyzes test run history to identify tests with inconsistent results.
+    A test is considered flaky if it alternates between passing and failing
+    across multiple runs.
+
+    The flaky score is calculated based on:
+    - Failure rate (tests that always pass or always fail are not flaky)
+    - Alternation frequency (how often the result changes between runs)
+    - Recent trends (more weight given to recent runs)
+
+    Returns tests sorted by flaky score (highest first).
+    """
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Get all runs for analysis
+    runs = await _get_schedule_runs_from_db(schedule_id, limit=100)
+
+    if not runs:
+        return []
+
+    # Aggregate test results across runs
+    test_stats: dict[str, dict] = {}
+
+    for run in runs:
+        # Get test results from run (may be in different formats)
+        test_results = run.get("test_results") or {}
+        individual_results = test_results.get("results", [])
+
+        # Also check for flaky annotations on the run itself
+        run_is_flaky = run.get("is_flaky", False)
+        run_flaky_score = run.get("flaky_score", 0.0)
+
+        for result in individual_results:
+            test_id = result.get("test_id", result.get("id", "unknown"))
+            test_name = result.get("test_name", result.get("name", test_id))
+            status = result.get("status", "unknown")
+
+            if test_id not in test_stats:
+                test_stats[test_id] = {
+                    "test_id": test_id,
+                    "test_name": test_name,
+                    "runs": [],
+                    "passed": 0,
+                    "failed": 0,
+                    "last_failure_at": None,
+                    "last_success_at": None,
+                    "failure_categories": set(),
+                    "is_quarantined": result.get("is_quarantined", False),
+                }
+
+            stats = test_stats[test_id]
+            run_time = run.get("completed_at") or run.get("started_at")
+
+            if status in ("passed", "success"):
+                stats["passed"] += 1
+                stats["runs"].append(1)  # 1 = pass
+                if run_time:
+                    stats["last_success_at"] = run_time
+            elif status in ("failed", "failure"):
+                stats["failed"] += 1
+                stats["runs"].append(0)  # 0 = fail
+                if run_time:
+                    stats["last_failure_at"] = run_time
+                # Track failure categories
+                if result.get("failure_category"):
+                    stats["failure_categories"].add(result["failure_category"])
+
+    # Calculate flaky scores
+    flaky_tests = []
+
+    for test_id, stats in test_stats.items():
+        total_runs = stats["passed"] + stats["failed"]
+
+        if total_runs < min_runs:
+            continue
+
+        # Calculate failure rate
+        failure_rate = stats["failed"] / total_runs if total_runs > 0 else 0
+
+        # Calculate flaky score
+        # A test is flaky if it sometimes passes and sometimes fails
+        # Pure pass (0% failure) or pure fail (100% failure) = not flaky
+        # 50% failure rate = maximum flakiness potential
+
+        # Base flakiness from failure rate (peaks at 50%)
+        base_flakiness = 1 - abs(2 * failure_rate - 1)
+
+        # Calculate alternation score (how often does result change?)
+        runs_sequence = stats["runs"]
+        alternations = 0
+        for i in range(1, len(runs_sequence)):
+            if runs_sequence[i] != runs_sequence[i - 1]:
+                alternations += 1
+
+        max_alternations = len(runs_sequence) - 1 if len(runs_sequence) > 1 else 1
+        alternation_score = alternations / max_alternations if max_alternations > 0 else 0
+
+        # Combined flaky score (weighted average)
+        flaky_score = (base_flakiness * 0.4) + (alternation_score * 0.6)
+
+        if flaky_score < min_flaky_score:
+            continue
+
+        if not include_quarantined and stats["is_quarantined"]:
+            continue
+
+        # Determine recommended action
+        recommended_action = None
+        if flaky_score >= 0.7:
+            recommended_action = "quarantine"
+        elif flaky_score >= 0.4:
+            recommended_action = "investigate"
+        elif flaky_score >= 0.2:
+            recommended_action = "monitor"
+
+        flaky_tests.append(FlakyTestResponse(
+            test_id=test_id,
+            test_name=stats["test_name"],
+            flaky_score=round(flaky_score, 3),
+            total_runs=total_runs,
+            passed_runs=stats["passed"],
+            failed_runs=stats["failed"],
+            failure_rate=round(failure_rate, 3),
+            last_failure_at=stats["last_failure_at"],
+            last_success_at=stats["last_success_at"],
+            is_quarantined=stats["is_quarantined"],
+            failure_categories=list(stats["failure_categories"]),
+            recommended_action=recommended_action,
+        ))
+
+    # Sort by flaky score (highest first)
+    flaky_tests.sort(key=lambda x: x.flaky_score, reverse=True)
+
+    return flaky_tests
+
+
+@router.get("/{schedule_id}/ai-stats")
+async def get_ai_stats(schedule_id: str):
+    """
+    Get AI analysis statistics for a schedule.
+
+    Returns aggregated AI analysis data including:
+    - Total auto-healed tests
+    - Flaky test count and trends
+    - Failure category distribution
+    - Healing success rate
+    """
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Get recent runs for analysis
+    runs = await _get_schedule_runs_from_db(schedule_id, limit=100)
+
+    if not runs:
+        return {
+            "total_runs": 0,
+            "auto_healed_count": 0,
+            "flaky_tests_detected": 0,
+            "failure_categories": {},
+            "healing_success_rate": None,
+            "average_flaky_score": None,
+            "ai_analysis_enabled": schedule.get("auto_heal_enabled", False),
+        }
+
+    # Aggregate stats
+    auto_healed_count = 0
+    healing_successes = 0
+    healing_attempts = 0
+    flaky_runs = 0
+    total_flaky_score = 0.0
+    failure_categories: dict[str, int] = {}
+
+    for run in runs:
+        if run.get("auto_healed"):
+            auto_healed_count += 1
+            healing_attempts += 1
+            # Check if the healed run passed
+            if run.get("status") in ("passed", "success"):
+                healing_successes += 1
+
+        if run.get("healing_details"):
+            healing_attempts += 1
+
+        if run.get("is_flaky"):
+            flaky_runs += 1
+            total_flaky_score += run.get("flaky_score", 0.0)
+
+        if run.get("failure_category"):
+            category = run["failure_category"]
+            failure_categories[category] = failure_categories.get(category, 0) + 1
+
+    return {
+        "total_runs": len(runs),
+        "auto_healed_count": auto_healed_count,
+        "flaky_tests_detected": flaky_runs,
+        "failure_categories": failure_categories,
+        "healing_success_rate": round(healing_successes / healing_attempts, 3) if healing_attempts > 0 else None,
+        "average_flaky_score": round(total_flaky_score / flaky_runs, 3) if flaky_runs > 0 else None,
+        "ai_analysis_enabled": schedule.get("auto_heal_enabled", False),
+        "quarantine_enabled": schedule.get("quarantine_flaky_tests", False),
+        "flaky_threshold": schedule.get("flaky_threshold", 0.3),
+        "auto_heal_confidence_threshold": schedule.get("auto_heal_confidence_threshold", 0.9),
+    }
 
 
 # ============================================================================
