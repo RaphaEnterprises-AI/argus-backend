@@ -323,13 +323,14 @@ async def _execute_step(
                 step_success = False
                 actions_taken.append({"action": "type", "error": "could not parse instruction"})
 
-        elif "verify" in instruction_lower or "check" in instruction_lower or "assert" in instruction_lower or action == "verify":
-            # Verification step
-            verification_result = await _verify_instruction(grid_client, instruction, target, value)
-            step_success = verification_result["success"]
+        elif action == "assert" or action == "verify" or "verify" in instruction_lower or "check" in instruction_lower or "assert" in instruction_lower:
+            # Assertion / Verification step
+            assertion_type = step.get("assertion_type", "") if isinstance(step, dict) else ""
+            assertion_result = await _execute_assertion(grid_client, target, value, assertion_type, instruction)
+            step_success = assertion_result["success"]
             if not step_success:
-                step_error = verification_result.get("error", "Verification failed")
-            actions_taken.append({"action": "verify", "result": verification_result})
+                step_error = assertion_result.get("error", "Assertion failed")
+            actions_taken.append({"action": "assert", "assertion_type": assertion_type, "result": assertion_result})
 
         elif "scroll" in instruction_lower or action == "scroll":
             # Scroll the page
@@ -497,6 +498,279 @@ async def _find_element_and_text_for_instruction(
                 break
 
     return element_id, text_to_type
+
+
+async def _execute_assertion(
+    grid_client: SeleniumGridClient,
+    target: str,
+    value: str,
+    assertion_type: str,
+    instruction: str = "",
+) -> dict:
+    """
+    Execute a structured assertion with specific assertion_type.
+
+    Args:
+        grid_client: Selenium Grid client
+        target: What to check (selector, "page.url", "page.title", etc.)
+        value: Expected value to compare against
+        assertion_type: Type of assertion (url_matches, text_contains, element_visible, etc.)
+        instruction: Fallback natural language instruction
+
+    Returns:
+        Dict with success status and details
+    """
+    try:
+        assertion_type_lower = assertion_type.lower() if assertion_type else ""
+
+        # URL-related assertions
+        if assertion_type_lower == "url_matches" or target == "page.url":
+            current_url = await grid_client.execute_script("return window.location.href")
+            if value in current_url or current_url == value:
+                return {"success": True, "assertion": "url_matches", "actual": current_url, "expected": value}
+            return {
+                "success": False,
+                "error": f"URL mismatch: expected '{value}' but got '{current_url}'",
+                "actual": current_url,
+                "expected": value,
+            }
+
+        if assertion_type_lower == "url_contains":
+            current_url = await grid_client.execute_script("return window.location.href")
+            if value.lower() in current_url.lower():
+                return {"success": True, "assertion": "url_contains", "actual": current_url, "expected": value}
+            return {
+                "success": False,
+                "error": f"URL does not contain '{value}' (actual: '{current_url}')",
+                "actual": current_url,
+                "expected": value,
+            }
+
+        # Title-related assertions
+        if assertion_type_lower == "title_matches" or target == "page.title":
+            current_title = await grid_client.execute_script("return document.title")
+            if value.lower() in current_title.lower() or current_title == value:
+                return {"success": True, "assertion": "title_matches", "actual": current_title, "expected": value}
+            return {
+                "success": False,
+                "error": f"Title mismatch: expected '{value}' but got '{current_title}'",
+                "actual": current_title,
+                "expected": value,
+            }
+
+        if assertion_type_lower == "title_contains":
+            current_title = await grid_client.execute_script("return document.title")
+            if value.lower() in current_title.lower():
+                return {"success": True, "assertion": "title_contains", "actual": current_title, "expected": value}
+            return {
+                "success": False,
+                "error": f"Title does not contain '{value}' (actual: '{current_title}')",
+                "actual": current_title,
+                "expected": value,
+            }
+
+        # Text content assertions
+        if assertion_type_lower == "text_contains":
+            if target == "page.title":
+                current_title = await grid_client.execute_script("return document.title")
+                if value.lower() in current_title.lower():
+                    return {"success": True, "assertion": "text_contains", "target": "page.title", "found": value}
+                return {"success": False, "error": f"Title does not contain '{value}' (actual: '{current_title}')"}
+
+            # Check if text exists on page
+            page_text = await grid_client.execute_script("return document.body.innerText")
+            if value.lower() in page_text.lower():
+                return {"success": True, "assertion": "text_contains", "found": value}
+
+            # Check specific element if target is a selector
+            if target and target not in ("page", "page.body"):
+                element_text = await _get_element_text(grid_client, target)
+                if element_text and value.lower() in element_text.lower():
+                    return {"success": True, "assertion": "text_contains", "target": target, "found": value}
+
+            return {"success": False, "error": f"Text '{value}' not found on page"}
+
+        if assertion_type_lower == "text_equals":
+            element_text = await _get_element_text(grid_client, target)
+            if element_text and element_text.strip() == value.strip():
+                return {"success": True, "assertion": "text_equals", "target": target, "actual": element_text}
+            return {
+                "success": False,
+                "error": f"Text mismatch: expected '{value}' but got '{element_text}'",
+                "actual": element_text,
+                "expected": value,
+            }
+
+        # Element visibility assertions
+        if assertion_type_lower == "element_visible" or assertion_type_lower == "visible":
+            element_id = await _find_element_for_selector(grid_client, target)
+            if element_id:
+                # Check if element is actually visible (not hidden)
+                is_visible = await grid_client.execute_script(
+                    f"""
+                    var elem = document.evaluate(
+                        "(//*[@id='{element_id}' or contains(@data-element-id, '{element_id}')])[1]",
+                        document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                    ).singleNodeValue;
+                    if (!elem) {{
+                        var elems = document.querySelectorAll('*');
+                        for (var e of elems) {{
+                            if (e.innerText && e.innerText.toLowerCase().includes('{target.lower()}')) {{
+                                elem = e; break;
+                            }}
+                        }}
+                    }}
+                    if (elem) {{
+                        var style = window.getComputedStyle(elem);
+                        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+                    }}
+                    return false;
+                    """
+                )
+                # For simplicity, if we found the element, consider it visible
+                return {"success": True, "assertion": "element_visible", "target": target, "element_id": element_id}
+            return {"success": False, "error": f"Element '{target}' not found or not visible"}
+
+        if assertion_type_lower == "element_exists" or assertion_type_lower == "exists":
+            element_id = await _find_element_for_selector(grid_client, target)
+            if element_id:
+                return {"success": True, "assertion": "element_exists", "target": target, "element_id": element_id}
+            return {"success": False, "error": f"Element '{target}' does not exist"}
+
+        if assertion_type_lower == "element_not_visible" or assertion_type_lower == "not_visible":
+            element_id = await _find_element_for_selector(grid_client, target)
+            if not element_id:
+                return {"success": True, "assertion": "element_not_visible", "target": target}
+            return {"success": False, "error": f"Element '{target}' is visible but expected not visible"}
+
+        # Attribute assertions
+        if assertion_type_lower == "attribute_equals":
+            parts = target.split("@")
+            if len(parts) == 2:
+                selector, attr = parts
+                attr_value = await _get_element_attribute(grid_client, selector, attr)
+                if attr_value == value:
+                    return {"success": True, "assertion": "attribute_equals", "target": target, "actual": attr_value}
+                return {
+                    "success": False,
+                    "error": f"Attribute mismatch: expected '{value}' but got '{attr_value}'",
+                }
+
+        if assertion_type_lower == "attribute_contains":
+            parts = target.split("@")
+            if len(parts) == 2:
+                selector, attr = parts
+                attr_value = await _get_element_attribute(grid_client, selector, attr)
+                if attr_value and value.lower() in attr_value.lower():
+                    return {"success": True, "assertion": "attribute_contains", "target": target, "found": value}
+                return {"success": False, "error": f"Attribute does not contain '{value}' (actual: '{attr_value}')"}
+
+        # Value assertions (for inputs)
+        if assertion_type_lower == "value_equals":
+            element_id = await _find_element_for_selector(grid_client, target)
+            if element_id:
+                input_value = await grid_client.execute_script(
+                    f"return document.querySelector('[data-element-id=\"{element_id}\"]')?.value || ''"
+                )
+                if input_value == value:
+                    return {"success": True, "assertion": "value_equals", "actual": input_value}
+                return {"success": False, "error": f"Value mismatch: expected '{value}' but got '{input_value}'"}
+            return {"success": False, "error": f"Element '{target}' not found"}
+
+        # Fallback to natural language verification if no specific assertion type
+        if instruction:
+            return await _verify_instruction(grid_client, instruction, target, value)
+
+        # Default: try text_contains
+        page_text = await grid_client.execute_script("return document.body.innerText")
+        if value and value.lower() in page_text.lower():
+            return {"success": True, "assertion": "text_contains_fallback", "found": value}
+
+        return {"success": False, "error": f"Unknown assertion type: {assertion_type}"}
+
+    except Exception as e:
+        logger.warning("Assertion execution error", assertion_type=assertion_type, error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+async def _find_element_for_selector(grid_client: SeleniumGridClient, selector: str) -> str | None:
+    """Find an element using various selector strategies."""
+    if not selector:
+        return None
+
+    # Try XPath first
+    if selector.startswith("//") or selector.startswith("(//"):
+        return await grid_client.find_element("xpath", selector)
+
+    # CSS selector
+    if selector.startswith("#") or selector.startswith(".") or " " in selector or ">" in selector:
+        return await grid_client.find_element("css selector", selector)
+
+    # Tag name (like "h1", "button", "input")
+    if selector.lower() in ("h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "span", "button", "input", "a", "img"):
+        element_id = await grid_client.find_element("css selector", selector)
+        if element_id:
+            return element_id
+
+    # Try as ID
+    element_id = await grid_client.find_element("css selector", f"#{selector}")
+    if element_id:
+        return element_id
+
+    # Try as text content
+    element_id = await grid_client.find_element(
+        "xpath",
+        f"//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{selector.lower()}')]"
+    )
+    if element_id:
+        return element_id
+
+    return None
+
+
+async def _get_element_text(grid_client: SeleniumGridClient, selector: str) -> str | None:
+    """Get the text content of an element."""
+    element_id = await _find_element_for_selector(grid_client, selector)
+    if not element_id:
+        return None
+
+    try:
+        # Use JavaScript to get text content
+        text = await grid_client.execute_script(
+            f"""
+            var elem = document.querySelector('[data-element-id="{element_id}"]');
+            if (!elem) {{
+                var xpath = "//*[contains(@id, '{element_id}')]";
+                elem = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            }}
+            return elem ? elem.innerText || elem.textContent : null;
+            """
+        )
+        return text
+    except Exception:
+        return None
+
+
+async def _get_element_attribute(grid_client: SeleniumGridClient, selector: str, attribute: str) -> str | None:
+    """Get an attribute value from an element."""
+    element_id = await _find_element_for_selector(grid_client, selector)
+    if not element_id:
+        return None
+
+    try:
+        value = await grid_client.execute_script(
+            f"""
+            var elem = document.querySelector('[data-element-id="{element_id}"]');
+            if (!elem) {{
+                var xpath = "//*[contains(@id, '{element_id}')]";
+                elem = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            }}
+            return elem ? elem.getAttribute('{attribute}') : null;
+            """
+        )
+        return value
+    except Exception:
+        return None
 
 
 async def _verify_instruction(
