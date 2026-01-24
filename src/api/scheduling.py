@@ -501,11 +501,11 @@ class ScheduleRunResponse(BaseModel):
     """Schedule run history response."""
     id: str
     schedule_id: str
-    status: Literal["pending", "running", "success", "failure", "cancelled", "timeout"]
+    status: Literal["pending", "queued", "running", "passed", "failed", "success", "failure", "cancelled", "timeout"]
     started_at: str
     completed_at: str | None
     duration_seconds: int | None
-    trigger_type: Literal["scheduled", "manual"]
+    trigger_type: Literal["scheduled", "manual", "webhook", "api"]
     triggered_by: str | None
     test_results: dict | None
     error_message: str | None
