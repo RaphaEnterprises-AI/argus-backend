@@ -87,3 +87,4 @@ yarn-error.log*
 supabase/.temp/
 **/.temp/
 audit-logs/
+argus-plugin/

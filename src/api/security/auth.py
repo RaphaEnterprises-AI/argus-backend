@@ -63,6 +63,11 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/auth/device/token",
     "/api/v1/auth/device/verify",
     "/api/v1/auth/device/refresh",
+    # OAuth callback endpoints (providers redirect here)
+    "/api/v1/oauth/github/callback",
+    "/api/v1/oauth/slack/callback",
+    "/api/v1/oauth/jira/callback",
+    "/api/v1/oauth/linear/callback",
 }
 
 # Endpoints that only require API key (not full auth)

@@ -1,0 +1,51 @@
+# Argus Data Layer - ClusterIP Services
+# Internal services for accessing data layer components
+# Note: Redpanda services are created by the Helm chart, not here
+---
+# FalkorDB primary service (load balanced across replicas)
+apiVersion: v1
+kind: Service
+metadata:
+  name: falkordb
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: graph-database
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+    - name: metrics
+      port: 9121
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: falkordb
+---
+# Valkey primary service
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: cache
+spec:
+  type: ClusterIP
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+      protocol: TCP
+    - name: metrics
+      port: 9121
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: valkey

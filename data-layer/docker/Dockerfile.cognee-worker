@@ -1,0 +1,60 @@
+# Cognee Worker Dockerfile
+# Processes codebase analysis and knowledge graph construction via Kafka/Redpanda
+FROM python:3.12-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies (including libpq-dev for psycopg2, libsnappy-dev for Kafka compression)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    libpq-dev \
+    libsnappy-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd --gid 1000 cognee \
+    && useradd --uid 1000 --gid cognee --shell /bin/bash --create-home cognee
+
+# Set working directory
+WORKDIR /app
+
+# Install Python dependencies
+# cognee[postgres,falkordb] - Core cognee with PostgreSQL and FalkorDB graph support
+# aiokafka - Async Kafka client for Redpanda message consumption
+# python-snappy - Required for Kafka snappy compression codec
+# structlog - Structured logging for observability
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    "cognee[postgres,falkordb]" \
+    aiokafka \
+    python-snappy \
+    structlog \
+    orjson \
+    tenacity \
+    httpx \
+    pydantic \
+    pydantic-settings
+
+# Copy source code
+COPY --chown=cognee:cognee src/ /app/src/
+
+# Create directories for any local state
+RUN mkdir -p /app/data /app/logs && \
+    chown -R cognee:cognee /app
+
+# Switch to non-root user
+USER cognee
+
+# Health check - verify cognee can be imported
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import cognee; import aiokafka; print('healthy')" || exit 1
+
+# Default command - run the cognee worker
+CMD ["python", "-m", "src.workers.cognee_consumer"]

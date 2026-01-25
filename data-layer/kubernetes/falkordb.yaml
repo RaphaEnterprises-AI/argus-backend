@@ -1,0 +1,170 @@
+# FalkorDB StatefulSet - Graph Database
+# High-performance graph database based on Redis + GraphBLAS
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: falkordb
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: graph-database
+spec:
+  serviceName: falkordb-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: falkordb
+        app.kubernetes.io/part-of: argus
+        app.kubernetes.io/component: graph-database
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: falkordb
+          image: falkordb/falkordb:v4.4.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          env:
+            # FALKORDB_PASSWORD must be defined BEFORE REDIS_ARGS for $(VAR) expansion to work
+            - name: FALKORDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: falkordb-auth
+                  key: password
+            - name: REDIS_ARGS
+              value: "--requirepass $(FALKORDB_PASSWORD) --maxmemory 3gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "500m"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $FALKORDB_PASSWORD ping | grep -q PONG
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $FALKORDB_PASSWORD ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+        # Redis Exporter sidecar for Prometheus metrics
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.66.0
+          ports:
+            - name: metrics
+              containerPort: 9121
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: falkordb-auth
+                  key: password
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: falkordb
+                topologyKey: kubernetes.io/hostname
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: falkordb
+          app.kubernetes.io/part-of: argus
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: vultr-block-storage-hdd
+        resources:
+          requests:
+            storage: 40Gi
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: falkordb-headless
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/part-of: argus
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app.kubernetes.io/name: falkordb
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: falkordb-pdb
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/part-of: argus
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb

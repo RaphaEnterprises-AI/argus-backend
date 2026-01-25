@@ -1,0 +1,40 @@
+# Cognee Kafka Worker Dependencies
+# Production-ready event-driven knowledge graph builder
+
+# Kafka/Redpanda client
+aiokafka>=0.10.0
+python-snappy>=0.7.0  # Required for Kafka message compression
+lz4>=4.0.0  # Additional compression support
+
+# Cognee - Knowledge graph building
+cognee>=0.1.0
+
+# FalkorDB adapter for Cognee (community)
+# Note: Check PyPI for exact package name, may be:
+# cognee-community-hybrid-adapter-falkor or similar
+falkordb>=1.0.0
+
+# Redis/Valkey client for caching
+redis>=5.0.0
+
+# HTTP server for health checks
+aiohttp>=3.9.0
+
+# JSON Schema validation
+jsonschema>=4.20.0
+
+# Async utilities
+asyncio-throttle>=1.0.0
+
+# Structured logging
+structlog>=24.1.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# LLM providers (Cognee dependencies)
+anthropic>=0.18.0
+openai>=1.12.0
+
+# Metrics and monitoring (optional)
+prometheus-client>=0.19.0

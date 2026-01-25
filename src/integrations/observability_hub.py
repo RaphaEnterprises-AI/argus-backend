@@ -356,8 +356,8 @@ class DatadogProvider(ObservabilityProvider):
                     url_path = by_values.get("@view.url_path", "")
                     computes = bucket.get("computes", {})
 
-                    pc75 = computes.get(f"c0", 0)  # pc75 is first compute
-                    pc95 = computes.get(f"c1", 0)  # pc95 is second compute
+                    pc75 = computes.get("c0", 0)  # pc75 is first compute
+                    pc95 = computes.get("c1", 0)  # pc95 is second compute
                     count = computes.get("c2", 0)
 
                     if pc95 and pc95 > threshold:

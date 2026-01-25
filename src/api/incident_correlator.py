@@ -634,7 +634,7 @@ def generate_incident_report_markdown(
 
     if correlation.most_likely and correlation.most_likely.probability > 0.3:
         ml = correlation.most_likely
-        report += f"""The error was most likely introduced by """
+        report += """The error was most likely introduced by """
 
         if ml.commit_sha:
             report += f"commit `{ml.commit_sha[:8]}`"

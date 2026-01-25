@@ -1,0 +1,55 @@
+# Argus Data Layer - Namespace and Resource Quotas
+# Creates isolated namespace with resource limits for enterprise deployments
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: data-layer
+    environment: production
+---
+# Resource quota to prevent runaway resource consumption
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: argus-data-quota
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    persistentvolumeclaims: "20"
+    requests.storage: 500Gi
+---
+# Limit range for default resource limits
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: argus-data-limits
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 1Gi
+      defaultRequest:
+        cpu: "100m"
+        memory: 128Mi
+      max:
+        cpu: "8"
+        memory: 16Gi
+      min:
+        cpu: "50m"
+        memory: 64Mi

@@ -1,0 +1,86 @@
+# Redpanda Helm Chart Values - Minimal single-node configuration
+# For Vultr Kubernetes Engine with limited resources
+# Docs: https://docs.redpanda.com/current/reference/k-redpanda-helm-spec/
+---
+
+# Single replica for small cluster (no HA, dev/test only)
+statefulset:
+  replicas: 1
+
+# Minimal resource allocation for resource-constrained cluster
+# Note: Redpanda uses thread-per-core model
+# IMPORTANT: These are minimum values for dev/beta only
+resources:
+  cpu:
+    cores: 1
+    overprovisioned: true  # Allow overprovisioning for beta
+  memory:
+    container:
+      max: 2Gi
+      min: 1536Mi
+    redpanda:
+      memory: 1Gi
+      reserveMemory: 200Mi
+
+# Storage configuration
+storage:
+  persistentVolume:
+    enabled: true
+    size: 40Gi
+    storageClass: vultr-block-storage-hdd
+  tiered:
+    config:
+      cloud_storage_enabled: false
+
+# SASL Authentication - Using pre-created secret
+# The secret must exist BEFORE helm install and contain:
+# A file named 'users.txt' with lines in format: username:password:mechanism
+auth:
+  sasl:
+    enabled: true
+    secretRef: redpanda-superusers
+    # Empty users list = use existing secret (don't let Helm create it)
+    users: []
+
+# TLS disabled for internal cluster communication (simplicity)
+tls:
+  enabled: false
+
+# Listeners configuration - No TLS, SASL auth
+listeners:
+  kafka:
+    port: 9092
+    authenticationMethod: sasl
+  admin:
+    port: 9644
+  schemaRegistry:
+    enabled: true
+    port: 8081
+    authenticationMethod: http_basic
+  http:
+    enabled: true
+    port: 8082
+    authenticationMethod: http_basic
+
+# Disable tuning for small cluster (requires privileged containers)
+tuning:
+  tune_aio_events: false
+  tune_clocksource: false
+  tune_ballast_file: false
+
+# Monitoring disabled (requires Prometheus Operator CRDs)
+monitoring:
+  enabled: false
+
+# Console (Web UI) disabled
+console:
+  enabled: false
+
+# Post-install job timeout (increase for slow clusters)
+post_install_job:
+  enabled: true
+
+# Labels for all resources
+commonLabels:
+  app.kubernetes.io/part-of: argus
+  app.kubernetes.io/component: streaming

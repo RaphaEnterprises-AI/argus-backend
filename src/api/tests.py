@@ -432,6 +432,30 @@ async def create_test(body: CreateTestRequest, request: Request):
 
     logger.info("Test created", test_id=test["id"], name=body.name, project_id=body.project_id)
 
+    # Emit TEST_CREATED event to Redpanda for downstream processing
+    try:
+        from src.services.event_gateway import get_event_gateway, EventType
+        event_gateway = get_event_gateway()
+        if event_gateway.is_running:
+            await event_gateway.publish(
+                event_type=EventType.TEST_CREATED,
+                data={
+                    "test_id": test["id"],
+                    "test_name": body.name,
+                    "project_id": body.project_id,
+                    "source": body.source,
+                    "step_count": len(body.steps) if body.steps else 0,
+                    "tags": body.tags or [],
+                    "priority": body.priority,
+                },
+                org_id=org_id,
+                project_id=body.project_id,
+                user_id=user["user_id"],
+            )
+    except Exception as e:
+        # Event emission is non-critical - log but don't fail the request
+        logger.warning("Failed to emit TEST_CREATED event", error=str(e), test_id=test["id"])
+
     return TestResponse(
         id=test["id"],
         project_id=test["project_id"],

@@ -1,0 +1,286 @@
+# Argus Data Layer - Network Policies
+# Restricts network access to only allow traffic within argus-data namespace
+---
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Default deny all egress traffic (except DNS)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Allow internal namespace communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-namespace-internal
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argus-data
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argus-data
+---
+# FalkorDB network policy - allow connections from argus-data namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: falkordb-policy
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from pods in argus-data namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argus-data
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 9121  # Metrics
+    # Allow from FalkorDB peers (replication)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: falkordb
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow replication to peers
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: falkordb
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# Valkey network policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-policy
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argus-data
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 9121  # Metrics
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+---
+# Redpanda network policy
+# Note: Helm chart uses app.kubernetes.io/instance: <release-name> labels
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redpanda-policy
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector:
+    matchLabels:
+      # Match both standard label patterns used by Redpanda Helm chart
+      app.kubernetes.io/name: redpanda
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from pods in argus-data namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argus-data
+      ports:
+        - protocol: TCP
+          port: 9092   # Kafka
+        - protocol: TCP
+          port: 8081   # Schema Registry
+        - protocol: TCP
+          port: 8082   # HTTP Proxy
+        - protocol: TCP
+          port: 9644   # Admin
+        - protocol: TCP
+          port: 33145  # Internal RPC
+    # Allow internal cluster communication between Redpanda pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 33145  # Internal RPC
+        - protocol: TCP
+          port: 9092   # Kafka internal
+        - protocol: TCP
+          port: 9644   # Admin internal
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow internal cluster communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 33145
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9644
+---
+# Cognee Worker network policy - allows external API access for BYOK
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cognee-worker-policy
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cognee-worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []  # No ingress needed - worker only consumes from Kafka
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to Redpanda for event consumption
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow connection to FalkorDB for graph storage
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: falkordb
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connection to Valkey for caching
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow external HTTPS for:
+    # - Supabase (BYOK key lookup)
+    # - Cloudflare Key Vault (key decryption)
+    # - Anthropic/OpenRouter APIs (LLM calls)
+    # - pgvector (Supabase PostgreSQL)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5432  # PostgreSQL (Supabase pgvector)

@@ -472,6 +472,7 @@ class TestSentryWebhookEndpoint:
     async def test_receive_error_webhook(self, mock_env_vars):
         """Test receiving an error webhook from Sentry."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -506,6 +507,7 @@ class TestSentryWebhookEndpoint:
     async def test_receive_event_alert_webhook(self, mock_env_vars):
         """Test receiving an event_alert webhook from Sentry."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -555,6 +557,7 @@ class TestSentryWebhookEndpoint:
     async def test_duplicate_event_handling(self, mock_env_vars):
         """Test handling of duplicate Sentry events."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -591,6 +594,7 @@ class TestCorrelateEndpoint:
     async def test_correlate_error_with_commits(self, mock_env_vars):
         """Test correlating an error with recent commits."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         error_time = datetime.now(UTC)
@@ -658,6 +662,7 @@ class TestCorrelateEndpoint:
     async def test_correlate_nonexistent_error(self, mock_env_vars):
         """Test correlating a non-existent error."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -685,6 +690,7 @@ class TestGetIncidentEndpoint:
     async def test_get_incident_with_correlations(self, mock_env_vars):
         """Test getting an incident with its correlations."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -738,6 +744,7 @@ class TestGetIncidentEndpoint:
     async def test_get_nonexistent_incident(self, mock_env_vars):
         """Test getting a non-existent incident."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -761,6 +768,7 @@ class TestListIncidentsEndpoint:
     async def test_list_recent_incidents(self, mock_env_vars):
         """Test listing recent incidents."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -806,6 +814,7 @@ class TestListIncidentsEndpoint:
     async def test_list_incidents_with_filters(self, mock_env_vars):
         """Test listing incidents with environment filter."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.incident_correlator.get_supabase_client") as mock_supabase:
@@ -855,6 +864,7 @@ class TestGetIncidentTimelineEndpoint:
     async def test_get_incident_timeline(self, mock_env_vars):
         """Test getting timeline for an incident."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         error_time = datetime.now(UTC)
@@ -917,6 +927,7 @@ class TestGetIncidentReportEndpoint:
     async def test_get_incident_report(self, mock_env_vars):
         """Test generating an incident report."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         error_time = datetime.now(UTC)

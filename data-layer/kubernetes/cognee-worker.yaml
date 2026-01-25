@@ -1,0 +1,273 @@
+# Cognee Worker Deployment - Knowledge Graph Builder
+# Consumes codebase events from Redpanda, processes through Cognee ECL pipeline
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cognee-worker-config
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: worker
+data:
+  # Kafka/Redpanda Configuration
+  # Use pod-specific DNS for headless service (redpanda-0 is the StatefulSet pod)
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda-0.redpanda.argus-data.svc.cluster.local:9092"
+  KAFKA_CONSUMER_GROUP: "argus-cognee-workers"
+  KAFKA_AUTO_OFFSET_RESET: "earliest"
+  # SASL Configuration for Redpanda
+  KAFKA_SECURITY_PROTOCOL: "SASL_PLAINTEXT"
+  KAFKA_SASL_MECHANISM: "SCRAM-SHA-512"
+  KAFKA_SASL_USERNAME: "argus-service"
+
+  # FalkorDB Configuration
+  FALKORDB_HOST: "falkordb-headless.argus-data.svc.cluster.local"
+  FALKORDB_PORT: "6379"
+
+  # Valkey Cache Configuration
+  VALKEY_HOST: "valkey-headless.argus-data.svc.cluster.local"
+  VALKEY_PORT: "6379"
+
+  # Cognee Configuration
+  # Cognee LLM Configuration (environment variables read by Cognee's Pydantic settings)
+  LLM_PROVIDER: "anthropic"
+  LLM_MODEL: "claude-sonnet-4-5-20250514"
+  # Using Cohere for embeddings - best for multilingual + technical content
+  EMBEDDING_PROVIDER: "cohere"
+  EMBEDDING_MODEL: "embed-multilingual-v3.0"
+
+  # Cognee Graph Database Configuration
+  GRAPH_DATABASE_PROVIDER: "falkordb"
+
+  # Processing Configuration
+  COGNEE_CHUNK_SIZE: "1024"
+  COGNEE_CHUNK_OVERLAP: "128"
+  COGNEE_BATCH_SIZE: "10"
+
+  # Worker Configuration
+  LOG_LEVEL: "INFO"
+  MAX_RETRIES: "3"
+  RETRY_DELAY_SECONDS: "5"
+  HEALTH_CHECK_PORT: "8080"
+
+  # Cloudflare Key Vault (for BYOK decryption)
+  CLOUDFLARE_WORKER_URL: "https://argus-api.heyargus.workers.dev"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cognee-worker
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cognee-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cognee-worker
+        app.kubernetes.io/part-of: argus
+        app.kubernetes.io/component: worker
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: cognee-worker
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: cognee-worker
+          image: ghcr.io/samuelvinay91/cognee-worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: cognee-worker-config
+          env:
+            # Secrets
+            - name: FALKORDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: falkordb-auth
+                  key: password
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-auth
+                  key: password
+            # Kafka/Redpanda SASL password (matches argus-service user in redpanda-superusers)
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: redpanda-password
+            # LLM API Keys (Cognee uses LLM_API_KEY and EMBEDDING_API_KEY)
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: anthropic-api-key
+            - name: EMBEDDING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: cohere-api-key
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: openrouter-api-key
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: database-url
+            # Supabase (for BYOK key lookup)
+            - name: SUPABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: supabase-url
+                  optional: true
+            - name: SUPABASE_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: supabase-service-key
+                  optional: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "500m"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 5Gi
+        - name: logs
+          emptyDir:
+            sizeLimit: 1Gi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: cognee-worker
+                topologyKey: kubernetes.io/hostname
+---
+# ServiceAccount for Cognee Worker
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cognee-worker
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+---
+# HorizontalPodAutoscaler for auto-scaling based on CPU
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cognee-worker-hpa
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cognee-worker
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Max
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cognee-worker-pdb
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cognee-worker

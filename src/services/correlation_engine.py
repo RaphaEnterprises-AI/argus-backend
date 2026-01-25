@@ -753,8 +753,9 @@ class CorrelationEngine:
             return []
 
         try:
-            import anthropic
             import json
+
+            import anthropic
 
             # Get recent events for analysis
             end_time = datetime.now(UTC)
