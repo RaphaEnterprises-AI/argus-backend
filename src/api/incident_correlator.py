@@ -241,6 +241,7 @@ def parse_isoformat_safe(timestamp_str: str) -> datetime:
     - Timestamps ending in Z (convert to +00:00)
     - Timestamps already having timezone info
     - Timestamps without timezone info (assume UTC)
+    - Timestamps with duplicate timezone suffixes (e.g., +00:00+00:00)
 
     Args:
         timestamp_str: ISO format timestamp string
@@ -255,11 +256,19 @@ def parse_isoformat_safe(timestamp_str: str) -> datetime:
     if timestamp_str.endswith("Z"):
         timestamp_str = timestamp_str[:-1] + "+00:00"
 
-    # Check if already has timezone info by looking for +HH:MM or -HH:MM at end
-    # Pattern: +00:00 or -05:00 etc.
+    # Check for and fix duplicate timezone suffixes (e.g., +00:00+00:00)
+    # This can happen when timestamps are processed multiple times
     import re
-    tz_pattern = r'[+-]\d{2}:\d{2}$'
-    has_timezone = bool(re.search(tz_pattern, timestamp_str))
+    tz_pattern = r'[+-]\d{2}:\d{2}'
+    tz_matches = list(re.finditer(tz_pattern, timestamp_str))
+
+    if len(tz_matches) > 1:
+        # Multiple timezone patterns found - keep only the first one
+        first_tz_end = tz_matches[0].end()
+        timestamp_str = timestamp_str[:first_tz_end]
+
+    # Check if already has timezone info by looking for +HH:MM or -HH:MM at end
+    has_timezone = bool(re.search(tz_pattern + r'$', timestamp_str))
 
     if not has_timezone:
         # No timezone, add UTC
