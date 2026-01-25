@@ -68,8 +68,15 @@ dependencies = [
     # Error Monitoring
     "sentry-sdk[fastapi]>=2.0.0",  # Sentry for error tracking and performance monitoring
     "defusedxml>=0.7.1",
+    # OpenAPI parsing
+    "pyyaml>=6.0.0",  # YAML parsing for OpenAPI/Swagger specs
     # Scheduling
     "croniter>=2.0.0",  # Cron expression parsing for scheduled test runs
+    # Event Streaming (Redpanda/Kafka)
+    "aiokafka>=0.10.0",  # Async Kafka client for event gateway
+    # AI Memory & Knowledge Graphs
+    "cognee[postgres,falkordb]>=0.1.0",  # ECL pipeline with pgvector + FalkorDB support
+    "falkordb>=1.0.0",  # FalkorDB Python client for graph operations
 ]
 
 [project.optional-dependencies]

@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from src.api.ai_settings import router as ai_settings_router
 from src.api.api_keys import router as api_keys_router
+from src.api.api_testing import router as api_testing_router
 from src.api.approvals import router as approvals_router
 from src.api.artifacts import router as artifacts_router
 from src.api.audit import router as audit_router
@@ -39,6 +40,7 @@ from src.api.correlations import router as correlations_router
 from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
+from src.api.github_webhooks import router as github_webhooks_router
 from src.api.healing import router as healing_router
 from src.api.impact_graph import router as impact_graph_router
 from src.api.infra_optimizer import router as infra_optimizer_router
@@ -50,6 +52,7 @@ from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.notifications import router as notifications_router
 from src.api.organizations import router as organizations_router
 from src.api.parameterized import router as parameterized_router
+from src.api.pr_comments import router as pr_comments_router
 from src.api.projects import router as projects_router
 from src.api.quality import router as quality_router
 from src.api.recording import router as recording_router
@@ -366,6 +369,7 @@ app.include_router(collaboration_router)
 app.include_router(correlations_router)
 app.include_router(impact_graph_router)
 app.include_router(failure_patterns_router)
+app.include_router(github_webhooks_router)
 app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
@@ -389,6 +393,8 @@ app.include_router(tests_router)
 app.include_router(reports_router)
 app.include_router(integrations_router)
 app.include_router(oauth_router)
+app.include_router(pr_comments_router)
+app.include_router(api_testing_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
