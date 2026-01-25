@@ -52,6 +52,10 @@ class Platform(str, Enum):
     POSTHOG = "posthog"
     HONEYCOMB = "honeycomb"
     GRAFANA = "grafana"
+    # Tier 2 platforms
+    PAGERDUTY = "pagerduty"
+    LAUNCHDARKLY = "launchdarkly"
+    AMPLITUDE = "amplitude"
 
 
 class PlatformType(str, Enum):
@@ -175,6 +179,36 @@ PLATFORM_INFO = {
         "docs_url": "https://grafana.com/docs/grafana/latest/developers/http_api/",
         "auth_type": "api_key",
         "features": ["Dashboards", "Alerts", "Metrics", "Annotations"],
+    },
+    Platform.PAGERDUTY: {
+        "type": PlatformType.OBSERVABILITY,
+        "name": "PagerDuty",
+        "description": "Sync incidents and post-mortems for correlation with deployments",
+        "required_fields": ["api_token"],
+        "optional_fields": ["default_service_id"],
+        "docs_url": "https://developer.pagerduty.com/api-reference/",
+        "auth_type": "api_key",
+        "features": ["Incident sync", "Timeline tracking", "Post-mortem extraction", "MTTR metrics", "Webhooks"],
+    },
+    Platform.LAUNCHDARKLY: {
+        "type": PlatformType.ANALYTICS,
+        "name": "LaunchDarkly",
+        "description": "Track feature flags to correlate flag changes with errors",
+        "required_fields": ["api_token"],
+        "optional_fields": ["project_key", "default_environment"],
+        "docs_url": "https://apidocs.launchdarkly.com/",
+        "auth_type": "api_key",
+        "features": ["Flag sync", "Rollout tracking", "Audit log", "Environment awareness", "Webhooks"],
+    },
+    Platform.AMPLITUDE: {
+        "type": PlatformType.ANALYTICS,
+        "name": "Amplitude",
+        "description": "Use product analytics to prioritize tests by feature usage",
+        "required_fields": ["api_key", "secret_key"],
+        "optional_fields": [],
+        "docs_url": "https://www.docs.developers.amplitude.com/analytics/apis/",
+        "auth_type": "api_key",
+        "features": ["Event sync", "Funnel analysis", "User paths", "Retention data", "Test prioritization"],
     },
 }
 
@@ -464,6 +498,124 @@ async def test_new_relic_connection(credentials: dict[str, str]) -> tuple[bool, 
         return False, f"New Relic connection failed: {str(e)}", {}
 
 
+async def test_pagerduty_connection(credentials: dict[str, str]) -> tuple[bool, str, dict]:
+    """Test PagerDuty API connection."""
+    api_token = credentials.get("api_token")
+
+    if not api_token:
+        return False, "api_token is required", {}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.pagerduty.com/abilities",
+                headers={
+                    "Authorization": f"Token token={api_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/vnd.pagerduty+json;version=2",
+                },
+            )
+            if response.status_code == 200:
+                data = response.json()
+                abilities = data.get("abilities", [])
+                return True, f"PagerDuty connected with {len(abilities)} abilities", {
+                    "abilities_count": len(abilities),
+                }
+            elif response.status_code == 401:
+                return False, "Invalid PagerDuty API token", {}
+            return False, f"PagerDuty returned status {response.status_code}", {}
+    except Exception as e:
+        return False, f"PagerDuty connection failed: {str(e)}", {}
+
+
+async def test_launchdarkly_connection(credentials: dict[str, str]) -> tuple[bool, str, dict]:
+    """Test LaunchDarkly API connection."""
+    api_token = credentials.get("api_token")
+    project_key = credentials.get("project_key", "default")
+
+    if not api_token:
+        return False, "api_token is required", {}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"https://app.launchdarkly.com/api/v2/projects/{project_key}",
+                headers={
+                    "Authorization": api_token,
+                    "Content-Type": "application/json",
+                },
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return True, f"Connected to LaunchDarkly project: {data.get('name', project_key)}", {
+                    "project_key": data.get("key"),
+                    "project_name": data.get("name"),
+                }
+            elif response.status_code == 401:
+                return False, "Invalid LaunchDarkly API token", {}
+            elif response.status_code == 404:
+                return False, f"LaunchDarkly project '{project_key}' not found", {}
+            return False, f"LaunchDarkly returned status {response.status_code}", {}
+    except Exception as e:
+        return False, f"LaunchDarkly connection failed: {str(e)}", {}
+
+
+async def test_amplitude_connection(credentials: dict[str, str]) -> tuple[bool, str, dict]:
+    """Test Amplitude API connection."""
+    api_key = credentials.get("api_key")
+    secret_key = credentials.get("secret_key")
+
+    if not api_key or not secret_key:
+        return False, "Both api_key and secret_key are required", {}
+
+    try:
+        from datetime import datetime, timedelta
+        start = (datetime.utcnow() - timedelta(days=1)).strftime("%Y%m%d")
+        end = datetime.utcnow().strftime("%Y%m%d")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://amplitude.com/api/2/users",
+                auth=(api_key, secret_key),
+                params={"start": start, "end": end},
+            )
+            if response.status_code == 200:
+                return True, "Amplitude API credentials validated", {"api_key": api_key[:8] + "..."}
+            elif response.status_code == 401:
+                return False, "Invalid Amplitude API credentials", {}
+            return False, f"Amplitude returned status {response.status_code}", {}
+    except Exception as e:
+        return False, f"Amplitude connection failed: {str(e)}", {}
+
+
+async def test_fullstory_connection(credentials: dict[str, str]) -> tuple[bool, str, dict]:
+    """Test FullStory API connection."""
+    api_key = credentials.get("api_key")
+
+    if not api_key:
+        return False, "api_key is required", {}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # FullStory uses Basic auth with the API key
+            response = await client.get(
+                "https://api.fullstory.com/operations/v1",
+                headers={
+                    "Authorization": f"Basic {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            # FullStory returns 200 for valid keys, 401 for invalid
+            if response.status_code == 200:
+                return True, "FullStory API key validated", {}
+            elif response.status_code == 401:
+                return False, "Invalid FullStory API key", {}
+            # Some endpoints may return 404 but still validate the key
+            return True, "FullStory API key appears valid", {}
+    except Exception as e:
+        return False, f"FullStory connection failed: {str(e)}", {}
+
+
 async def test_platform_connection(
     platform: Platform,
     credentials: dict[str, str],
@@ -479,6 +631,14 @@ async def test_platform_connection(
         return await test_sentry_connection(credentials)
     elif platform == Platform.NEW_RELIC:
         return await test_new_relic_connection(credentials)
+    elif platform == Platform.PAGERDUTY:
+        return await test_pagerduty_connection(credentials)
+    elif platform == Platform.LAUNCHDARKLY:
+        return await test_launchdarkly_connection(credentials)
+    elif platform == Platform.AMPLITUDE:
+        return await test_amplitude_connection(credentials)
+    elif platform == Platform.FULLSTORY:
+        return await test_fullstory_connection(credentials)
     else:
         # For platforms without specific test, just validate credentials exist
         missing = validate_credentials(platform, credentials)
@@ -970,6 +1130,146 @@ async def trigger_sync(
                 errors = await provider.get_errors(limit=100)
                 data_points_synced = len(errors)
                 await provider.close()
+
+        elif platform_enum == Platform.PAGERDUTY:
+            # Sync PagerDuty incidents
+            from src.integrations.pagerduty_integration import PagerDutyIntegration
+
+            pd = PagerDutyIntegration(
+                api_token=credentials.get("api_token", ""),
+                default_since_days=30,
+            )
+            incidents = await pd.get_incidents(limit=100)
+            data_points_synced = len(incidents)
+
+            # Store incidents as SDLC events
+            project_id_for_events = integration.get("project_id")
+            if project_id_for_events:
+                for incident in incidents:
+                    await supabase.insert("sdlc_events", {
+                        "project_id": project_id_for_events,
+                        "source_platform": "pagerduty",
+                        "event_type": "incident",
+                        "external_id": incident.incident_id,
+                        "external_key": str(incident.incident_number),
+                        "external_url": incident.html_url,
+                        "title": incident.title,
+                        "description": incident.description,
+                        "status": incident.status.value,
+                        "priority": incident.priority,
+                        "incident_id": incident.incident_id,
+                        "occurred_at": incident.created_at.isoformat() if incident.created_at else None,
+                        "metadata": {
+                            "service_id": incident.service_id,
+                            "service_name": incident.service_name,
+                            "urgency": incident.urgency.value,
+                            "duration_seconds": incident.duration_seconds,
+                            "time_to_acknowledge_seconds": incident.time_to_acknowledge_seconds,
+                        },
+                    })
+            await pd.close()
+
+        elif platform_enum == Platform.LAUNCHDARKLY:
+            # Sync LaunchDarkly flags
+            from src.integrations.launchdarkly_integration import LaunchDarklyIntegration
+
+            ld = LaunchDarklyIntegration(
+                api_token=credentials.get("api_token"),
+                project_key=credentials.get("project_key", "default"),
+            )
+            environment = credentials.get("default_environment", "production")
+            flags = await ld.get_flags(environment=environment, limit=100)
+            data_points_synced = len(flags)
+
+            # Store flags as SDLC events
+            project_id_for_events = integration.get("project_id")
+            if project_id_for_events:
+                for flag in flags:
+                    await supabase.insert("sdlc_events", {
+                        "project_id": project_id_for_events,
+                        "source_platform": "launchdarkly",
+                        "event_type": "flag_change" if flag.on else "flag_disabled",
+                        "external_id": flag.key,
+                        "external_key": flag.key,
+                        "title": flag.name,
+                        "description": flag.description,
+                        "status": "on" if flag.on else "off",
+                        "flag_key": flag.key,
+                        "occurred_at": flag.created_at.isoformat() if flag.created_at else None,
+                        "metadata": {
+                            "kind": flag.kind,
+                            "environment": flag.environment,
+                            "rollout_percentage": flag.rollout_percentage,
+                            "variations": flag.variations,
+                            "tags": flag.tags,
+                        },
+                    })
+            await ld.close()
+
+        elif platform_enum == Platform.AMPLITUDE:
+            # Sync Amplitude top events for test prioritization
+            from src.integrations.amplitude_integration import AmplitudeIntegration
+
+            amp = AmplitudeIntegration(
+                api_key=credentials.get("api_key", ""),
+                secret_key=credentials.get("secret_key", ""),
+            )
+            events = await amp.get_top_events(limit=50, days=30)
+            data_points_synced = len(events)
+
+            # Store as SDLC events for correlation
+            project_id_for_events = integration.get("project_id")
+            if project_id_for_events:
+                for event in events:
+                    await supabase.insert("sdlc_events", {
+                        "project_id": project_id_for_events,
+                        "source_platform": "amplitude",
+                        "event_type": "user_event",
+                        "external_id": event.event_type,
+                        "external_key": event.event_type,
+                        "title": event.event_type,
+                        "description": f"Top event with {event.unique_users} unique users",
+                        "metadata": {
+                            "total_count": event.total_count,
+                            "unique_users": event.unique_users,
+                            "avg_per_user": event.avg_per_user,
+                        },
+                    })
+            await amp.close()
+
+        elif platform_enum == Platform.FULLSTORY:
+            # Sync FullStory sessions
+            from src.integrations.observability_hub import FullStoryProvider
+
+            fs = FullStoryProvider(api_key=credentials.get("api_key", ""))
+            sessions = await fs.get_recent_sessions(limit=100)
+            data_points_synced = len(sessions)
+
+            # Store sessions as SDLC events
+            project_id_for_events = integration.get("project_id")
+            if project_id_for_events:
+                for session in sessions:
+                    # Only store sessions with frustration signals
+                    if session.frustration_signals:
+                        await supabase.insert("sdlc_events", {
+                            "project_id": project_id_for_events,
+                            "source_platform": "fullstory",
+                            "event_type": "frustration_signal",
+                            "external_id": session.session_id,
+                            "external_url": session.replay_url,
+                            "title": f"Frustration signals in session {session.session_id[:8]}",
+                            "description": f"Session with {len(session.frustration_signals)} frustration signals",
+                            "session_id": session.session_id,
+                            "occurred_at": session.started_at.isoformat() if session.started_at else None,
+                            "metadata": {
+                                "user_id": session.user_id,
+                                "duration_ms": session.duration_ms,
+                                "page_views": session.page_views,
+                                "frustration_count": len(session.frustration_signals),
+                                "device": session.device,
+                            },
+                        })
+            await fs.close()
 
         # Update sync status to completed
         await supabase.update(

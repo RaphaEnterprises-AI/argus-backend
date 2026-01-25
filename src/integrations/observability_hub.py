@@ -302,18 +302,172 @@ class DatadogProvider(ObservabilityProvider):
         self,
         since: datetime | None = None
     ) -> list[PerformanceAnomaly]:
-        """Detect performance anomalies from RUM metrics."""
-        # Use Datadog's metrics API to detect anomalies
-        # This would typically use their anomaly detection
-        return []
+        """
+        Detect performance anomalies from Datadog RUM metrics.
+
+        Uses the RUM Analytics API to fetch Web Vitals metrics and detect
+        anomalies by comparing current values against baseline percentiles.
+        """
+        since = since or (datetime.utcnow() - timedelta(hours=24))
+        anomalies = []
+
+        # Core Web Vitals to monitor
+        metrics = [
+            ("largest_contentful_paint", "LCP", 2500),  # 2.5s threshold
+            ("first_input_delay", "FID", 100),  # 100ms threshold
+            ("cumulative_layout_shift", "CLS", 0.1),  # 0.1 threshold
+            ("first_contentful_paint", "FCP", 1800),  # 1.8s threshold
+            ("dom_interactive", "DOM Interactive", 3000),  # 3s threshold
+        ]
+
+        for metric_name, display_name, threshold in metrics:
+            # Query RUM analytics for metric percentiles
+            query = {
+                "filter": {
+                    "from": since.isoformat() + "Z",
+                    "to": datetime.utcnow().isoformat() + "Z",
+                    "query": "@type:view"
+                },
+                "compute": [
+                    {"aggregation": "pc75", "metric": f"@view.{metric_name}"},
+                    {"aggregation": "pc95", "metric": f"@view.{metric_name}"},
+                    {"aggregation": "count"},
+                ],
+                "group_by": [
+                    {"facet": "@view.url_path", "limit": 10, "sort": {"aggregation": "pc95", "metric": f"@view.{metric_name}", "order": "desc"}}
+                ],
+            }
+
+            try:
+                response = await self.http.post(
+                    f"{self.base_url}/rum/analytics/aggregate",
+                    headers=self.headers,
+                    json=query
+                )
+
+                if response.status_code != 200:
+                    continue
+
+                data = response.json()
+                buckets = data.get("data", {}).get("buckets", [])
+
+                for bucket in buckets:
+                    by_values = bucket.get("by", {})
+                    url_path = by_values.get("@view.url_path", "")
+                    computes = bucket.get("computes", {})
+
+                    pc75 = computes.get(f"c0", 0)  # pc75 is first compute
+                    pc95 = computes.get(f"c1", 0)  # pc95 is second compute
+                    count = computes.get("c2", 0)
+
+                    if pc95 and pc95 > threshold:
+                        # Calculate deviation from threshold
+                        deviation = ((pc95 - threshold) / threshold) * 100
+
+                        anomalies.append(PerformanceAnomaly(
+                            anomaly_id=f"dd-{metric_name}-{hash(url_path) % 10000}",
+                            platform=Platform.DATADOG,
+                            metric=display_name,
+                            baseline_value=threshold,
+                            current_value=pc95,
+                            deviation_percent=deviation,
+                            affected_pages=[url_path],
+                            affected_users_percent=min(100, count / 100),  # Approximate
+                            started_at=since,
+                            detected_at=datetime.utcnow(),
+                            probable_cause=f"P95 {display_name} ({pc95:.0f}ms) exceeds threshold ({threshold}ms) on {url_path}",
+                        ))
+
+            except Exception:
+                # Silently continue on API errors
+                continue
+
+        return anomalies
 
     async def get_user_journeys(
         self,
         limit: int = 20
     ) -> list[UserJourneyPattern]:
-        """Extract user journey patterns from RUM data."""
-        # Analyze session data to find common paths
-        return []
+        """
+        Extract user journey patterns from Datadog RUM session data.
+
+        Analyzes session view sequences to identify common navigation paths.
+        """
+        # Get recent sessions with view data
+        since = datetime.utcnow() - timedelta(hours=24)
+
+        query = {
+            "filter": {
+                "from": since.isoformat() + "Z",
+                "to": datetime.utcnow().isoformat() + "Z",
+                "query": "@type:session @session.view.count:>2"
+            },
+            "page": {"limit": 100},
+            "sort": "-@session.view.count"
+        }
+
+        try:
+            response = await self.http.post(
+                f"{self.base_url}/rum/events/search",
+                headers=self.headers,
+                json=query
+            )
+
+            if response.status_code != 200:
+                return []
+
+            data = response.json()
+
+            # Count path frequencies
+            path_counts: dict[str, dict] = {}
+
+            for event in data.get("data", []):
+                attrs = event.get("attributes", {})
+                session = attrs.get("session", {})
+
+                # Get views in this session
+                views = session.get("view", {}).get("url_path_group", [])
+                if isinstance(views, str):
+                    views = [views]
+
+                # Create path signature (first 5 views)
+                path_key = " -> ".join(views[:5]) if views else ""
+                if not path_key:
+                    continue
+
+                if path_key not in path_counts:
+                    path_counts[path_key] = {
+                        "steps": views[:5],
+                        "count": 0,
+                        "total_duration": 0,
+                        "conversions": 0,
+                    }
+
+                path_counts[path_key]["count"] += 1
+                path_counts[path_key]["total_duration"] += session.get("time_spent", 0)
+
+            # Convert to UserJourneyPattern objects
+            journeys = []
+            sorted_paths = sorted(path_counts.items(), key=lambda x: x[1]["count"], reverse=True)
+
+            for path_key, stats in sorted_paths[:limit]:
+                avg_duration = stats["total_duration"] / stats["count"] if stats["count"] > 0 else 0
+
+                journeys.append(UserJourneyPattern(
+                    pattern_id=f"dd-journey-{hash(path_key) % 10000}",
+                    name=f"Path: {stats['steps'][0]} to {stats['steps'][-1]}" if len(stats["steps"]) > 1 else f"Single view: {stats['steps'][0]}",
+                    steps=[{"url": step, "order": i} for i, step in enumerate(stats["steps"])],
+                    frequency=stats["count"],
+                    conversion_rate=stats["conversions"] / stats["count"] if stats["count"] > 0 else 0,
+                    avg_duration_ms=int(avg_duration),
+                    drop_off_points=[],
+                    is_critical=stats["count"] > 10,  # Mark as critical if common path
+                ))
+
+            return journeys
+
+        except Exception:
+            return []
 
 
 class SentryProvider(ObservabilityProvider):
@@ -515,52 +669,262 @@ class FullStoryProvider(ObservabilityProvider):
     async def get_recent_sessions(
         self,
         limit: int = 100,
-        since: datetime | None = None
+        since: datetime | None = None,
+        filter_errors: bool = False,
+        filter_frustrations: bool = False,
     ) -> list[RealUserSession]:
-        """Get sessions with replay URLs from FullStory."""
-        # FullStory Data Export API
-        response = await self.http.post(
-            f"{self.base_url}/sessions/v2/search",
-            headers=self.headers,
-            json={
-                "limit": limit,
-                "start": since.isoformat() if since else None
-            }
-        )
+        """
+        Get sessions with replay URLs from FullStory.
 
-        if response.status_code != 200:
+        Args:
+            limit: Maximum number of sessions to return
+            since: Only return sessions after this time
+            filter_errors: Only return sessions with errors
+            filter_frustrations: Only return sessions with frustration signals
+        """
+        # Build search query
+        search_body: dict = {
+            "limit": limit,
+        }
+
+        if since:
+            search_body["start"] = since.isoformat()
+
+        # Add filters
+        filters = []
+        if filter_errors:
+            filters.append({
+                "type": "event",
+                "eventType": "error",
+                "operator": "exists"
+            })
+        if filter_frustrations:
+            filters.append({
+                "type": "event",
+                "eventType": "frustration",
+                "operator": "exists"
+            })
+
+        if filters:
+            search_body["filters"] = filters
+
+        try:
+            response = await self.http.post(
+                f"{self.base_url}/sessions/v2/search",
+                headers=self.headers,
+                json=search_body
+            )
+
+            if response.status_code != 200:
+                return []
+
+            data = response.json()
+            sessions = []
+
+            for session in data.get("sessions", []):
+                # Parse created time carefully
+                created_time = session.get("createdTime", "")
+                try:
+                    if created_time:
+                        started_at = datetime.fromisoformat(created_time.rstrip("Z"))
+                    else:
+                        started_at = datetime.utcnow()
+                except (ValueError, TypeError):
+                    started_at = datetime.utcnow()
+
+                sessions.append(RealUserSession(
+                    session_id=session.get("sessionId", ""),
+                    user_id=session.get("userId"),
+                    platform=Platform.FULLSTORY,
+                    started_at=started_at,
+                    duration_ms=session.get("totalDuration", 0),
+                    page_views=session.get("visitedUrls", []),
+                    actions=session.get("events", []),
+                    errors=session.get("errors", []),
+                    performance_metrics={
+                        "pageLoadTime": session.get("pageLoadTime"),
+                        "domContentLoaded": session.get("domContentLoaded"),
+                    },
+                    device=session.get("device", {}),
+                    geo=session.get("geo", {}),
+                    frustration_signals=session.get("frustrationSignals", []),
+                    conversion_events=session.get("conversions", []),
+                    replay_url=session.get("playbackUrl")
+                ))
+
+            return sessions
+
+        except Exception:
             return []
 
-        data = response.json()
-        sessions = []
+    async def search_sessions(
+        self,
+        query: str | None = None,
+        user_id: str | None = None,
+        url_contains: str | None = None,
+        has_errors: bool = False,
+        has_rage_clicks: bool = False,
+        has_dead_clicks: bool = False,
+        limit: int = 50,
+    ) -> list[RealUserSession]:
+        """
+        Search for sessions with specific criteria.
 
-        for session in data.get("sessions", []):
-            sessions.append(RealUserSession(
-                session_id=session.get("sessionId", ""),
-                user_id=session.get("userId"),
-                platform=Platform.FULLSTORY,
-                started_at=datetime.fromisoformat(session.get("createdTime", "")),
-                duration_ms=session.get("totalDuration", 0),
-                page_views=session.get("visitedUrls", []),
-                actions=session.get("events", []),
-                errors=session.get("errors", []),
-                performance_metrics={},
-                device=session.get("device", {}),
-                geo=session.get("geo", {}),
-                frustration_signals=session.get("frustrationSignals", []),
-                conversion_events=session.get("conversions", []),
-                replay_url=session.get("playbackUrl")
-            ))
+        This is the enhanced search API that allows filtering on multiple dimensions.
+        """
+        filters = []
 
-        return sessions
+        if user_id:
+            filters.append({
+                "type": "user",
+                "field": "uid",
+                "operator": "is",
+                "value": user_id
+            })
+
+        if url_contains:
+            filters.append({
+                "type": "visited",
+                "field": "url",
+                "operator": "contains",
+                "value": url_contains
+            })
+
+        if has_errors:
+            filters.append({
+                "type": "event",
+                "eventType": "error",
+                "operator": "exists"
+            })
+
+        if has_rage_clicks:
+            filters.append({
+                "type": "event",
+                "eventType": "rageclick",
+                "operator": "exists"
+            })
+
+        if has_dead_clicks:
+            filters.append({
+                "type": "event",
+                "eventType": "deadclick",
+                "operator": "exists"
+            })
+
+        search_body: dict = {
+            "limit": limit,
+        }
+
+        if filters:
+            search_body["filters"] = filters
+
+        if query:
+            search_body["query"] = query
+
+        try:
+            response = await self.http.post(
+                f"{self.base_url}/sessions/v2/search",
+                headers=self.headers,
+                json=search_body
+            )
+
+            if response.status_code != 200:
+                return []
+
+            data = response.json()
+            sessions = []
+
+            for session in data.get("sessions", []):
+                created_time = session.get("createdTime", "")
+                try:
+                    started_at = datetime.fromisoformat(created_time.rstrip("Z")) if created_time else datetime.utcnow()
+                except (ValueError, TypeError):
+                    started_at = datetime.utcnow()
+
+                sessions.append(RealUserSession(
+                    session_id=session.get("sessionId", ""),
+                    user_id=session.get("userId"),
+                    platform=Platform.FULLSTORY,
+                    started_at=started_at,
+                    duration_ms=session.get("totalDuration", 0),
+                    page_views=session.get("visitedUrls", []),
+                    actions=session.get("events", []),
+                    errors=session.get("errors", []),
+                    performance_metrics={},
+                    device=session.get("device", {}),
+                    geo=session.get("geo", {}),
+                    frustration_signals=session.get("frustrationSignals", []),
+                    conversion_events=session.get("conversions", []),
+                    replay_url=session.get("playbackUrl")
+                ))
+
+            return sessions
+
+        except Exception:
+            return []
+
+    async def get_replay_url(self, session_id: str) -> str | None:
+        """Get the replay URL for a specific session."""
+        try:
+            response = await self.http.get(
+                f"{self.base_url}/sessions/v1/{session_id}",
+                headers=self.headers
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("playbackUrl")
+            return None
+
+        except Exception:
+            return None
 
     async def get_errors(
         self,
         limit: int = 100,
         since: datetime | None = None
     ) -> list[ProductionError]:
-        """Get errors with session context from FullStory."""
-        return []
+        """
+        Get errors with session context from FullStory.
+
+        FullStory captures JavaScript errors that occur during sessions.
+        Each error is linked to a session for replay context.
+        """
+        # Get sessions that have errors
+        sessions = await self.get_recent_sessions(
+            limit=limit,
+            since=since,
+            filter_errors=True
+        )
+
+        errors = []
+        for session in sessions:
+            for error_data in session.errors:
+                if isinstance(error_data, dict):
+                    errors.append(ProductionError(
+                        error_id=error_data.get("id", f"fs-{session.session_id}-{len(errors)}"),
+                        platform=Platform.FULLSTORY,
+                        message=error_data.get("message", "Unknown error"),
+                        stack_trace=error_data.get("stack"),
+                        first_seen=session.started_at,
+                        last_seen=session.started_at,
+                        occurrence_count=1,
+                        affected_users=1,
+                        affected_sessions=[session.session_id],
+                        tags={},
+                        context={
+                            "url": error_data.get("url"),
+                            "device": session.device,
+                        },
+                        release=None,
+                        environment="production",
+                        severity="error",
+                        status="unresolved",
+                        assignee=None,
+                        issue_url=session.replay_url,
+                    ))
+
+        return errors
 
     async def get_performance_anomalies(
         self,
@@ -573,8 +937,65 @@ class FullStoryProvider(ObservabilityProvider):
         self,
         limit: int = 20
     ) -> list[UserJourneyPattern]:
-        """Get user journey patterns from FullStory."""
-        return []
+        """
+        Get user journey patterns from FullStory sessions.
+
+        Analyzes session data to identify common navigation patterns.
+        """
+        sessions = await self.get_recent_sessions(limit=100)
+
+        # Count path frequencies
+        path_counts: dict[str, dict] = {}
+
+        for session in sessions:
+            page_views = session.page_views
+            if not page_views or not isinstance(page_views, list):
+                continue
+
+            # Create path signature (first 5 pages)
+            path_key = " -> ".join(str(p) for p in page_views[:5])
+            if not path_key:
+                continue
+
+            if path_key not in path_counts:
+                path_counts[path_key] = {
+                    "steps": page_views[:5],
+                    "count": 0,
+                    "total_duration": 0,
+                    "has_conversion": 0,
+                    "has_frustration": 0,
+                }
+
+            path_counts[path_key]["count"] += 1
+            path_counts[path_key]["total_duration"] += session.duration_ms
+            if session.conversion_events:
+                path_counts[path_key]["has_conversion"] += 1
+            if session.frustration_signals:
+                path_counts[path_key]["has_frustration"] += 1
+
+        # Convert to UserJourneyPattern objects
+        journeys = []
+        sorted_paths = sorted(path_counts.items(), key=lambda x: x[1]["count"], reverse=True)
+
+        for path_key, stats in sorted_paths[:limit]:
+            avg_duration = stats["total_duration"] / stats["count"] if stats["count"] > 0 else 0
+            conversion_rate = stats["has_conversion"] / stats["count"] if stats["count"] > 0 else 0
+
+            journeys.append(UserJourneyPattern(
+                pattern_id=f"fs-journey-{hash(path_key) % 10000}",
+                name=f"Path: {stats['steps'][0]} to {stats['steps'][-1]}" if len(stats["steps"]) > 1 else f"Single page: {stats['steps'][0]}",
+                steps=[{"url": str(step), "order": i} for i, step in enumerate(stats["steps"])],
+                frequency=stats["count"],
+                conversion_rate=conversion_rate,
+                avg_duration_ms=int(avg_duration),
+                drop_off_points=[{
+                    "step": len(stats["steps"]) - 1,
+                    "frustration_rate": stats["has_frustration"] / stats["count"] if stats["count"] > 0 else 0
+                }],
+                is_critical=stats["count"] > 5 and stats["has_frustration"] > 0,
+            ))
+
+        return journeys
 
 
 class PostHogProvider(ObservabilityProvider):

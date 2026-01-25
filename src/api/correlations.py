@@ -755,6 +755,202 @@ async def dismiss_insight(
 
 
 # =============================================================================
+# AI Insights Generation Endpoint
+# =============================================================================
+
+
+class GenerateInsightsRequest(BaseModel):
+    """Request body for generating AI insights."""
+
+    days: int = Field(7, ge=1, le=90, description="Number of days to analyze")
+    max_insights: int = Field(5, ge=1, le=20, description="Maximum insights to generate")
+    save_to_database: bool = Field(True, description="Save generated insights to database")
+
+
+class GenerateInsightsResponse(BaseModel):
+    """Response for AI insights generation."""
+
+    insights: list[CorrelationInsight]
+    analysis_summary: dict
+    generated_at: datetime
+
+
+@router.post("/insights/generate", response_model=GenerateInsightsResponse)
+async def generate_insights(
+    request_body: GenerateInsightsRequest,
+    request: Request,
+    project_id: str = Query(..., description="Project ID to analyze"),
+    user: UserContext = Depends(get_current_user),
+):
+    """Generate AI-powered insights from correlation analysis.
+
+    Analyzes the SDLC timeline using the correlation engine to detect:
+    - Failure clusters (related errors with common causes)
+    - Deployment risks (deployments that led to errors)
+    - Performance trends
+    - Coverage gaps
+    - General recommendations
+
+    The AI analysis uses Claude to identify patterns that may not be
+    obvious from simple rule-based detection.
+    """
+    from src.services.correlation_engine import get_correlation_engine
+
+    settings = get_settings()
+    engine = get_correlation_engine()
+
+    try:
+        # Generate insights using the correlation engine
+        logger.info(
+            "Generating AI insights",
+            project_id=project_id,
+            days=request_body.days,
+            max_insights=request_body.max_insights,
+            user_id=user.user_id,
+        )
+
+        generated = await engine.generate_insights(
+            project_id=project_id,
+            days=request_body.days,
+            max_insights=request_body.max_insights,
+        )
+
+        # Convert to response format and optionally save
+        insights: list[CorrelationInsight] = []
+        saved_count = 0
+
+        for gen_insight in generated:
+            # Save to database if requested
+            insight_id = None
+            if request_body.save_to_database:
+                insight_id = await engine.save_insight(project_id, gen_insight)
+                if insight_id:
+                    saved_count += 1
+
+            # Create response model
+            insights.append(CorrelationInsight(
+                id=insight_id or f"temp-{len(insights)}",
+                insight_type=gen_insight.insight_type.value,
+                severity=gen_insight.severity.value,
+                title=gen_insight.title,
+                description=gen_insight.description,
+                recommendations=gen_insight.recommendations,
+                event_ids=gen_insight.event_ids,
+                status="active",
+                created_at=datetime.now(UTC),
+            ))
+
+        # Build analysis summary
+        analysis_summary = {
+            "project_id": project_id,
+            "days_analyzed": request_body.days,
+            "insights_generated": len(insights),
+            "insights_saved": saved_count,
+            "insight_types": list(set(i.insight_type for i in insights)),
+            "severities": {
+                "critical": sum(1 for i in insights if i.severity == "critical"),
+                "high": sum(1 for i in insights if i.severity == "high"),
+                "medium": sum(1 for i in insights if i.severity == "medium"),
+                "low": sum(1 for i in insights if i.severity == "low"),
+                "info": sum(1 for i in insights if i.severity == "info"),
+            },
+        }
+
+        logger.info(
+            "AI insights generated successfully",
+            project_id=project_id,
+            insights_count=len(insights),
+            saved_count=saved_count,
+            user_id=user.user_id,
+        )
+
+        return GenerateInsightsResponse(
+            insights=insights,
+            analysis_summary=analysis_summary,
+            generated_at=datetime.now(UTC),
+        )
+
+    except Exception as e:
+        logger.exception("Failed to generate insights", error=str(e), project_id=project_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate insights: {str(e)}"
+        )
+
+
+# =============================================================================
+# Commit Impact Analysis Endpoint (Alternative Path)
+# =============================================================================
+
+
+class CommitImpactResponse(BaseModel):
+    """Response for commit impact analysis using the correlation engine."""
+
+    commit_sha: str
+    found: bool
+    total_events: int = 0
+    events_by_type: dict = Field(default_factory=dict)
+    event_ids: list[str] = Field(default_factory=list)
+    risk_score: float = 0.0
+    risk_factors: list[dict] = Field(default_factory=list)
+    time_span_hours: float = 0.0
+    first_event: str | None = None
+    last_event: str | None = None
+    message: str | None = None
+
+
+@router.get("/impact", response_model=CommitImpactResponse)
+async def get_commit_impact_analysis(
+    request: Request,
+    commit_sha: str = Query(..., description="Commit SHA to analyze"),
+    project_id: str = Query(..., description="Project ID"),
+    user: UserContext = Depends(get_current_user),
+):
+    """Analyze the downstream impact of a specific commit.
+
+    Uses the correlation engine to find all events related to this commit
+    and calculate a risk score based on:
+    - Production errors caused
+    - Incidents triggered
+    - Test failures
+    - Time span of impact
+
+    This endpoint provides a more comprehensive analysis than the simple
+    /impact/{commit_sha} endpoint by using the correlation engine's
+    algorithms.
+    """
+    from src.services.correlation_engine import get_correlation_engine
+
+    engine = get_correlation_engine()
+
+    try:
+        result = await engine.analyze_commit_impact(project_id, commit_sha)
+
+        logger.info(
+            "Commit impact analyzed",
+            commit_sha=commit_sha,
+            project_id=project_id,
+            found=result.get("found", False),
+            risk_score=result.get("risk_score", 0),
+            user_id=user.user_id,
+        )
+
+        return CommitImpactResponse(**result)
+
+    except Exception as e:
+        logger.exception(
+            "Failed to analyze commit impact",
+            error=str(e),
+            commit_sha=commit_sha,
+            project_id=project_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to analyze commit impact: {str(e)}"
+        )
+
+
+# =============================================================================
 # Natural Language Query Endpoint
 # =============================================================================
 

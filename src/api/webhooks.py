@@ -2741,3 +2741,428 @@ async def handle_jira_webhook(
         logger.exception("Jira webhook error", error=str(e))
         await update_webhook_log(supabase, webhook_id, "failed", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# PagerDuty Webhook
+# =============================================================================
+
+class PagerDutyWebhookEvent(BaseModel):
+    """PagerDuty webhook event."""
+    routing_key: str | None = None
+    event_type: str | None = None
+
+
+class PagerDutyIncidentPayload(BaseModel):
+    """PagerDuty incident payload."""
+    id: str
+    incident_number: int | None = None
+    title: str
+    description: str | None = None
+    status: str | None = None
+    urgency: str | None = None
+    priority: dict | None = None
+    html_url: str | None = None
+    created_at: str | None = None
+    resolved_at: str | None = None
+    service: dict | None = None
+    escalation_policy: dict | None = None
+    assignments: list[dict] = Field(default_factory=list)
+    acknowledgements: list[dict] = Field(default_factory=list)
+
+
+class PagerDutyWebhookPayload(BaseModel):
+    """PagerDuty webhook payload (v3 format)."""
+    event: dict
+    messages: list[dict] = Field(default_factory=list)
+
+
+@router.post("/pagerduty", response_model=WebhookResponse)
+async def handle_pagerduty_webhook(
+    request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle PagerDuty webhook events.
+
+    PagerDuty sends webhooks for incident lifecycle events:
+    - incident.triggered
+    - incident.acknowledged
+    - incident.resolved
+    - incident.escalated
+    - incident.reassigned
+    - incident.annotated
+
+    Configure in PagerDuty: Service → Integrations → Add Generic Webhook.
+    Use v3 webhook format.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "pagerduty", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase, organization_id)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found in organization. Please specify project_id query parameter.",
+                )
+
+        # Handle both v2 and v3 webhook formats
+        messages = body.get("messages", [])
+        if not messages:
+            # v3 format with single event
+            event = body.get("event", {})
+            if event:
+                messages = [{"event": event, "incident": event.get("data", {}).get("incident", {})}]
+
+        processed_count = 0
+        last_event_id = None
+
+        for message in messages:
+            event_type = message.get("event", {}).get("event_type", "")
+            incident_data = message.get("incident", {}) or message.get("event", {}).get("data", {}).get("incident", {})
+
+            if not incident_data.get("id"):
+                continue
+
+            incident_id = incident_data.get("id", "")
+            incident_number = incident_data.get("incident_number", 0)
+            title = incident_data.get("title", "PagerDuty Incident")
+            description = incident_data.get("description")
+            status = incident_data.get("status", "triggered")
+            urgency = incident_data.get("urgency", "high")
+            priority_data = incident_data.get("priority")
+            priority = priority_data.get("summary") if priority_data else None
+            html_url = incident_data.get("html_url", "")
+            created_at = incident_data.get("created_at")
+            resolved_at = incident_data.get("resolved_at")
+
+            # Service info
+            service = incident_data.get("service", {})
+            service_id = service.get("id", "")
+            service_name = service.get("summary", "Unknown Service")
+
+            # Calculate duration if resolved
+            duration_seconds = None
+            if resolved_at and created_at:
+                try:
+                    from datetime import datetime as dt
+                    created = dt.fromisoformat(created_at.replace("Z", "+00:00"))
+                    resolved = dt.fromisoformat(resolved_at.replace("Z", "+00:00"))
+                    duration_seconds = int((resolved - created).total_seconds())
+                except Exception:
+                    pass
+
+            # Determine severity from urgency/priority
+            severity = "high" if urgency == "high" else "medium"
+            if priority and "P1" in priority:
+                severity = "critical"
+            elif priority and "P2" in priority:
+                severity = "high"
+
+            # Map status to our normalized status
+            status_mapping = {
+                "triggered": "open",
+                "acknowledged": "in_progress",
+                "resolved": "resolved",
+            }
+            normalized_status = status_mapping.get(status, status)
+
+            # Check if we already have this incident
+            existing = await supabase.request(
+                f"/sdlc_events?external_id=eq.{incident_id}&source_platform=eq.pagerduty"
+            )
+
+            sdlc_event = {
+                "id": str(uuid.uuid4()),
+                "project_id": project_id,
+                "source_platform": "pagerduty",
+                "event_type": "incident",
+                "external_id": incident_id,
+                "external_key": str(incident_number),
+                "external_url": html_url,
+                "title": title,
+                "description": description,
+                "status": normalized_status,
+                "priority": priority,
+                "severity": severity,
+                "incident_id": incident_id,
+                "occurred_at": created_at,
+                "resolved_at": resolved_at,
+                "raw_payload": body,
+                "metadata": {
+                    "service_id": service_id,
+                    "service_name": service_name,
+                    "urgency": urgency,
+                    "duration_seconds": duration_seconds,
+                    "event_type": event_type,
+                    "assignments": [a.get("assignee", {}).get("summary") for a in incident_data.get("assignments", [])],
+                },
+            }
+
+            if existing.get("data"):
+                # Update existing incident
+                result = await supabase.update(
+                    "sdlc_events",
+                    {"external_id": f"eq.{incident_id}", "source_platform": "eq.pagerduty"},
+                    {
+                        "status": normalized_status,
+                        "priority": priority,
+                        "severity": severity,
+                        "resolved_at": resolved_at,
+                        "raw_payload": body,
+                        "metadata": sdlc_event["metadata"],
+                        "updated_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+                last_event_id = existing["data"][0]["id"]
+            else:
+                # Insert new incident
+                result = await supabase.insert("sdlc_events", sdlc_event)
+                if result.get("error"):
+                    logger.error("Failed to store PagerDuty incident", error=result["error"])
+                    continue
+                last_event_id = result["data"][0]["id"] if result.get("data") else sdlc_event["id"]
+
+            processed_count += 1
+
+        await update_webhook_log(supabase, webhook_id, "processed", event_id=last_event_id)
+
+        logger.info(
+            "PagerDuty webhook processed",
+            event_id=last_event_id,
+            processed_count=processed_count,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Processed {processed_count} PagerDuty incident(s)",
+            event_id=last_event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("PagerDuty webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# LaunchDarkly Webhook
+# =============================================================================
+
+class LaunchDarklyWebhookPayload(BaseModel):
+    """LaunchDarkly webhook payload."""
+    _links: dict = Field(default_factory=dict)
+    _id: str | None = None
+    kind: str | None = None
+    name: str | None = None
+    description: str | None = None
+    date: int | None = None
+    member: dict | None = None
+    titleVerb: str | None = None
+    title: str | None = None
+    target: dict | None = None
+    currentVersion: dict | None = None
+    previousVersion: dict | None = None
+
+
+@router.post("/launchdarkly", response_model=WebhookResponse)
+async def handle_launchdarkly_webhook(
+    request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle LaunchDarkly webhook events.
+
+    LaunchDarkly sends webhooks for:
+    - Flag created/updated/deleted
+    - Flag targeting changes (on/off, rules, segments)
+    - Environment changes
+    - Audit log events
+
+    Configure in LaunchDarkly: Settings → Integrations → Webhooks.
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "launchdarkly", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase, organization_id)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found in organization. Please specify project_id query parameter.",
+                )
+
+        # Extract event details
+        kind = body.get("kind", "unknown")
+        title = body.get("title", "")
+        title_verb = body.get("titleVerb", "")
+        description = body.get("description", "")
+        date_ms = body.get("date", 0)
+        member = body.get("member", {})
+        target = body.get("target", {})
+        current_version = body.get("currentVersion", {})
+        previous_version = body.get("previousVersion", {})
+
+        # Determine event type based on kind and verb
+        event_type = "flag_change"
+        if "created" in title_verb.lower():
+            event_type = "flag_created"
+        elif "deleted" in title_verb.lower():
+            event_type = "flag_deleted"
+        elif "turned on" in title.lower() or "enabled" in title.lower():
+            event_type = "flag_enabled"
+        elif "turned off" in title.lower() or "disabled" in title.lower():
+            event_type = "flag_disabled"
+        elif "targeting" in title.lower() or "rule" in title.lower():
+            event_type = "flag_targeting_changed"
+        elif "rollout" in title.lower() or "percentage" in title.lower():
+            event_type = "flag_rollout_changed"
+
+        # Extract flag key from target resources
+        resources = target.get("resources", [])
+        flag_key = None
+        environment = None
+        project_key = None
+
+        for resource in resources:
+            # Format: proj/{project}/env/{env}/flags/{flag_key}
+            # or: proj/{project}/flags/{flag_key}
+            if isinstance(resource, str):
+                parts = resource.split("/")
+                if "flags" in parts:
+                    flag_idx = parts.index("flags")
+                    if flag_idx + 1 < len(parts):
+                        flag_key = parts[flag_idx + 1]
+                if "env" in parts:
+                    env_idx = parts.index("env")
+                    if env_idx + 1 < len(parts):
+                        environment = parts[env_idx + 1]
+                if "proj" in parts:
+                    proj_idx = parts.index("proj")
+                    if proj_idx + 1 < len(parts):
+                        project_key = parts[proj_idx + 1]
+
+        if not flag_key:
+            # Try to extract from other fields
+            flag_key = body.get("name") or target.get("name") or "unknown"
+
+        # Parse timestamp
+        occurred_at = None
+        if date_ms:
+            try:
+                occurred_at = datetime.fromtimestamp(date_ms / 1000, tz=UTC).isoformat()
+            except Exception:
+                pass
+
+        # Extract member info
+        member_email = member.get("email", "unknown")
+        member_name = member.get("name") or member.get("firstName", "")
+
+        # Determine flag state from current version
+        flag_on = None
+        rollout_percentage = None
+        if current_version:
+            flag_on = current_version.get("on")
+            fallthrough = current_version.get("fallthrough", {})
+            rollout = fallthrough.get("rollout", {})
+            if rollout.get("variations"):
+                # Calculate rollout percentage
+                variations = rollout.get("variations", [])
+                if variations:
+                    first_weight = variations[0].get("weight", 0)
+                    total_weight = sum(v.get("weight", 0) for v in variations)
+                    if total_weight > 0:
+                        rollout_percentage = round((first_weight / total_weight) * 100, 2)
+
+        # Construct SDLC event
+        sdlc_event = {
+            "id": str(uuid.uuid4()),
+            "project_id": project_id,
+            "source_platform": "launchdarkly",
+            "event_type": event_type,
+            "external_id": body.get("_id", str(uuid.uuid4())),
+            "external_key": flag_key,
+            "external_url": body.get("_links", {}).get("canonical", {}).get("href"),
+            "title": title or f"Flag {flag_key} {title_verb}",
+            "description": description,
+            "status": "on" if flag_on else "off" if flag_on is not None else None,
+            "flag_key": flag_key,
+            "occurred_at": occurred_at,
+            "raw_payload": body,
+            "metadata": {
+                "kind": kind,
+                "title_verb": title_verb,
+                "member_email": member_email,
+                "member_name": member_name,
+                "environment": environment,
+                "project_key": project_key,
+                "flag_on": flag_on,
+                "rollout_percentage": rollout_percentage,
+                "previous_on": previous_version.get("on") if previous_version else None,
+                "resources": resources,
+            },
+        }
+
+        # Store the event (don't deduplicate - each audit log entry is unique)
+        result = await supabase.insert("sdlc_events", sdlc_event)
+
+        if result.get("error"):
+            await update_webhook_log(supabase, webhook_id, "failed", str(result["error"]))
+            raise HTTPException(status_code=500, detail="Failed to store SDLC event")
+
+        event_id = result["data"][0]["id"] if result.get("data") else sdlc_event["id"]
+        await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        logger.info(
+            "LaunchDarkly webhook processed",
+            event_id=event_id,
+            flag_key=flag_key,
+            event_type=event_type,
+            environment=environment,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"LaunchDarkly {event_type}: {flag_key}",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("LaunchDarkly webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
