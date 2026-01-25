@@ -43,6 +43,8 @@ class Platform(str, Enum):
     """Supported integration platforms."""
     SLACK = "slack"
     GITHUB = "github"
+    JIRA = "jira"
+    VERCEL = "vercel"
     DATADOG = "datadog"
     SENTRY = "sentry"
     NEW_RELIC = "new_relic"
@@ -56,6 +58,8 @@ class PlatformType(str, Enum):
     """Platform categories."""
     NOTIFICATION = "notification"
     CI_CD = "ci_cd"
+    DEPLOYMENT = "deployment"
+    ISSUE_TRACKER = "issue_tracker"
     OBSERVABILITY = "observability"
     ANALYTICS = "analytics"
 
@@ -66,9 +70,11 @@ PLATFORM_INFO = {
         "type": PlatformType.NOTIFICATION,
         "name": "Slack",
         "description": "Send test results and alerts to Slack channels",
-        "required_fields": ["webhook_url"],
-        "optional_fields": ["bot_token", "default_channel"],
+        "required_fields": [],
+        "optional_fields": ["webhook_url", "bot_token", "default_channel"],
         "docs_url": "https://api.slack.com/messaging/webhooks",
+        "auth_type": "oauth",
+        "features": ["Test notifications", "Failure alerts", "Interactive messages", "Channel selector"],
     },
     Platform.GITHUB: {
         "type": PlatformType.CI_CD,
@@ -77,6 +83,28 @@ PLATFORM_INFO = {
         "required_fields": ["token"],
         "optional_fields": ["api_base"],
         "docs_url": "https://docs.github.com/en/rest",
+        "auth_type": "oauth",
+        "features": ["PR comments", "Check runs", "Webhooks", "Repository sync"],
+    },
+    Platform.JIRA: {
+        "type": PlatformType.ISSUE_TRACKER,
+        "name": "Jira",
+        "description": "Sync issues and create tickets from test failures",
+        "required_fields": [],
+        "optional_fields": ["project_key", "issue_type"],
+        "docs_url": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
+        "auth_type": "oauth",
+        "features": ["Issue sync", "Auto-create tickets", "JQL queries", "Webhooks"],
+    },
+    Platform.VERCEL: {
+        "type": PlatformType.DEPLOYMENT,
+        "name": "Vercel",
+        "description": "Track deployments and trigger tests on preview URLs",
+        "required_fields": ["api_token"],
+        "optional_fields": ["team_id"],
+        "docs_url": "https://vercel.com/docs/rest-api",
+        "auth_type": "api_key",
+        "features": ["Deployment tracking", "Preview URL testing", "Webhooks", "Build logs"],
     },
     Platform.DATADOG: {
         "type": PlatformType.OBSERVABILITY,
@@ -85,22 +113,28 @@ PLATFORM_INFO = {
         "required_fields": ["api_key", "app_key"],
         "optional_fields": ["site"],
         "docs_url": "https://docs.datadoghq.com/api/",
+        "auth_type": "api_key",
+        "features": ["RUM sessions", "Error tracking", "APM data", "Webhooks"],
     },
     Platform.SENTRY: {
         "type": PlatformType.OBSERVABILITY,
         "name": "Sentry",
         "description": "Import errors and issues from Sentry",
-        "required_fields": ["auth_token", "organization", "project"],
-        "optional_fields": [],
+        "required_fields": ["auth_token"],
+        "optional_fields": ["organization", "project"],
         "docs_url": "https://docs.sentry.io/api/",
+        "auth_type": "api_key",
+        "features": ["Error sync", "Issue tracking", "Webhooks", "Performance data"],
     },
     Platform.NEW_RELIC: {
         "type": PlatformType.OBSERVABILITY,
         "name": "New Relic",
         "description": "Import browser sessions and errors from New Relic",
-        "required_fields": ["api_key", "account_id"],
-        "optional_fields": [],
+        "required_fields": ["api_key"],
+        "optional_fields": ["account_id"],
         "docs_url": "https://docs.newrelic.com/docs/apis/",
+        "auth_type": "api_key",
+        "features": ["APM data", "Browser monitoring", "Error tracking", "Alerts"],
     },
     Platform.FULLSTORY: {
         "type": PlatformType.ANALYTICS,
@@ -109,6 +143,8 @@ PLATFORM_INFO = {
         "required_fields": ["api_key"],
         "optional_fields": [],
         "docs_url": "https://developer.fullstory.com/",
+        "auth_type": "api_key",
+        "features": ["Session replay", "Rage clicks", "Dead clicks", "Error tracking"],
     },
     Platform.POSTHOG: {
         "type": PlatformType.ANALYTICS,
@@ -117,6 +153,8 @@ PLATFORM_INFO = {
         "required_fields": ["api_key"],
         "optional_fields": ["host"],
         "docs_url": "https://posthog.com/docs/api",
+        "auth_type": "api_key",
+        "features": ["Analytics", "Session recordings", "Feature flags", "Events"],
     },
     Platform.HONEYCOMB: {
         "type": PlatformType.OBSERVABILITY,
@@ -125,6 +163,8 @@ PLATFORM_INFO = {
         "required_fields": ["api_key", "dataset"],
         "optional_fields": [],
         "docs_url": "https://docs.honeycomb.io/api/",
+        "auth_type": "api_key",
+        "features": ["Traces", "Events", "Query results", "SLOs"],
     },
     Platform.GRAFANA: {
         "type": PlatformType.OBSERVABILITY,
@@ -133,6 +173,8 @@ PLATFORM_INFO = {
         "required_fields": ["api_key", "url"],
         "optional_fields": [],
         "docs_url": "https://grafana.com/docs/grafana/latest/developers/http_api/",
+        "auth_type": "api_key",
+        "features": ["Dashboards", "Alerts", "Metrics", "Annotations"],
     },
 }
 

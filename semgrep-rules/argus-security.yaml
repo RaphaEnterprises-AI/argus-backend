@@ -1,0 +1,468 @@
+# Argus Custom Security Rules for SAST Analysis
+# RAP-93: SAST Integration
+#
+# These rules detect common security vulnerabilities specific to
+# Python/JavaScript web applications and APIs.
+
+rules:
+  # =============================================================================
+  # SQL Injection Rules
+  # =============================================================================
+
+  - id: argus-sql-injection-fstring
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL injection vulnerability via f-string formatting. User input may be
+      directly interpolated into SQL query. Use parameterized queries instead.
+    pattern-either:
+      - pattern: |
+          f"...SELECT...{$VAR}..."
+      - pattern: |
+          f"...INSERT...{$VAR}..."
+      - pattern: |
+          f"...UPDATE...{$VAR}..."
+      - pattern: |
+          f"...DELETE...{$VAR}..."
+      - pattern: |
+          f"...WHERE...{$VAR}..."
+      - pattern: |
+          f"...FROM...{$VAR}..."
+    metadata:
+      cwe:
+        - "CWE-89: SQL Injection"
+      owasp:
+        - "A03:2021 - Injection"
+      confidence: HIGH
+      fix: Use parameterized queries with placeholders (e.g., cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,)))
+
+  - id: argus-sql-injection-format
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL injection vulnerability via .format() method. User input may be
+      directly interpolated into SQL query. Use parameterized queries instead.
+    pattern-either:
+      - pattern: |
+          "...SELECT...".format(...)
+      - pattern: |
+          "...INSERT...".format(...)
+      - pattern: |
+          "...UPDATE...".format(...)
+      - pattern: |
+          "...DELETE...".format(...)
+      - pattern: |
+          "...WHERE...".format(...)
+    metadata:
+      cwe:
+        - "CWE-89: SQL Injection"
+      owasp:
+        - "A03:2021 - Injection"
+      confidence: HIGH
+      fix: Use parameterized queries with placeholders
+
+  - id: argus-sql-injection-percent
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL injection vulnerability via % string formatting. User input may be
+      directly interpolated into SQL query. Use parameterized queries instead.
+    pattern-either:
+      - pattern: |
+          "...SELECT..." % $VAR
+      - pattern: |
+          "...INSERT..." % $VAR
+      - pattern: |
+          "...UPDATE..." % $VAR
+      - pattern: |
+          "...DELETE..." % $VAR
+      - pattern: |
+          "...WHERE..." % $VAR
+    metadata:
+      cwe:
+        - "CWE-89: SQL Injection"
+      owasp:
+        - "A03:2021 - Injection"
+      confidence: HIGH
+      fix: Use parameterized queries with placeholders
+
+  # =============================================================================
+  # JWT Security Rules
+  # =============================================================================
+
+  - id: argus-jwt-verification-disabled
+    languages: [python]
+    severity: ERROR
+    message: >-
+      JWT verification is disabled. This allows attackers to forge tokens.
+      Never set verify=False or algorithms=None in production.
+    pattern-either:
+      - pattern: jwt.decode(..., verify=False, ...)
+      - pattern: |
+          jwt.decode(..., options={"verify_signature": False}, ...)
+      - pattern: jwt.decode(..., algorithms=[], ...)
+      - pattern: jwt.decode(..., algorithms=None, ...)
+    metadata:
+      cwe:
+        - "CWE-347: Improper Verification of Cryptographic Signature"
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+      confidence: HIGH
+      fix: Always verify JWT signatures with verify=True and specify allowed algorithms
+
+  - id: argus-jwt-none-algorithm
+    languages: [python]
+    severity: ERROR
+    message: >-
+      JWT "none" algorithm accepted. This completely disables signature
+      verification and allows token forgery.
+    pattern-either:
+      - pattern: jwt.decode(..., algorithms=[..., "none", ...], ...)
+      - pattern: jwt.decode(..., algorithms=["none"], ...)
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+      confidence: HIGH
+      fix: Remove "none" from allowed algorithms list
+
+  - id: argus-jwt-weak-secret
+    languages: [python]
+    severity: WARNING
+    message: >-
+      JWT secret may be hardcoded. Use environment variables for secrets.
+    pattern-either:
+      - pattern: jwt.encode(..., "...", ...)
+      - pattern: jwt.decode(..., "...", ...)
+    pattern-not:
+      - pattern: jwt.encode(..., $ENV.get(...), ...)
+      - pattern: jwt.decode(..., $ENV.get(...), ...)
+    metadata:
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+      owasp:
+        - "A07:2021 - Identification and Authentication Failures"
+      confidence: MEDIUM
+      fix: Use os.environ.get() or settings object for JWT secrets
+
+  # =============================================================================
+  # Hardcoded Credentials Rules
+  # =============================================================================
+
+  - id: argus-hardcoded-password
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Hardcoded password detected. Use environment variables or a secrets
+      manager instead.
+    pattern-either:
+      - pattern: password = "..."
+      - pattern: PASSWORD = "..."
+      - pattern: passwd = "..."
+      - pattern: secret = "..."
+      - pattern: SECRET = "..."
+      - pattern: api_key = "..."
+      - pattern: API_KEY = "..."
+      - pattern: apikey = "..."
+      - pattern: auth_token = "..."
+      - pattern: AUTH_TOKEN = "..."
+    pattern-not:
+      - pattern: password = ""
+      - pattern: PASSWORD = ""
+      - pattern: secret = ""
+      - pattern: SECRET = ""
+      - pattern: api_key = ""
+      - pattern: API_KEY = ""
+    metadata:
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+      owasp:
+        - "A07:2021 - Identification and Authentication Failures"
+      confidence: HIGH
+      fix: Use environment variables (os.environ.get()) or a secrets manager
+
+  - id: argus-hardcoded-aws-credentials
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Hardcoded AWS credentials detected. Use IAM roles, environment variables,
+      or AWS Secrets Manager instead.
+    pattern-either:
+      - pattern: aws_access_key_id = "AKIA..."
+      - pattern: AWS_ACCESS_KEY_ID = "AKIA..."
+      - pattern: aws_secret_access_key = "..."
+      - pattern: AWS_SECRET_ACCESS_KEY = "..."
+    metadata:
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+      owasp:
+        - "A07:2021 - Identification and Authentication Failures"
+      confidence: HIGH
+      fix: Use IAM roles or environment variables for AWS credentials
+
+  # =============================================================================
+  # Debug Mode Detection
+  # =============================================================================
+
+  - id: argus-flask-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Flask debug mode is enabled. This exposes detailed error messages and
+      allows code execution via the debugger. Disable in production.
+    pattern-either:
+      - pattern: app.run(..., debug=True, ...)
+      - pattern: app.debug = True
+      - pattern: DEBUG = True
+    metadata:
+      cwe:
+        - "CWE-489: Active Debug Code"
+      owasp:
+        - "A05:2021 - Security Misconfiguration"
+      confidence: HIGH
+      fix: Set debug=False in production or use environment variable
+
+  - id: argus-django-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Django DEBUG mode may be enabled. Ensure DEBUG=False in production
+      settings.
+    pattern-either:
+      - pattern: DEBUG = True
+      - pattern: settings.DEBUG = True
+    metadata:
+      cwe:
+        - "CWE-489: Active Debug Code"
+      owasp:
+        - "A05:2021 - Security Misconfiguration"
+      confidence: MEDIUM
+      fix: Set DEBUG = False in production settings
+
+  - id: argus-fastapi-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: >-
+      FastAPI/Starlette debug mode may be enabled. Disable in production.
+    pattern-either:
+      - pattern: Starlette(..., debug=True, ...)
+      - pattern: FastAPI(..., debug=True, ...)
+    metadata:
+      cwe:
+        - "CWE-489: Active Debug Code"
+      owasp:
+        - "A05:2021 - Security Misconfiguration"
+      confidence: HIGH
+      fix: Set debug=False in production
+
+  # =============================================================================
+  # Command Injection Rules
+  # =============================================================================
+
+  - id: argus-command-injection-subprocess
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Potential command injection via subprocess with shell=True.
+      Avoid shell=True when using user input.
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+    metadata:
+      cwe:
+        - "CWE-78: OS Command Injection"
+      owasp:
+        - "A03:2021 - Injection"
+      confidence: MEDIUM
+      fix: Use shell=False and pass arguments as a list, or use shlex.quote()
+
+  # =============================================================================
+  # Insecure Deserialization
+  # =============================================================================
+
+  - id: argus-pickle-unsafe
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Unsafe deserialization with pickle. Pickle can execute arbitrary code
+      during deserialization. Use JSON or other safe formats for untrusted data.
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: cPickle.load(...)
+      - pattern: cPickle.loads(...)
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp:
+        - "A08:2021 - Software and Data Integrity Failures"
+      confidence: HIGH
+      fix: Use JSON or other safe serialization formats for untrusted data
+
+  - id: argus-yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Unsafe YAML loading detected. yaml.load() can execute arbitrary Python
+      code. Use yaml.safe_load() instead.
+    pattern: yaml.load(..., Loader=yaml.Loader, ...)
+    pattern-not: yaml.safe_load(...)
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp:
+        - "A08:2021 - Software and Data Integrity Failures"
+      confidence: HIGH
+      fix: Use yaml.safe_load() instead of yaml.load()
+
+  # =============================================================================
+  # Cryptographic Issues
+  # =============================================================================
+
+  - id: argus-weak-hash-md5
+    languages: [python]
+    severity: WARNING
+    message: >-
+      MD5 is cryptographically weak and should not be used for security
+      purposes. Use SHA-256 or stronger for hashing.
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.new("md5", ...)
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+      confidence: MEDIUM
+      fix: Use hashlib.sha256() or stronger algorithms
+
+  - id: argus-weak-hash-sha1
+    languages: [python]
+    severity: WARNING
+    message: >-
+      SHA1 is cryptographically weak and should not be used for security
+      purposes. Use SHA-256 or stronger for hashing.
+    pattern-either:
+      - pattern: hashlib.sha1(...)
+      - pattern: hashlib.new("sha1", ...)
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+      confidence: MEDIUM
+      fix: Use hashlib.sha256() or stronger algorithms
+
+  # =============================================================================
+  # SSRF (Server-Side Request Forgery)
+  # =============================================================================
+
+  - id: argus-ssrf-requests
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Potential SSRF vulnerability. User input may be used directly in HTTP
+      requests. Validate and allowlist URLs.
+    pattern-either:
+      - pattern: requests.get($VAR, ...)
+      - pattern: requests.post($VAR, ...)
+      - pattern: httpx.get($VAR, ...)
+      - pattern: httpx.post($VAR, ...)
+    pattern-where:
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: ".*(url|uri|endpoint|target|host|request).*"
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery"
+      owasp:
+        - "A10:2021 - Server-Side Request Forgery"
+      confidence: MEDIUM
+      fix: Validate URLs against an allowlist of trusted domains
+
+  # =============================================================================
+  # JavaScript/TypeScript Rules
+  # =============================================================================
+
+  - id: argus-js-dangerous-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Dangerous code evaluation function detected. Avoid using code evaluation
+      functions with user input as it can execute arbitrary code.
+    pattern: eval(...)
+    metadata:
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp:
+        - "A03:2021 - Injection"
+      confidence: HIGH
+      fix: Use safer alternatives like JSON.parse() for data or specific parsers
+
+  - id: argus-js-sql-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      SQL injection vulnerability via string interpolation. Use parameterized
+      queries instead.
+    pattern-either:
+      - pattern: |
+          \`...SELECT...\${$VAR}...\`
+      - pattern: |
+          \`...INSERT...\${$VAR}...\`
+      - pattern: |
+          \`...UPDATE...\${$VAR}...\`
+      - pattern: |
+          \`...DELETE...\${$VAR}...\`
+      - pattern: |
+          \`...WHERE...\${$VAR}...\`
+    metadata:
+      cwe:
+        - "CWE-89: SQL Injection"
+      owasp:
+        - "A03:2021 - Injection"
+      confidence: HIGH
+      fix: Use parameterized queries with prepared statements
+
+  - id: argus-js-jwt-none
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      JWT verification may be disabled or accept "none" algorithm.
+    pattern-either:
+      - pattern: |
+          jwt.verify(..., { algorithms: ["none"] })
+      - pattern: |
+          jwt.verify(..., { algorithms: [..., "none", ...] })
+      - pattern: |
+          jwt.decode(..., { complete: true })
+    metadata:
+      cwe:
+        - "CWE-347: Improper Verification of Cryptographic Signature"
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+      confidence: HIGH
+      fix: Always verify JWT signatures and exclude "none" algorithm
+
+  - id: argus-js-hardcoded-secret
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      Hardcoded secret or API key detected. Use environment variables.
+    pattern-either:
+      - pattern: const $KEY = "sk-..."
+      - pattern: const $KEY = "api_..."
+      - pattern: const $KEY = "secret_..."
+      - pattern: apiKey = "..."
+      - pattern: secretKey = "..."
+    metadata:
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+      owasp:
+        - "A07:2021 - Identification and Authentication Failures"
+      confidence: MEDIUM
+      fix: Use process.env for secrets

@@ -658,8 +658,26 @@ async def analyze_commit(
     # Get failure predictions from pattern matching
     predictions = await get_predicted_failures(project_id, commit_sha, commit_features)
 
-    # TODO: Add security analysis (e.g., using Semgrep or custom rules)
+    # Run SAST analysis on changed files
     security_issues: list[dict] = []
+    security_risk_score = 0.0
+    if files_changed:
+        try:
+            from src.api.sast_analysis import analyze_commit_files
+            security_issues, security_risk_score = await analyze_commit_files(files_changed)
+            logger.info(
+                "SAST analysis completed",
+                commit_sha=commit_sha,
+                findings_count=len(security_issues),
+                security_risk_score=security_risk_score,
+            )
+        except Exception as e:
+            logger.warning(
+                "SAST analysis failed",
+                commit_sha=commit_sha,
+                error=str(e),
+            )
+            # Continue without security analysis if it fails
 
     # Calculate risk score
     risk_score, risk_factors = calculate_risk_score(
@@ -698,6 +716,25 @@ async def analyze_commit(
             "suggested_action": "Consider splitting into smaller, focused commits",
         })
 
+    # Add security recommendations
+    if security_issues:
+        critical_count = sum(1 for i in security_issues if i.get("severity") == "critical")
+        high_count = sum(1 for i in security_issues if i.get("severity") == "high")
+        if critical_count > 0:
+            recommendations.append({
+                "type": "fix_security",
+                "priority": "critical",
+                "description": f"Found {critical_count} critical security vulnerability(s)",
+                "suggested_action": "Fix critical security issues before merging",
+            })
+        elif high_count > 0:
+            recommendations.append({
+                "type": "review_security",
+                "priority": "high",
+                "description": f"Found {high_count} high severity security issue(s)",
+                "suggested_action": "Review and address security findings",
+            })
+
     # Prepare tests to run
     tests_to_run = [
         {
@@ -734,7 +771,7 @@ async def analyze_commit(
         "risk_score": risk_score,
         "risk_factors": risk_factors,
         "security_vulnerabilities": security_issues,
-        "security_risk_score": 0.0,  # TODO: Calculate from security_issues
+        "security_risk_score": security_risk_score,
         "recommendations": recommendations,
         "deployment_strategy": deployment_strategy,
         "deployment_notes": deployment_notes,

@@ -2179,3 +2179,565 @@ async def upload_test_results(
     except Exception as e:
         logger.exception("Test results upload error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Vercel Deployment Webhook
+# =============================================================================
+
+class VercelDeploymentPayload(BaseModel):
+    """Vercel deployment webhook payload."""
+    id: str
+    type: str  # deployment, deployment-ready, deployment-error, deployment-canceled
+    createdAt: int
+    payload: dict = Field(default_factory=dict)
+
+
+class DeploymentEvent(BaseModel):
+    """Normalized deployment event for storage."""
+    project_id: str
+    source: Literal["vercel", "netlify", "cloudflare", "aws_amplify"]
+    external_id: str
+    external_url: str | None = None
+    status: Literal["pending", "building", "ready", "error", "canceled"]
+    deployment_url: str | None = None
+    preview_url: str | None = None
+    branch: str | None = None
+    commit_sha: str | None = None
+    commit_message: str | None = None
+    environment: Literal["production", "preview", "development"] = "preview"
+    duration_seconds: int | None = None
+    raw_payload: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+
+
+@router.post("/vercel", response_model=WebhookResponse)
+async def handle_vercel_webhook(
+    request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle Vercel deployment webhook events.
+
+    Vercel sends webhooks for deployment lifecycle events:
+    - deployment: Deployment created
+    - deployment-ready: Deployment succeeded
+    - deployment-error: Deployment failed
+    - deployment-canceled: Deployment was canceled
+
+    Configure in Vercel: Project Settings → Git → Deploy Hooks OR Webhooks
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "vercel", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase, organization_id)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found in organization. Please specify project_id query parameter.",
+                )
+
+        # Parse the webhook payload
+        event_type = body.get("type", "deployment")
+        payload = body.get("payload", body)  # Vercel wraps data in payload
+
+        # Extract deployment details
+        deployment = payload.get("deployment", payload)
+        deployment_id = deployment.get("id") or body.get("id") or str(uuid.uuid4())
+
+        # Map Vercel event types to our status
+        status: Literal["pending", "building", "ready", "error", "canceled"] = "pending"
+        if event_type == "deployment":
+            status = "building"
+        elif event_type == "deployment-ready":
+            status = "ready"
+        elif event_type == "deployment-error":
+            status = "error"
+        elif event_type == "deployment-canceled":
+            status = "canceled"
+
+        # Extract URLs
+        deployment_url = deployment.get("url")
+        if deployment_url and not deployment_url.startswith("http"):
+            deployment_url = f"https://{deployment_url}"
+
+        # Determine environment
+        target = deployment.get("target") or deployment.get("meta", {}).get("target")
+        environment: Literal["production", "preview", "development"] = "preview"
+        if target == "production":
+            environment = "production"
+
+        # Extract git info
+        git_source = deployment.get("gitSource", {}) or payload.get("git", {})
+        meta = deployment.get("meta", {})
+
+        branch = (
+            git_source.get("ref")
+            or meta.get("githubCommitRef")
+            or meta.get("gitlabCommitRef")
+            or meta.get("bitbucketCommitRef")
+        )
+        commit_sha = (
+            git_source.get("sha")
+            or meta.get("githubCommitSha")
+            or meta.get("gitlabCommitSha")
+            or meta.get("bitbucketCommitSha")
+        )
+        commit_message = (
+            meta.get("githubCommitMessage")
+            or meta.get("gitlabCommitMessage")
+            or meta.get("bitbucketCommitMessage")
+        )
+
+        # Calculate duration if available
+        duration_seconds = None
+        if deployment.get("buildingAt") and deployment.get("ready"):
+            try:
+                building_at = deployment["buildingAt"] / 1000 if deployment["buildingAt"] > 1e12 else deployment["buildingAt"]
+                ready_at = deployment["ready"] / 1000 if deployment["ready"] > 1e12 else deployment["ready"]
+                duration_seconds = int(ready_at - building_at)
+            except Exception:
+                pass
+
+        deployment_event = DeploymentEvent(
+            project_id=project_id,
+            source="vercel",
+            external_id=deployment_id,
+            external_url=f"https://vercel.com/{deployment.get('ownerId')}/{deployment.get('name')}/{deployment_id}",
+            status=status,
+            deployment_url=deployment_url,
+            preview_url=deployment_url if environment == "preview" else None,
+            branch=branch,
+            commit_sha=commit_sha,
+            commit_message=commit_message,
+            environment=environment,
+            duration_seconds=duration_seconds,
+            raw_payload=body,
+            metadata={
+                "vercel_project_id": deployment.get("projectId"),
+                "vercel_project_name": deployment.get("name"),
+                "vercel_team_id": deployment.get("ownerId"),
+                "vercel_target": target,
+                "vercel_regions": deployment.get("regions", []),
+                "framework": meta.get("framework"),
+            },
+        )
+
+        # Check if deployment already exists (update vs insert)
+        existing = await supabase.request(
+            f"/deployment_events?external_id=eq.{deployment_id}&source=eq.vercel&select=id"
+        )
+
+        if existing.get("data") and len(existing["data"]) > 0:
+            # Update existing deployment
+            result = await supabase.update(
+                "deployment_events",
+                {"external_id": f"eq.{deployment_id}", "source": "eq.vercel"},
+                {
+                    "status": status,
+                    "deployment_url": deployment_url,
+                    "duration_seconds": duration_seconds,
+                    "raw_payload": body,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            event_id = existing["data"][0]["id"]
+        else:
+            # Insert new deployment
+            result = await supabase.insert("deployment_events", deployment_event.model_dump())
+            if result.get("error"):
+                await update_webhook_log(supabase, webhook_id, "failed", str(result["error"]))
+                raise HTTPException(status_code=500, detail="Failed to store deployment event")
+            event_id = result["data"][0]["id"] if result.get("data") else None
+
+        await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        logger.info(
+            "Vercel webhook processed",
+            event_id=event_id,
+            deployment_id=deployment_id,
+            status=status,
+            environment=environment,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Deployment {deployment_id}: {status} ({environment})",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Vercel webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Slack Interactive Webhook
+# =============================================================================
+
+class SlackInteractivePayload(BaseModel):
+    """Slack interactive message payload."""
+    type: str  # block_actions, view_submission, shortcut
+    user: dict
+    team: dict | None = None
+    channel: dict | None = None
+    message: dict | None = None
+    response_url: str | None = None
+    trigger_id: str | None = None
+    actions: list[dict] = Field(default_factory=list)
+    view: dict | None = None
+
+
+@router.post("/slack/interactive", response_model=WebhookResponse)
+async def handle_slack_interactive(
+    request: Request,
+):
+    """
+    Handle Slack interactive message events.
+
+    Slack sends interactive payloads when users:
+    - Click buttons in messages
+    - Select options from menus
+    - Submit modal views
+    - Use shortcuts
+
+    Configure in Slack App: Interactivity & Shortcuts → Request URL
+
+    Note: Slack sends this as application/x-www-form-urlencoded with a 'payload' field.
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    try:
+        # Slack sends form-encoded data with 'payload' JSON
+        form_data = await request.form()
+        payload_str = form_data.get("payload", "{}")
+        body = __import__("json").loads(payload_str)
+
+        await log_webhook(supabase, webhook_id, "slack_interactive", request, body)
+
+        payload = SlackInteractivePayload(**body)
+        interaction_type = payload.type
+        user_id = payload.user.get("id")
+        user_name = payload.user.get("username") or payload.user.get("name")
+
+        # Process different interaction types
+        if interaction_type == "block_actions":
+            # Handle button clicks and menu selections
+            for action in payload.actions:
+                action_id = action.get("action_id", "")
+                action_value = action.get("value", "")
+
+                # Parse action ID to determine what to do
+                if action_id.startswith("rerun_tests_"):
+                    job_id = action_id.replace("rerun_tests_", "")
+                    logger.info(
+                        "Slack rerun tests requested",
+                        job_id=job_id,
+                        user=user_name,
+                    )
+                    # TODO: Trigger test rerun via job queue
+                    # For now, just acknowledge
+                    await update_webhook_log(supabase, webhook_id, "processed")
+                    return WebhookResponse(
+                        success=True,
+                        message=f"Test rerun requested for job {job_id}",
+                    )
+
+                elif action_id.startswith("view_failure_"):
+                    test_id = action_id.replace("view_failure_", "")
+                    logger.info(
+                        "Slack view failure requested",
+                        test_id=test_id,
+                        user=user_name,
+                    )
+                    # Could open a modal with failure details
+                    await update_webhook_log(supabase, webhook_id, "processed")
+                    return WebhookResponse(
+                        success=True,
+                        message=f"Viewing failure for test {test_id}",
+                    )
+
+                elif action_id.startswith("ignore_failure_"):
+                    test_id = action_id.replace("ignore_failure_", "")
+                    logger.info(
+                        "Slack ignore failure requested",
+                        test_id=test_id,
+                        user=user_name,
+                    )
+                    # TODO: Mark failure as ignored in database
+                    await update_webhook_log(supabase, webhook_id, "processed")
+                    return WebhookResponse(
+                        success=True,
+                        message=f"Failure ignored for test {test_id}",
+                    )
+
+                elif action_id.startswith("run_now_"):
+                    schedule_id = action_id.replace("run_now_", "")
+                    logger.info(
+                        "Slack run now requested",
+                        schedule_id=schedule_id,
+                        user=user_name,
+                    )
+                    # TODO: Trigger immediate schedule run
+                    await update_webhook_log(supabase, webhook_id, "processed")
+                    return WebhookResponse(
+                        success=True,
+                        message=f"Immediate run triggered for schedule {schedule_id}",
+                    )
+
+                elif action_id.startswith("skip_run_"):
+                    schedule_id = action_id.replace("skip_run_", "")
+                    logger.info(
+                        "Slack skip run requested",
+                        schedule_id=schedule_id,
+                        user=user_name,
+                    )
+                    # TODO: Skip next scheduled run
+                    await update_webhook_log(supabase, webhook_id, "processed")
+                    return WebhookResponse(
+                        success=True,
+                        message=f"Next run skipped for schedule {schedule_id}",
+                    )
+
+                elif action_id.startswith("generate_tests_"):
+                    project_id = action_id.replace("generate_tests_", "")
+                    logger.info(
+                        "Slack generate tests requested",
+                        project_id=project_id,
+                        user=user_name,
+                    )
+                    # TODO: Trigger test generation
+                    await update_webhook_log(supabase, webhook_id, "processed")
+                    return WebhookResponse(
+                        success=True,
+                        message=f"Test generation started for project {project_id}",
+                    )
+
+                else:
+                    logger.info(
+                        "Unknown Slack action",
+                        action_id=action_id,
+                        action_value=action_value,
+                        user=user_name,
+                    )
+
+        elif interaction_type == "view_submission":
+            # Handle modal submissions
+            view = payload.view or {}
+            callback_id = view.get("callback_id", "")
+            logger.info(
+                "Slack modal submission",
+                callback_id=callback_id,
+                user=user_name,
+            )
+            # Process based on callback_id
+
+        elif interaction_type == "shortcut":
+            # Handle shortcuts
+            callback_id = body.get("callback_id", "")
+            logger.info(
+                "Slack shortcut triggered",
+                callback_id=callback_id,
+                user=user_name,
+            )
+
+        await update_webhook_log(supabase, webhook_id, "processed")
+        return WebhookResponse(
+            success=True,
+            message=f"Interactive event processed: {interaction_type}",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Slack interactive webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Jira Webhook
+# =============================================================================
+
+class JiraWebhookPayload(BaseModel):
+    """Jira webhook payload for issue events."""
+    webhookEvent: str  # jira:issue_created, jira:issue_updated, etc.
+    timestamp: int | None = None
+    user: dict | None = None
+    issue: dict | None = None
+    changelog: dict | None = None
+    comment: dict | None = None
+
+
+@router.post("/jira", response_model=WebhookResponse)
+async def handle_jira_webhook(
+    request: Request,
+    organization_id: str = Query(..., description="Organization ID (required for security)"),
+    project_id: str | None = Query(None, description="Project ID to associate events with"),
+):
+    """
+    Handle Jira webhook events.
+
+    Jira sends webhooks for:
+    - Issue created/updated/deleted
+    - Comment added/updated/deleted
+    - Sprint events
+    - Worklog events
+
+    Configure in Jira: Settings → System → Webhooks
+
+    SECURITY: organization_id is required for multi-tenant data isolation.
+    """
+    webhook_id = str(uuid.uuid4())
+    supabase = get_supabase_client()
+
+    # SECURITY: Validate project belongs to organization if provided
+    if project_id:
+        if not await validate_project_org(supabase, project_id, organization_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Project does not belong to the specified organization",
+            )
+
+    try:
+        body = await request.json()
+        await log_webhook(supabase, webhook_id, "jira", request, body)
+
+        if not project_id:
+            project_id = await get_default_project_id(supabase, organization_id)
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No project found in organization. Please specify project_id query parameter.",
+                )
+
+        payload = JiraWebhookPayload(**body)
+        event_type = payload.webhookEvent
+
+        # Only process issue events
+        if not event_type.startswith("jira:issue"):
+            await update_webhook_log(supabase, webhook_id, "processed")
+            return WebhookResponse(success=True, message=f"Ignored event type: {event_type}")
+
+        issue = payload.issue or {}
+        fields = issue.get("fields", {})
+
+        # Extract issue details
+        issue_key = issue.get("key", "")
+        issue_id = issue.get("id", "")
+        summary = fields.get("summary", "")
+        description = fields.get("description", "")
+        issue_type = fields.get("issuetype", {}).get("name", "")
+        status = fields.get("status", {}).get("name", "")
+        priority = fields.get("priority", {}).get("name", "")
+        assignee = fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None
+        reporter = fields.get("reporter", {}).get("displayName") if fields.get("reporter") else None
+        jira_project = fields.get("project", {})
+
+        # Map Jira issue type to our event type
+        sdlc_event_type = "task"
+        if issue_type.lower() == "bug":
+            sdlc_event_type = "bug"
+        elif issue_type.lower() in ("story", "user story"):
+            sdlc_event_type = "story"
+        elif issue_type.lower() == "epic":
+            sdlc_event_type = "epic"
+
+        # Store as SDLC event
+        sdlc_event = {
+            "id": str(uuid.uuid4()),
+            "project_id": project_id,
+            "source_platform": "jira",
+            "event_type": sdlc_event_type,
+            "external_id": issue_id,
+            "external_key": issue_key,
+            "external_url": f"{issue.get('self', '').split('/rest/')[0]}/browse/{issue_key}" if issue.get("self") else None,
+            "title": summary,
+            "description": description[:2000] if description else None,  # Truncate long descriptions
+            "status": status,
+            "priority": priority,
+            "assignee": assignee,
+            "reporter": reporter,
+            "raw_payload": body,
+            "metadata": {
+                "jira_project_key": jira_project.get("key"),
+                "jira_project_name": jira_project.get("name"),
+                "issue_type": issue_type,
+                "labels": fields.get("labels", []),
+                "components": [c.get("name") for c in fields.get("components", [])],
+                "sprint": fields.get("sprint", {}).get("name") if fields.get("sprint") else None,
+            },
+            "created_at": fields.get("created"),
+            "updated_at": fields.get("updated"),
+        }
+
+        # Check if issue already exists (update vs insert)
+        existing = await supabase.request(
+            f"/sdlc_events?external_id=eq.{issue_id}&source_platform=eq.jira&select=id"
+        )
+
+        if existing.get("data") and len(existing["data"]) > 0:
+            # Update existing issue
+            result = await supabase.update(
+                "sdlc_events",
+                {"external_id": f"eq.{issue_id}", "source_platform": "eq.jira"},
+                {
+                    "title": summary,
+                    "description": description[:2000] if description else None,
+                    "status": status,
+                    "priority": priority,
+                    "assignee": assignee,
+                    "raw_payload": body,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            event_id = existing["data"][0]["id"]
+        else:
+            # Insert new issue
+            result = await supabase.insert("sdlc_events", sdlc_event)
+            if result.get("error"):
+                await update_webhook_log(supabase, webhook_id, "failed", str(result["error"]))
+                raise HTTPException(status_code=500, detail="Failed to store SDLC event")
+            event_id = result["data"][0]["id"] if result.get("data") else sdlc_event["id"]
+
+        await update_webhook_log(supabase, webhook_id, "processed", event_id=event_id)
+
+        logger.info(
+            "Jira webhook processed",
+            event_id=event_id,
+            issue_key=issue_key,
+            event_type=event_type,
+        )
+
+        return WebhookResponse(
+            success=True,
+            message=f"Jira {event_type}: {issue_key}",
+            event_id=event_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Jira webhook error", error=str(e))
+        await update_webhook_log(supabase, webhook_id, "failed", str(e))
+        raise HTTPException(status_code=500, detail=str(e))

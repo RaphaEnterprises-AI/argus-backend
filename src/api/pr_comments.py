@@ -225,16 +225,45 @@ def format_pr_comment(analysis: CommitAnalysis) -> str:
     lines.append("")
 
     if analysis.security_vulnerabilities:
-        for vuln in analysis.security_vulnerabilities:
+        # Use table format for security findings
+        lines.extend([
+            "| Severity | Finding | Location |",
+            "|----------|---------|----------|",
+        ])
+        # Sort by severity (critical first)
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        sorted_vulns = sorted(
+            analysis.security_vulnerabilities,
+            key=lambda v: severity_order.get(v.severity, 5)
+        )
+        for vuln in sorted_vulns[:10]:  # Limit to 10 entries
             emoji = _get_severity_emoji(vuln.severity)
             severity_display = vuln.severity.capitalize()
+            # Truncate and escape message for table
+            message = vuln.message[:50] + "..." if len(vuln.message) > 50 else vuln.message
+            message = message.replace("|", "\\|")
+            # Format location
             location = ""
             if vuln.file:
-                location = f" in `{vuln.file}"
+                location = f"`{vuln.file}"
                 if vuln.line:
                     location += f":{vuln.line}"
                 location += "`"
-            lines.append(f"- {emoji} **{severity_display}**: {vuln.message}{location}")
+            lines.append(f"| {emoji} {severity_display} | {message} | {location} |")
+
+        if len(analysis.security_vulnerabilities) > 10:
+            remaining = len(analysis.security_vulnerabilities) - 10
+            lines.append(f"| ... | *{remaining} more findings* | - |")
+
+        lines.append("")
+
+        # Summary line
+        critical_count = sum(1 for v in analysis.security_vulnerabilities if v.severity == "critical")
+        high_count = sum(1 for v in analysis.security_vulnerabilities if v.severity == "high")
+        if critical_count > 0:
+            lines.append(f"\u26a0\ufe0f **{critical_count} critical issue(s)** require immediate attention.")
+        elif high_count > 0:
+            lines.append(f"\u26a0\ufe0f **{high_count} high severity issue(s)** should be reviewed.")
     else:
         lines.append("\u2705 No security issues detected")
 

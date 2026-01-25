@@ -43,6 +43,7 @@ from src.api.failure_patterns import router as failure_patterns_router
 from src.api.github_webhooks import router as github_webhooks_router
 from src.api.healing import router as healing_router
 from src.api.impact_graph import router as impact_graph_router
+from src.api.incident_correlator import router as incident_correlator_router
 from src.api.infra_optimizer import router as infra_optimizer_router
 from src.api.integrations import router as integrations_router
 from src.api.invitations import router as invitations_router
@@ -57,6 +58,7 @@ from src.api.projects import router as projects_router
 from src.api.quality import router as quality_router
 from src.api.recording import router as recording_router
 from src.api.reports import router as reports_router
+from src.api.sast_analysis import router as sast_router
 from src.api.scheduling import router as scheduling_router
 from src.api.security.auth import UserContext, get_current_user
 from src.api.security.device_auth import router as device_auth_router
@@ -389,12 +391,14 @@ app.include_router(artifacts_router)
 app.include_router(mcp_sessions_router)
 app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
+app.include_router(incident_correlator_router)
 app.include_router(tests_router)
 app.include_router(reports_router)
 app.include_router(integrations_router)
 app.include_router(oauth_router)
 app.include_router(pr_comments_router)
 app.include_router(api_testing_router)
+app.include_router(sast_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
