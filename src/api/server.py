@@ -34,11 +34,15 @@ from src.api.audit import router as audit_router
 from src.api.browser import router as browser_router
 from src.api.chat import router as chat_router
 from src.api.collaboration import router as collaboration_router
+from src.api.correlations import router as correlations_router
 from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
 from src.api.healing import router as healing_router
+from src.api.impact_graph import router as impact_graph_router
 from src.api.infra_optimizer import router as infra_optimizer_router
+from src.api.integrations import router as integrations_router
 from src.api.invitations import router as invitations_router
+from src.api.oauth import router as oauth_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.notifications import router as notifications_router
@@ -357,6 +361,8 @@ app.include_router(sync_router)
 app.include_router(export_router)
 app.include_router(recording_router)
 app.include_router(collaboration_router)
+app.include_router(correlations_router)
+app.include_router(impact_graph_router)
 app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
@@ -378,6 +384,8 @@ app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
 app.include_router(tests_router)
 app.include_router(reports_router)
+app.include_router(integrations_router)
+app.include_router(oauth_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -928,6 +936,35 @@ async def run_tests_background(
             passed=passed_tests,
             failed=failed_tests,
         )
+
+        # Emit test events to Redpanda for downstream processing (knowledge graphs, etc.)
+        try:
+            from src.services.event_gateway import get_event_gateway, EventType
+            from src.api.tests import get_project_org_id
+            event_gateway = get_event_gateway()
+            if event_gateway.is_running:
+                org_id = await get_project_org_id(project_id)
+                # Emit aggregate run event
+                event_type = EventType.TEST_EXECUTED if final_status == "passed" else EventType.TEST_FAILED
+                await event_gateway.publish(
+                    event_type=event_type,
+                    data={
+                        "run_id": run_id,
+                        "project_id": project_id,
+                        "status": final_status,
+                        "total_tests": total_tests,
+                        "passed_tests": passed_tests,
+                        "failed_tests": failed_tests,
+                        "skipped_tests": skipped_tests,
+                        "duration_ms": duration_ms,
+                        "app_url": app_url,
+                    },
+                    org_id=org_id,
+                    project_id=project_id,
+                )
+        except Exception as emit_error:
+            # Event emission is non-critical - log but don't fail the job
+            logger.warning("Failed to emit test run event", error=str(emit_error), run_id=run_id)
 
     except Exception as e:
         completed_at = datetime.now(UTC).isoformat()
@@ -2284,6 +2321,24 @@ async def startup():
     except Exception as e:
         logger.warning("Failed to start stale run checker", error=str(e))
 
+    # Start integration sync daemon for connected observability integrations
+    try:
+        from src.api.integration_sync_daemon import start_integration_sync_daemon
+        await start_integration_sync_daemon()
+        logger.info("Integration sync daemon started")
+    except Exception as e:
+        logger.warning("Failed to start integration sync daemon", error=str(e))
+
+    # Start event gateway for publishing events to Redpanda
+    try:
+        from src.services.event_gateway import get_event_gateway
+        event_gateway = get_event_gateway()
+        await event_gateway.start()
+        logger.info("Event gateway started", brokers=startup_settings.redpanda_brokers)
+    except Exception as e:
+        # Event gateway is optional - don't fail startup if Redpanda is not configured
+        logger.warning("Failed to start event gateway (Redpanda may not be configured)", error=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -2305,6 +2360,23 @@ async def shutdown():
         logger.info("Stale run checker stopped")
     except Exception as e:
         logger.warning("Failed to stop stale run checker", error=str(e))
+
+    # Stop integration sync daemon
+    try:
+        from src.api.integration_sync_daemon import stop_integration_sync_daemon
+        await stop_integration_sync_daemon()
+        logger.info("Integration sync daemon stopped")
+    except Exception as e:
+        logger.warning("Failed to stop integration sync daemon", error=str(e))
+
+    # Stop event gateway
+    try:
+        from src.services.event_gateway import get_event_gateway
+        event_gateway = get_event_gateway()
+        await event_gateway.stop()
+        logger.info("Event gateway stopped")
+    except Exception as e:
+        logger.warning("Failed to stop event gateway", error=str(e))
 
     # Gracefully close database connection pool
     await shutdown_checkpointer()
