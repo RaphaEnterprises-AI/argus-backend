@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Header, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from src.config import get_settings

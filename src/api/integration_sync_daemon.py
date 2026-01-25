@@ -449,7 +449,7 @@ async def sync_daemon_loop() -> None:
                             asyncio.gather(*sync_tasks, return_exceptions=True),
                             timeout=300,  # 5 minute timeout for all syncs
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning("Some integration syncs timed out")
 
         except Exception as e:

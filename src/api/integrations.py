@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from src.api.context import get_current_organization_id
 from src.api.teams import get_current_user, log_audit, verify_org_access
-from src.services.key_encryption import encrypt_api_key, decrypt_api_key
+from src.services.key_encryption import decrypt_api_key, encrypt_api_key
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -1098,8 +1098,8 @@ async def trigger_sync(
             # Import from observability hub
             from src.integrations.observability_hub import (
                 DatadogProvider,
-                SentryProvider,
                 NewRelicProvider,
+                SentryProvider,
             )
 
             if platform_enum == Platform.DATADOG:

@@ -577,6 +577,7 @@ class TestWebhookEndpoint:
     async def test_receive_webhook_missing_event_header(self, mock_env_vars):
         """Test webhook without X-GitHub-Event header."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         client = TestClient(app)
@@ -594,6 +595,7 @@ class TestWebhookEndpoint:
     async def test_receive_webhook_missing_delivery_header(self, mock_env_vars):
         """Test webhook without X-GitHub-Delivery header."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         client = TestClient(app)
@@ -611,6 +613,7 @@ class TestWebhookEndpoint:
     async def test_receive_webhook_unsupported_event(self, mock_env_vars):
         """Test webhook with unsupported event type."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.github_webhooks.store_webhook_event", AsyncMock(return_value={})):
@@ -639,6 +642,7 @@ class TestAnalyzeEndpoint:
     async def test_analyze_endpoint(self, mock_env_vars):
         """Test manual commit analysis endpoint."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.github_webhooks.analyze_commit") as mock_analyze:
@@ -681,6 +685,7 @@ class TestGetAnalysis:
     async def test_get_analysis_found(self, mock_env_vars):
         """Test getting existing commit analysis."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.github_webhooks.get_supabase_client") as mock_supabase:
@@ -709,6 +714,7 @@ class TestGetAnalysis:
     async def test_get_analysis_not_found(self, mock_env_vars):
         """Test getting non-existent commit analysis."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.github_webhooks.get_supabase_client") as mock_supabase:
@@ -732,6 +738,7 @@ class TestListEvents:
     async def test_list_events(self, mock_env_vars):
         """Test listing webhook events."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.github_webhooks.get_supabase_client") as mock_supabase:
@@ -759,6 +766,7 @@ class TestListEvents:
     async def test_list_events_with_filters(self, mock_env_vars):
         """Test listing webhook events with filters."""
         from fastapi.testclient import TestClient
+
         from src.api.server import app
 
         with patch("src.api.github_webhooks.get_supabase_client") as mock_supabase:

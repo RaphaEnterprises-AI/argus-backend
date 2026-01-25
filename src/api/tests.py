@@ -434,7 +434,7 @@ async def create_test(body: CreateTestRequest, request: Request):
 
     # Emit TEST_CREATED event to Redpanda for downstream processing
     try:
-        from src.services.event_gateway import get_event_gateway, EventType
+        from src.services.event_gateway import EventType, get_event_gateway
         event_gateway = get_event_gateway()
         if event_gateway.is_running:
             await event_gateway.publish(

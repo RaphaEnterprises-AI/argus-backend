@@ -1744,7 +1744,7 @@ async def stream_schedule_run(schedule_id: str, run_id: str):
                 if event.get("type") in ("run_completed", "error"):
                     break
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # No event available, continue loop
                 continue
             except Exception as e:

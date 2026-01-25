@@ -47,10 +47,10 @@ from src.api.incident_correlator import router as incident_correlator_router
 from src.api.infra_optimizer import router as infra_optimizer_router
 from src.api.integrations import router as integrations_router
 from src.api.invitations import router as invitations_router
-from src.api.oauth import router as oauth_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.notifications import router as notifications_router
+from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
 from src.api.parameterized import router as parameterized_router
 from src.api.pr_comments import router as pr_comments_router
@@ -137,8 +137,8 @@ API_VERSION_DATE = "2026-01-12"
 if settings.sentry_dsn:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
-    from sentry_sdk.integrations.starlette import StarletteIntegration
     from sentry_sdk.integrations.logging import LoggingIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
 
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
@@ -952,8 +952,8 @@ async def run_tests_background(
 
         # Emit test events to Redpanda for downstream processing (knowledge graphs, etc.)
         try:
-            from src.services.event_gateway import get_event_gateway, EventType
             from src.api.tests import get_project_org_id
+            from src.services.event_gateway import EventType, get_event_gateway
             event_gateway = get_event_gateway()
             if event_gateway.is_running:
                 org_id = await get_project_org_id(project_id)

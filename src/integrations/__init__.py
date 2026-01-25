@@ -46,16 +46,6 @@ from .launchdarkly_integration import (
     LaunchDarklyIntegration,
     create_launchdarkly_integration,
 )
-from .pagerduty_integration import (
-    IncidentAnalysis,
-    IncidentStatus,
-    IncidentUrgency,
-    PagerDutyIncident,
-    PagerDutyIntegration,
-    PagerDutyService,
-    TimelineEntry,
-    create_pagerduty_integration,
-)
 from .observability_hub import (
     DatadogProvider,
     FullStoryProvider,
@@ -69,6 +59,16 @@ from .observability_hub import (
     RealUserSession,
     SentryProvider,
     UserJourneyPattern,
+)
+from .pagerduty_integration import (
+    IncidentAnalysis,
+    IncidentStatus,
+    IncidentUrgency,
+    PagerDutyIncident,
+    PagerDutyIntegration,
+    PagerDutyService,
+    TimelineEntry,
+    create_pagerduty_integration,
 )
 from .reporter import ReportGenerator, create_reporter
 from .slack import (

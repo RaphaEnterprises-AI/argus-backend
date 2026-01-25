@@ -8,12 +8,13 @@ incidents with deployments and code changes to identify gaps.
 API Docs: https://developer.pagerduty.com/api-reference/
 """
 
-import httpx
-import structlog
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
+
+import httpx
+import structlog
 
 logger = structlog.get_logger()
 

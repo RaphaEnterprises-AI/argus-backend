@@ -619,10 +619,10 @@ async def _find_element_for_instruction(grid_client: SeleniumGridClient, instruc
 
     # Also try CSS selectors for common elements
     css_selectors = [
-        f"button",  # Any button
-        f"input[type='submit']",
-        f"a",  # Any link
-        f"[role='button']",
+        "button",  # Any button
+        "input[type='submit']",
+        "a",  # Any link
+        "[role='button']",
     ]
 
     for css in css_selectors:

@@ -245,7 +245,7 @@ class TestSendMessageEndpoint:
     @pytest.fixture
     def mock_user(self):
         """Create a mock user context."""
-        from src.api.security.auth import UserContext, AuthMethod
+        from src.api.security.auth import AuthMethod, UserContext
         return UserContext(
             user_id="test-user-123",
             organization_id="test-org-123",
