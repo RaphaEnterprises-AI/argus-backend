@@ -37,6 +37,7 @@ from src.api.collaboration import router as collaboration_router
 from src.api.correlations import router as correlations_router
 from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
+from src.api.failure_patterns import router as failure_patterns_router
 from src.api.healing import router as healing_router
 from src.api.impact_graph import router as impact_graph_router
 from src.api.infra_optimizer import router as infra_optimizer_router
@@ -363,6 +364,7 @@ app.include_router(recording_router)
 app.include_router(collaboration_router)
 app.include_router(correlations_router)
 app.include_router(impact_graph_router)
+app.include_router(failure_patterns_router)
 app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
