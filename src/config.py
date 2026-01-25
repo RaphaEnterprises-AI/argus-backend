@@ -340,6 +340,126 @@ class Settings(BaseSettings):
         description="Enable Sentry debug mode for troubleshooting integration issues."
     )
 
+    # ==========================================================================
+    # OAuth Configuration (Third-party Integrations)
+    # ==========================================================================
+
+    # GitHub OAuth App
+    github_client_id: str | None = Field(
+        None,
+        description="GitHub OAuth App Client ID"
+    )
+    github_client_secret: SecretStr | None = Field(
+        None,
+        description="GitHub OAuth App Client Secret"
+    )
+
+    # Slack OAuth App
+    slack_client_id: str | None = Field(
+        None,
+        description="Slack OAuth App Client ID"
+    )
+    slack_client_secret: SecretStr | None = Field(
+        None,
+        description="Slack OAuth App Client Secret"
+    )
+
+    # Jira OAuth 2.0 (3LO)
+    jira_client_id: str | None = Field(
+        None,
+        description="Jira OAuth 2.0 (3LO) Client ID"
+    )
+    jira_client_secret: SecretStr | None = Field(
+        None,
+        description="Jira OAuth 2.0 (3LO) Client Secret"
+    )
+
+    # Linear OAuth
+    linear_client_id: str | None = Field(
+        None,
+        description="Linear OAuth App Client ID"
+    )
+    linear_client_secret: SecretStr | None = Field(
+        None,
+        description="Linear OAuth App Client Secret"
+    )
+
+    # OAuth Token Encryption Key (AES-256-GCM)
+    oauth_encryption_key: SecretStr | None = Field(
+        None,
+        description="32-byte key for encrypting OAuth tokens (base64 encoded). Generate with: openssl rand -base64 32"
+    )
+
+    # OAuth Redirect Base URL (for constructing callback URLs)
+    oauth_redirect_base_url: str = Field(
+        "http://localhost:3000",
+        description="Base URL for OAuth redirect callbacks (e.g., https://app.heyargus.com)"
+    )
+
+    # ==========================================================================
+    # Redpanda Configuration (Event Streaming)
+    # ==========================================================================
+    redpanda_brokers: str = Field(
+        "redpanda-kafka.argus-data.svc.cluster.local:9092",
+        description="Comma-separated list of Redpanda broker addresses"
+    )
+    redpanda_sasl_username: str | None = Field(
+        None,
+        description="SASL username for Redpanda authentication"
+    )
+    redpanda_sasl_password: SecretStr | None = Field(
+        None,
+        description="SASL password for Redpanda authentication"
+    )
+    redpanda_schema_registry_url: str | None = Field(
+        None,
+        description="URL of the Redpanda Schema Registry"
+    )
+
+    # ==========================================================================
+    # FalkorDB Configuration (Knowledge Graphs)
+    # ==========================================================================
+    falkordb_host: str = Field(
+        "falkordb.argus-data.svc.cluster.local",
+        description="FalkorDB host address"
+    )
+    falkordb_port: int = Field(
+        6379,
+        description="FalkorDB port"
+    )
+    falkordb_password: SecretStr | None = Field(
+        None,
+        description="FalkorDB password"
+    )
+
+    # ==========================================================================
+    # Valkey Configuration (Cache - Redis Replacement)
+    # ==========================================================================
+    valkey_url: str = Field(
+        "redis://valkey.argus-data.svc.cluster.local:6379",
+        description="Valkey connection URL (Redis-compatible)"
+    )
+
+    # ==========================================================================
+    # Cognee Configuration (AI Memory)
+    # ==========================================================================
+    cognee_env: str = Field(
+        "production",
+        description="Cognee environment (development, staging, production)"
+    )
+    vector_db_provider: str = Field(
+        "pgvector",
+        description="Vector database provider for Cognee (pgvector, qdrant, etc.)"
+    )
+    graph_database_provider: str = Field(
+        "falkordb",
+        description="Graph database provider for Cognee (falkordb, neo4j, etc.)"
+    )
+    llm_model: str = Field(
+        "anthropic/claude-sonnet-4",
+        description="LLM model for Cognee analysis (via OpenRouter)"
+    )
+
 
 class AgentConfig(BaseSettings):
     """Configuration for individual agents."""

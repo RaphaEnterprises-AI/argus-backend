@@ -38,6 +38,17 @@ from src.services.prometheus_collector import (
     create_prometheus_collector,
 )
 from src.services.supabase_client import SupabaseClient, get_supabase_client
+from src.services.event_gateway import (
+    ArgusEvent,
+    EventGateway,
+    EventType,
+    emit_codebase_ingested,
+    emit_healing_completed,
+    emit_healing_requested,
+    emit_test_executed,
+    emit_test_failed,
+    get_event_gateway,
+)
 
 __all__ = [
     # Supabase
@@ -76,4 +87,14 @@ __all__ = [
     "Anomaly",
     "RecommendationType",
     "RecommendationPriority",
+    # Event Gateway
+    "EventGateway",
+    "EventType",
+    "ArgusEvent",
+    "get_event_gateway",
+    "emit_codebase_ingested",
+    "emit_test_executed",
+    "emit_test_failed",
+    "emit_healing_requested",
+    "emit_healing_completed",
 ]
