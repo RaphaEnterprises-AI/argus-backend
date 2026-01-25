@@ -2969,9 +2969,11 @@ async def handle_pagerduty_webhook(
 
 class LaunchDarklyWebhookPayload(BaseModel):
     """LaunchDarkly webhook payload."""
-    _links: dict = Field(default_factory=dict)
-    _id: str | None = None
+    links: dict = Field(default_factory=dict, alias="_links")
+    ld_id: str | None = Field(None, alias="_id")
     kind: str | None = None
+
+    model_config = {"populate_by_name": True}
     name: str | None = None
     description: str | None = None
     date: int | None = None
