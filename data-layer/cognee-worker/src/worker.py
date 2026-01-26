@@ -98,6 +98,15 @@ class CogneeKafkaWorker:
         logger.info(f"Cognee graph database: {os.environ.get('GRAPH_DATABASE_PROVIDER')}")
         logger.info("Cognee configured via environment variables")
 
+    def _safe_json_deserialize(self, v: bytes) -> dict:
+        """Safely deserialize JSON, returning error dict on failure."""
+        try:
+            return json.loads(v.decode("utf-8"))
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to decode JSON message: {e}")
+            # Return a marker dict so we can skip this message gracefully
+            return {"__deserialize_error__": True, "raw": v.decode("utf-8", errors="replace")}
+
     async def _create_consumer(self) -> AIOKafkaConsumer:
         """Create and configure Kafka consumer with SASL auth."""
         logger.info(f"Creating consumer for: {self.config.kafka.bootstrap_servers}")
@@ -114,7 +123,7 @@ class CogneeKafkaWorker:
             sasl_mechanism=self.config.kafka.sasl_mechanism,
             sasl_plain_username=self.config.kafka.sasl_username,
             sasl_plain_password=self.config.kafka.sasl_password,
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            value_deserializer=self._safe_json_deserialize,
             key_deserializer=lambda k: k.decode("utf-8") if k else None,
             request_timeout_ms=60000,
             metadata_max_age_ms=300000,
@@ -345,6 +354,12 @@ class CogneeKafkaWorker:
         value = msg.value
 
         logger.debug(f"Received message from {topic}: {key}")
+
+        # Check for deserialization errors
+        if isinstance(value, dict) and value.get("__deserialize_error__"):
+            logger.warning(f"Skipping malformed message {key}: JSON decode failed")
+            await self._send_to_dlq(topic, key, {"raw": value.get("raw", "")[:500]}, "JSON deserialization failed")
+            return
 
         try:
             if topic == "argus.codebase.ingested":

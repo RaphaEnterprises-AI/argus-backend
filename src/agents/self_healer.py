@@ -32,6 +32,7 @@ from enum import Enum
 from ..config import ModelName
 from ..core.model_router import TaskType
 from ..orchestrator.memory_store import MemoryStore, get_memory_store
+from ..retrieval import HybridRetriever, get_hybrid_retriever, RetrievalSource
 from ..services.cache import get_cached, set_cached
 from ..services.git_analyzer import SelectorChange, get_git_analyzer
 from ..services.source_analyzer import get_source_analyzer
@@ -212,6 +213,7 @@ class SelfHealerAgent(BaseAgent):
         repo_path: str = ".",
         enable_code_aware: bool = True,
         enable_memory_store: bool = True,
+        enable_hybrid_retrieval: bool = True,
         embeddings: object | None = None,
         **kwargs,
     ):
@@ -222,6 +224,7 @@ class SelfHealerAgent(BaseAgent):
             repo_path: Path to git repository for code-aware healing
             enable_code_aware: Whether to use code-aware healing
             enable_memory_store: Whether to use long-term memory store
+            enable_hybrid_retrieval: Whether to use hybrid retrieval (BM25 + Vector + Reranking)
             embeddings: Optional embeddings instance for semantic search
         """
         super().__init__(**kwargs)
@@ -229,6 +232,7 @@ class SelfHealerAgent(BaseAgent):
         self.repo_path = repo_path
         self.enable_code_aware = enable_code_aware
         self.enable_memory_store = enable_memory_store
+        self.enable_hybrid_retrieval = enable_hybrid_retrieval
 
         # Initialize code-aware analyzers
         if enable_code_aware:
@@ -243,6 +247,15 @@ class SelfHealerAgent(BaseAgent):
             self.memory_store: MemoryStore | None = get_memory_store(embeddings=embeddings)
         else:
             self.memory_store = None
+
+        # Initialize hybrid retriever for improved failure pattern matching
+        if enable_hybrid_retrieval and enable_memory_store:
+            self.hybrid_retriever: HybridRetriever | None = get_hybrid_retriever(
+                embeddings=embeddings,
+                enable_reranking=True,
+            )
+        else:
+            self.hybrid_retriever = None
 
         # Override to use vision-capable model (only used in single-model mode)
         self.model = ModelName.SONNET
@@ -508,16 +521,74 @@ class SelfHealerAgent(BaseAgent):
             )
         return None
 
+    async def _lookup_hybrid_retrieval(
+        self,
+        error_message: str,
+        original_selector: str | None = None,
+        error_type: str | None = None,
+    ) -> list[Any]:
+        """Look up similar failures using hybrid retrieval.
+
+        This uses BM25 (keyword) + Vector (semantic) + Cross-Encoder (reranking)
+        for optimal retrieval quality.
+
+        Args:
+            error_message: The error message to search for
+            original_selector: The broken selector (optional)
+            error_type: Type of error (optional filter)
+
+        Returns:
+            List of RetrievalResult objects sorted by relevance
+        """
+        if not self.hybrid_retriever:
+            return []
+
+        try:
+            # Build query from error message and selector
+            query_parts = [error_message]
+            if original_selector:
+                query_parts.append(f"Selector: {original_selector}")
+
+            query = " ".join(query_parts)
+
+            # Execute hybrid search
+            results = await self.hybrid_retriever.retrieve(
+                query=query,
+                limit=5,
+                threshold=0.1,  # Lower threshold, let reranking filter
+                bm25_weight=0.4,  # Slightly favor BM25 for exact error matching
+                vector_weight=0.6,  # Vector for semantic similarity
+                error_type_filter=error_type,
+                enable_reranking=True,
+                rerank_top_k=10,  # Rerank top 10 before selecting top 5
+            )
+
+            self.log.debug(
+                "Hybrid retrieval completed",
+                query_length=len(query),
+                num_results=len(results),
+                top_score=results[0].final_score if results else 0,
+            )
+
+            return results
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to execute hybrid retrieval",
+                error=str(e),
+            )
+            return []
+
     async def _lookup_memory_store_healing(
         self,
         error_message: str,
         original_selector: str | None = None,
         error_type: str | None = None,
     ) -> tuple[FixSuggestion, str] | None:
-        """Look up similar failures from the long-term memory store using semantic search.
+        """Look up similar failures from the long-term memory store.
 
-        This enables cross-session learning by finding similar past failures
-        and their healing solutions using pgvector semantic search.
+        This method uses hybrid retrieval (BM25 + Vector + Reranking) if enabled,
+        otherwise falls back to pure vector semantic search.
 
         Args:
             error_message: The error message from the current failure
@@ -531,7 +602,56 @@ class SelfHealerAgent(BaseAgent):
             return None
 
         try:
-            # Search for similar failures using semantic search
+            # Use hybrid retrieval if enabled (BM25 + Vector + Reranking)
+            if self.enable_hybrid_retrieval and self.hybrid_retriever:
+                results = await self._lookup_hybrid_retrieval(
+                    error_message=error_message,
+                    original_selector=original_selector,
+                    error_type=error_type,
+                )
+
+                if results:
+                    # Best result is first after reranking
+                    best = results[0]
+
+                    # Require high success rate
+                    if best.metadata.get("success_rate", 0) >= 0.7 and best.metadata.get("success_count", 0) >= 1:
+                        # Calculate confidence based on final score and success rate
+                        confidence = min(0.95, best.final_score * best.metadata["success_rate"])
+
+                        self.log.info(
+                            "Found healing pattern via hybrid retrieval",
+                            pattern_id=best.id,
+                            final_score=best.final_score,
+                            success_rate=best.metadata["success_rate"],
+                            source=best.source.value,
+                            healed_selector=best.metadata["healed_selector"],
+                        )
+
+                        fix = FixSuggestion(
+                            fix_type=FixType.UPDATE_SELECTOR,
+                            old_value=original_selector or best.metadata.get("selector"),
+                            new_value=best.metadata["healed_selector"],
+                            confidence=confidence,
+                            explanation=(
+                                f"Using learned healing pattern from hybrid retrieval "
+                                f"(score: {best.final_score:.3f}, "
+                                f"success rate: {best.metadata['success_rate']:.0%}, "
+                                f"method: {best.metadata.get('healing_method', 'unknown')}, "
+                                f"source: {best.source.value})"
+                            ),
+                            requires_review=confidence < self.auto_heal_threshold,
+                        )
+
+                        return fix, best.id
+
+                    self.log.debug(
+                        "Found hybrid results but none with high enough success rate",
+                        count=len(results),
+                    )
+                    return None
+
+            # Fallback to pure vector semantic search
             similar_failures = await self.memory_store.find_similar_failures(
                 error_message=error_message,
                 limit=5,
@@ -565,7 +685,7 @@ class SelfHealerAgent(BaseAgent):
             confidence = min(0.95, best_match["similarity"] * best_match["success_rate"] + 0.1)
 
             self.log.info(
-                "Found healing pattern from memory store",
+                "Found healing pattern from vector search",
                 pattern_id=best_match["id"],
                 similarity=best_match["similarity"],
                 success_rate=best_match["success_rate"],

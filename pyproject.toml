@@ -63,6 +63,8 @@ dependencies = [
     "aiosmtplib>=3.0.0",
     # Embeddings for memory store
     "openai>=1.0.0",
+    # Cross-encoder reranking for hybrid search
+    "sentence-transformers>=2.2.0",  # Cross-encoder reranking
     # Security / JWT
     "PyJWT[crypto]>=2.8.0",  # JWT with RS256 support for Clerk
     # Error Monitoring

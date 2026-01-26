@@ -32,13 +32,22 @@ data:
   # Cognee Configuration
   # Cognee LLM Configuration (environment variables read by Cognee's Pydantic settings)
   LLM_PROVIDER: "anthropic"
-  LLM_MODEL: "claude-sonnet-4-5-20250514"
+  LLM_MODEL: "claude-sonnet-4-5-20250929"
   # Using Cohere for embeddings - best for multilingual + technical content
   EMBEDDING_PROVIDER: "cohere"
   EMBEDDING_MODEL: "embed-multilingual-v3.0"
 
   # Cognee Graph Database Configuration
-  GRAPH_DATABASE_PROVIDER: "falkordb"
+  # Note: Cognee 0.5.1 supports: neo4j, kuzu, kuzu-remote, neptune, neptune_analytics
+  # Using kuzu (file-based, no external infrastructure needed)
+  GRAPH_DATABASE_PROVIDER: "kuzu"
+
+  # Cognee Storage Paths - IMPORTANT: Must be writable directories
+  # These override the default .venv/.cognee_* locations
+  DATA_ROOT_DIRECTORY: "/app/data/cognee_data"
+  SYSTEM_ROOT_DIRECTORY: "/app/data/cognee_system"
+  CACHE_ROOT_DIRECTORY: "/app/data/cognee_cache"
+  STORAGE_BACKEND: "local"
 
   # Processing Configuration
   COGNEE_CHUNK_SIZE: "1024"
