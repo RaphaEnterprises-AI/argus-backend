@@ -389,8 +389,18 @@ class TestSendMessageEndpoint:
 class TestStreamMessageEndpoint:
     """Tests for POST /api/v1/chat/stream endpoint."""
 
+    @pytest.fixture
+    def mock_user(self):
+        """Create a mock user context."""
+        from src.api.security.auth import AuthMethod, UserContext
+        return UserContext(
+            user_id="test-user-123",
+            organization_id="test-org-123",
+            auth_method=AuthMethod.JWT,
+        )
+
     @pytest.mark.asyncio
-    async def test_stream_message_returns_streaming_response(self, mock_env_vars):
+    async def test_stream_message_returns_streaming_response(self, mock_env_vars, mock_user):
         """Test that stream endpoint returns StreamingResponse."""
         from fastapi.responses import StreamingResponse
 
@@ -402,13 +412,13 @@ class TestStreamMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=MagicMock()):
-            response = await stream_message(request)
+            response = await stream_message(request, user=mock_user)
 
             assert isinstance(response, StreamingResponse)
             assert response.media_type == "text/plain; charset=utf-8"
 
     @pytest.mark.asyncio
-    async def test_stream_message_headers(self, mock_env_vars):
+    async def test_stream_message_headers(self, mock_env_vars, mock_user):
         """Test stream response includes correct headers."""
         from src.api.chat import ChatMessage, ChatRequest, stream_message
 
@@ -419,14 +429,14 @@ class TestStreamMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=MagicMock()):
-            response = await stream_message(request)
+            response = await stream_message(request, user=mock_user)
 
             assert "X-Thread-Id" in response.headers
             assert response.headers["X-Thread-Id"] == "thread-123"
             assert response.headers["Cache-Control"] == "no-cache"
 
     @pytest.mark.asyncio
-    async def test_stream_generates_thread_id(self, mock_env_vars):
+    async def test_stream_generates_thread_id(self, mock_env_vars, mock_user):
         """Test stream generates thread_id if not provided."""
         from src.api.chat import ChatMessage, ChatRequest, stream_message
 
@@ -436,7 +446,7 @@ class TestStreamMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=MagicMock()):
-            response = await stream_message(request)
+            response = await stream_message(request, user=mock_user)
 
             assert "X-Thread-Id" in response.headers
             assert len(response.headers["X-Thread-Id"]) > 0
