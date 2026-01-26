@@ -296,7 +296,7 @@ class TestSendMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await send_message(request)
+            response = await send_message(request, user=mock_user)
 
             assert response.thread_id is not None
             assert len(response.thread_id) > 0
