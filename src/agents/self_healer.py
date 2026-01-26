@@ -28,11 +28,12 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from typing import Any
 
 from ..config import ModelName
 from ..core.model_router import TaskType
 from ..orchestrator.memory_store import MemoryStore, get_memory_store
-from ..retrieval import HybridRetriever, get_hybrid_retriever, RetrievalSource
+from ..retrieval import HybridRetriever, RetrievalSource, get_hybrid_retriever
 from ..services.cache import get_cached, set_cached
 from ..services.git_analyzer import SelectorChange, get_git_analyzer
 from ..services.source_analyzer import get_source_analyzer

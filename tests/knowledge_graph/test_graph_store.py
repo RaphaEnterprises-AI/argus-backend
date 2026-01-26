@@ -96,7 +96,7 @@ class TestGraphStoreBasicOperations:
         vertex_id = await graph_store.add_vertex(EntityType.TEST, props)
 
         # Query for the vertex
-        cypher = f"""
+        cypher = """
             MATCH (t:Test)
             WHERE t.name = 'query_test'
             RETURN t
