@@ -39,8 +39,8 @@ data:
 
   # Cognee Graph Database Configuration
   # Note: Cognee 0.5.1 supports: neo4j, kuzu, kuzu-remote, neptune, neptune_analytics
-  # Using kuzu (file-based, no external infrastructure needed)
-  GRAPH_DATABASE_PROVIDER: "kuzu"
+  # Using Neo4j Aura (managed cloud graph database)
+  GRAPH_DATABASE_PROVIDER: "neo4j"
 
   # Cognee Storage Paths - IMPORTANT: Must be writable directories
   # These override the default .venv/.cognee_* locations
@@ -48,6 +48,10 @@ data:
   SYSTEM_ROOT_DIRECTORY: "/app/data/cognee_system"
   CACHE_ROOT_DIRECTORY: "/app/data/cognee_cache"
   STORAGE_BACKEND: "local"
+
+  # Neo4j Aura Connection Timeout (for Free tier cold starts)
+  NEO4J_CONNECTION_TIMEOUT: "60"
+  NEO4J_MAX_RETRY_ATTEMPTS: "5"
 
   # Processing Configuration
   COGNEE_CHUNK_SIZE: "1024"
@@ -154,6 +158,38 @@ spec:
                   name: argus-data-secrets
                   key: supabase-service-key
                   optional: true
+            # Neo4j Aura credentials (for Cognee knowledge graphs)
+            - name: NEO4J_URI
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-uri
+            - name: NEO4J_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-username
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-password
+            # Cognee uses these environment variable names for Neo4j
+            - name: GRAPH_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-uri
+            - name: GRAPH_DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-username
+            - name: GRAPH_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-password
           resources:
             requests:
               cpu: "100m"
@@ -174,17 +210,19 @@ spec:
             httpGet:
               path: /health
               port: health
-            initialDelaySeconds: 30
+            # Increased timeouts for Neo4j Aura Free cold starts (30-60s wake-up)
+            initialDelaySeconds: 90
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 30
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /ready
               port: health
-            initialDelaySeconds: 15
+            # Increased timeouts for Neo4j Aura Free cold starts
+            initialDelaySeconds: 60
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 30
             failureThreshold: 3
           securityContext:
             allowPrivilegeEscalation: false

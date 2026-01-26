@@ -52,6 +52,7 @@ from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.notifications import router as notifications_router
 from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
+from src.api.orgs import router as orgs_router
 from src.api.parameterized import router as parameterized_router
 from src.api.pr_comments import router as pr_comments_router
 from src.api.projects import router as projects_router
@@ -71,6 +72,7 @@ from src.api.security.middleware import (
     RateLimitMiddleware,
     SecurityMiddleware,
 )
+from src.api.middleware.tenant import TenantMiddleware
 from src.api.streaming import router as streaming_router
 from src.api.sync import router as sync_router
 from src.api.teams import router as teams_router
@@ -289,7 +291,10 @@ app.add_middleware(
 # 5. Core Security - Request ID, timing attack prevention
 app.add_middleware(SecurityMiddleware)
 
-# 6. CORS - Allow cross-origin requests (configure for production)
+# 6. Tenant Context - Extract org/project from headers/path
+app.add_middleware(TenantMiddleware)
+
+# 7. CORS - Allow cross-origin requests (configure for production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -381,6 +386,7 @@ app.include_router(approvals_router)
 app.include_router(time_travel_router)
 app.include_router(invitations_router)
 app.include_router(organizations_router)
+app.include_router(orgs_router)
 app.include_router(users_router)
 app.include_router(ai_settings_router)
 app.include_router(projects_router)

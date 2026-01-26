@@ -272,6 +272,8 @@ spec:
     # - Cloudflare Key Vault (key decryption)
     # - Anthropic/OpenRouter APIs (LLM calls)
     # - pgvector (Supabase PostgreSQL)
+    # - Neo4j Aura (knowledge graph via Bolt protocol)
+    # - Cohere API (embeddings)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -284,3 +286,5 @@ spec:
           port: 443
         - protocol: TCP
           port: 5432  # PostgreSQL (Supabase pgvector)
+        - protocol: TCP
+          port: 7687  # Neo4j Bolt protocol (Aura)

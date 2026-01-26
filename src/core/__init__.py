@@ -44,6 +44,12 @@ from .risk import (
     RiskLevel,
     RiskScorer,
 )
+from .tenant import (
+    TenantContext,
+    get_current_tenant,
+    set_current_tenant,
+    require_tenant,
+)
 
 __all__ = [
     # Cognitive Engine
@@ -84,4 +90,9 @@ __all__ = [
     "ProjectRisk",
     "RiskFactor",
     "RiskLevel",
+    # Tenant Context
+    "TenantContext",
+    "get_current_tenant",
+    "set_current_tenant",
+    "require_tenant",
 ]

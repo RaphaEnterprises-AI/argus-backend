@@ -1,8 +1,12 @@
 # Cognee Kafka Worker
-# Event-driven knowledge graph builder for Argus
+# Event-driven knowledge graph builder for Argus with Neo4j Aura
 #
-# Build: docker build -t ghcr.io/heyargus/cognee-worker:latest .
-# Run:   docker run -e KAFKA_BOOTSTRAP_SERVERS=... ghcr.io/heyargus/cognee-worker:latest
+# Build: docker build -t ghcr.io/samuelvinay91/cognee-worker:v2.0.0 .
+# Tag:   docker tag ghcr.io/samuelvinay91/cognee-worker:v2.0.0 ghcr.io/samuelvinay91/cognee-worker:latest
+# Push:  docker push ghcr.io/samuelvinay91/cognee-worker:v2.0.0 && docker push ghcr.io/samuelvinay91/cognee-worker:latest
+#
+# Test:  docker run --rm -it -e NEO4J_URI="neo4j+s://xxx" -e NEO4J_PASSWORD="xxx" \
+#          ghcr.io/samuelvinay91/cognee-worker:v2.0.0 python -c "from neo4j import GraphDatabase; print('OK')"
 
 FROM python:3.12-slim AS builder
 
@@ -43,15 +47,18 @@ RUN chown -R cognee:cognee /app
 # Switch to non-root user
 USER cognee
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# Health check (longer timeout for Neo4j Aura cold starts)
+HEALTHCHECK --interval=30s --timeout=30s --start-period=90s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # Default environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     LOG_LEVEL=INFO \
-    HEALTH_CHECK_PORT=8080
+    HEALTH_CHECK_PORT=8080 \
+    GRAPH_DATABASE_PROVIDER=neo4j \
+    NEO4J_CONNECTION_TIMEOUT=60 \
+    NEO4J_MAX_RETRY_ATTEMPTS=5
 
 # Expose health check port
 EXPOSE 8080

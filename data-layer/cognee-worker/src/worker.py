@@ -2,7 +2,10 @@
 Cognee Kafka Worker - Event-driven knowledge graph builder.
 
 Consumes events from Redpanda/Kafka topics and builds knowledge graphs
-using Cognee's ECL (Extract → Cognify → Load) pipeline with FalkorDB storage.
+using Cognee's ECL (Extract → Cognify → Load) pipeline with Neo4j Aura storage.
+
+Multi-tenancy: All data is isolated by org_id and project_id using the naming convention:
+    org_{org_id}_project_{project_id}_{dataset_type}
 """
 
 import asyncio
@@ -37,7 +40,7 @@ class CogneeKafkaWorker:
     Responsibilities:
     - Consume events from Kafka topics (codebase.ingested, test.*, healing.*)
     - Extract knowledge using Cognee's ECL pipeline
-    - Store knowledge graphs in FalkorDB
+    - Store knowledge graphs using configured provider (kuzu file-based by default)
     - Produce output events (codebase.analyzed, healing.completed)
     - Handle failures gracefully with DLQ
     """
@@ -56,20 +59,21 @@ class CogneeKafkaWorker:
         logging.getLogger("aiokafka").setLevel(logging.WARNING)
 
     async def _setup_cognee(self):
-        """Initialize Cognee with FalkorDB and LLM configuration.
+        """Initialize Cognee with Neo4j Aura and LLM configuration.
 
         Note: Cognee uses environment variables for configuration.
         These are set via the K8s ConfigMap and Secrets:
         - LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (for Anthropic)
-        - EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_API_KEY (for OpenAI)
-        - GRAPH_DATABASE_PROVIDER, etc.
+        - EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_API_KEY (for Cohere)
+        - GRAPH_DATABASE_PROVIDER, GRAPH_DATABASE_URL, GRAPH_DATABASE_USERNAME, GRAPH_DATABASE_PASSWORD
+        - DATA_ROOT_DIRECTORY, SYSTEM_ROOT_DIRECTORY, CACHE_ROOT_DIRECTORY
+
+        Supported graph providers (Cognee 0.5.x): neo4j, kuzu, kuzu-remote, neptune, neptune_analytics
 
         See: https://docs.cognee.ai/setup-configuration/llm-providers
         """
-        logger.info("Configuring Cognee...")
+        logger.info("Configuring Cognee with Neo4j Aura...")
 
-        # Set environment variables for Cognee's Pydantic settings
-        # These override any defaults in the Cognee library
         import os
 
         # LLM Configuration (Anthropic)
@@ -78,25 +82,123 @@ class CogneeKafkaWorker:
         if self.config.cognee.llm_api_key:
             os.environ.setdefault("LLM_API_KEY", self.config.cognee.llm_api_key)
 
-        # Embedding Configuration (OpenAI)
+        # Embedding Configuration (Cohere)
         os.environ.setdefault("EMBEDDING_PROVIDER", self.config.cognee.embedding_provider)
         os.environ.setdefault("EMBEDDING_MODEL", self.config.cognee.embedding_model)
         if self.config.cognee.embedding_api_key:
             os.environ.setdefault("EMBEDDING_API_KEY", self.config.cognee.embedding_api_key)
+        # Cohere embed-multilingual-v3.0 produces 1024-dimension vectors
+        os.environ.setdefault("EMBEDDING_DIMENSIONS", "1024")
 
-        # Graph Database Configuration (FalkorDB)
-        os.environ.setdefault("GRAPH_DATABASE_PROVIDER", "falkordb")
-        falkor_url = (
-            f"redis://:{self.config.falkordb.password}@"
-            f"{self.config.falkordb.host}:{self.config.falkordb.port}"
-        )
-        os.environ.setdefault("GRAPH_DATABASE_URL", falkor_url)
-        os.environ.setdefault("GRAPH_DATABASE_NAME", self.config.falkordb.graph_name)
+        # Neo4j Aura Configuration
+        os.environ.setdefault("GRAPH_DATABASE_PROVIDER", "neo4j")
+        if self.config.neo4j.uri:
+            os.environ.setdefault("GRAPH_DATABASE_URL", self.config.neo4j.uri)
+        if self.config.neo4j.username:
+            os.environ.setdefault("GRAPH_DATABASE_USERNAME", self.config.neo4j.username)
+        if self.config.neo4j.password:
+            os.environ.setdefault("GRAPH_DATABASE_PASSWORD", self.config.neo4j.password)
 
         logger.info(f"Cognee LLM provider: {os.environ.get('LLM_PROVIDER')}")
         logger.info(f"Cognee embedding provider: {os.environ.get('EMBEDDING_PROVIDER')}")
         logger.info(f"Cognee graph database: {os.environ.get('GRAPH_DATABASE_PROVIDER')}")
-        logger.info("Cognee configured via environment variables")
+        logger.info(f"Neo4j URI: {self.config.neo4j.uri[:30]}..." if self.config.neo4j.uri else "Neo4j URI not set")
+
+        # Test Neo4j connection with retry for Aura cold starts
+        await self._test_neo4j_connection()
+
+        logger.info("Cognee configured with Neo4j Aura")
+
+    async def _test_neo4j_connection(self):
+        """Test Neo4j Aura connection with retry logic for cold starts.
+
+        Neo4j Aura Free tier auto-pauses after 3 days of inactivity and
+        can take 30-60 seconds to wake up on first connection.
+        """
+        from neo4j import AsyncGraphDatabase
+        from neo4j.exceptions import ServiceUnavailable
+
+        if not self.config.neo4j.uri:
+            logger.warning("Neo4j URI not configured, skipping connection test")
+            return
+
+        driver = AsyncGraphDatabase.driver(
+            self.config.neo4j.uri,
+            auth=(self.config.neo4j.username, self.config.neo4j.password),
+        )
+
+        max_retries = self.config.neo4j.max_retry_attempts
+        retry_delay = 15  # seconds between retries
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"Testing Neo4j connection (attempt {attempt}/{max_retries})...")
+                async with driver.session() as session:
+                    result = await session.run("RETURN 1 AS test")
+                    await result.single()
+                logger.info("Neo4j Aura connection successful")
+                await driver.close()
+                return
+            except ServiceUnavailable as e:
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Neo4j unavailable (Aura may be waking up), "
+                        f"retrying in {retry_delay}s... ({attempt}/{max_retries})"
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    await driver.close()
+                    raise RuntimeError(
+                        f"Failed to connect to Neo4j Aura after {max_retries} attempts: {e}"
+                    )
+            except Exception as e:
+                await driver.close()
+                raise RuntimeError(f"Neo4j connection error: {e}")
+
+    def _get_dataset_name(
+        self,
+        org_id: str,
+        project_id: str,
+        dataset_type: str,
+    ) -> str:
+        """Generate tenant-scoped dataset name.
+
+        Args:
+            org_id: Organization ID
+            project_id: Project ID
+            dataset_type: Type of dataset (codebase, tests, failures)
+
+        Returns:
+            Dataset name like 'org_abc123_project_xyz789_codebase'
+        """
+        return f"org_{org_id}_project_{project_id}_{dataset_type}"
+
+    def _extract_tenant_context(self, event: dict[str, Any]) -> tuple[str, str]:
+        """Extract org_id and project_id from event.
+
+        Events should have a 'tenant' field with org_id and project_id,
+        or fall back to top-level org_id/project_id fields.
+
+        Args:
+            event: Event payload
+
+        Returns:
+            Tuple of (org_id, project_id)
+
+        Raises:
+            ValueError: If org_id or project_id is missing
+        """
+        tenant = event.get("tenant", {})
+
+        org_id = tenant.get("org_id") or event.get("org_id")
+        project_id = tenant.get("project_id") or event.get("project_id")
+
+        if not org_id:
+            raise ValueError("Missing org_id in event (required for multi-tenant isolation)")
+        if not project_id:
+            raise ValueError("Missing project_id in event (required for multi-tenant isolation)")
+
+        return org_id, project_id
 
     def _safe_json_deserialize(self, v: bytes) -> dict:
         """Safely deserialize JSON, returning error dict on failure."""
@@ -127,6 +229,10 @@ class CogneeKafkaWorker:
             key_deserializer=lambda k: k.decode("utf-8") if k else None,
             request_timeout_ms=60000,
             metadata_max_age_ms=300000,
+            # Cognee cognify operations can take a long time (LLM calls, graph building)
+            # Increase poll interval to prevent consumer group rebalancing during processing
+            max_poll_interval_ms=900000,  # 15 minutes
+            session_timeout_ms=60000,  # 1 minute heartbeat timeout
         )
         return consumer
 
@@ -162,65 +268,96 @@ class CogneeKafkaWorker:
         value: dict[str, Any],
         error: str,
     ):
-        """Send failed message to Dead Letter Queue."""
+        """Send failed message to Dead Letter Queue with tenant context."""
+        # Extract tenant info if available
+        tenant = value.get("tenant", {})
+        org_id = tenant.get("org_id") or value.get("org_id", "unknown")
+        project_id = tenant.get("project_id") or value.get("project_id", "unknown")
+
         dlq_event = {
+            "event_type": "dlq",
+            "event_version": "1.0",
+            "tenant": {
+                "org_id": org_id,
+                "project_id": project_id,
+            },
             "original_topic": original_topic,
             "original_key": key,
-            "original_value": value,
-            "error": error,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "original_payload": value,
+            "error_message": error,
+            "error_type": "processing_error",
+            "retry_count": 0,
+            "max_retries": self.config.max_retries,
+            "first_failed_at": datetime.now(timezone.utc).isoformat(),
             "worker": "cognee-worker",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await self._produce_event(self.config.output_topic_dlq, key, dlq_event)
-        logger.warning(f"Sent to DLQ: {key} - {error}")
+        logger.warning(f"Sent to DLQ: {key} - {error} (org={org_id})")
 
     async def _process_codebase_ingested(self, key: str, event: dict[str, Any]):
         """
         Process a codebase.ingested event.
 
-        Extracts knowledge from the codebase and builds a knowledge graph.
+        Extracts knowledge from the codebase and builds a knowledge graph
+        with multi-tenant dataset isolation.
         """
         logger.info(f"Processing codebase.ingested: {key}")
 
-        project_id = event.get("project_id")
-        repo_url = event.get("repo_url")
-        content = event.get("content", {})
+        # Extract tenant context
+        org_id, project_id = self._extract_tenant_context(event)
 
-        if not project_id or not content:
-            raise ValueError("Missing project_id or content in event")
+        repo_url = event.get("repository_url") or event.get("repo_url", "")
+        content = event.get("content", {})
+        commit_sha = event.get("commit_sha", "")
+
+        if not content:
+            raise ValueError("Missing content in codebase.ingested event")
+
+        # Generate tenant-scoped dataset name
+        dataset_name = self._get_dataset_name(org_id, project_id, "codebase")
+
+        logger.info(f"Processing codebase for tenant org={org_id}, project={project_id}")
+        logger.info(f"Using dataset: {dataset_name}")
 
         # Add content to Cognee for processing
-        # Content can be file paths, code snippets, or structured data
         files = content.get("files", [])
         for file_data in files:
             file_path = file_data.get("path", "unknown")
             file_content = file_data.get("content", "")
 
             if file_content:
-                # Add to Cognee's knowledge base
-                # Include metadata in the content itself since Cognee 0.5.x
-                # doesn't support the metadata parameter
+                # Include tenant metadata in content (Cognee 0.5.x doesn't support metadata param)
                 enriched_content = (
-                    f"# File: {file_path}\n"
+                    f"# Organization: {org_id}\n"
                     f"# Project: {project_id}\n"
-                    f"# Repo: {repo_url}\n\n"
+                    f"# File: {file_path}\n"
+                    f"# Repo: {repo_url}\n"
+                    f"# Commit: {commit_sha}\n\n"
                     f"{file_content}"
                 )
                 await cognee.add(
                     enriched_content,
-                    dataset_name=f"project_{project_id}",
+                    dataset_name=dataset_name,
                 )
 
         # Run Cognee's cognify pipeline to extract knowledge
-        logger.info(f"Running Cognee cognify for project {project_id}...")
-        await cognee.cognify(dataset_name=f"project_{project_id}")
+        logger.info(f"Running Cognee cognify for dataset {dataset_name}...")
+        await cognee.cognify(dataset_name=dataset_name)
 
-        # Produce analyzed event
+        # Produce analyzed event with tenant context
         analyzed_event = {
-            "project_id": project_id,
-            "repo_url": repo_url,
+            "event_type": "codebase.analyzed",
+            "event_version": "1.0",
+            "tenant": {
+                "org_id": org_id,
+                "project_id": project_id,
+            },
+            "repository_id": event.get("repository_id", ""),
+            "repository_url": repo_url,
+            "commit_sha": commit_sha,
             "status": "analyzed",
-            "graph_name": self.config.falkordb.graph_name,
+            "cognee_dataset_name": dataset_name,
             "file_count": len(files),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -229,27 +366,36 @@ class CogneeKafkaWorker:
             key,
             analyzed_event,
         )
-        logger.info(f"Completed analysis for project {project_id}")
+        logger.info(f"Completed analysis for org={org_id}, project={project_id}")
 
     async def _process_test_event(self, topic: str, key: str, event: dict[str, Any]):
         """
         Process test-related events (created, executed, failed).
 
-        Adds test execution data to the knowledge graph for pattern learning.
+        Adds test execution data to the knowledge graph for pattern learning
+        with multi-tenant dataset isolation.
         """
         logger.info(f"Processing {topic}: {key}")
 
+        # Extract tenant context
+        org_id, project_id = self._extract_tenant_context(event)
+
         test_id = event.get("test_id")
-        project_id = event.get("project_id")
         test_type = topic.split(".")[-1]  # created, executed, or failed
 
-        if not test_id or not project_id:
-            raise ValueError("Missing test_id or project_id in event")
+        if not test_id:
+            raise ValueError("Missing test_id in test event")
 
-        # Build test execution knowledge
+        # Generate tenant-scoped dataset name
+        dataset_name = self._get_dataset_name(org_id, project_id, "tests")
+
+        logger.info(f"Processing test event for tenant org={org_id}, project={project_id}")
+
+        # Build test execution knowledge with tenant context
         test_knowledge = {
-            "test_id": test_id,
+            "org_id": org_id,
             "project_id": project_id,
+            "test_id": test_id,
             "event_type": test_type,
             "test_name": event.get("test_name", ""),
             "test_status": event.get("status", test_type),
@@ -261,81 +407,134 @@ class CogneeKafkaWorker:
         }
 
         # Add to Cognee for pattern learning
-        # Cognee 0.5.x doesn't support metadata parameter, so embed it in content
         await cognee.add(
             json.dumps(test_knowledge),
-            dataset_name=f"tests_{project_id}",
+            dataset_name=dataset_name,
         )
 
         # For failed tests, also analyze failure patterns
         if test_type == "failed":
-            await self._analyze_failure_pattern(project_id, test_id, event)
+            await self._analyze_failure_pattern(org_id, project_id, test_id, event)
 
-        logger.info(f"Processed test event {test_type} for test {test_id}")
+        logger.info(f"Processed test event {test_type} for test {test_id} (org={org_id})")
 
     async def _analyze_failure_pattern(
         self,
+        org_id: str,
         project_id: str,
         test_id: str,
         event: dict[str, Any],
     ):
-        """Analyze test failure patterns using Cognee search."""
+        """Analyze test failure patterns using Cognee search with tenant isolation."""
         error_message = event.get("error_message", "")
 
         if not error_message:
             return
 
+        # Use tenant-scoped dataset for failure pattern search
+        tests_dataset = self._get_dataset_name(org_id, project_id, "tests")
+        failures_dataset = self._get_dataset_name(org_id, project_id, "failures")
+
         # Search for similar failures in the knowledge graph
         try:
             similar_failures = await cognee.search(
                 query=error_message,
-                dataset_name=f"tests_{project_id}",
+                dataset_name=tests_dataset,
                 top_k=5,
             )
 
             if similar_failures:
                 logger.info(
-                    f"Found {len(similar_failures)} similar failures for test {test_id}"
+                    f"Found {len(similar_failures)} similar failures for test {test_id} "
+                    f"(org={org_id}, project={project_id})"
                 )
-                # Could emit a healing.suggested event here with patterns
+
+                # Store failure pattern for learning
+                failure_pattern = {
+                    "org_id": org_id,
+                    "project_id": project_id,
+                    "test_id": test_id,
+                    "error_message": error_message,
+                    "error_type": event.get("error_type", "unknown"),
+                    "failed_selector": event.get("failed_selector"),
+                    "similar_failure_count": len(similar_failures),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                await cognee.add(
+                    json.dumps(failure_pattern),
+                    dataset_name=failures_dataset,
+                )
+
         except Exception as e:
-            logger.warning(f"Error searching for similar failures: {e}")
+            logger.warning(f"Error analyzing failure pattern: {e}")
 
     async def _process_healing_requested(self, key: str, event: dict[str, Any]):
         """
         Process a healing.requested event.
 
-        Uses knowledge graph to suggest fixes for broken tests.
+        Uses knowledge graph to suggest fixes for broken tests
+        with multi-tenant dataset isolation.
         """
         logger.info(f"Processing healing.requested: {key}")
 
+        # Extract tenant context
+        org_id, project_id = self._extract_tenant_context(event)
+
         test_id = event.get("test_id")
-        project_id = event.get("project_id")
-        failure_reason = event.get("failure_reason", "")
+        failure_id = event.get("failure_id", "")
+        error_type = event.get("error_type", "")
+        failed_selector = event.get("failed_selector", "")
 
-        if not test_id or not project_id:
-            raise ValueError("Missing test_id or project_id in event")
+        if not test_id:
+            raise ValueError("Missing test_id in healing.requested event")
 
-        # Search knowledge graph for relevant context
-        context = await cognee.search(
-            query=failure_reason,
-            dataset_name=f"project_{project_id}",
-            top_k=10,
-        )
+        # Build search query from failure context
+        failure_reason = event.get("error_message", "") or failed_selector or error_type
+
+        # Generate tenant-scoped dataset names
+        codebase_dataset = self._get_dataset_name(org_id, project_id, "codebase")
+        tests_dataset = self._get_dataset_name(org_id, project_id, "tests")
+        failures_dataset = self._get_dataset_name(org_id, project_id, "failures")
+
+        logger.info(f"Searching for healing context (org={org_id}, project={project_id})")
+
+        # Search knowledge graph for relevant code context
+        code_context = []
+        try:
+            code_context = await cognee.search(
+                query=failure_reason,
+                dataset_name=codebase_dataset,
+                top_k=10,
+            )
+        except Exception as e:
+            logger.warning(f"Error searching codebase: {e}")
 
         # Search for similar past failures and their resolutions
-        similar_failures = await cognee.search(
-            query=failure_reason,
-            dataset_name=f"tests_{project_id}",
-            top_k=5,
-        )
+        similar_failures = []
+        try:
+            similar_failures = await cognee.search(
+                query=failure_reason,
+                dataset_name=failures_dataset,
+                top_k=5,
+            )
+        except Exception as e:
+            logger.warning(f"Error searching failures: {e}")
 
-        # Build healing response
+        # Build healing response with tenant context
         healing_event = {
+            "event_type": "healing.completed",
+            "event_version": "1.0",
+            "tenant": {
+                "org_id": org_id,
+                "project_id": project_id,
+            },
             "test_id": test_id,
-            "project_id": project_id,
+            "failure_id": failure_id,
+            "healing_request_id": event.get("event_id", ""),
             "status": "healing_analyzed",
-            "relevant_context": [str(c) for c in context] if context else [],
+            "success": True,
+            "strategy_used": "cognee_search",
+            "relevant_code_context": [str(c) for c in code_context] if code_context else [],
             "similar_failures": [str(f) for f in similar_failures] if similar_failures else [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -345,7 +544,10 @@ class CogneeKafkaWorker:
             key,
             healing_event,
         )
-        logger.info(f"Completed healing analysis for test {test_id}")
+        logger.info(
+            f"Completed healing analysis for test {test_id} "
+            f"(org={org_id}, project={project_id})"
+        )
 
     async def _handle_message(self, msg):
         """Route message to appropriate handler based on topic."""

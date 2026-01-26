@@ -1,5 +1,5 @@
 # Cognee Kafka Worker Dependencies
-# Production-ready event-driven knowledge graph builder
+# Production-ready event-driven knowledge graph builder with Neo4j Aura
 
 # Kafka/Redpanda client
 aiokafka>=0.10.0
@@ -7,15 +7,19 @@ python-snappy>=0.7.0  # Required for Kafka message compression
 lz4>=4.0.0  # Additional compression support
 
 # Cognee - Knowledge graph building
-cognee>=0.1.0
+cognee>=0.5.0
 
-# FalkorDB adapter for Cognee (community)
-# Note: Check PyPI for exact package name, may be:
-# cognee-community-hybrid-adapter-falkor or similar
-falkordb>=1.0.0
+# Neo4j Python driver (for Cognee graph storage)
+neo4j>=5.0.0
+
+# Cohere for embeddings (used by Cognee)
+cohere>=5.0.0
 
 # Redis/Valkey client for caching
 redis>=5.0.0
+
+# Retry utilities
+tenacity>=8.0.0
 
 # HTTP server for health checks
 aiohttp>=3.9.0

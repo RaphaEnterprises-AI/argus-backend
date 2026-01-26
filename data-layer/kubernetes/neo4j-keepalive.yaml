@@ -1,0 +1,207 @@
+# Neo4j Aura Keep-Alive CronJob
+# Prevents Aura Free tier from auto-pausing after 3 days of inactivity
+# Runs every 2 days at 3am UTC
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-keepalive-script
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: neo4j-keepalive
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: maintenance
+data:
+  keepalive.py: |
+    #!/usr/bin/env python3
+    """
+    Neo4j Aura Keep-Alive Script
+
+    Sends a simple query to Neo4j Aura to prevent the Free tier
+    from auto-pausing after 3 days of inactivity.
+    """
+    import os
+    import sys
+    from datetime import datetime
+
+    try:
+        from neo4j import GraphDatabase
+        from neo4j.exceptions import ServiceUnavailable
+    except ImportError:
+        print("ERROR: neo4j driver not installed")
+        sys.exit(1)
+
+    def main():
+        uri = os.environ.get("NEO4J_URI")
+        username = os.environ.get("NEO4J_USERNAME", "neo4j")
+        password = os.environ.get("NEO4J_PASSWORD")
+
+        if not uri or not password:
+            print("ERROR: NEO4J_URI and NEO4J_PASSWORD must be set")
+            sys.exit(1)
+
+        print(f"Connecting to Neo4j Aura: {uri[:30]}...")
+        print(f"Timestamp: {datetime.utcnow().isoformat()}Z")
+
+        driver = GraphDatabase.driver(uri, auth=(username, password))
+
+        # Retry logic for Aura cold starts (can take 30-60s to wake up)
+        max_retries = 5
+        retry_delay = 15
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                with driver.session() as session:
+                    result = session.run(
+                        "RETURN 1 AS keepalive, datetime() AS server_time"
+                    )
+                    record = result.single()
+                    print(f"SUCCESS: Neo4j Aura is awake")
+                    print(f"Server time: {record['server_time']}")
+                    driver.close()
+                    sys.exit(0)
+            except ServiceUnavailable as e:
+                if attempt < max_retries:
+                    print(f"Aura waking up (attempt {attempt}/{max_retries}), waiting {retry_delay}s...")
+                    import time
+                    time.sleep(retry_delay)
+                else:
+                    print(f"ERROR: Failed to connect after {max_retries} attempts: {e}")
+                    driver.close()
+                    sys.exit(1)
+            except Exception as e:
+                print(f"ERROR: Unexpected error: {e}")
+                driver.close()
+                sys.exit(1)
+
+    if __name__ == "__main__":
+        main()
+---
+# CronJob - runs every 2 days at 3am UTC
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: neo4j-keepalive
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: neo4j-keepalive
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: maintenance
+spec:
+  # Every 2 days at 3am UTC (gives buffer before 3-day auto-pause)
+  schedule: "0 3 */2 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 300  # 5 minute timeout
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: neo4j-keepalive
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: keepalive
+              image: python:3.12-slim
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  pip install --quiet neo4j && python /scripts/keepalive.py
+              env:
+                - name: NEO4J_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: argus-data-secrets
+                      key: neo4j-uri
+                - name: NEO4J_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: argus-data-secrets
+                      key: neo4j-username
+                - name: NEO4J_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: argus-data-secrets
+                      key: neo4j-password
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+          volumes:
+            - name: scripts
+              configMap:
+                name: neo4j-keepalive-script
+                defaultMode: 0755
+---
+# Initial wake-up Job - runs once on deployment
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: neo4j-initial-wakeup
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: neo4j-keepalive
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: maintenance
+  annotations:
+    # Use this annotation with ArgoCD/Flux to run on every sync
+    argocd.argoproj.io/hook: PostSync
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 600  # 10 minute timeout for initial wake-up
+  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neo4j-keepalive
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: wakeup
+          image: python:3.12-slim
+          command:
+            - /bin/sh
+            - -c
+            - |
+              pip install --quiet neo4j && python /scripts/keepalive.py
+          env:
+            - name: NEO4J_URI
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-uri
+            - name: NEO4J_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-username
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: neo4j-password
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      volumes:
+        - name: scripts
+          configMap:
+            name: neo4j-keepalive-script
+            defaultMode: 0755

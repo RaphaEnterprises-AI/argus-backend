@@ -1,0 +1,60 @@
+# Cognee Worker Docker Ignore
+# Reduces build context and image size
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+env
+.pytest_cache
+.tox
+.coverage
+htmlcov
+*.egg-info
+dist
+build
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Testing
+tests/
+test_*.py
+*_test.py
+pytest.ini
+setup.cfg
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Local development
+.env
+.env.*
+*.local
+docker-compose*.yml
+
+# Scripts (not needed in container)
+scripts/
+Makefile
+
+# Misc
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

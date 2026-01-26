@@ -36,8 +36,49 @@ class KafkaConfig:
 
 
 @dataclass
+class Neo4jConfig:
+    """Neo4j Aura graph database configuration.
+
+    Cognee uses these environment variables:
+    - GRAPH_DATABASE_PROVIDER: 'neo4j'
+    - GRAPH_DATABASE_URL: Neo4j URI (bolt:// or neo4j+s://)
+    - GRAPH_DATABASE_USERNAME: Neo4j username
+    - GRAPH_DATABASE_PASSWORD: Neo4j password
+    """
+
+    uri: str = field(
+        default_factory=lambda: os.getenv(
+            "NEO4J_URI",
+            os.getenv("GRAPH_DATABASE_URL", "")
+        )
+    )
+    username: str = field(
+        default_factory=lambda: os.getenv(
+            "NEO4J_USERNAME",
+            os.getenv("GRAPH_DATABASE_USERNAME", "neo4j")
+        )
+    )
+    password: str = field(
+        default_factory=lambda: os.getenv(
+            "NEO4J_PASSWORD",
+            os.getenv("GRAPH_DATABASE_PASSWORD", "")
+        )
+    )
+    database: str = field(
+        default_factory=lambda: os.getenv("NEO4J_DATABASE", "neo4j")
+    )
+    # Aura Free tier can take 30-60s to wake from idle
+    connection_timeout: int = field(
+        default_factory=lambda: int(os.getenv("NEO4J_CONNECTION_TIMEOUT", "60"))
+    )
+    max_retry_attempts: int = field(
+        default_factory=lambda: int(os.getenv("NEO4J_MAX_RETRY_ATTEMPTS", "5"))
+    )
+
+
+@dataclass
 class FalkorDBConfig:
-    """FalkorDB graph database configuration."""
+    """FalkorDB graph database configuration (kept for local graph queries)."""
 
     host: str = field(
         default_factory=lambda: os.getenv(
@@ -127,6 +168,7 @@ class WorkerConfig:
     """Main worker configuration aggregating all sub-configs."""
 
     kafka: KafkaConfig = field(default_factory=KafkaConfig)
+    neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     falkordb: FalkorDBConfig = field(default_factory=FalkorDBConfig)
     valkey: ValkeyConfig = field(default_factory=ValkeyConfig)
     cognee: CogneeConfig = field(default_factory=CogneeConfig)
