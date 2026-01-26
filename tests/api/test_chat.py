@@ -303,7 +303,7 @@ class TestSendMessageEndpoint:
 
     @pytest.mark.asyncio
     async def test_send_message_with_tool_calls(
-        self, mock_env_vars, mock_ai_message_with_tool_calls
+        self, mock_env_vars, mock_ai_message_with_tool_calls, mock_user
     ):
         """Test message response includes tool calls."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
@@ -322,13 +322,13 @@ class TestSendMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await send_message(request)
+            response = await send_message(request, user=mock_user)
 
             assert response.tool_calls is not None
             assert len(response.tool_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_send_message_no_response(self, mock_env_vars):
+    async def test_send_message_no_response(self, mock_env_vars, mock_user):
         """Test message when no AI response is generated."""
         from langchain_core.messages import HumanMessage
 
@@ -348,12 +348,12 @@ class TestSendMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await send_message(request)
+            response = await send_message(request, user=mock_user)
 
             assert response.message == "No response generated"
 
     @pytest.mark.asyncio
-    async def test_send_message_with_app_url(self, mock_env_vars, mock_ai_message):
+    async def test_send_message_with_app_url(self, mock_env_vars, mock_ai_message, mock_user):
         """Test message includes app_url in state."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
 
@@ -377,7 +377,7 @@ class TestSendMessageEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            await send_message(request)
+            await send_message(request, user=mock_user)
 
             assert captured_state["app_url"] == "http://localhost:3000"
 
@@ -706,9 +706,19 @@ class TestCancelChatEndpoint:
 class TestChatIntegration:
     """Integration-style tests for chat functionality."""
 
+    @pytest.fixture
+    def mock_user(self):
+        """Create a mock user context."""
+        from src.api.security.auth import AuthMethod, UserContext
+        return UserContext(
+            user_id="test-user-123",
+            organization_id="test-org-123",
+            auth_method=AuthMethod.JWT,
+        )
+
     @pytest.mark.asyncio
     async def test_full_conversation_flow(
-        self, mock_env_vars, mock_human_message, mock_ai_message
+        self, mock_env_vars, mock_human_message, mock_ai_message, mock_user
     ):
         """Test a complete conversation flow."""
         from src.api.chat import ChatMessage, ChatRequest, get_chat_history, send_message
@@ -734,7 +744,7 @@ class TestChatIntegration:
                 messages=[ChatMessage(role="user", content="Hello")],
                 thread_id="thread-123",
             )
-            send_response = await send_message(request)
+            send_response = await send_message(request, user=mock_user)
 
             assert send_response.message == "AI response"
 
@@ -744,7 +754,7 @@ class TestChatIntegration:
             assert len(history["messages"]) == 2
 
     @pytest.mark.asyncio
-    async def test_message_conversion(self, mock_env_vars):
+    async def test_message_conversion(self, mock_env_vars, mock_user):
         """Test that messages are correctly converted to LangChain format."""
         from langchain_core.messages import AIMessage, HumanMessage
 
@@ -773,7 +783,7 @@ class TestChatIntegration:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            await send_message(request)
+            await send_message(request, user=mock_user)
 
             # Verify messages were converted correctly
             assert len(captured_state["messages"]) == 3
