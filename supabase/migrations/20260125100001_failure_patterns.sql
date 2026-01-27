@@ -426,7 +426,7 @@ CREATE POLICY "Users can view patterns for their projects" ON failure_patterns
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -436,7 +436,7 @@ CREATE POLICY "Users can manage patterns for their projects" ON failure_patterns
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -447,7 +447,7 @@ CREATE POLICY "Users can view training jobs for their projects" ON pattern_train
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -457,7 +457,7 @@ CREATE POLICY "Users can manage training jobs for their projects" ON pattern_tra
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -468,7 +468,7 @@ CREATE POLICY "Users can view predictions for their projects" ON pattern_predict
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -478,7 +478,7 @@ CREATE POLICY "Users can manage predictions for their projects" ON pattern_predi
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -489,7 +489,7 @@ CREATE POLICY "Users can view commit features for their projects" ON commit_feat
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -499,7 +499,7 @@ CREATE POLICY "Users can manage commit features for their projects" ON commit_fe
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 

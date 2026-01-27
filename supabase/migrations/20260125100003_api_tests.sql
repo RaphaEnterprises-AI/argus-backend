@@ -270,7 +270,7 @@ CREATE POLICY "Users can view endpoints for their projects" ON api_endpoints
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -280,7 +280,7 @@ CREATE POLICY "Users can manage endpoints for their projects" ON api_endpoints
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -291,7 +291,7 @@ CREATE POLICY "Users can view test cases for their projects" ON api_test_cases
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -301,7 +301,7 @@ CREATE POLICY "Users can manage test cases for their projects" ON api_test_cases
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -312,7 +312,7 @@ CREATE POLICY "Users can view test results for their projects" ON api_test_resul
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -322,7 +322,7 @@ CREATE POLICY "Users can manage test results for their projects" ON api_test_res
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -333,7 +333,7 @@ CREATE POLICY "Users can view test suites for their projects" ON api_test_suites
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -343,7 +343,7 @@ CREATE POLICY "Users can manage test suites for their projects" ON api_test_suit
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -356,7 +356,7 @@ CREATE POLICY "Users can view suite tests for their projects" ON api_test_suite_
                 SELECT p.id FROM projects p
                 JOIN organizations o ON p.organization_id = o.id
                 JOIN organization_members om ON o.id = om.organization_id
-                WHERE om.user_id = auth.uid()
+                WHERE om.user_id = auth.uid()::text
             )
         )
     );
@@ -369,7 +369,7 @@ CREATE POLICY "Users can manage suite tests for their projects" ON api_test_suit
                 SELECT p.id FROM projects p
                 JOIN organizations o ON p.organization_id = o.id
                 JOIN organization_members om ON o.id = om.organization_id
-                WHERE om.user_id = auth.uid()
+                WHERE om.user_id = auth.uid()::text
             )
         )
     );
@@ -381,7 +381,7 @@ CREATE POLICY "Users can view discovery sessions for their projects" ON api_disc
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -391,7 +391,7 @@ CREATE POLICY "Users can manage discovery sessions for their projects" ON api_di
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 

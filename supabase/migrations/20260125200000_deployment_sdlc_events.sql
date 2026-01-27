@@ -53,14 +53,45 @@ CREATE INDEX IF NOT EXISTS idx_deployment_events_external_id ON deployment_event
 CREATE INDEX IF NOT EXISTS idx_deployment_events_environment ON deployment_events(environment);
 CREATE INDEX IF NOT EXISTS idx_deployment_events_created ON deployment_events(created_at DESC);
 
--- Indexes for sdlc_events
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_project ON sdlc_events(project_id);
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_source ON sdlc_events(source_platform);
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_type ON sdlc_events(event_type);
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_external_id ON sdlc_events(external_id);
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_external_key ON sdlc_events(external_key);
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_status ON sdlc_events(status);
-CREATE INDEX IF NOT EXISTS idx_sdlc_events_created ON sdlc_events(created_at DESC);
+-- Add missing columns if they don't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'external_key') THEN
+        ALTER TABLE sdlc_events ADD COLUMN external_key TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'status') THEN
+        ALTER TABLE sdlc_events ADD COLUMN status TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'event_type') THEN
+        ALTER TABLE sdlc_events ADD COLUMN event_type TEXT;
+    END IF;
+END $$;
+
+-- Indexes for sdlc_events (only create if columns exist)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'project_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_project ON sdlc_events(project_id);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'source_platform') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_source ON sdlc_events(source_platform);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'event_type') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_type ON sdlc_events(event_type);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'external_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_external_id ON sdlc_events(external_id);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'external_key') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_external_key ON sdlc_events(external_key);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'status') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_status ON sdlc_events(status);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sdlc_events' AND column_name = 'created_at') THEN
+        CREATE INDEX IF NOT EXISTS idx_sdlc_events_created ON sdlc_events(created_at DESC);
+    END IF;
+END $$;
 
 -- Enable RLS
 ALTER TABLE deployment_events ENABLE ROW LEVEL SECURITY;

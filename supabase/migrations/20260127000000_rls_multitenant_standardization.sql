@@ -3,22 +3,34 @@
 -- =============================================================================
 --
 -- This migration standardizes all Row Level Security (RLS) policies across the
--- database to use a consistent pattern with the auth.has_org_access() helper.
+-- database to use a consistent pattern with the public.has_org_access() helper.
 --
 -- PROBLEM: Three different RLS patterns were in use:
--- 1. auth.has_org_access() helper function (from fix_rls_security.sql)
--- 2. Direct subquery with auth.uid() (from test_impact_graph.sql)
--- 3. current_setting('app.user_id', true) (from organizations_and_ai_tracking.sql)
+-- 1. Direct subquery with auth.uid() (from test_impact_graph.sql)
+-- 2. current_setting('app.user_id', true) (from organizations_and_ai_tracking.sql)
+-- 3. Various inline checks
 --
--- SOLUTION: Standardize on auth.has_org_access() with service role bypass
+-- SOLUTION: Standardize on public.has_org_access() with service role bypass
+--
+-- NOTE: Helper functions are in 'public' schema because Supabase doesn't allow
+-- creating functions in the 'auth' schema (it's managed by Supabase).
 -- =============================================================================
 
 -- =============================================================================
--- Part 1: Enhance Helper Functions
+-- Part 1: Helper Functions (in public schema)
 -- =============================================================================
 
--- Drop and recreate auth.user_org_ids with better fallback chain
-CREATE OR REPLACE FUNCTION auth.user_org_ids()
+-- Helper: Check if current session is service role
+CREATE OR REPLACE FUNCTION public.is_service_role()
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Check if the current role is service_role or postgres
+    RETURN current_user IN ('service_role', 'postgres', 'supabase_admin');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Helper: Get user's organization IDs with fallback chain
+CREATE OR REPLACE FUNCTION public.user_org_ids()
 RETURNS UUID[] AS $$
 DECLARE
     org_ids UUID[];
@@ -59,7 +71,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- Enhanced org access check with project support
-CREATE OR REPLACE FUNCTION auth.has_org_access(check_org_id UUID)
+CREATE OR REPLACE FUNCTION public.has_org_access(check_org_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     -- Fail closed for NULL
@@ -68,16 +80,16 @@ BEGIN
     END IF;
 
     -- Service role always has access
-    IF auth.is_service_role() THEN
+    IF public.is_service_role() THEN
         RETURN TRUE;
     END IF;
 
-    RETURN check_org_id = ANY(auth.user_org_ids());
+    RETURN check_org_id = ANY(public.user_org_ids());
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- New: Check project access via organization
-CREATE OR REPLACE FUNCTION auth.has_project_access(check_project_id UUID)
+CREATE OR REPLACE FUNCTION public.has_project_access(check_project_id UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
     project_org_id UUID;
@@ -86,7 +98,7 @@ BEGIN
         RETURN FALSE;
     END IF;
 
-    IF auth.is_service_role() THEN
+    IF public.is_service_role() THEN
         RETURN TRUE;
     END IF;
 
@@ -96,12 +108,12 @@ BEGIN
     WHERE id = check_project_id;
 
     -- Allow if org is NULL (legacy) or user has access
-    RETURN project_org_id IS NULL OR auth.has_org_access(project_org_id);
+    RETURN project_org_id IS NULL OR public.has_org_access(project_org_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- Get current user's ID from various sources
-CREATE OR REPLACE FUNCTION auth.current_user_id()
+CREATE OR REPLACE FUNCTION public.current_user_id()
 RETURNS TEXT AS $$
 BEGIN
     RETURN COALESCE(
@@ -122,26 +134,26 @@ DROP POLICY IF EXISTS "Service role has full access to organizations" ON organiz
 
 CREATE POLICY "org_select" ON organizations
     FOR SELECT USING (
-        auth.is_service_role() OR
-        auth.has_org_access(id)
+        public.is_service_role() OR
+        public.has_org_access(id)
     );
 
 CREATE POLICY "org_update" ON organizations
     FOR UPDATE USING (
-        auth.is_service_role() OR
-        (auth.has_org_access(id) AND EXISTS (
+        public.is_service_role() OR
+        (public.has_org_access(id) AND EXISTS (
             SELECT 1 FROM organization_members
             WHERE organization_id = organizations.id
-            AND user_id = auth.current_user_id()
+            AND user_id = public.current_user_id()
             AND role IN ('owner', 'admin')
         ))
     );
 
 CREATE POLICY "org_insert" ON organizations
-    FOR INSERT WITH CHECK (auth.is_service_role());
+    FOR INSERT WITH CHECK (public.is_service_role());
 
 CREATE POLICY "org_delete" ON organizations
-    FOR DELETE USING (auth.is_service_role());
+    FOR DELETE USING (public.is_service_role());
 
 -- =============================================================================
 -- Part 3: Standardize Organization Members Policies
@@ -152,39 +164,39 @@ DROP POLICY IF EXISTS "Service role has full access to organization_members" ON 
 
 CREATE POLICY "org_members_select" ON organization_members
     FOR SELECT USING (
-        auth.is_service_role() OR
-        auth.has_org_access(organization_id)
+        public.is_service_role() OR
+        public.has_org_access(organization_id)
     );
 
 CREATE POLICY "org_members_insert" ON organization_members
     FOR INSERT WITH CHECK (
-        auth.is_service_role() OR
-        (auth.has_org_access(organization_id) AND EXISTS (
+        public.is_service_role() OR
+        (public.has_org_access(organization_id) AND EXISTS (
             SELECT 1 FROM organization_members om
             WHERE om.organization_id = organization_members.organization_id
-            AND om.user_id = auth.current_user_id()
+            AND om.user_id = public.current_user_id()
             AND om.role IN ('owner', 'admin')
         ))
     );
 
 CREATE POLICY "org_members_update" ON organization_members
     FOR UPDATE USING (
-        auth.is_service_role() OR
-        (auth.has_org_access(organization_id) AND EXISTS (
+        public.is_service_role() OR
+        (public.has_org_access(organization_id) AND EXISTS (
             SELECT 1 FROM organization_members om
             WHERE om.organization_id = organization_members.organization_id
-            AND om.user_id = auth.current_user_id()
+            AND om.user_id = public.current_user_id()
             AND om.role IN ('owner', 'admin')
         ))
     );
 
 CREATE POLICY "org_members_delete" ON organization_members
     FOR DELETE USING (
-        auth.is_service_role() OR
-        (auth.has_org_access(organization_id) AND EXISTS (
+        public.is_service_role() OR
+        (public.has_org_access(organization_id) AND EXISTS (
             SELECT 1 FROM organization_members om
             WHERE om.organization_id = organization_members.organization_id
-            AND om.user_id = auth.current_user_id()
+            AND om.user_id = public.current_user_id()
             AND om.role = 'owner'
         ))
     );
@@ -198,8 +210,8 @@ DROP POLICY IF EXISTS "Service role has full access to ai_usage" ON ai_usage;
 
 CREATE POLICY "ai_usage_policy" ON ai_usage
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_org_access(organization_id)
+        public.is_service_role() OR
+        public.has_org_access(organization_id)
     );
 
 DROP POLICY IF EXISTS "Users can view daily AI usage for their organizations" ON ai_usage_daily;
@@ -207,8 +219,8 @@ DROP POLICY IF EXISTS "Service role has full access to ai_usage_daily" ON ai_usa
 
 CREATE POLICY "ai_usage_daily_policy" ON ai_usage_daily
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_org_access(organization_id)
+        public.is_service_role() OR
+        public.has_org_access(organization_id)
     );
 
 -- =============================================================================
@@ -220,17 +232,17 @@ DROP POLICY IF EXISTS "Service role has full access to api_keys" ON api_keys;
 
 CREATE POLICY "api_keys_select" ON api_keys
     FOR SELECT USING (
-        auth.is_service_role() OR
-        auth.has_org_access(organization_id)
+        public.is_service_role() OR
+        public.has_org_access(organization_id)
     );
 
 CREATE POLICY "api_keys_manage" ON api_keys
     FOR ALL USING (
-        auth.is_service_role() OR
-        (auth.has_org_access(organization_id) AND EXISTS (
+        public.is_service_role() OR
+        (public.has_org_access(organization_id) AND EXISTS (
             SELECT 1 FROM organization_members
             WHERE organization_id = api_keys.organization_id
-            AND user_id = auth.current_user_id()
+            AND user_id = public.current_user_id()
             AND role IN ('owner', 'admin')
         ))
     );
@@ -245,8 +257,8 @@ DROP POLICY IF EXISTS "Users can manage impact graph for their projects" ON test
 
 CREATE POLICY "test_impact_graph_policy" ON test_impact_graph
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_project_access(project_id)
+        public.is_service_role() OR
+        public.has_project_access(project_id)
     );
 
 -- coverage_imports
@@ -255,8 +267,8 @@ DROP POLICY IF EXISTS "Users can manage coverage imports for their projects" ON 
 
 CREATE POLICY "coverage_imports_policy" ON coverage_imports
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_project_access(project_id)
+        public.is_service_role() OR
+        public.has_project_access(project_id)
     );
 
 -- impact_graph_jobs
@@ -265,8 +277,8 @@ DROP POLICY IF EXISTS "Users can manage jobs for their projects" ON impact_graph
 
 CREATE POLICY "impact_graph_jobs_policy" ON impact_graph_jobs
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_project_access(project_id)
+        public.is_service_role() OR
+        public.has_project_access(project_id)
     );
 
 -- file_dependencies
@@ -275,8 +287,8 @@ DROP POLICY IF EXISTS "Users can manage file deps for their projects" ON file_de
 
 CREATE POLICY "file_dependencies_policy" ON file_dependencies
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_project_access(project_id)
+        public.is_service_role() OR
+        public.has_project_access(project_id)
     );
 
 -- failure_correlations
@@ -285,8 +297,8 @@ DROP POLICY IF EXISTS "Users can manage failure correlations for their projects"
 
 CREATE POLICY "failure_correlations_policy" ON failure_correlations
     FOR ALL USING (
-        auth.is_service_role() OR
-        auth.has_project_access(project_id)
+        public.is_service_role() OR
+        public.has_project_access(project_id)
     );
 
 -- =============================================================================
@@ -307,43 +319,56 @@ EXCEPTION WHEN undefined_table THEN
     NULL; -- Tables might not exist yet
 END $$;
 
--- Create standardized policies (only if tables exist)
+-- Create standardized policies (only if tables AND columns exist)
+-- Helper function to check if table has column
+CREATE OR REPLACE FUNCTION _temp_has_column(t TEXT, c TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = t AND column_name = c);
+END;
+$$ LANGUAGE plpgsql;
+
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'visual_baselines') THEN
-        EXECUTE 'CREATE POLICY visual_baselines_policy ON visual_baselines FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('visual_baselines', 'project_id') THEN
+        EXECUTE 'CREATE POLICY visual_baselines_policy ON visual_baselines FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'visual_snapshots') THEN
-        EXECUTE 'CREATE POLICY visual_snapshots_policy ON visual_snapshots FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('visual_snapshots', 'project_id') THEN
+        EXECUTE 'CREATE POLICY visual_snapshots_policy ON visual_snapshots FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'visual_comparisons') THEN
-        EXECUTE 'CREATE POLICY visual_comparisons_policy ON visual_comparisons FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('visual_comparisons', 'project_id') THEN
+        EXECUTE 'CREATE POLICY visual_comparisons_policy ON visual_comparisons FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'visual_changes') THEN
-        EXECUTE 'CREATE POLICY visual_changes_policy ON visual_changes FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('visual_changes', 'project_id') THEN
+        EXECUTE 'CREATE POLICY visual_changes_policy ON visual_changes FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'viewport_presets') THEN
-        EXECUTE 'CREATE POLICY viewport_presets_policy ON viewport_presets FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('viewport_presets', 'project_id') THEN
+        EXECUTE 'CREATE POLICY viewport_presets_policy ON viewport_presets FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
+    ELSIF _temp_has_column('viewport_presets', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY viewport_presets_policy ON viewport_presets FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'browser_matrix') THEN
-        EXECUTE 'CREATE POLICY browser_matrix_policy ON browser_matrix FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('browser_matrix', 'project_id') THEN
+        EXECUTE 'CREATE POLICY browser_matrix_policy ON browser_matrix FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
+    ELSIF _temp_has_column('browser_matrix', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY browser_matrix_policy ON browser_matrix FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'visual_test_history') THEN
-        EXECUTE 'CREATE POLICY visual_test_history_policy ON visual_test_history FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('visual_test_history', 'project_id') THEN
+        EXECUTE 'CREATE POLICY visual_test_history_policy ON visual_test_history FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'visual_baseline_history') THEN
-        EXECUTE 'CREATE POLICY visual_baseline_history_policy ON visual_baseline_history FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('visual_baseline_history', 'project_id') THEN
+        EXECUTE 'CREATE POLICY visual_baseline_history_policy ON visual_baseline_history FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL; -- Policy already exists
 END $$;
+
+-- NOTE: _temp_has_column function is cleaned up at the end of the migration
 
 -- =============================================================================
 -- Part 8: Standardize Failure Patterns Tables
@@ -361,20 +386,20 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'failure_patterns') THEN
-        EXECUTE 'CREATE POLICY failure_patterns_policy ON failure_patterns FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('failure_patterns', 'project_id') THEN
+        EXECUTE 'CREATE POLICY failure_patterns_policy ON failure_patterns FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'pattern_training_jobs') THEN
-        EXECUTE 'CREATE POLICY pattern_training_jobs_policy ON pattern_training_jobs FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('pattern_training_jobs', 'project_id') THEN
+        EXECUTE 'CREATE POLICY pattern_training_jobs_policy ON pattern_training_jobs FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'pattern_predictions') THEN
-        EXECUTE 'CREATE POLICY pattern_predictions_policy ON pattern_predictions FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('pattern_predictions', 'project_id') THEN
+        EXECUTE 'CREATE POLICY pattern_predictions_policy ON pattern_predictions FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'commit_features') THEN
-        EXECUTE 'CREATE POLICY commit_features_policy ON commit_features FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('commit_features', 'project_id') THEN
+        EXECUTE 'CREATE POLICY commit_features_policy ON commit_features FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -397,24 +422,24 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'sdlc_events') THEN
-        EXECUTE 'CREATE POLICY sdlc_events_policy ON sdlc_events FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('sdlc_events', 'project_id') THEN
+        EXECUTE 'CREATE POLICY sdlc_events_policy ON sdlc_events FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'event_correlations') THEN
-        EXECUTE 'CREATE POLICY event_correlations_policy ON event_correlations FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('event_correlations', 'project_id') THEN
+        EXECUTE 'CREATE POLICY event_correlations_policy ON event_correlations FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'correlation_insights') THEN
-        EXECUTE 'CREATE POLICY correlation_insights_policy ON correlation_insights FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('correlation_insights', 'project_id') THEN
+        EXECUTE 'CREATE POLICY correlation_insights_policy ON correlation_insights FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'commit_analyses') THEN
-        EXECUTE 'CREATE POLICY commit_analyses_policy ON commit_analyses FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('commit_analyses', 'project_id') THEN
+        EXECUTE 'CREATE POLICY commit_analyses_policy ON commit_analyses FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'deployment_events') THEN
-        EXECUTE 'CREATE POLICY deployment_events_policy ON deployment_events FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('deployment_events', 'project_id') THEN
+        EXECUTE 'CREATE POLICY deployment_events_policy ON deployment_events FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -437,24 +462,24 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'api_endpoints') THEN
-        EXECUTE 'CREATE POLICY api_endpoints_policy ON api_endpoints FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('api_endpoints', 'project_id') THEN
+        EXECUTE 'CREATE POLICY api_endpoints_policy ON api_endpoints FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'api_test_cases') THEN
-        EXECUTE 'CREATE POLICY api_test_cases_policy ON api_test_cases FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('api_test_cases', 'project_id') THEN
+        EXECUTE 'CREATE POLICY api_test_cases_policy ON api_test_cases FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'api_test_results') THEN
-        EXECUTE 'CREATE POLICY api_test_results_policy ON api_test_results FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('api_test_results', 'project_id') THEN
+        EXECUTE 'CREATE POLICY api_test_results_policy ON api_test_results FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'api_test_suites') THEN
-        EXECUTE 'CREATE POLICY api_test_suites_policy ON api_test_suites FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('api_test_suites', 'project_id') THEN
+        EXECUTE 'CREATE POLICY api_test_suites_policy ON api_test_suites FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'api_discovery_sessions') THEN
-        EXECUTE 'CREATE POLICY api_discovery_sessions_policy ON api_discovery_sessions FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('api_discovery_sessions', 'project_id') THEN
+        EXECUTE 'CREATE POLICY api_discovery_sessions_policy ON api_discovery_sessions FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -475,16 +500,16 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'infra_recommendations') THEN
-        EXECUTE 'CREATE POLICY infra_recommendations_policy ON infra_recommendations FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('infra_recommendations', 'project_id') THEN
+        EXECUTE 'CREATE POLICY infra_recommendations_policy ON infra_recommendations FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'infra_cost_history') THEN
-        EXECUTE 'CREATE POLICY infra_cost_history_policy ON infra_cost_history FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('infra_cost_history', 'project_id') THEN
+        EXECUTE 'CREATE POLICY infra_cost_history_policy ON infra_cost_history FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'infra_anomaly_history') THEN
-        EXECUTE 'CREATE POLICY infra_anomaly_history_policy ON infra_anomaly_history FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('infra_anomaly_history', 'project_id') THEN
+        EXECUTE 'CREATE POLICY infra_anomaly_history_policy ON infra_anomaly_history FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -509,42 +534,44 @@ EXCEPTION WHEN undefined_table THEN
     NULL;
 END $$;
 
+-- Graph tables don't have project_id, they have different structures
+-- Just use service role access for now as these are internal tables
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_metadata') THEN
-        EXECUTE 'CREATE POLICY graph_metadata_policy ON graph_metadata FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_metadata_policy ON graph_metadata FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_test_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_test_vertices_policy ON graph_test_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_test_vertices_policy ON graph_test_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_selector_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_selector_vertices_policy ON graph_selector_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_selector_vertices_policy ON graph_selector_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_failure_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_failure_vertices_policy ON graph_failure_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_failure_vertices_policy ON graph_failure_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_code_change_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_code_change_vertices_policy ON graph_code_change_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_code_change_vertices_policy ON graph_code_change_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_healing_pattern_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_healing_pattern_vertices_policy ON graph_healing_pattern_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_healing_pattern_vertices_policy ON graph_healing_pattern_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_page_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_page_vertices_policy ON graph_page_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_page_vertices_policy ON graph_page_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_project_vertices') THEN
-        EXECUTE 'CREATE POLICY graph_project_vertices_policy ON graph_project_vertices FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_project_vertices_policy ON graph_project_vertices FOR ALL USING (public.is_service_role())';
     END IF;
 
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'graph_edges') THEN
-        EXECUTE 'CREATE POLICY graph_edges_policy ON graph_edges FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+        EXECUTE 'CREATE POLICY graph_edges_policy ON graph_edges FOR ALL USING (public.is_service_role())';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -566,20 +593,26 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'notification_channels') THEN
-        EXECUTE 'CREATE POLICY notification_channels_policy ON notification_channels FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('notification_channels', 'project_id') THEN
+        EXECUTE 'CREATE POLICY notification_channels_policy ON notification_channels FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
+    ELSIF _temp_has_column('notification_channels', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY notification_channels_policy ON notification_channels FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'notification_rules') THEN
-        EXECUTE 'CREATE POLICY notification_rules_policy ON notification_rules FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('notification_rules', 'project_id') THEN
+        EXECUTE 'CREATE POLICY notification_rules_policy ON notification_rules FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
+    ELSIF _temp_has_column('notification_rules', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY notification_rules_policy ON notification_rules FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'notification_logs') THEN
-        EXECUTE 'CREATE POLICY notification_logs_policy ON notification_logs FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('notification_logs', 'project_id') THEN
+        EXECUTE 'CREATE POLICY notification_logs_policy ON notification_logs FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'notification_templates') THEN
-        EXECUTE 'CREATE POLICY notification_templates_policy ON notification_templates FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('notification_templates', 'project_id') THEN
+        EXECUTE 'CREATE POLICY notification_templates_policy ON notification_templates FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
+    ELSIF _temp_has_column('notification_templates', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY notification_templates_policy ON notification_templates FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -601,20 +634,21 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'parameterized_tests') THEN
-        EXECUTE 'CREATE POLICY parameterized_tests_policy ON parameterized_tests FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('parameterized_tests', 'project_id') THEN
+        EXECUTE 'CREATE POLICY parameterized_tests_policy ON parameterized_tests FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'parameter_sets') THEN
-        EXECUTE 'CREATE POLICY parameter_sets_policy ON parameter_sets FOR ALL USING (auth.is_service_role() OR EXISTS (SELECT 1 FROM parameterized_tests pt WHERE pt.id = parameter_sets.test_id AND auth.has_project_access(pt.project_id)))';
+    -- These tables reference parameterized_tests - only create if the FK column exists
+    IF _temp_has_column('parameter_sets', 'test_id') AND _temp_has_column('parameterized_tests', 'project_id') THEN
+        EXECUTE 'CREATE POLICY parameter_sets_policy ON parameter_sets FOR ALL USING (public.is_service_role() OR EXISTS (SELECT 1 FROM parameterized_tests pt WHERE pt.id = parameter_sets.test_id AND public.has_project_access(pt.project_id)))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'parameterized_results') THEN
-        EXECUTE 'CREATE POLICY parameterized_results_policy ON parameterized_results FOR ALL USING (auth.is_service_role() OR EXISTS (SELECT 1 FROM parameterized_tests pt WHERE pt.id = parameterized_results.test_id AND auth.has_project_access(pt.project_id)))';
+    IF _temp_has_column('parameterized_results', 'test_id') AND _temp_has_column('parameterized_tests', 'project_id') THEN
+        EXECUTE 'CREATE POLICY parameterized_results_policy ON parameterized_results FOR ALL USING (public.is_service_role() OR EXISTS (SELECT 1 FROM parameterized_tests pt WHERE pt.id = parameterized_results.test_id AND public.has_project_access(pt.project_id)))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'iteration_results') THEN
-        EXECUTE 'CREATE POLICY iteration_results_policy ON iteration_results FOR ALL USING (auth.is_service_role() OR EXISTS (SELECT 1 FROM parameterized_results pr JOIN parameterized_tests pt ON pt.id = pr.test_id WHERE pr.id = iteration_results.result_id AND auth.has_project_access(pt.project_id)))';
+    IF _temp_has_column('iteration_results', 'result_id') AND _temp_has_column('parameterized_results', 'test_id') AND _temp_has_column('parameterized_tests', 'project_id') THEN
+        EXECUTE 'CREATE POLICY iteration_results_policy ON iteration_results FOR ALL USING (public.is_service_role() OR EXISTS (SELECT 1 FROM parameterized_results pr JOIN parameterized_tests pt ON pt.id = pr.test_id WHERE pr.id = iteration_results.result_id AND public.has_project_access(pt.project_id)))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -635,16 +669,16 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'mcp_connections') THEN
-        EXECUTE 'CREATE POLICY mcp_connections_policy ON mcp_connections FOR ALL USING (auth.is_service_role() OR auth.has_org_access(organization_id))';
+    IF _temp_has_column('mcp_connections', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY mcp_connections_policy ON mcp_connections FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'mcp_connection_activity') THEN
-        EXECUTE 'CREATE POLICY mcp_connection_activity_policy ON mcp_connection_activity FOR ALL USING (auth.is_service_role() OR EXISTS (SELECT 1 FROM mcp_connections mc WHERE mc.id = mcp_connection_activity.connection_id AND auth.has_org_access(mc.organization_id)))';
+    IF _temp_has_column('mcp_connections', 'organization_id') AND EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'mcp_connection_activity') THEN
+        EXECUTE 'CREATE POLICY mcp_connection_activity_policy ON mcp_connection_activity FOR ALL USING (public.is_service_role() OR EXISTS (SELECT 1 FROM mcp_connections mc WHERE mc.id = mcp_connection_activity.connection_id AND public.has_org_access(mc.organization_id)))';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'mcp_screenshots') THEN
-        EXECUTE 'CREATE POLICY mcp_screenshots_policy ON mcp_screenshots FOR ALL USING (auth.is_service_role() OR auth.has_project_access(project_id))';
+    IF _temp_has_column('mcp_screenshots', 'project_id') THEN
+        EXECUTE 'CREATE POLICY mcp_screenshots_policy ON mcp_screenshots FOR ALL USING (public.is_service_role() OR public.has_project_access(project_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -664,8 +698,8 @@ END $$;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'audit_logs') THEN
-        EXECUTE 'CREATE POLICY audit_logs_policy ON audit_logs FOR ALL USING (auth.is_service_role() OR auth.has_org_access(organization_id))';
+    IF _temp_has_column('audit_logs', 'organization_id') THEN
+        EXECUTE 'CREATE POLICY audit_logs_policy ON audit_logs FOR ALL USING (public.is_service_role() OR public.has_org_access(organization_id))';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -687,9 +721,9 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user_profiles') THEN
-        EXECUTE 'CREATE POLICY user_profiles_select ON user_profiles FOR SELECT USING (auth.is_service_role() OR user_id = auth.current_user_id())';
-        EXECUTE 'CREATE POLICY user_profiles_update ON user_profiles FOR UPDATE USING (auth.is_service_role() OR user_id = auth.current_user_id())';
-        EXECUTE 'CREATE POLICY user_profiles_insert ON user_profiles FOR INSERT WITH CHECK (auth.is_service_role() OR user_id = auth.current_user_id())';
+        EXECUTE 'CREATE POLICY user_profiles_select ON user_profiles FOR SELECT USING (public.is_service_role() OR user_id = public.current_user_id())';
+        EXECUTE 'CREATE POLICY user_profiles_update ON user_profiles FOR UPDATE USING (public.is_service_role() OR user_id = public.current_user_id())';
+        EXECUTE 'CREATE POLICY user_profiles_insert ON user_profiles FOR INSERT WITH CHECK (public.is_service_role() OR user_id = public.current_user_id())';
     END IF;
 EXCEPTION WHEN duplicate_object THEN
     NULL;
@@ -699,25 +733,31 @@ END $$;
 -- Part 18: Add Comments
 -- =============================================================================
 
-COMMENT ON FUNCTION auth.user_org_ids() IS
+COMMENT ON FUNCTION public.user_org_ids() IS
 'Returns array of organization IDs the current user has access to.
 Priority: JWT claims > app.user_id setting > organization_members lookup.
 Used by RLS policies for multi-tenant data isolation.';
 
-COMMENT ON FUNCTION auth.has_org_access(UUID) IS
+COMMENT ON FUNCTION public.has_org_access(UUID) IS
 'Checks if current user has access to the specified organization.
 Returns TRUE for service role, FALSE for NULL org_id.
 Primary RLS helper for org-scoped tables.';
 
-COMMENT ON FUNCTION auth.has_project_access(UUID) IS
+COMMENT ON FUNCTION public.has_project_access(UUID) IS
 'Checks if current user has access to a project via its organization.
 Returns TRUE for service role, TRUE for NULL org (legacy).
 Primary RLS helper for project-scoped tables.';
 
-COMMENT ON FUNCTION auth.current_user_id() IS
+COMMENT ON FUNCTION public.current_user_id() IS
 'Returns the current user ID from various sources.
 Priority: app.user_id > JWT sub > auth.uid().
 Used for user-specific RLS policies.';
+
+-- =============================================================================
+-- Cleanup: Remove temporary helper function
+-- =============================================================================
+
+DROP FUNCTION IF EXISTS _temp_has_column(TEXT, TEXT);
 
 -- =============================================================================
 -- Migration Complete

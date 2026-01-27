@@ -429,7 +429,7 @@ CREATE POLICY "Users can view SDLC events for their projects" ON sdlc_events
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -439,7 +439,7 @@ CREATE POLICY "Users can manage SDLC events for their projects" ON sdlc_events
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -452,7 +452,7 @@ CREATE POLICY "Users can view correlations for their events" ON event_correlatio
                 SELECT p.id FROM projects p
                 JOIN organizations o ON p.organization_id = o.id
                 JOIN organization_members om ON o.id = om.organization_id
-                WHERE om.user_id = auth.uid()
+                WHERE om.user_id = auth.uid()::text
             )
         )
     );
@@ -465,7 +465,7 @@ CREATE POLICY "Users can manage correlations for their events" ON event_correlat
                 SELECT p.id FROM projects p
                 JOIN organizations o ON p.organization_id = o.id
                 JOIN organization_members om ON o.id = om.organization_id
-                WHERE om.user_id = auth.uid()
+                WHERE om.user_id = auth.uid()::text
             )
         )
     );
@@ -477,7 +477,7 @@ CREATE POLICY "Users can view insights for their projects" ON correlation_insigh
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -487,7 +487,7 @@ CREATE POLICY "Users can manage insights for their projects" ON correlation_insi
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -498,7 +498,7 @@ CREATE POLICY "Users can view commit analyses for their projects" ON commit_anal
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -508,7 +508,7 @@ CREATE POLICY "Users can manage commit analyses for their projects" ON commit_an
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -519,7 +519,7 @@ CREATE POLICY "Users can view webhook events for their projects" ON github_webho
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -529,7 +529,7 @@ CREATE POLICY "Users can manage webhook events for their projects" ON github_web
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 

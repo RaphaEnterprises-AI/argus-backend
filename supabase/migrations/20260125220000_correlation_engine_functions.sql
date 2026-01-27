@@ -12,9 +12,10 @@ CREATE INDEX IF NOT EXISTS idx_sdlc_events_project_type_time
     ON sdlc_events(project_id, event_type, occurred_at DESC);
 
 -- Index for finding events within a time range efficiently
+-- Note: Removed partial index predicate with NOW() as it's not IMMUTABLE
+-- Query planner will still use this index efficiently for time-range queries
 CREATE INDEX IF NOT EXISTS idx_sdlc_events_project_time_range
-    ON sdlc_events(project_id, occurred_at)
-    WHERE occurred_at > NOW() - INTERVAL '90 days';
+    ON sdlc_events(project_id, occurred_at DESC);
 
 -- Index for insight queries by project and status
 CREATE INDEX IF NOT EXISTS idx_correlation_insights_project_status_severity

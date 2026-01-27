@@ -42,10 +42,18 @@ CREATE TABLE IF NOT EXISTS test_impact_graph (
     coverage_run_id UUID,
 
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-    -- Ensure unique mapping per project
-    UNIQUE(project_id, file_path, test_file_path, test_name, COALESCE(function_name, ''), COALESCE(class_name, ''))
+-- Ensure unique mapping per project (using index for COALESCE expressions)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_test_impact_graph_unique_mapping
+ON test_impact_graph (
+    project_id,
+    file_path,
+    test_file_path,
+    test_name,
+    COALESCE(function_name, ''),
+    COALESCE(class_name, '')
 );
 
 -- Coverage data imports
@@ -364,7 +372,7 @@ CREATE POLICY "Users can view impact graph for their projects" ON test_impact_gr
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -374,7 +382,7 @@ CREATE POLICY "Users can manage impact graph for their projects" ON test_impact_
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -385,7 +393,7 @@ CREATE POLICY "Users can view coverage imports for their projects" ON coverage_i
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -395,7 +403,7 @@ CREATE POLICY "Users can manage coverage imports for their projects" ON coverage
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -406,7 +414,7 @@ CREATE POLICY "Users can view jobs for their projects" ON impact_graph_jobs
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -416,7 +424,7 @@ CREATE POLICY "Users can manage jobs for their projects" ON impact_graph_jobs
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -427,7 +435,7 @@ CREATE POLICY "Users can view file deps for their projects" ON file_dependencies
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -437,7 +445,7 @@ CREATE POLICY "Users can manage file deps for their projects" ON file_dependenci
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -448,7 +456,7 @@ CREATE POLICY "Users can view failure correlations for their projects" ON failur
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -458,7 +466,7 @@ CREATE POLICY "Users can manage failure correlations for their projects" ON fail
             SELECT p.id FROM projects p
             JOIN organizations o ON p.organization_id = o.id
             JOIN organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
