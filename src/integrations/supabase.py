@@ -117,7 +117,43 @@ class SupabaseClient:
 
             if filters:
                 for column, value in filters.items():
-                    query = query.eq(column, value)
+                    # Handle PostgREST-style operators
+                    if isinstance(value, str):
+                        if value.startswith("eq."):
+                            query = query.eq(column, value[3:])
+                        elif value.startswith("neq."):
+                            query = query.neq(column, value[4:])
+                        elif value.startswith("lt."):
+                            query = query.lt(column, value[3:])
+                        elif value.startswith("lte."):
+                            query = query.lte(column, value[4:])
+                        elif value.startswith("gt."):
+                            query = query.gt(column, value[3:])
+                        elif value.startswith("gte."):
+                            query = query.gte(column, value[4:])
+                        elif value.startswith("like."):
+                            query = query.like(column, value[5:])
+                        elif value.startswith("ilike."):
+                            query = query.ilike(column, value[6:])
+                        elif value.startswith("is."):
+                            # Handle is.null, is.true, is.false
+                            is_value = value[3:]
+                            if is_value == "null":
+                                query = query.is_(column, "null")
+                            elif is_value == "true":
+                                query = query.is_(column, True)
+                            elif is_value == "false":
+                                query = query.is_(column, False)
+                            else:
+                                query = query.eq(column, value)
+                        elif value.startswith("in."):
+                            # in.(val1,val2,val3) format
+                            in_values = value[3:].strip("()").split(",")
+                            query = query.in_(column, in_values)
+                        else:
+                            query = query.eq(column, value)
+                    else:
+                        query = query.eq(column, value)
 
             if order_by:
                 query = query.order(order_by, desc=not ascending)

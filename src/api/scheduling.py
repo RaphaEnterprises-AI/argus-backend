@@ -66,20 +66,24 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
     cutoff_time = datetime.now(UTC) - timedelta(minutes=max_running_minutes)
 
     # Find stale runs
-    result = await supabase.select(
-        "schedule_runs",
-        columns="id, schedule_id, started_at",
-        filters={
-            "status": "eq.running",
-            "started_at": f"lt.{cutoff_time.isoformat()}",
-        },
-    )
-
-    if result.get("error"):
-        logger.error("Failed to find stale runs", error=result.get("error"))
+    # Note: supabase.select returns a list directly, not a dict with data/error
+    try:
+        stale_runs = await supabase.select(
+            "schedule_runs",
+            columns="id, schedule_id, started_at",
+            filters={
+                "status": "eq.running",
+                "started_at": f"lt.{cutoff_time.isoformat()}",
+            },
+        )
+    except Exception as e:
+        logger.error("Failed to find stale runs", error=str(e))
         return 0
 
-    stale_runs = result.get("data", [])
+    # select returns an empty list on error
+    if not isinstance(stale_runs, list):
+        logger.error("Unexpected result type from stale runs query", result_type=type(stale_runs).__name__)
+        return 0
 
     if not stale_runs:
         return 0
@@ -92,9 +96,9 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
         run_id = run["id"]
         schedule_id = run["schedule_id"]
 
-        update_result = await supabase.update(
+        # Note: supabase.update signature is (table, values, filters) and returns bool
+        update_success = await supabase.update(
             "schedule_runs",
-            {"id": run_id},
             {
                 "status": "timeout",
                 "completed_at": datetime.now(UTC).isoformat(),
@@ -110,22 +114,23 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
                 "failure_category": "environment",
                 "failure_confidence": 0.9,
             },
+            {"id": run_id},
         )
 
-        if update_result.get("error"):
-            logger.error("Failed to update stale run", run_id=run_id, error=update_result.get("error"))
+        if not update_success:
+            logger.error("Failed to update stale run", run_id=run_id)
         else:
             cleaned += 1
             logger.info("Marked stale run as timeout", run_id=run_id, schedule_id=schedule_id)
 
-            # Update schedule status
+            # Update schedule status (values, filters)
             await supabase.update(
                 "test_schedules",
-                {"id": schedule_id},
                 {
                     "status": "error",
                     "last_run_status": "timeout",
                 },
+                {"id": schedule_id},
             )
 
     return cleaned
