@@ -1,8 +1,40 @@
 """Apache AGE Graph Store Client.
 
+.. deprecated:: 2026.01
+    This module is deprecated. Use `src.knowledge.CogneeKnowledgeClient` instead.
+    The Cognee-based client provides:
+    - Graph operations via Cognee's knowledge graph
+    - Better knowledge extraction via ECL pipeline
+    - Multi-hop reasoning with LLM optimization
+    - No need to manage Apache AGE separately
+
+    Migration:
+        ```python
+        # Old way (deprecated)
+        from src.knowledge_graph import get_graph_store
+        graph = get_graph_store()
+
+        # New way
+        from src.knowledge import get_cognee_client
+        client = get_cognee_client(org_id="...", project_id="...")
+        await client.add_to_knowledge_graph(content, content_type="tests")
+        results = await client.query_knowledge_graph("related tests")
+        ```
+
+    See RAP-132 for migration details.
+
 Provides a high-level interface for interacting with the Apache AGE knowledge graph,
 enabling multi-hop reasoning about test relationships.
 """
+
+import warnings
+
+warnings.warn(
+    "graph_store is deprecated. Use src.knowledge.CogneeKnowledgeClient instead. "
+    "See RAP-132 for migration details.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import json
 import os

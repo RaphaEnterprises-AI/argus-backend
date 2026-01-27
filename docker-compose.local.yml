@@ -1,0 +1,267 @@
+# Local E2E Testing - Backend + Data Layer
+# Usage: docker compose -f docker-compose.local.yml up --build
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Backend API (same as Railway deployment)
+  # =============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: argus-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Core
+      - PORT=8000
+      - PYTHONPATH=/app
+
+      # OpenRouter (primary LLM provider)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+
+      # Supabase (Database & Auth)
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - DATABASE_URL=${DATABASE_URL:-}
+
+      # Data Layer - FalkorDB (no auth for local dev)
+      - FALKORDB_HOST=falkordb
+      - FALKORDB_PORT=6379
+      - FALKORDB_PASSWORD=
+
+      # Data Layer - Valkey (port 6379 internal, 6380 external)
+      - VALKEY_URL=redis://:argus_cache_password@valkey:6379
+
+      # Data Layer - Redpanda
+      - REDPANDA_BROKERS=redpanda:9092
+
+      # Cognee Configuration
+      - COGNEE_ENV=development
+      - VECTOR_DB_PROVIDER=pgvector
+      - GRAPH_DATABASE_PROVIDER=falkordb
+      - LLM_PROVIDER=openrouter
+      - LLM_MODEL=anthropic/claude-sonnet-4
+
+      # Browser Pool
+      - BROWSER_POOL_URL=${BROWSER_POOL_URL:-}
+      - BROWSER_POOL_JWT_SECRET=${BROWSER_POOL_JWT_SECRET:-}
+
+      # Clerk Auth
+      - CLERK_JWKS_URL=${CLERK_JWKS_URL:-}
+
+      # Settings
+      - ENFORCE_AUTHENTICATION=false
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./test-results:/app/test-results
+      - ./baselines:/app/baselines
+    depends_on:
+      falkordb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - argus-network
+
+  # =============================================================================
+  # Redpanda - Kafka-compatible streaming
+  # =============================================================================
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: argus-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "19092:19092"    # Kafka API (external)
+      - "18081:18081"    # Schema Registry (external)
+      - "9644:9644"      # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - argus-network
+
+  # =============================================================================
+  # Redpanda Console - Web UI
+  # =============================================================================
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.0
+    container_name: argus-redpanda-console
+    ports:
+      - "8080:8080"
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+          schemaRegistry:
+            enabled: true
+            urls: ["http://redpanda:8081"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - argus-network
+
+  # =============================================================================
+  # FalkorDB - Graph database for knowledge graphs
+  # =============================================================================
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: argus-falkordb
+    ports:
+      - "6379:6379"
+    command: >
+      --maxmemory 2gb
+      --maxmemory-policy noeviction
+      --appendonly yes
+    volumes:
+      - falkordb-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - argus-network
+
+  # =============================================================================
+  # Valkey - Redis-compatible cache (port 6380 external to avoid conflict)
+  # =============================================================================
+  valkey:
+    image: valkey/valkey:8.0-alpine
+    container_name: argus-valkey
+    ports:
+      - "6380:6379"
+    environment:
+      - VALKEY_PASSWORD=argus_cache_password
+    command: >
+      valkey-server
+      --requirepass argus_cache_password
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "argus_cache_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - argus-network
+
+  # =============================================================================
+  # Cognee Worker - Processes events and builds knowledge graphs
+  # =============================================================================
+  cognee-worker:
+    build:
+      context: .
+      dockerfile: data-layer/docker/Dockerfile.cognee-worker
+    container_name: argus-cognee-worker
+    environment:
+      # Kafka/Redpanda
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
+      - KAFKA_CONSUMER_GROUP=argus-cognee-workers
+      - KAFKA_AUTO_OFFSET_RESET=earliest
+
+      # FalkorDB
+      - FALKORDB_HOST=falkordb
+      - FALKORDB_PORT=6379
+      - FALKORDB_PASSWORD=argus_dev_password
+
+      # Valkey
+      - VALKEY_HOST=valkey
+      - VALKEY_PORT=6379
+      - VALKEY_PASSWORD=argus_cache_password
+
+      # Cognee
+      - COGNEE_LOG_LEVEL=INFO
+      - COGNEE_DATA_ROOT=/app/data
+      - COGNEE_SYSTEM_ROOT=/app/data/.cognee_system
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - LLM_MODEL=claude-sonnet-4-5
+
+      # Supabase (for BYOK)
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+
+      # Worker
+      - WORKER_CONCURRENCY=2
+      - WORKER_BATCH_SIZE=5
+    volumes:
+      - cognee-data:/app/data
+      - cognee-logs:/app/logs
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import cognee; print('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - argus-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  argus-network:
+    driver: bridge
+    name: argus-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  redpanda-data:
+    name: argus-local-redpanda-data
+  falkordb-data:
+    name: argus-local-falkordb-data
+  valkey-data:
+    name: argus-local-valkey-data
+  cognee-data:
+    name: argus-local-cognee-data
+  cognee-logs:
+    name: argus-local-cognee-logs

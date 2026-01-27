@@ -8,14 +8,35 @@ The graph integration provides:
 - Analyzing code change impact through the graph
 - Discovering fragile selectors that frequently break
 - Multi-hop healing pattern discovery
+
+.. deprecated:: 2026.01
+    This module uses raw Cypher queries on FalkorDB. As part of RAP-132
+    (Cognee Consolidation), these graph operations will be migrated to
+    `src.knowledge.CogneeKnowledgeClient.query_knowledge_graph()` which
+    provides higher-level semantic graph querying via Cognee's knowledge
+    graph APIs.
+
+    Migration path:
+    1. Simple queries -> Use CogneeKnowledgeClient.query_knowledge_graph()
+    2. Complex multi-hop -> Wait for Cognee graph reasoning features
+    3. Raw Cypher needed -> Continue using GraphStore temporarily
 """
 
+import warnings
 from typing import Any
 
 import structlog
 
 from ..knowledge_graph import GraphStore, get_graph_store
 from ..knowledge_graph.schema import EdgeType
+
+# Emit deprecation warning at module import time
+warnings.warn(
+    "self_healer_graph_integration uses deprecated GraphStore. "
+    "See RAP-132 for migration to src.knowledge.CogneeKnowledgeClient.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = structlog.get_logger(__name__)
 

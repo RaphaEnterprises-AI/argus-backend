@@ -1,5 +1,27 @@
 """Long-term memory store for cross-session learning.
 
+.. deprecated:: 2026.01
+    This module is deprecated. Use `src.knowledge.CogneeKnowledgeClient` instead.
+    The Cognee-based client provides:
+    - Same API (drop-in replacement)
+    - Better knowledge extraction via ECL pipeline
+    - Graph + vector hybrid search
+    - Multi-hop reasoning
+    - 30+ data connectors
+
+    Migration:
+        ```python
+        # Old way (deprecated)
+        from src.orchestrator.memory_store import get_memory_store
+        store = get_memory_store()
+
+        # New way
+        from src.knowledge import get_cognee_client
+        client = get_cognee_client(org_id="...", project_id="...")
+        ```
+
+    See RAP-132 for migration details.
+
 This module provides a persistent memory store for LangGraph that enables:
 - Cross-session learning from test failures
 - Semantic search on failure patterns using pgvector
@@ -9,6 +31,15 @@ This module provides a persistent memory store for LangGraph that enables:
 The memory store uses Supabase PostgreSQL with pgvector for semantic search,
 allowing the system to find similar past failures and apply proven healing solutions.
 """
+
+import warnings
+
+warnings.warn(
+    "memory_store is deprecated. Use src.knowledge.CogneeKnowledgeClient instead. "
+    "See RAP-132 for migration details.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import json
 import os

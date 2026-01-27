@@ -11,9 +11,14 @@ This package provides:
 - ChatGraph: Chat-enabled graph for conversational testing
 - SupervisorGraph: Multi-agent supervisor pattern
 - PostgresSaver: Durable execution with PostgreSQL
-- MemoryStore: Long-term learning with semantic search
 - Human-in-the-loop approval workflows with breakpoints
+
+.. note::
+    For knowledge/memory operations, use `src.knowledge.CogneeKnowledgeClient`
+    instead of the deprecated `get_memory_store()`. See RAP-132.
 """
+
+import warnings
 
 from .checkpointer import (
     CheckpointManager,
@@ -67,6 +72,17 @@ def get_chat_graph():
 
 
 def get_memory_store():
+    """Get memory store instance.
+
+    .. deprecated:: 2026.01
+        Use `src.knowledge.get_cognee_client()` instead.
+    """
+    warnings.warn(
+        "get_memory_store is deprecated. Use src.knowledge.get_cognee_client() instead. "
+        "See RAP-132 for migration details.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from .memory_store import get_memory_store as _get_memory_store
     return _get_memory_store()
 

@@ -14,12 +14,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency files first (for caching)
 COPY pyproject.toml ./
 
-# Install Python dependencies (v2.2.0 - Discovery API + API Key Auth)
+# Install Python dependencies (v2.3.0 - Cognee Knowledge Layer)
 RUN pip install --upgrade pip && \
     pip install -e . || pip install \
     "anthropic>=0.75.0" \
@@ -52,7 +53,10 @@ RUN pip install --upgrade pip && \
     "openai>=1.0.0" \
     "PyJWT[crypto]>=2.8.0" \
     "aiosmtplib>=3.0.0" \
-    "sentry-sdk[fastapi]>=2.0.0"
+    "sentry-sdk[fastapi]>=2.0.0" \
+    "cognee[postgres,falkordb]>=0.1.0" \
+    "falkordb>=1.0.0" \
+    "aiokafka>=0.10.0"
 
 # Copy application code
 COPY src/ /app/src/

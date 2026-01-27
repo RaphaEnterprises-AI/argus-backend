@@ -32,8 +32,10 @@ from typing import Any
 
 from ..config import ModelName
 from ..core.model_router import TaskType
-from ..orchestrator.memory_store import MemoryStore, get_memory_store
-from ..retrieval import HybridRetriever, RetrievalSource, get_hybrid_retriever
+
+# Migration to Cognee (RAP-132): Using unified knowledge layer
+from ..knowledge import CogneeKnowledgeClient, get_cognee_client
+from ..retrieval import HybridRetriever, get_hybrid_retriever
 from ..services.cache import get_cached, set_cached
 from ..services.git_analyzer import SelectorChange, get_git_analyzer
 from ..services.source_analyzer import get_source_analyzer
@@ -216,6 +218,8 @@ class SelfHealerAgent(BaseAgent):
         enable_memory_store: bool = True,
         enable_hybrid_retrieval: bool = True,
         embeddings: object | None = None,
+        org_id: str | None = None,
+        project_id: str | None = None,
         **kwargs,
     ):
         """Initialize healer with configuration.
@@ -224,8 +228,10 @@ class SelfHealerAgent(BaseAgent):
             auto_heal_threshold: Minimum confidence to auto-apply fixes
             repo_path: Path to git repository for code-aware healing
             enable_code_aware: Whether to use code-aware healing
-            enable_memory_store: Whether to use long-term memory store
+            enable_memory_store: Whether to use long-term memory store (now Cognee-powered)
             enable_hybrid_retrieval: Whether to use hybrid retrieval (BM25 + Vector + Reranking)
+            org_id: Organization ID for multi-tenant knowledge isolation
+            project_id: Project ID for multi-tenant knowledge isolation
             embeddings: Optional embeddings instance for semantic search
         """
         super().__init__(**kwargs)
@@ -243,9 +249,13 @@ class SelfHealerAgent(BaseAgent):
             self.git_analyzer = None
             self.source_analyzer = None
 
-        # Initialize long-term memory store for cross-session learning
+        # Initialize Cognee knowledge client for cross-session learning (RAP-132)
+        # Replaces the deprecated MemoryStore with unified Cognee-powered layer
         if enable_memory_store:
-            self.memory_store: MemoryStore | None = get_memory_store(embeddings=embeddings)
+            self.memory_store: CogneeKnowledgeClient | None = get_cognee_client(
+                org_id=org_id,
+                project_id=project_id,
+            )
         else:
             self.memory_store = None
 
@@ -664,15 +674,16 @@ class SelfHealerAgent(BaseAgent):
                 return None
 
             # Find the best match with high success rate
+            # Note: similar_failures now returns SimilarFailure dataclass objects (RAP-132)
             best_match = None
             for failure in similar_failures:
                 # Require at least 70% success rate and some history
                 if (
-                    failure.get("success_rate", 0) >= 0.7
-                    and failure.get("success_count", 0) >= 1
-                    and failure.get("healed_selector")
+                    failure.success_rate >= 0.7
+                    and failure.success_count >= 1
+                    and failure.healed_selector
                 ):
-                    if best_match is None or failure["similarity"] > best_match["similarity"]:
+                    if best_match is None or failure.similarity > best_match.similarity:
                         best_match = failure
 
             if not best_match:
@@ -683,31 +694,31 @@ class SelfHealerAgent(BaseAgent):
                 return None
 
             # Calculate confidence based on similarity and success rate
-            confidence = min(0.95, best_match["similarity"] * best_match["success_rate"] + 0.1)
+            confidence = min(0.95, best_match.similarity * best_match.success_rate + 0.1)
 
             self.log.info(
                 "Found healing pattern from vector search",
-                pattern_id=best_match["id"],
-                similarity=best_match["similarity"],
-                success_rate=best_match["success_rate"],
-                healed_selector=best_match["healed_selector"],
+                pattern_id=best_match.id,
+                similarity=best_match.similarity,
+                success_rate=best_match.success_rate,
+                healed_selector=best_match.healed_selector,
             )
 
             fix = FixSuggestion(
                 fix_type=FixType.UPDATE_SELECTOR,
-                old_value=original_selector or best_match.get("original_selector"),
-                new_value=best_match["healed_selector"],
+                old_value=original_selector or best_match.original_selector,
+                new_value=best_match.healed_selector,
                 confidence=confidence,
                 explanation=(
                     f"Using learned healing pattern from memory store "
-                    f"(similarity: {best_match['similarity']:.0%}, "
-                    f"success rate: {best_match['success_rate']:.0%}, "
-                    f"method: {best_match.get('healing_method', 'unknown')})"
+                    f"(similarity: {best_match.similarity:.0%}, "
+                    f"success rate: {best_match.success_rate:.0%}, "
+                    f"method: {best_match.healing_method or 'unknown'})"
                 ),
                 requires_review=confidence < self.auto_heal_threshold,
             )
 
-            return fix, best_match["id"]
+            return fix, best_match.id
 
         except Exception as e:
             self.log.warning(
