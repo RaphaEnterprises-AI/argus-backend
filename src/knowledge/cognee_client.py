@@ -41,6 +41,71 @@ except ImportError as e:
 
 logger = structlog.get_logger(__name__)
 
+# =============================================================================
+# Cognee Configuration (runs once at module load)
+# =============================================================================
+
+_cognee_configured = False
+
+
+def _configure_cognee() -> None:
+    """Configure Cognee with LLM and database settings.
+
+    This reads from environment variables and configures Cognee once.
+    Called lazily on first client instantiation.
+    """
+    global _cognee_configured
+    if _cognee_configured:
+        return
+
+    # LLM Configuration - prefer Anthropic, fall back to OpenRouter
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+
+    if anthropic_key:
+        cognee.config.set_llm_provider("anthropic")
+        cognee.config.set_llm_api_key(anthropic_key)
+        cognee.config.set_llm_model(os.environ.get("LLM_MODEL", "claude-sonnet-4-5"))
+        logger.info("Cognee configured with Anthropic LLM")
+    elif openrouter_key:
+        cognee.config.set_llm_provider("openrouter")
+        cognee.config.set_llm_config({
+            "llm_api_key": openrouter_key,
+            "llm_model": os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4"),
+            "llm_endpoint": "https://openrouter.ai/api/v1",
+        })
+        logger.info("Cognee configured with OpenRouter LLM")
+    else:
+        logger.warning(
+            "No LLM API key found for Cognee. "
+            "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
+        )
+
+    # Database Configuration - use defaults (Kuzu for graph, LanceDB for vectors)
+    # These are embedded databases that work without external infrastructure
+    cognee.config.set_graph_database_provider("kuzu")
+    cognee.config.set_vector_db_provider("lancedb")
+
+    # If FalkorDB is configured, use it instead of Kuzu
+    falkordb_host = os.environ.get("FALKORDB_HOST")
+    if falkordb_host:
+        cognee.config.set_graph_database_provider("falkordb")
+        cognee.config.set_graph_db_config({
+            "graph_database_url": f"redis://{falkordb_host}:{os.environ.get('FALKORDB_PORT', '6379')}",
+            "graph_database_password": os.environ.get("FALKORDB_PASSWORD", ""),
+        })
+        logger.info("Cognee configured with FalkorDB graph database")
+
+    # If pgvector is available via DATABASE_URL, use it
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url and "postgresql" in database_url:
+        cognee.config.set_vector_db_provider("pgvector")
+        cognee.config.set_vector_db_url(database_url)
+        logger.info("Cognee configured with pgvector for embeddings")
+
+    _cognee_configured = True
+    logger.info("Cognee configuration complete")
+
 
 # =============================================================================
 # Custom Exceptions for Cognee Operations
@@ -1084,6 +1149,9 @@ def get_cognee_client(
         CogneeKnowledgeClient instance
     """
     global _cognee_client
+
+    # Ensure Cognee is configured on first use
+    _configure_cognee()
 
     org = org_id or os.environ.get("DEFAULT_ORG_ID", "default")
     proj = project_id or os.environ.get("DEFAULT_PROJECT_ID", "default")
