@@ -2,9 +2,20 @@
 Cloudflare Vectorize REST API client.
 
 Used for semantic search on error patterns.
+
+.. deprecated::
+    This module is deprecated and will be removed in a future version.
+    Use :class:`src.knowledge.CogneeKnowledgeClient` instead, which provides
+    unified knowledge management with semantic search capabilities.
+
+    Migration guide:
+    - Replace `CloudflareVectorizeClient` with `CogneeKnowledgeClient`
+    - Use `cognee_client.find_similar_failures()` for semantic search
+    - Use `cognee_client.store_failure_pattern()` for indexing patterns
 """
 
 import logging
+import warnings
 
 import httpx
 
@@ -16,9 +27,20 @@ CF_API_BASE = "https://api.cloudflare.com/client/v4/accounts"
 
 
 class CloudflareVectorizeClient:
-    """Cloudflare Vectorize REST API client."""
+    """Cloudflare Vectorize REST API client.
+
+    .. deprecated::
+        Use :class:`src.knowledge.CogneeKnowledgeClient` instead.
+        This class will be removed in a future version.
+    """
 
     def __init__(self, account_id: str, index_name: str, api_token: str):
+        warnings.warn(
+            "CloudflareVectorizeClient is deprecated. "
+            "Use src.knowledge.CogneeKnowledgeClient instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.account_id = account_id
         self.index_name = index_name
         self.api_token = api_token
@@ -219,7 +241,17 @@ _vectorize_client: CloudflareVectorizeClient | None = None
 
 
 def get_vectorize_client() -> CloudflareVectorizeClient | None:
-    """Get or create Cloudflare Vectorize client (lazy initialization)."""
+    """Get or create Cloudflare Vectorize client (lazy initialization).
+
+    .. deprecated::
+        Use :func:`src.knowledge.get_cognee_client` instead.
+    """
+    warnings.warn(
+        "get_vectorize_client is deprecated. "
+        "Use src.knowledge.get_cognee_client instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global _vectorize_client
 
     if _vectorize_client is not None:
@@ -260,6 +292,9 @@ async def semantic_search_errors(
     """
     Search for similar error patterns using semantic similarity.
 
+    .. deprecated::
+        Use :meth:`src.knowledge.CogneeKnowledgeClient.find_similar_failures` instead.
+
     Args:
         error_text: Error text to search for
         limit: Maximum results to return
@@ -268,7 +303,15 @@ async def semantic_search_errors(
     Returns:
         List of similar patterns with scores
     """
-    vectorize = get_vectorize_client()
+    warnings.warn(
+        "semantic_search_errors is deprecated. "
+        "Use CogneeKnowledgeClient.find_similar_failures instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        vectorize = get_vectorize_client()
 
     if vectorize is None:
         logger.warning("Vectorize not available, using fallback search")
@@ -310,6 +353,9 @@ async def index_error_pattern(
     """
     Index an error pattern for future semantic search.
 
+    .. deprecated::
+        Use :meth:`src.knowledge.CogneeKnowledgeClient.store_failure_pattern` instead.
+
     Args:
         error_id: Unique identifier for the error
         error_text: Error text to embed
@@ -318,7 +364,15 @@ async def index_error_pattern(
     Returns:
         True if successful
     """
-    vectorize = get_vectorize_client()
+    warnings.warn(
+        "index_error_pattern is deprecated. "
+        "Use CogneeKnowledgeClient.store_failure_pattern instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        vectorize = get_vectorize_client()
 
     if vectorize is None:
         logger.warning("Vectorize not available, cannot index error")
@@ -345,12 +399,21 @@ async def index_production_event(event: dict) -> bool:
 
     Called automatically when new errors come in via webhooks.
 
+    .. deprecated::
+        Use :meth:`src.knowledge.CogneeKnowledgeClient.store_failure_pattern` instead.
+
     Args:
         event: Production event dict with id, title, message, etc.
 
     Returns:
         True if indexed successfully
     """
+    warnings.warn(
+        "index_production_event is deprecated. "
+        "Use CogneeKnowledgeClient.store_failure_pattern instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     event_id = event.get("id")
     if not event_id:
         logger.warning("Cannot index event without ID")

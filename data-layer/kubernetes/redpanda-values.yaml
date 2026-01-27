@@ -62,6 +62,16 @@ listeners:
     port: 8082
     authenticationMethod: http_basic
 
+# External access configuration
+# Note: Update EXTERNAL_IP after LoadBalancer is provisioned
+external:
+  enabled: true
+  type: LoadBalancer
+  # Advertised addresses for external access (Railway backend)
+  addresses:
+    - 65.20.89.76  # Redpanda Kafka LoadBalancer IP
+  domain: ""  # No domain, use IP directly
+
 # Disable tuning for small cluster (requires privileged containers)
 tuning:
   tune_aio_events: false
