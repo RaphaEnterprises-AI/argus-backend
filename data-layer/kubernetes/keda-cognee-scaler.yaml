@@ -1,0 +1,101 @@
+# KEDA ScaledObject for Cognee Workers
+# Scales based on Redpanda consumer group lag with SASL authentication
+#
+# Triggers:
+# 1. Kafka lag on argus.codebase.ingested topic
+# 2. CPU utilization as a fallback
+#
+# Note: Secrets are managed via External Secrets Operator in production.
+# The values below are placeholders - actual credentials stored in redpanda-superuser secret.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keda-kafka-secrets
+  namespace: argus-data
+type: Opaque
+stringData:
+  # SASL credentials for Redpanda - use SCRAM-SHA-512
+  sasl: "scram_sha512"
+  # Use argus-service user (from argus-data-secrets.redpanda-password)
+  username: "argus-service"
+  # NOTE: In production, use External Secrets Operator to sync from argus-data-secrets
+  password: "${REDPANDA_PASSWORD}"  # From argus-data-secrets.redpanda-password
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: keda-kafka-auth
+  namespace: argus-data
+spec:
+  secretTargetRef:
+    - parameter: sasl
+      name: keda-kafka-secrets
+      key: sasl
+    - parameter: username
+      name: keda-kafka-secrets
+      key: username
+    - parameter: password
+      name: keda-kafka-secrets
+      key: password
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: cognee-worker-scaledobject
+  namespace: argus-data
+  labels:
+    app: cognee-worker
+spec:
+  scaleTargetRef:
+    name: cognee-worker
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+  triggers:
+    # Scale based on Kafka consumer lag with SASL auth
+    - type: kafka
+      authenticationRef:
+        name: keda-kafka-auth
+      metadata:
+        bootstrapServers: redpanda.argus-data.svc.cluster.local:9092
+        consumerGroup: argus-cognee-workers
+        topic: argus.codebase.ingested
+        lagThreshold: "10"
+        activationLagThreshold: "5"
+        offsetResetPolicy: earliest
+    # Scale based on test events topic
+    - type: kafka
+      authenticationRef:
+        name: keda-kafka-auth
+      metadata:
+        bootstrapServers: redpanda.argus-data.svc.cluster.local:9092
+        consumerGroup: argus-cognee-workers
+        topic: argus.test.created
+        lagThreshold: "5"
+        activationLagThreshold: "2"
+        offsetResetPolicy: earliest
+    # Also scale based on CPU as fallback
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 25
+              periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
