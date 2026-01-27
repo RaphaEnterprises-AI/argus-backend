@@ -83,49 +83,53 @@ def _configure_cognee() -> None:
 
     # Database Configuration
     # Railway has ephemeral filesystem, so we MUST use PostgreSQL for persistence
+    # Cognee reads from environment variables, so we set them directly
     database_url = os.environ.get("DATABASE_URL")
 
     if database_url and "postgresql" in database_url:
-        # Use PostgreSQL for relational database (required for Railway)
-        # Parse DATABASE_URL to extract components
+        # Parse DATABASE_URL to extract components for Cognee env vars
         # Format: postgresql://user:pass@host:port/dbname
         try:
             from urllib.parse import urlparse
             parsed = urlparse(database_url)
-            cognee.config.set_relational_db_config({
-                "db_provider": "postgresql",
-                "db_host": parsed.hostname,
-                "db_port": parsed.port or 5432,
-                "db_name": parsed.path.lstrip("/"),
-                "db_username": parsed.username,
-                "db_password": parsed.password,
-            })
-            logger.info("Cognee configured with PostgreSQL relational database")
+
+            # Set env vars that Cognee reads
+            os.environ["DB_PROVIDER"] = "postgres"
+            os.environ["DB_HOST"] = parsed.hostname or "localhost"
+            os.environ["DB_PORT"] = str(parsed.port or 5432)
+            os.environ["DB_NAME"] = parsed.path.lstrip("/") if parsed.path else "cognee"
+            os.environ["DB_USERNAME"] = parsed.username or ""
+            os.environ["DB_PASSWORD"] = parsed.password or ""
 
             # Use pgvector for vector storage
-            cognee.config.set_vector_db_provider("pgvector")
-            cognee.config.set_vector_db_url(database_url)
-            logger.info("Cognee configured with pgvector for embeddings")
+            os.environ["VECTOR_DB_PROVIDER"] = "pgvector"
+
+            logger.info(
+                "Cognee configured with PostgreSQL",
+                host=parsed.hostname,
+                db=os.environ["DB_NAME"],
+            )
         except Exception as e:
             logger.error(f"Failed to parse DATABASE_URL for Cognee: {e}")
             # Fall back to in-memory/local storage
-            cognee.config.set_vector_db_provider("lancedb")
+            os.environ["VECTOR_DB_PROVIDER"] = "lancedb"
+            os.environ["DB_PROVIDER"] = "sqlite"
     else:
         # Local development - use embedded databases
-        cognee.config.set_vector_db_provider("lancedb")
-        logger.info("Cognee configured with LanceDB (local mode)")
+        os.environ["VECTOR_DB_PROVIDER"] = "lancedb"
+        os.environ["DB_PROVIDER"] = "sqlite"
+        logger.info("Cognee configured with LanceDB/SQLite (local mode)")
 
     # Graph database - use Kuzu by default, FalkorDB if configured
     falkordb_host = os.environ.get("FALKORDB_HOST")
     if falkordb_host:
-        cognee.config.set_graph_database_provider("falkordb")
-        cognee.config.set_graph_db_config({
-            "graph_database_url": f"redis://{falkordb_host}:{os.environ.get('FALKORDB_PORT', '6379')}",
-            "graph_database_password": os.environ.get("FALKORDB_PASSWORD", ""),
-        })
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "falkordb"
+        os.environ["GRAPH_DATABASE_URL"] = f"redis://{falkordb_host}:{os.environ.get('FALKORDB_PORT', '6379')}"
+        if os.environ.get("FALKORDB_PASSWORD"):
+            os.environ["GRAPH_DATABASE_PASSWORD"] = os.environ["FALKORDB_PASSWORD"]
         logger.info("Cognee configured with FalkorDB graph database")
     else:
-        cognee.config.set_graph_database_provider("kuzu")
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
         logger.info("Cognee configured with Kuzu graph database (local mode)")
 
     _cognee_configured = True
