@@ -23,8 +23,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import cognee
 import structlog
+
+# Cognee is optional for development/testing
+try:
+    import cognee
+
+    COGNEE_AVAILABLE = True
+except ImportError:
+    cognee = None  # type: ignore
+    COGNEE_AVAILABLE = False
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +115,14 @@ class CogneeKnowledgeClient:
             project_id=project_id,
         )
 
+    def _ensure_cognee_available(self) -> None:
+        """Raise ImportError if cognee module is not available."""
+        if not COGNEE_AVAILABLE:
+            raise ImportError(
+                "The cognee package is required for CogneeKnowledgeClient. "
+                "Install it with: pip install cognee"
+            )
+
     def _build_namespace(self, parts: list[str] | tuple[str, ...]) -> str:
         """Build a full namespace string from parts.
 
@@ -167,6 +183,7 @@ class CogneeKnowledgeClient:
             value: JSON-serializable value
             embed_text: Optional text for embedding generation
         """
+        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name(namespace)
         key_id = self._generate_key_id(namespace, key)
 
@@ -214,6 +231,7 @@ class CogneeKnowledgeClient:
         Returns:
             Stored value or None if not found
         """
+        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name(namespace)
         key_id = self._generate_key_id(namespace, key)
 
@@ -289,6 +307,7 @@ class CogneeKnowledgeClient:
         Returns:
             List of matching items with similarity scores
         """
+        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name(namespace)
 
         try:
@@ -354,6 +373,7 @@ class CogneeKnowledgeClient:
         Returns:
             Pattern ID
         """
+        self._ensure_cognee_available()
         pattern_id = hashlib.sha256(
             f"{error_message}:{original_selector}:{healed_selector}".encode()
         ).hexdigest()[:32]
@@ -512,6 +532,7 @@ class CogneeKnowledgeClient:
             content: Text or structured content to add
             content_type: Type hint for better extraction
         """
+        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name([content_type])
 
         if isinstance(content, dict):
@@ -541,6 +562,7 @@ class CogneeKnowledgeClient:
         Returns:
             Relevant knowledge items
         """
+        self._ensure_cognee_available()
         all_results = []
 
         # Search across specified content types or all
@@ -599,6 +621,323 @@ class CogneeKnowledgeClient:
         )
 
         return results
+
+    # =========================================================================
+    # Discovery Patterns Interface (replaces PatternService + CloudflareVectorize)
+    # =========================================================================
+
+    async def store_discovery_pattern(
+        self,
+        pattern_type: str,
+        pattern_name: str,
+        pattern_signature: str,
+        pattern_data: dict[str, Any],
+        source_url: Optional[str] = None,
+        source_project_id: Optional[str] = None,
+    ) -> str:
+        """Store a UI discovery pattern for cross-project learning.
+
+        This replaces PatternService._store_pattern() and uses Cognee's ECL pipeline
+        for embedding generation and storage instead of Cloudflare Vectorize.
+
+        Args:
+            pattern_type: Type of pattern (page_layout, navigation, form, authentication, etc.)
+            pattern_name: Human-readable pattern name
+            pattern_signature: Hash for deduplication
+            pattern_data: Full pattern details including features
+            source_url: URL where pattern was discovered
+            source_project_id: Project ID where pattern was found
+
+        Returns:
+            Pattern ID
+        """
+        # Create searchable text for embedding
+        embed_parts = [
+            f"Pattern type: {pattern_type}",
+            f"Pattern name: {pattern_name}",
+        ]
+
+        features = pattern_data.get("features", {})
+        for key, value in features.items():
+            if value:
+                embed_parts.append(f"{key}: {value}")
+
+        embed_text = " | ".join(embed_parts)
+
+        # Generate pattern ID
+        pattern_id = f"discovery_{pattern_signature}"
+
+        # Store via Cognee ECL pipeline
+        value = {
+            "id": pattern_id,
+            "pattern_type": pattern_type,
+            "pattern_name": pattern_name,
+            "pattern_signature": pattern_signature,
+            "pattern_data": pattern_data,
+            "source_url": source_url,
+            "source_project_id": source_project_id,
+            "times_seen": 1,
+            "projects_seen": 1,
+            "test_success_rate": 0.0,
+            "self_heal_success_rate": 0.0,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        await self.put(
+            namespace=["discovery_patterns", pattern_type],
+            key=pattern_id,
+            value=value,
+            embed_text=embed_text,
+        )
+
+        self._log.info(
+            "Stored discovery pattern",
+            pattern_id=pattern_id,
+            pattern_type=pattern_type,
+            pattern_name=pattern_name,
+        )
+
+        return pattern_id
+
+    async def find_similar_discovery_patterns(
+        self,
+        query_text: str,
+        pattern_type: Optional[str] = None,
+        limit: int = 5,
+        min_similarity: float = 0.7,
+    ) -> list[dict[str, Any]]:
+        """Find similar UI patterns for cross-project learning.
+
+        This replaces PatternService.find_similar_patterns() using Cognee's
+        semantic search capabilities.
+
+        Args:
+            query_text: Text description or pattern to match
+            pattern_type: Optional filter by pattern type
+            limit: Maximum results
+            min_similarity: Minimum similarity threshold
+
+        Returns:
+            List of matching patterns with similarity scores
+        """
+        # Build namespace for search
+        if pattern_type:
+            namespaces = [["discovery_patterns", pattern_type]]
+        else:
+            # Search across all pattern types
+            namespaces = [["discovery_patterns"]]
+
+        results = []
+        for ns in namespaces:
+            try:
+                matches = await self.search(
+                    namespace=ns,
+                    query=query_text,
+                    limit=limit,
+                )
+                results.extend(matches)
+            except Exception as e:
+                self._log.warning(
+                    "Failed to search discovery patterns",
+                    namespace=ns,
+                    error=str(e),
+                )
+
+        # Filter by similarity and deduplicate
+        filtered = []
+        seen_ids = set()
+        for match in results:
+            if isinstance(match, dict):
+                pattern_id = match.get("id", match.get("key", ""))
+                similarity = match.get("similarity", match.get("score", 0.8))
+
+                if pattern_id not in seen_ids and similarity >= min_similarity:
+                    seen_ids.add(pattern_id)
+                    match["similarity"] = similarity
+                    filtered.append(match)
+
+        # Sort by similarity descending
+        filtered.sort(key=lambda x: x.get("similarity", 0), reverse=True)
+
+        return filtered[:limit]
+
+    async def increment_pattern_times_seen(
+        self,
+        pattern_id: str,
+        pattern_type: str,
+    ) -> bool:
+        """Increment times_seen counter for an existing pattern.
+
+        Args:
+            pattern_id: Pattern ID
+            pattern_type: Pattern type (for namespace lookup)
+
+        Returns:
+            True if updated successfully
+        """
+        try:
+            # Get current pattern
+            current = await self.get(
+                namespace=["discovery_patterns", pattern_type],
+                key=pattern_id,
+            )
+
+            if current:
+                current["times_seen"] = current.get("times_seen", 0) + 1
+                current["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+                await self.put(
+                    namespace=["discovery_patterns", pattern_type],
+                    key=pattern_id,
+                    value=current,
+                )
+                return True
+        except Exception as e:
+            self._log.warning(
+                "Failed to increment pattern times_seen",
+                pattern_id=pattern_id,
+                error=str(e),
+            )
+
+        return False
+
+    async def update_discovery_pattern_stats(
+        self,
+        pattern_id: str,
+        pattern_type: str,
+        test_passed: bool,
+        self_healed: bool = False,
+    ) -> bool:
+        """Update pattern success rates after test execution.
+
+        This enables learning: patterns with high success rates
+        are prioritized in future discoveries.
+
+        Args:
+            pattern_id: Pattern ID
+            pattern_type: Pattern type (for namespace lookup)
+            test_passed: Whether the test passed
+            self_healed: Whether self-healing was applied
+
+        Returns:
+            True if updated successfully
+        """
+        try:
+            # Get current pattern
+            current = await self.get(
+                namespace=["discovery_patterns", pattern_type],
+                key=pattern_id,
+            )
+
+            if not current:
+                return False
+
+            times_seen = current.get("times_seen", 1)
+            current_test_rate = float(current.get("test_success_rate", 0) or 0)
+            current_heal_rate = float(current.get("self_heal_success_rate", 0) or 0)
+
+            # Calculate new rolling average
+            new_test_rate = (
+                (current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)
+            ) / times_seen
+
+            new_heal_rate = current_heal_rate
+            if self_healed:
+                new_heal_rate = (
+                    (current_heal_rate * (times_seen - 1)) + 100
+                ) / times_seen
+
+            current["test_success_rate"] = round(new_test_rate, 2)
+            current["self_heal_success_rate"] = round(new_heal_rate, 2)
+            current["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+            await self.put(
+                namespace=["discovery_patterns", pattern_type],
+                key=pattern_id,
+                value=current,
+            )
+
+            self._log.info(
+                "Updated discovery pattern stats",
+                pattern_id=pattern_id,
+                test_success_rate=new_test_rate,
+                self_heal_success_rate=new_heal_rate,
+            )
+
+            return True
+        except Exception as e:
+            self._log.warning(
+                "Failed to update pattern stats",
+                pattern_id=pattern_id,
+                error=str(e),
+            )
+
+        return False
+
+    async def get_discovery_pattern_insights(
+        self,
+        pattern_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Get insights about stored discovery patterns.
+
+        Returns statistics about pattern types, success rates, etc.
+
+        Args:
+            pattern_type: Optional filter by pattern type
+
+        Returns:
+            Insights dictionary with statistics
+        """
+        # Search all patterns
+        if pattern_type:
+            namespaces = [["discovery_patterns", pattern_type]]
+        else:
+            namespaces = [["discovery_patterns"]]
+
+        patterns = []
+        for ns in namespaces:
+            try:
+                # Use a generic query to get all patterns
+                results = await self.search(
+                    namespace=ns,
+                    query="pattern",  # Generic query to match all
+                    limit=1000,
+                )
+                patterns.extend(results)
+            except Exception:
+                pass
+
+        # Calculate insights
+        by_type = {}
+        total_patterns = len(patterns)
+        total_seen = 0
+        avg_test_success = 0
+        avg_heal_success = 0
+
+        for p in patterns:
+            if not isinstance(p, dict):
+                continue
+
+            ptype = p.get("pattern_type", "unknown")
+            if ptype not in by_type:
+                by_type[ptype] = {"count": 0, "total_seen": 0}
+            by_type[ptype]["count"] += 1
+            by_type[ptype]["total_seen"] += p.get("times_seen", 0)
+            total_seen += p.get("times_seen", 0)
+            avg_test_success += float(p.get("test_success_rate", 0) or 0)
+            avg_heal_success += float(p.get("self_heal_success_rate", 0) or 0)
+
+        if total_patterns > 0:
+            avg_test_success /= total_patterns
+            avg_heal_success /= total_patterns
+
+        return {
+            "total_patterns": total_patterns,
+            "total_occurrences": total_seen,
+            "by_type": by_type,
+            "avg_test_success_rate": round(avg_test_success, 2),
+            "avg_self_heal_success_rate": round(avg_heal_success, 2),
+        }
 
 
 # =========================================================================

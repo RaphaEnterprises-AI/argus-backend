@@ -1,12 +1,15 @@
 """
-Caching service using Cloudflare KV REST API.
+Caching service using Cloudflare KV REST API and Valkey (Redis-compatible).
 
 Provides caching decorators for:
 - Quality scores (TTL: 5 min)
 - LLM responses (TTL: 24 hours)
 - Healing patterns (TTL: 7 days)
+- Discovery patterns (TTL: 15 min) - via Valkey
 
-Uses Cloudflare KV via REST API for Python backend on Railway.
+Uses:
+- Cloudflare KV via REST API for edge caching (Railway deployment)
+- Valkey for high-performance local/K8s caching (data layer)
 """
 
 import hashlib
@@ -15,12 +18,21 @@ import logging
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
+from urllib.parse import urlparse
 
 import httpx
 
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Try to import redis (valkey-compatible)
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    redis = None  # type: ignore
+    REDIS_AVAILABLE = False
 
 # Type variables for generic decorators
 P = ParamSpec("P")
@@ -140,6 +152,141 @@ def get_kv_client() -> CloudflareKVClient | None:
         return _kv_client
     except Exception as e:
         logger.error(f"Failed to initialize Cloudflare KV client: {e}")
+        return None
+
+
+# =============================================================================
+# Valkey Client (Redis-compatible, for local/K8s deployments)
+# =============================================================================
+
+
+class ValkeyClient:
+    """Valkey (Redis-compatible) cache client.
+
+    Used for high-performance caching in Kubernetes deployments.
+    Provides same interface as CloudflareKVClient for easy switching.
+    """
+
+    def __init__(self, url: str):
+        """Initialize Valkey client.
+
+        Args:
+            url: Redis-compatible URL (e.g., redis://:password@host:port)
+        """
+        if not REDIS_AVAILABLE:
+            raise ImportError("redis package not installed. Run: pip install redis")
+
+        self.url = url
+        self._pool: redis.ConnectionPool | None = None
+        self._client: redis.Redis | None = None
+
+    async def _get_client(self) -> "redis.Redis":
+        """Get or create Redis client."""
+        if self._client is None:
+            self._pool = redis.ConnectionPool.from_url(
+                self.url,
+                max_connections=10,
+                decode_responses=True,
+            )
+            self._client = redis.Redis(connection_pool=self._pool)
+        return self._client
+
+    async def get(self, key: str) -> str | None:
+        """Get a value from Valkey."""
+        try:
+            client = await self._get_client()
+            return await client.get(key)
+        except Exception as e:
+            logger.warning(f"Valkey get exception: {e}")
+            return None
+
+    async def set(self, key: str, value: str, ex: int = 300) -> bool:
+        """Set a value in Valkey with TTL."""
+        try:
+            client = await self._get_client()
+            await client.set(key, value, ex=ex)
+            return True
+        except Exception as e:
+            logger.warning(f"Valkey set exception: {e}")
+            return False
+
+    async def delete(self, key: str) -> bool:
+        """Delete a value from Valkey."""
+        try:
+            client = await self._get_client()
+            await client.delete(key)
+            return True
+        except Exception as e:
+            logger.warning(f"Valkey delete exception: {e}")
+            return False
+
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Get multiple values from Valkey."""
+        try:
+            client = await self._get_client()
+            return await client.mget(keys)
+        except Exception as e:
+            logger.warning(f"Valkey mget exception: {e}")
+            return [None] * len(keys)
+
+    async def mset(self, mapping: dict[str, str], ex: int = 300) -> bool:
+        """Set multiple values in Valkey with TTL."""
+        try:
+            client = await self._get_client()
+            pipe = client.pipeline()
+            for key, value in mapping.items():
+                pipe.set(key, value, ex=ex)
+            await pipe.execute()
+            return True
+        except Exception as e:
+            logger.warning(f"Valkey mset exception: {e}")
+            return False
+
+    async def close(self):
+        """Close the Redis client."""
+        if self._client:
+            await self._client.close()
+            self._client = None
+        if self._pool:
+            await self._pool.disconnect()
+            self._pool = None
+
+    async def ping(self) -> bool:
+        """Check if Valkey is reachable."""
+        try:
+            client = await self._get_client()
+            return await client.ping()
+        except Exception:
+            return False
+
+
+# Global Valkey client (lazy initialized)
+_valkey_client: ValkeyClient | None = None
+
+
+def get_valkey_client() -> ValkeyClient | None:
+    """Get or create Valkey client (lazy initialization)."""
+    global _valkey_client
+
+    if _valkey_client is not None:
+        return _valkey_client
+
+    if not REDIS_AVAILABLE:
+        logger.debug("Redis package not available - Valkey caching disabled")
+        return None
+
+    settings = get_settings()
+
+    if not settings.valkey_url:
+        logger.debug("Valkey URL not configured - Valkey caching disabled")
+        return None
+
+    try:
+        _valkey_client = ValkeyClient(url=settings.valkey_url)
+        logger.info("Valkey client initialized")
+        return _valkey_client
+    except Exception as e:
+        logger.warning(f"Failed to initialize Valkey client: {e}")
         return None
 
 
@@ -410,3 +557,294 @@ async def check_cache_health() -> dict:
             "healthy": False,
             "reason": str(e)
         }
+
+
+# =============================================================================
+# Valkey-specific caching for hot patterns (high-performance)
+# =============================================================================
+
+# Default TTLs for pattern caching
+PATTERN_CACHE_TTL_HOT = 900  # 15 minutes for frequently accessed patterns
+PATTERN_CACHE_TTL_WARM = 3600  # 1 hour for moderately accessed patterns
+PATTERN_CACHE_TTL_COLD = 86400  # 24 hours for rarely accessed patterns
+
+
+def cache_discovery_pattern(
+    ttl_seconds: int = PATTERN_CACHE_TTL_HOT,
+    key_prefix: str = "pattern"
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """
+    Cache decorator for discovery patterns using Valkey.
+
+    Uses Valkey for high-performance local caching of frequently accessed
+    patterns. Falls back to Cloudflare KV if Valkey is unavailable.
+
+    Args:
+        ttl_seconds: Cache TTL in seconds (default: 15 min)
+        key_prefix: Cache key prefix
+
+    Usage:
+        @cache_discovery_pattern()
+        async def find_similar_patterns(query: str) -> list[dict]:
+            ...
+    """
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            settings = get_settings()
+
+            if not settings.cache_enabled:
+                return await func(*args, **kwargs)
+
+            # Try Valkey first (faster for local/K8s)
+            valkey = get_valkey_client()
+            cache_key = _make_cache_key(key_prefix, *args, **kwargs)
+
+            if valkey is not None:
+                try:
+                    cached = await valkey.get(cache_key)
+                    if cached:
+                        logger.debug(f"Valkey Pattern Cache HIT: {cache_key}")
+                        return _deserialize(cached)
+                    logger.debug(f"Valkey Pattern Cache MISS: {cache_key}")
+                except Exception as e:
+                    logger.warning(f"Valkey pattern cache read error: {e}")
+
+            # Fallback to Cloudflare KV
+            kv = get_kv_client()
+            if kv is not None:
+                try:
+                    cached = await kv.get(cache_key)
+                    if cached:
+                        logger.debug(f"KV Pattern Cache HIT: {cache_key}")
+                        return _deserialize(cached)
+                except Exception as e:
+                    logger.warning(f"KV pattern cache read error: {e}")
+
+            # Execute function
+            result = await func(*args, **kwargs)
+
+            if result is not None:
+                serialized = _serialize(result)
+                # Write to both caches
+                if valkey is not None:
+                    try:
+                        await valkey.set(cache_key, serialized, ex=ttl_seconds)
+                    except Exception as e:
+                        logger.warning(f"Valkey pattern cache write error: {e}")
+
+                if kv is not None:
+                    try:
+                        await kv.set(cache_key, serialized, ex=ttl_seconds)
+                    except Exception as e:
+                        logger.warning(f"KV pattern cache write error: {e}")
+
+            return result
+
+        return wrapper
+    return decorator
+
+
+async def get_cached_pattern(pattern_id: str, pattern_type: str) -> dict | None:
+    """Get a cached pattern by ID and type.
+
+    Uses Valkey first, falls back to Cloudflare KV.
+
+    Args:
+        pattern_id: Pattern identifier
+        pattern_type: Pattern type (e.g., "failure", "discovery")
+
+    Returns:
+        Cached pattern dict or None
+    """
+    cache_key = f"argus:pattern:{pattern_type}:{pattern_id}"
+
+    # Try Valkey first
+    valkey = get_valkey_client()
+    if valkey is not None:
+        try:
+            value = await valkey.get(cache_key)
+            if value:
+                return _deserialize(value)
+        except Exception as e:
+            logger.warning(f"Valkey pattern get error: {e}")
+
+    # Fallback to KV
+    kv = get_kv_client()
+    if kv is not None:
+        try:
+            value = await kv.get(cache_key)
+            if value:
+                return _deserialize(value)
+        except Exception as e:
+            logger.warning(f"KV pattern get error: {e}")
+
+    return None
+
+
+async def set_cached_pattern(
+    pattern_id: str,
+    pattern_type: str,
+    pattern_data: dict,
+    ttl_seconds: int = PATTERN_CACHE_TTL_HOT,
+) -> bool:
+    """Cache a pattern for fast retrieval.
+
+    Writes to both Valkey and Cloudflare KV for redundancy.
+
+    Args:
+        pattern_id: Pattern identifier
+        pattern_type: Pattern type (e.g., "failure", "discovery")
+        pattern_data: Pattern data to cache
+        ttl_seconds: Cache TTL
+
+    Returns:
+        True if cached successfully (in at least one backend)
+    """
+    cache_key = f"argus:pattern:{pattern_type}:{pattern_id}"
+    serialized = _serialize(pattern_data)
+    success = False
+
+    # Write to Valkey
+    valkey = get_valkey_client()
+    if valkey is not None:
+        try:
+            await valkey.set(cache_key, serialized, ex=ttl_seconds)
+            success = True
+        except Exception as e:
+            logger.warning(f"Valkey pattern set error: {e}")
+
+    # Write to KV
+    kv = get_kv_client()
+    if kv is not None:
+        try:
+            await kv.set(cache_key, serialized, ex=ttl_seconds)
+            success = True
+        except Exception as e:
+            logger.warning(f"KV pattern set error: {e}")
+
+    return success
+
+
+async def invalidate_pattern_cache(pattern_id: str, pattern_type: str) -> bool:
+    """Invalidate a cached pattern.
+
+    Removes from both Valkey and Cloudflare KV.
+
+    Args:
+        pattern_id: Pattern identifier
+        pattern_type: Pattern type
+
+    Returns:
+        True if invalidated successfully
+    """
+    cache_key = f"argus:pattern:{pattern_type}:{pattern_id}"
+    success = False
+
+    valkey = get_valkey_client()
+    if valkey is not None:
+        try:
+            await valkey.delete(cache_key)
+            success = True
+        except Exception as e:
+            logger.warning(f"Valkey pattern delete error: {e}")
+
+    kv = get_kv_client()
+    if kv is not None:
+        try:
+            await kv.delete(cache_key)
+            success = True
+        except Exception as e:
+            logger.warning(f"KV pattern delete error: {e}")
+
+    return success
+
+
+async def get_cached_patterns_bulk(
+    pattern_ids: list[str],
+    pattern_type: str,
+) -> dict[str, dict | None]:
+    """Get multiple cached patterns at once.
+
+    Uses Valkey's mget for efficient bulk retrieval.
+
+    Args:
+        pattern_ids: List of pattern identifiers
+        pattern_type: Pattern type
+
+    Returns:
+        Dict mapping pattern_id to pattern_data (or None if not cached)
+    """
+    if not pattern_ids:
+        return {}
+
+    cache_keys = [f"argus:pattern:{pattern_type}:{pid}" for pid in pattern_ids]
+    results: dict[str, dict | None] = {pid: None for pid in pattern_ids}
+
+    # Try Valkey bulk get
+    valkey = get_valkey_client()
+    if valkey is not None:
+        try:
+            values = await valkey.mget(cache_keys)
+            for i, value in enumerate(values):
+                if value:
+                    results[pattern_ids[i]] = _deserialize(value)
+        except Exception as e:
+            logger.warning(f"Valkey bulk pattern get error: {e}")
+
+    # Fill in missing from KV (one by one since KV doesn't have mget)
+    kv = get_kv_client()
+    if kv is not None:
+        for pid in pattern_ids:
+            if results[pid] is None:
+                try:
+                    value = await kv.get(f"argus:pattern:{pattern_type}:{pid}")
+                    if value:
+                        results[pid] = _deserialize(value)
+                except Exception as e:
+                    logger.warning(f"KV pattern get error for {pid}: {e}")
+
+    return results
+
+
+async def check_valkey_health() -> dict:
+    """Check if Valkey is healthy."""
+    valkey = get_valkey_client()
+
+    if valkey is None:
+        return {
+            "healthy": False,
+            "reason": "Valkey not configured",
+            "available": REDIS_AVAILABLE,
+        }
+
+    try:
+        healthy = await valkey.ping()
+        if healthy:
+            return {
+                "healthy": True,
+                "provider": "valkey",
+                "available": True,
+            }
+        else:
+            return {
+                "healthy": False,
+                "reason": "Ping failed",
+            }
+    except Exception as e:
+        return {
+            "healthy": False,
+            "reason": str(e),
+        }
+
+
+async def check_all_cache_health() -> dict:
+    """Check health of all cache backends."""
+    kv_health = await check_cache_health()
+    valkey_health = await check_valkey_health()
+
+    return {
+        "cloudflare_kv": kv_health,
+        "valkey": valkey_health,
+        "any_healthy": kv_health.get("healthy", False) or valkey_health.get("healthy", False),
+    }

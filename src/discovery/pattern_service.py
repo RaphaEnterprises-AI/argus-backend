@@ -1,24 +1,35 @@
-"""Discovery Pattern Service - Cross-project pattern learning with pgvector.
+"""Discovery Pattern Service - Cross-project pattern learning with Cognee.
 
 This service provides:
 1. Pattern extraction from discovered pages/elements/flows
-2. Embedding generation using Cloudflare AI or local models
-3. Storage in Supabase with pgvector for similarity search
+2. Embedding generation via Cognee's ECL pipeline
+3. Storage in Cognee knowledge layer with semantic search
 4. Cross-project pattern matching to improve discovery
 
 The key insight is that UI patterns (login forms, navigation, etc.) are
 similar across projects. Learning from one project helps discover patterns
 in new projects automatically.
+
+.. note::
+    This module has been migrated to use CogneeKnowledgeClient as part of
+    RAP-132 (Cognee Consolidation). The old CloudflareVectorize dependency
+    has been removed in favor of Cognee's unified knowledge layer.
 """
 
 import hashlib
 import json
 import logging
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 
+from src.knowledge import CogneeKnowledgeClient, get_cognee_client
+from src.services.cache import (
+    cache_discovery_pattern,
+    get_cached_pattern,
+    set_cached_pattern,
+)
 from src.services.supabase_client import SupabaseClient, get_supabase_client
-from src.services.vectorize import CloudflareVectorizeClient, get_vectorize_client
 
 logger = logging.getLogger(__name__)
 
@@ -178,15 +189,24 @@ class DiscoveryPattern:
 
 
 class PatternService:
-    """Service for cross-project pattern learning."""
+    """Service for cross-project pattern learning.
+
+    Now powered by CogneeKnowledgeClient for unified knowledge management.
+    Supabase is kept for backwards compatibility with dashboard queries.
+    """
 
     def __init__(
         self,
         supabase: SupabaseClient | None = None,
-        vectorize: CloudflareVectorizeClient | None = None,
+        cognee_client: CogneeKnowledgeClient | None = None,
+        org_id: str | None = None,
+        project_id: str | None = None,
     ):
         self.supabase = supabase or get_supabase_client()
-        self.vectorize = vectorize or get_vectorize_client()
+        self.cognee = cognee_client or get_cognee_client(
+            org_id=org_id,
+            project_id=project_id,
+        )
 
     async def extract_and_store_patterns(
         self,
@@ -262,24 +282,51 @@ class PatternService:
         }
 
     async def _store_pattern(self, pattern: DiscoveryPattern, project_id: str) -> dict:
-        """Store a pattern in the database with embedding."""
+        """Store a pattern in the database with embedding.
 
+        Stores in both Cognee (for semantic search) and Supabase (for dashboard queries).
+        """
         # Check if pattern already exists by signature
         existing = await self._find_by_signature(pattern.pattern_signature)
 
         if existing:
-            # Update times_seen and add project if new
-            return await self._update_existing_pattern(existing["id"], project_id)
+            # Update times_seen in both systems
+            await self._update_existing_pattern(existing["id"], project_id)
+            # Also increment in Cognee
+            try:
+                await self.cognee.increment_pattern_times_seen(
+                    pattern_id=existing["id"],
+                    pattern_type=pattern.pattern_type.value,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to increment pattern in Cognee: {e}")
+            return {"updated": True, "id": existing["id"]}
 
-        # Generate embedding
-        embedding = await self._generate_embedding(pattern)
+        # Store in Cognee first (handles embeddings internally)
+        try:
+            cognee_id = await self.cognee.store_discovery_pattern(
+                pattern_type=pattern.pattern_type.value,
+                pattern_name=pattern.pattern_name,
+                pattern_signature=pattern.pattern_signature,
+                pattern_data=pattern.pattern_data,
+                source_url=pattern.pattern_data.get("source_url"),
+                source_project_id=project_id,
+            )
+            logger.debug(f"Stored pattern in Cognee: {cognee_id}")
+        except Exception as e:
+            logger.warning(f"Failed to store pattern in Cognee: {e}")
+            cognee_id = None
 
-        if not embedding:
-            logger.warning(f"Could not generate embedding for pattern: {pattern.pattern_name}")
-            # Store without embedding
-            embedding = None
+        # Also store in Supabase for dashboard backwards compatibility
+        # Generate embedding for legacy storage (optional)
+        embedding = None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                embedding = await self._generate_embedding(pattern)
+        except Exception:
+            pass  # Embeddings optional for Supabase
 
-        # Store in database
         result = await self.supabase.request(
             "/discovery_patterns",
             method="POST",
@@ -295,10 +342,13 @@ class PatternService:
         )
 
         if result.get("error"):
-            logger.error(f"Failed to store pattern: {result['error']}")
+            logger.error(f"Failed to store pattern in Supabase: {result['error']}")
+            # Still return success if Cognee worked
+            if cognee_id:
+                return {"created": True, "id": cognee_id, "cognee_only": True}
             return {"error": result["error"]}
 
-        return {"created": True, "id": result["data"][0]["id"] if result["data"] else None}
+        return {"created": True, "id": result["data"][0]["id"] if result["data"] else cognee_id}
 
     async def _find_by_signature(self, signature: str) -> dict | None:
         """Find pattern by signature hash."""
@@ -328,20 +378,21 @@ class PatternService:
         return {"error": "Failed to update pattern", "details": result.get("error")}
 
     async def _generate_embedding(self, pattern: DiscoveryPattern) -> list[float] | None:
-        """Generate embedding for pattern using available services."""
+        """Generate embedding for pattern using available services.
+
+        .. deprecated::
+            Cognee handles embeddings internally via its ECL pipeline.
+            This method is kept for backwards compatibility with Supabase storage.
+            New code should use CogneeKnowledgeClient methods directly.
+        """
+        warnings.warn(
+            "_generate_embedding is deprecated. Cognee handles embeddings internally.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         text = pattern.to_embedding_text()
 
-        # Try Cloudflare Vectorize first
-        if self.vectorize:
-            try:
-                embedding = await self.vectorize.generate_embedding(text)
-                if embedding:
-                    # Cloudflare uses 1024 dimensions, pad to 1536 for schema compatibility
-                    return _pad_embedding(embedding, 1536)
-            except Exception as e:
-                logger.warning(f"Cloudflare embedding failed: {e}")
-
-        # Fallback to local embedder
+        # Try local embedder for Supabase backwards compatibility
         try:
             from src.indexer.local_embedder import get_embedder
 
@@ -361,63 +412,129 @@ class PatternService:
         pattern_type: PatternType | None = None,
         threshold: float = 0.7,
         limit: int = 5,
+        use_cache: bool = True,
     ) -> list[PatternMatch]:
         """Find patterns similar to the query pattern.
 
-        Uses pgvector similarity search on embeddings.
+        Uses Cognee's semantic search for similarity matching with
+        Valkey caching for frequently accessed patterns.
 
         Args:
             query_pattern: Pattern to search for
             pattern_type: Optional filter by pattern type
             threshold: Minimum similarity score (0-1)
             limit: Maximum results
+            use_cache: Whether to use Valkey cache (default: True)
 
         Returns:
             List of matching patterns sorted by similarity
         """
-        # Generate embedding for query
-        embedding = await self._generate_embedding(query_pattern)
+        # Generate query text from pattern
+        query_text = query_pattern.to_embedding_text()
 
-        if not embedding:
-            logger.warning("Could not generate embedding for similarity search")
-            return []
+        # Generate cache key from query parameters
+        cache_key = hashlib.sha256(
+            f"{query_text}:{pattern_type}:{threshold}:{limit}".encode()
+        ).hexdigest()[:16]
 
-        # Use Supabase RPC to call pgvector search function
-        params = {
-            "query_embedding": embedding,
-            "match_threshold": threshold,
-            "match_count": limit,
-        }
+        # Check Valkey cache first (for hot patterns)
+        if use_cache:
+            cached = await get_cached_pattern(cache_key, "similar_search")
+            if cached:
+                logger.debug(f"Pattern search cache HIT: {cache_key}")
+                return [PatternMatch(**m) for m in cached.get("matches", [])]
 
-        if pattern_type:
-            params["pattern_type_filter"] = pattern_type.value
-
-        # Call the search_similar_discovery_patterns function
-        result = await self.supabase.request(
-            "/rpc/search_similar_discovery_patterns",
-            method="POST",
-            body=params,
-        )
-
-        if result.get("error"):
-            logger.error(f"Pattern search failed: {result['error']}")
-            return []
-
-        matches = []
-        for row in result.get("data", []):
-            matches.append(
-                PatternMatch(
-                    id=row["id"],
-                    pattern_type=row["pattern_type"],
-                    pattern_name=row["pattern_name"],
-                    pattern_data=row["pattern_data"],
-                    times_seen=row["times_seen"],
-                    test_success_rate=float(row.get("test_success_rate", 0)),
-                    similarity=row["similarity"],
-                )
+        try:
+            # Use Cognee's semantic search
+            cognee_results = await self.cognee.find_similar_discovery_patterns(
+                query_text=query_text,
+                pattern_type=pattern_type.value if pattern_type else None,
+                limit=limit,
+                min_similarity=threshold,
             )
 
-        return matches
+            matches = []
+            for row in cognee_results:
+                matches.append(
+                    PatternMatch(
+                        id=row.get("id", ""),
+                        pattern_type=row.get("pattern_type", "custom"),
+                        pattern_name=row.get("pattern_name", ""),
+                        pattern_data=row.get("pattern_data", {}),
+                        times_seen=row.get("times_seen", 1),
+                        test_success_rate=float(row.get("test_success_rate", 0)),
+                        similarity=float(row.get("similarity", 0)),
+                    )
+                )
+
+            # Cache results in Valkey for fast subsequent lookups
+            if use_cache and matches:
+                await set_cached_pattern(
+                    cache_key,
+                    "similar_search",
+                    {"matches": [
+                        {
+                            "id": m.id,
+                            "pattern_type": m.pattern_type,
+                            "pattern_name": m.pattern_name,
+                            "pattern_data": m.pattern_data,
+                            "times_seen": m.times_seen,
+                            "test_success_rate": m.test_success_rate,
+                            "similarity": m.similarity,
+                        }
+                        for m in matches
+                    ]},
+                    ttl_seconds=900,  # 15 minutes
+                )
+
+            return matches
+
+        except Exception as e:
+            logger.warning(f"Cognee pattern search failed: {e}, falling back to Supabase")
+
+            # Fallback to Supabase pgvector search
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                embedding = await self._generate_embedding(query_pattern)
+
+            if not embedding:
+                logger.warning("Could not generate embedding for similarity search")
+                return []
+
+            params = {
+                "query_embedding": embedding,
+                "match_threshold": threshold,
+                "match_count": limit,
+            }
+
+            if pattern_type:
+                params["pattern_type_filter"] = pattern_type.value
+
+            result = await self.supabase.request(
+                "/rpc/search_similar_discovery_patterns",
+                method="POST",
+                body=params,
+            )
+
+            if result.get("error"):
+                logger.error(f"Pattern search failed: {result['error']}")
+                return []
+
+            matches = []
+            for row in result.get("data", []):
+                matches.append(
+                    PatternMatch(
+                        id=row["id"],
+                        pattern_type=row["pattern_type"],
+                        pattern_name=row["pattern_name"],
+                        pattern_data=row["pattern_data"],
+                        times_seen=row["times_seen"],
+                        test_success_rate=float(row.get("test_success_rate", 0)),
+                        similarity=row["similarity"],
+                    )
+                )
+
+            return matches
 
     async def get_patterns_for_project(self, project_id: str) -> list[dict]:
         """Get all patterns associated with a project."""
@@ -459,6 +576,8 @@ class PatternService:
         This is the public interface for creating patterns.
         For internal pattern extraction, use extract_and_store_patterns instead.
 
+        Stores in both Cognee (for semantic search) and Supabase (for dashboard).
+
         Args:
             pattern_data: Pattern data including pattern_type, pattern_name,
                          pattern_signature, and pattern_data
@@ -471,20 +590,41 @@ class PatternService:
         if signature:
             existing = await self._find_by_signature(signature)
             if existing:
-                # Update times_seen
+                # Update times_seen in both systems
                 project_id = None
                 projects = pattern_data.get("projects_seen", [])
                 if projects:
                     project_id = projects[0]
                 await self._update_existing_pattern(existing["id"], project_id)
+                # Also update in Cognee
+                try:
+                    await self.cognee.increment_pattern_times_seen(
+                        pattern_id=existing["id"],
+                        pattern_type=pattern_data.get("pattern_type", "custom"),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to increment in Cognee: {e}")
                 existing["times_seen"] = existing.get("times_seen", 0) + 1
                 return existing
 
-        # Generate embedding if we have pattern_data
+        # Store in Cognee first (handles embeddings internally)
+        cognee_id = None
+        try:
+            cognee_id = await self.cognee.store_discovery_pattern(
+                pattern_type=pattern_data.get("pattern_type", "custom"),
+                pattern_name=pattern_data.get("pattern_name", ""),
+                pattern_signature=pattern_data.get("pattern_signature", ""),
+                pattern_data=pattern_data.get("pattern_data", {}),
+                source_url=pattern_data.get("pattern_data", {}).get("source_url"),
+                source_project_id=pattern_data.get("projects_seen", [None])[0],
+            )
+        except Exception as e:
+            logger.warning(f"Failed to store in Cognee: {e}")
+
+        # Generate embedding for legacy Supabase storage
         embedding = None
         if pattern_data.get("pattern_data"):
             try:
-                # Create a DiscoveryPattern to generate embedding text
                 pattern_type_str = pattern_data.get("pattern_type", "custom")
                 try:
                     pattern_type = PatternType(pattern_type_str)
@@ -497,7 +637,9 @@ class PatternService:
                     pattern_signature=pattern_data.get("pattern_signature", ""),
                     pattern_data=pattern_data.get("pattern_data", {}),
                 )
-                embedding = await self._generate_embedding(temp_pattern)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    embedding = await self._generate_embedding(temp_pattern)
             except Exception as e:
                 logger.warning(f"Could not generate embedding: {e}")
 
@@ -515,7 +657,7 @@ class PatternService:
         if embedding:
             db_record["embedding"] = embedding
 
-        # Store in database
+        # Store in Supabase for dashboard compatibility
         result = await self.supabase.request(
             "/discovery_patterns",
             method="POST",
@@ -523,107 +665,169 @@ class PatternService:
         )
 
         if result.get("error"):
-            logger.error(f"Failed to store pattern: {result['error']}")
+            logger.error(f"Failed to store pattern in Supabase: {result['error']}")
+            if cognee_id:
+                # Return Cognee ID if Supabase failed
+                return {"id": cognee_id, "cognee_only": True, **pattern_data}
             raise Exception(f"Failed to store pattern: {result['error']}")
 
         if result.get("data") and len(result["data"]) > 0:
             return result["data"][0]
 
-        # Return the input data if we can't get the created record
         return pattern_data
 
     async def get_pattern_insights(
         self,
         pattern_type: PatternType | None = None,
+        use_cache: bool = True,
     ) -> dict:
         """Get insights about stored patterns.
 
         Returns statistics about pattern types, success rates, etc.
+        Uses Cognee with Supabase fallback and Valkey caching.
+
+        Args:
+            pattern_type: Optional filter by pattern type
+            use_cache: Whether to use Valkey cache (default: True)
+
+        Returns:
+            Dict with pattern insights and statistics
         """
-        filters = ""
-        if pattern_type:
-            filters = f"&pattern_type=eq.{pattern_type.value}"
+        # Check cache first
+        cache_key = f"insights:{pattern_type.value if pattern_type else 'all'}"
+        if use_cache:
+            cached = await get_cached_pattern(cache_key, "insights")
+            if cached:
+                logger.debug(f"Pattern insights cache HIT: {cache_key}")
+                return cached
 
-        result = await self.supabase.request(
-            f"/discovery_patterns?select=pattern_type,times_seen,test_success_rate,self_heal_success_rate{filters}"
-        )
+        insights = None
 
-        if result.get("error"):
-            return {"error": result["error"]}
+        # Try Cognee first
+        try:
+            cognee_insights = await self.cognee.get_discovery_pattern_insights(
+                pattern_type=pattern_type.value if pattern_type else None,
+            )
+            if cognee_insights and cognee_insights.get("total_patterns", 0) > 0:
+                insights = cognee_insights
+        except Exception as e:
+            logger.warning(f"Cognee insights failed: {e}, falling back to Supabase")
 
-        patterns = result.get("data", [])
+        # Fallback to Supabase if Cognee didn't return results
+        if insights is None:
+            filters = ""
+            if pattern_type:
+                filters = f"&pattern_type=eq.{pattern_type.value}"
 
-        # Calculate insights
-        by_type = {}
-        total_patterns = len(patterns)
-        total_seen = 0
-        avg_test_success = 0
-        avg_heal_success = 0
+            result = await self.supabase.request(
+                f"/discovery_patterns?select=pattern_type,times_seen,test_success_rate,self_heal_success_rate{filters}"
+            )
 
-        for p in patterns:
-            ptype = p["pattern_type"]
-            if ptype not in by_type:
-                by_type[ptype] = {"count": 0, "total_seen": 0}
-            by_type[ptype]["count"] += 1
-            by_type[ptype]["total_seen"] += p.get("times_seen", 0)
-            total_seen += p.get("times_seen", 0)
-            avg_test_success += float(p.get("test_success_rate", 0) or 0)
-            avg_heal_success += float(p.get("self_heal_success_rate", 0) or 0)
+            if result.get("error"):
+                return {"error": result["error"]}
 
-        if total_patterns > 0:
-            avg_test_success /= total_patterns
-            avg_heal_success /= total_patterns
+            patterns = result.get("data", [])
 
-        return {
-            "total_patterns": total_patterns,
-            "total_occurrences": total_seen,
-            "by_type": by_type,
-            "avg_test_success_rate": round(avg_test_success, 2),
-            "avg_self_heal_success_rate": round(avg_heal_success, 2),
-        }
+            # Calculate insights
+            by_type = {}
+            total_patterns = len(patterns)
+            total_seen = 0
+            avg_test_success = 0
+            avg_heal_success = 0
+
+            for p in patterns:
+                ptype = p["pattern_type"]
+                if ptype not in by_type:
+                    by_type[ptype] = {"count": 0, "total_seen": 0}
+                by_type[ptype]["count"] += 1
+                by_type[ptype]["total_seen"] += p.get("times_seen", 0)
+                total_seen += p.get("times_seen", 0)
+                avg_test_success += float(p.get("test_success_rate", 0) or 0)
+                avg_heal_success += float(p.get("self_heal_success_rate", 0) or 0)
+
+            if total_patterns > 0:
+                avg_test_success /= total_patterns
+                avg_heal_success /= total_patterns
+
+            insights = {
+                "total_patterns": total_patterns,
+                "total_occurrences": total_seen,
+                "by_type": by_type,
+                "avg_test_success_rate": round(avg_test_success, 2),
+                "avg_self_heal_success_rate": round(avg_heal_success, 2),
+            }
+
+        # Cache the results (5 minute TTL for insights)
+        if use_cache and insights and not insights.get("error"):
+            await set_cached_pattern(cache_key, "insights", insights, ttl_seconds=300)
+
+        return insights
 
     async def update_pattern_success_rate(
         self,
         pattern_id: str,
         test_passed: bool,
         self_healed: bool = False,
+        pattern_type: str | None = None,
     ) -> bool:
         """Update pattern success rates after test execution.
 
         This enables learning: patterns with high success rates
         are prioritized in future discoveries.
+
+        Updates both Cognee (for semantic search ranking) and Supabase (for dashboard).
         """
-        # Fetch current pattern
-        fetch = await self.supabase.request(f"/discovery_patterns?id=eq.{pattern_id}")
+        success = True
 
-        if not fetch.get("data") or len(fetch["data"]) == 0:
-            return False
+        # Update in Cognee first
+        try:
+            await self.cognee.update_discovery_pattern_stats(
+                pattern_id=pattern_id,
+                pattern_type=pattern_type or "custom",
+                test_passed=test_passed,
+                self_healed=self_healed,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update pattern stats in Cognee: {e}")
+            success = False
 
-        current = fetch["data"][0]
-        times_seen = current.get("times_seen", 1)
-        current_test_rate = float(current.get("test_success_rate", 0) or 0)
-        current_heal_rate = float(current.get("self_heal_success_rate", 0) or 0)
+        # Also update in Supabase for backwards compatibility
+        try:
+            fetch = await self.supabase.request(f"/discovery_patterns?id=eq.{pattern_id}")
 
-        # Calculate new rolling average
-        new_test_rate = (
-            (current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)
-        ) / times_seen
-        new_heal_rate = current_heal_rate
+            if fetch.get("data") and len(fetch["data"]) > 0:
+                current = fetch["data"][0]
+                times_seen = current.get("times_seen", 1)
+                current_test_rate = float(current.get("test_success_rate", 0) or 0)
+                current_heal_rate = float(current.get("self_heal_success_rate", 0) or 0)
 
-        if self_healed:
-            new_heal_rate = ((current_heal_rate * (times_seen - 1)) + 100) / times_seen
+                # Calculate new rolling average
+                new_test_rate = (
+                    (current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)
+                ) / times_seen
+                new_heal_rate = current_heal_rate
 
-        result = await self.supabase.request(
-            f"/discovery_patterns?id=eq.{pattern_id}",
-            method="PATCH",
-            body={
-                "test_success_rate": round(new_test_rate, 2),
-                "self_heal_success_rate": round(new_heal_rate, 2),
-                "updated_at": "now()",
-            },
-        )
+                if self_healed:
+                    new_heal_rate = ((current_heal_rate * (times_seen - 1)) + 100) / times_seen
 
-        return not result.get("error")
+                result = await self.supabase.request(
+                    f"/discovery_patterns?id=eq.{pattern_id}",
+                    method="PATCH",
+                    body={
+                        "test_success_rate": round(new_test_rate, 2),
+                        "self_heal_success_rate": round(new_heal_rate, 2),
+                        "updated_at": "now()",
+                    },
+                )
+
+                if result.get("error"):
+                    logger.warning(f"Failed to update pattern in Supabase: {result['error']}")
+                    success = False
+        except Exception as e:
+            logger.warning(f"Failed to update pattern in Supabase: {e}")
+            success = False
+
+        return success
 
 
 # Utility functions

@@ -37,10 +37,25 @@ def mock_supabase():
 
 
 @pytest.fixture
-def mock_vectorize():
-    """Create a mock Cloudflare Vectorize client."""
+def mock_cognee():
+    """Create a mock CogneeKnowledgeClient."""
     client = MagicMock()
-    client.generate_embedding = AsyncMock(return_value=[0.1] * 1024)
+    # Mock the key methods used by PatternService
+    client.store_discovery_pattern = AsyncMock(return_value="test-pattern-id")
+    client.search_discovery_patterns = AsyncMock(return_value=[])
+    client.find_similar_discovery_patterns = AsyncMock(return_value=[])
+    client.get_discovery_pattern_insights = AsyncMock(return_value={
+        "total_patterns": 0,
+        "by_type": {},
+        "total_times_seen": 0,
+        "avg_test_success_rate": 0,
+        "avg_heal_success_rate": 0,
+    })
+    client.increment_pattern_times_seen = AsyncMock()
+    client.update_discovery_pattern_stats = AsyncMock()
+    client.put = AsyncMock()
+    client.get = AsyncMock(return_value=None)
+    client.search = AsyncMock(return_value=[])
     return client
 
 
@@ -358,14 +373,14 @@ class TestUtilityFunctions:
 class TestPatternServiceInit:
     """Tests for PatternService initialization."""
 
-    def test_init_with_clients(self, mock_supabase, mock_vectorize):
+    def test_init_with_clients(self, mock_supabase, mock_cognee):
         """Test initialization with provided clients."""
         service = PatternService(
             supabase=mock_supabase,
-            vectorize=mock_vectorize,
+            cognee_client=mock_cognee,
         )
         assert service.supabase == mock_supabase
-        assert service.vectorize == mock_vectorize
+        assert service.cognee == mock_cognee
 
     def test_init_uses_default_clients(self):
         """Test initialization with default clients."""
@@ -373,15 +388,15 @@ class TestPatternServiceInit:
             "src.discovery.pattern_service.get_supabase_client"
         ) as mock_get_supabase:
             with patch(
-                "src.discovery.pattern_service.get_vectorize_client"
-            ) as mock_get_vectorize:
+                "src.discovery.pattern_service.get_cognee_client"
+            ) as mock_get_cognee:
                 mock_get_supabase.return_value = MagicMock()
-                mock_get_vectorize.return_value = MagicMock()
+                mock_get_cognee.return_value = MagicMock()
 
                 PatternService()
 
                 mock_get_supabase.assert_called_once()
-                mock_get_vectorize.assert_called_once()
+                mock_get_cognee.assert_called_once()
 
 
 # ==============================================================================
@@ -393,7 +408,7 @@ class TestPatternStorage:
     """Tests for pattern storage operations."""
 
     @pytest.mark.asyncio
-    async def test_store_pattern_new(self, mock_supabase, mock_vectorize):
+    async def test_store_pattern_new(self, mock_supabase, mock_cognee):
         """Test storing a new pattern."""
         mock_supabase.request = AsyncMock(
             side_effect=[
@@ -402,7 +417,7 @@ class TestPatternStorage:
             ]
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         pattern = DiscoveryPattern(
             pattern_type=PatternType.AUTHENTICATION,
@@ -414,9 +429,10 @@ class TestPatternStorage:
         result = await service._store_pattern(pattern, "project-123")
 
         assert result.get("created") is True
+        mock_cognee.store_discovery_pattern.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_store_pattern_existing(self, mock_supabase, mock_vectorize):
+    async def test_store_pattern_existing(self, mock_supabase, mock_cognee):
         """Test storing pattern updates existing."""
         mock_supabase.request = AsyncMock(
             side_effect=[
@@ -424,8 +440,9 @@ class TestPatternStorage:
                 {"data": [{"times_seen": 6}]},  # RPC increment
             ]
         )
+        mock_cognee.increment_pattern_times_seen = AsyncMock()
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         pattern = DiscoveryPattern(
             pattern_type=PatternType.AUTHENTICATION,
@@ -437,21 +454,22 @@ class TestPatternStorage:
         result = await service._store_pattern(pattern, "project-123")
 
         assert result.get("updated") is True
+        mock_cognee.increment_pattern_times_seen.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_store_pattern_handles_embedding_failure(
-        self, mock_supabase, mock_vectorize
+    async def test_store_pattern_handles_cognee_failure(
+        self, mock_supabase, mock_cognee
     ):
-        """Test storing pattern when embedding generation fails."""
+        """Test storing pattern when Cognee fails."""
         mock_supabase.request = AsyncMock(
             side_effect=[
                 {"data": []},  # find_by_signature returns nothing
                 {"data": [{"id": "new-pattern-id"}]},  # insert succeeds
             ]
         )
-        mock_vectorize.generate_embedding = AsyncMock(side_effect=Exception("API error"))
+        mock_cognee.store_discovery_pattern = AsyncMock(side_effect=Exception("API error"))
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         pattern = DiscoveryPattern(
             pattern_type=PatternType.FORM,
@@ -460,9 +478,9 @@ class TestPatternStorage:
             pattern_data={"features": {}},
         )
 
-        # Should not raise, should still store pattern
+        # Should not raise, should still store pattern in Supabase
         result = await service._store_pattern(pattern, "project-123")
-        # Pattern should still be created even without embedding
+        # Pattern should still be created even without Cognee
         assert "error" not in result or result.get("created") is True
 
 
@@ -476,12 +494,12 @@ class TestExtractAndStorePatterns:
 
     @pytest.mark.asyncio
     async def test_extract_and_store_patterns_from_pages(
-        self, mock_supabase, mock_vectorize, sample_page_data
+        self, mock_supabase, mock_cognee, sample_page_data
     ):
         """Test extracting patterns from pages."""
         mock_supabase.request = AsyncMock(return_value={"data": [{"id": "p1"}]})
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         result = await service.extract_and_store_patterns(
             session_id="session-123",
@@ -497,12 +515,12 @@ class TestExtractAndStorePatterns:
 
     @pytest.mark.asyncio
     async def test_extract_and_store_patterns_from_flows(
-        self, mock_supabase, mock_vectorize, sample_flow_data
+        self, mock_supabase, mock_cognee, sample_flow_data
     ):
         """Test extracting patterns from flows."""
         mock_supabase.request = AsyncMock(return_value={"data": [{"id": "f1"}]})
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         result = await service.extract_and_store_patterns(
             session_id="session-123",
@@ -516,12 +534,12 @@ class TestExtractAndStorePatterns:
 
     @pytest.mark.asyncio
     async def test_extract_and_store_patterns_limits_elements(
-        self, mock_supabase, mock_vectorize
+        self, mock_supabase, mock_cognee
     ):
         """Test that element extraction is limited to key categories."""
         mock_supabase.request = AsyncMock(return_value={"data": [{"id": "e1"}]})
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         # Create many elements, but only some are key categories
         elements = [
@@ -555,25 +573,24 @@ class TestFindSimilarPatterns:
     """Tests for finding similar patterns."""
 
     @pytest.mark.asyncio
-    async def test_find_similar_patterns_success(self, mock_supabase, mock_vectorize):
-        """Test finding similar patterns."""
-        mock_supabase.request = AsyncMock(
-            return_value={
-                "data": [
-                    {
-                        "id": "p1",
-                        "pattern_type": "authentication",
-                        "pattern_name": "Login",
-                        "pattern_data": {"features": {}},
-                        "times_seen": 10,
-                        "test_success_rate": 0.9,
-                        "similarity": 0.95,
-                    }
-                ]
-            }
+    async def test_find_similar_patterns_success(self, mock_supabase, mock_cognee):
+        """Test finding similar patterns via Cognee."""
+        # Configure Cognee mock to return matching patterns
+        mock_cognee.find_similar_discovery_patterns = AsyncMock(
+            return_value=[
+                {
+                    "id": "p1",
+                    "pattern_type": "authentication",
+                    "pattern_name": "Login",
+                    "pattern_data": {"features": {}},
+                    "times_seen": 10,
+                    "test_success_rate": 0.9,
+                    "similarity": 0.95,
+                }
+            ]
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         query_pattern = DiscoveryPattern(
             pattern_type=PatternType.AUTHENTICATION,
@@ -582,16 +599,17 @@ class TestFindSimilarPatterns:
             pattern_data={},
         )
 
-        matches = await service.find_similar_patterns(query_pattern)
+        matches = await service.find_similar_patterns(query_pattern, use_cache=False)
 
         assert len(matches) == 1
         assert matches[0].pattern_type == "authentication"
         assert matches[0].similarity == 0.95
+        mock_cognee.find_similar_discovery_patterns.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_find_similar_patterns_no_embedding(self, mock_supabase):
-        """Test finding patterns when embedding fails."""
-        service = PatternService(supabase=mock_supabase, vectorize=None)
+    async def test_find_similar_patterns_no_cognee(self, mock_supabase):
+        """Test finding patterns when Cognee client not configured."""
+        service = PatternService(supabase=mock_supabase, cognee_client=None)
 
         query_pattern = DiscoveryPattern(
             pattern_type=PatternType.FORM,
@@ -605,12 +623,12 @@ class TestFindSimilarPatterns:
 
     @pytest.mark.asyncio
     async def test_find_similar_patterns_with_type_filter(
-        self, mock_supabase, mock_vectorize
+        self, mock_supabase, mock_cognee
     ):
-        """Test finding patterns with type filter."""
-        mock_supabase.request = AsyncMock(return_value={"data": []})
+        """Test finding patterns with type filter passed to Cognee."""
+        mock_cognee.find_similar_discovery_patterns = AsyncMock(return_value=[])
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         query_pattern = DiscoveryPattern(
             pattern_type=PatternType.FORM,
@@ -620,13 +638,13 @@ class TestFindSimilarPatterns:
         )
 
         await service.find_similar_patterns(
-            query_pattern, pattern_type=PatternType.FORM
+            query_pattern, pattern_type=PatternType.FORM, use_cache=False
         )
 
-        # Verify the filter was passed
-        call_args = mock_supabase.request.call_args
-        body = call_args.kwargs.get("body", {})
-        assert body.get("pattern_type_filter") == "form"
+        # Verify the filter was passed to Cognee
+        mock_cognee.find_similar_discovery_patterns.assert_called_once()
+        call_kwargs = mock_cognee.find_similar_discovery_patterns.call_args.kwargs
+        assert call_kwargs.get("pattern_type") == "form"
 
 
 # ==============================================================================
@@ -638,7 +656,7 @@ class TestPatternInsights:
     """Tests for pattern insights."""
 
     @pytest.mark.asyncio
-    async def test_get_pattern_insights(self, mock_supabase, mock_vectorize):
+    async def test_get_pattern_insights(self, mock_supabase, mock_cognee):
         """Test getting pattern insights."""
         mock_supabase.request = AsyncMock(
             return_value={
@@ -659,7 +677,7 @@ class TestPatternInsights:
             }
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         insights = await service.get_pattern_insights()
 
@@ -670,12 +688,12 @@ class TestPatternInsights:
 
     @pytest.mark.asyncio
     async def test_get_pattern_insights_with_type_filter(
-        self, mock_supabase, mock_vectorize
+        self, mock_supabase, mock_cognee
     ):
         """Test getting insights with type filter."""
         mock_supabase.request = AsyncMock(return_value={"data": []})
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         await service.get_pattern_insights(pattern_type=PatternType.AUTHENTICATION)
 
@@ -692,7 +710,7 @@ class TestUpdatePatternSuccessRate:
     """Tests for updating pattern success rates."""
 
     @pytest.mark.asyncio
-    async def test_update_success_rate_passed(self, mock_supabase, mock_vectorize):
+    async def test_update_success_rate_passed(self, mock_supabase, mock_cognee):
         """Test updating success rate for passed test."""
         mock_supabase.request = AsyncMock(
             side_effect=[
@@ -709,7 +727,7 @@ class TestUpdatePatternSuccessRate:
             ]
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         result = await service.update_pattern_success_rate(
             pattern_id="pattern-123",
@@ -720,11 +738,18 @@ class TestUpdatePatternSuccessRate:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_update_success_rate_not_found(self, mock_supabase, mock_vectorize):
-        """Test updating success rate for non-existent pattern."""
-        mock_supabase.request = AsyncMock(return_value={"data": []})
+    async def test_update_success_rate_not_found(self, mock_supabase, mock_cognee):
+        """Test updating success rate for non-existent pattern.
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        When both Cognee and Supabase fail/don't find the pattern, returns False.
+        """
+        mock_supabase.request = AsyncMock(return_value={"data": []})
+        # Cognee also fails for non-existent pattern
+        mock_cognee.update_discovery_pattern_stats = AsyncMock(
+            side_effect=Exception("Pattern not found")
+        )
+
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         result = await service.update_pattern_success_rate(
             pattern_id="non-existent",
@@ -735,7 +760,7 @@ class TestUpdatePatternSuccessRate:
 
     @pytest.mark.asyncio
     async def test_update_success_rate_with_self_heal(
-        self, mock_supabase, mock_vectorize
+        self, mock_supabase, mock_cognee
     ):
         """Test updating success rate with self-healing."""
         mock_supabase.request = AsyncMock(
@@ -753,7 +778,7 @@ class TestUpdatePatternSuccessRate:
             ]
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         result = await service.update_pattern_success_rate(
             pattern_id="pattern-123",
@@ -773,7 +798,7 @@ class TestStorePatternPublic:
     """Tests for the public store_pattern method."""
 
     @pytest.mark.asyncio
-    async def test_store_pattern_new(self, mock_supabase, mock_vectorize):
+    async def test_store_pattern_new(self, mock_supabase, mock_cognee):
         """Test storing a new pattern through public interface."""
         mock_supabase.request = AsyncMock(
             side_effect=[
@@ -782,7 +807,7 @@ class TestStorePatternPublic:
             ]
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         pattern_data = {
             "pattern_type": "form",
@@ -796,7 +821,7 @@ class TestStorePatternPublic:
         assert result["pattern_name"] == "Test"
 
     @pytest.mark.asyncio
-    async def test_store_pattern_existing_updates(self, mock_supabase, mock_vectorize):
+    async def test_store_pattern_existing_updates(self, mock_supabase, mock_cognee):
         """Test that existing pattern is updated."""
         existing = {
             "id": "existing-id",
@@ -810,7 +835,7 @@ class TestStorePatternPublic:
             ]
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         pattern_data = {
             "pattern_signature": "existing-sig",
@@ -831,7 +856,7 @@ class TestGetPatterns:
     """Tests for getting patterns."""
 
     @pytest.mark.asyncio
-    async def test_get_patterns_for_project(self, mock_supabase, mock_vectorize):
+    async def test_get_patterns_for_project(self, mock_supabase, mock_cognee):
         """Test getting patterns for a project."""
         mock_supabase.request = AsyncMock(
             return_value={
@@ -842,14 +867,14 @@ class TestGetPatterns:
             }
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         patterns = await service.get_patterns_for_project("project-123")
 
         assert len(patterns) == 2
 
     @pytest.mark.asyncio
-    async def test_get_patterns_for_session(self, mock_supabase, mock_vectorize):
+    async def test_get_patterns_for_session(self, mock_supabase, mock_cognee):
         """Test getting patterns for a session."""
         mock_supabase.request = AsyncMock(
             return_value={
@@ -859,7 +884,7 @@ class TestGetPatterns:
             }
         )
 
-        service = PatternService(supabase=mock_supabase, vectorize=mock_vectorize)
+        service = PatternService(supabase=mock_supabase, cognee_client=mock_cognee)
 
         patterns = await service.get_patterns_for_session("session-123", limit=10)
 
@@ -883,10 +908,10 @@ class TestGlobalInstance:
             "src.discovery.pattern_service.get_supabase_client"
         ) as mock_supabase:
             with patch(
-                "src.discovery.pattern_service.get_vectorize_client"
-            ) as mock_vectorize:
+                "src.discovery.pattern_service.get_cognee_client"
+            ) as mock_cognee:
                 mock_supabase.return_value = MagicMock()
-                mock_vectorize.return_value = MagicMock()
+                mock_cognee.return_value = MagicMock()
 
                 instance = get_pattern_service()
                 assert instance is not None
@@ -901,10 +926,10 @@ class TestGlobalInstance:
             "src.discovery.pattern_service.get_supabase_client"
         ) as mock_supabase:
             with patch(
-                "src.discovery.pattern_service.get_vectorize_client"
-            ) as mock_vectorize:
+                "src.discovery.pattern_service.get_cognee_client"
+            ) as mock_cognee:
                 mock_supabase.return_value = MagicMock()
-                mock_vectorize.return_value = MagicMock()
+                mock_cognee.return_value = MagicMock()
 
                 instance1 = get_pattern_service()
                 instance2 = get_pattern_service()
