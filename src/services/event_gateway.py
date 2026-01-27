@@ -131,9 +131,9 @@ class EventGateway:
         dlq_topic: str | None = None,
         sasl_username: str | None = None,
         sasl_password: str | None = None,
-        sasl_mechanism: str = "SCRAM-SHA-256",
-        security_protocol: str = "SASL_SSL",
-        compression_type: str = "lz4",
+        sasl_mechanism: str | None = None,
+        security_protocol: str | None = None,
+        compression_type: str = "gzip",  # Use gzip as default (lz4 requires extra lib)
         enable_idempotence: bool = True,
         max_retries: int = 5,
         retry_backoff_ms: int = 100,
@@ -166,11 +166,15 @@ class EventGateway:
         self._topic_prefix = topic_prefix
         self._dlq_topic = dlq_topic or f"{topic_prefix}.dlq"
 
-        # Authentication
+        # Authentication - read from env vars if not provided
         self._sasl_username = sasl_username or os.getenv("REDPANDA_SASL_USERNAME")
         self._sasl_password = sasl_password or os.getenv("REDPANDA_SASL_PASSWORD")
-        self._sasl_mechanism = sasl_mechanism
-        self._security_protocol = security_protocol
+        self._sasl_mechanism = sasl_mechanism or os.getenv(
+            "REDPANDA_SASL_MECHANISM", "SCRAM-SHA-512"
+        )
+        self._security_protocol = security_protocol or os.getenv(
+            "REDPANDA_SECURITY_PROTOCOL", "SASL_PLAINTEXT"
+        )
 
         # Producer settings
         self._compression_type = compression_type
