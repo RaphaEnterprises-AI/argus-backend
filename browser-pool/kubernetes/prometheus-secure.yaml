@@ -1,0 +1,250 @@
+# Secure Prometheus Configuration
+# Adds authentication for external access via nginx sidecar
+#
+# Features:
+# - Basic auth for API access
+# - Rate limiting
+# - CORS headers for dashboard integration
+# - Health check endpoint (unauthenticated)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-auth
+  namespace: browser-pool
+  labels:
+    app: prometheus
+type: Opaque
+stringData:
+  # Generate with: htpasswd -nb argus <password>
+  # Default: argus / argus-prometheus-2024 (CHANGE IN PRODUCTION)
+  htpasswd: "argus:$apr1$xyz$CHANGE_THIS_HASH_IN_PRODUCTION"
+  # API key for programmatic access (Railway backend)
+  api-key: "prom_sk_CHANGE_ME_IN_PRODUCTION_USE_SECURE_KEY"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-nginx-config
+  namespace: browser-pool
+  labels:
+    app: prometheus
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /var/log/nginx/error.log warn;
+    pid /tmp/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /var/log/nginx/access.log main;
+        sendfile on;
+        keepalive_timeout 65;
+
+        # Rate limiting
+        limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+
+        # Upstream to Prometheus
+        upstream prometheus {
+            server 127.0.0.1:9090;
+        }
+
+        server {
+            listen 8080;
+            server_name _;
+
+            # Health check - no auth required
+            location /health {
+                return 200 'OK';
+                add_header Content-Type text/plain;
+            }
+
+            # Prometheus health - no auth required
+            location /-/healthy {
+                proxy_pass http://prometheus/-/healthy;
+            }
+
+            location /-/ready {
+                proxy_pass http://prometheus/-/ready;
+            }
+
+            # API endpoints - require auth
+            location /api/ {
+                # Rate limiting
+                limit_req zone=api burst=20 nodelay;
+
+                # CORS headers for dashboard
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+                add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-API-Key' always;
+                add_header 'Access-Control-Max-Age' 86400 always;
+
+                if ($request_method = 'OPTIONS') {
+                    return 204;
+                }
+
+                # Check for API key header first
+                set $auth_ok 0;
+                if ($http_x_api_key = "prom_sk_CHANGE_ME_IN_PRODUCTION_USE_SECURE_KEY") {
+                    set $auth_ok 1;
+                }
+
+                # Fall back to basic auth
+                auth_basic "Prometheus API";
+                auth_basic_user_file /etc/nginx/auth/htpasswd;
+
+                proxy_pass http://prometheus;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            }
+
+            # Graph UI - require auth
+            location /graph {
+                auth_basic "Prometheus UI";
+                auth_basic_user_file /etc/nginx/auth/htpasswd;
+                proxy_pass http://prometheus;
+            }
+
+            # Targets page - require auth
+            location /targets {
+                auth_basic "Prometheus UI";
+                auth_basic_user_file /etc/nginx/auth/htpasswd;
+                proxy_pass http://prometheus;
+            }
+
+            # Everything else - require auth
+            location / {
+                auth_basic "Prometheus";
+                auth_basic_user_file /etc/nginx/auth/htpasswd;
+                proxy_pass http://prometheus;
+            }
+        }
+    }
+---
+# Updated Prometheus deployment with nginx sidecar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-secure
+  namespace: browser-pool
+  labels:
+    app: prometheus
+    variant: secure
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      variant: secure
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        variant: secure
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        # Prometheus container
+        - name: prometheus
+          image: prom/prometheus:v2.47.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=7d"
+            - "--web.enable-lifecycle"
+            - "--web.listen-address=127.0.0.1:9090"
+          ports:
+            - containerPort: 9090
+              name: prometheus
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+        # Nginx auth sidecar
+        - name: nginx
+          image: nginx:1.25-alpine
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: auth
+              mountPath: /etc/nginx/auth
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: prometheus-nginx-config
+        - name: auth
+          secret:
+            secretName: prometheus-auth
+            items:
+              - key: htpasswd
+                path: htpasswd
+---
+# Secure external service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-secure-external
+  namespace: browser-pool
+  labels:
+    app: prometheus
+    variant: secure
+  annotations:
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: prometheus
+    variant: secure

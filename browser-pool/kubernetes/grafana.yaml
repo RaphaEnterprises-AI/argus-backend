@@ -1,0 +1,377 @@
+# Grafana Deployment for Browser Pool Monitoring
+# Provides visualization dashboards for Prometheus metrics
+#
+# Features:
+# - Pre-configured Prometheus datasource
+# - Browser Pool dashboard auto-loaded
+# - External access via LoadBalancer (with auth)
+# - Persistent storage for settings
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: browser-pool
+  labels:
+    app: grafana
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: "15s"
+          httpMethod: POST
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: browser-pool
+  labels:
+    app: grafana
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'browser-pool'
+        orgId: 1
+        folder: 'Browser Pool'
+        type: file
+        disableDeletion: true
+        editable: false
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: browser-pool
+  labels:
+    app: grafana
+data:
+  browser-pool-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": false,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": true,
+      "panels": [
+        {
+          "title": "Active Browser Sessions",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "fieldConfig": {
+            "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 10}]}}
+          },
+          "targets": [{"expr": "sum(browser_sessions_active)", "legendFormat": "Active"}]
+        },
+        {
+          "title": "Browser Workers",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "fieldConfig": {
+            "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 2}, {"color": "green", "value": 3}]}}
+          },
+          "targets": [{"expr": "count(up{job=\"browser-worker\"} == 1)", "legendFormat": "Workers"}]
+        },
+        {
+          "title": "CPU Usage (%)",
+          "type": "gauge",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "fieldConfig": {
+            "defaults": {"max": 100, "min": 0, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}
+          },
+          "targets": [{"expr": "avg(rate(process_cpu_seconds_total{job=\"browser-worker\"}[5m])) * 100", "legendFormat": "CPU"}]
+        },
+        {
+          "title": "Memory Usage (%)",
+          "type": "gauge",
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "fieldConfig": {
+            "defaults": {"max": 100, "min": 0, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}
+          },
+          "targets": [{"expr": "avg(process_resident_memory_bytes{job=\"browser-worker\"}) / (512 * 1024 * 1024) * 100", "legendFormat": "Memory"}]
+        },
+        {
+          "title": "Sessions Over Time",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20}}},
+          "targets": [
+            {"expr": "sum(browser_sessions_active)", "legendFormat": "Active Sessions"},
+            {"expr": "sum(browser_sessions_total)", "legendFormat": "Total Sessions"}
+          ]
+        },
+        {
+          "title": "Action Duration (p95)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth"}}},
+          "targets": [
+            {"expr": "histogram_quantile(0.95, rate(browser_action_duration_seconds_bucket[5m]))", "legendFormat": "p95 Duration"}
+          ]
+        },
+        {
+          "title": "Worker CPU Over Time",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "percent", "max": 100}},
+          "targets": [
+            {"expr": "rate(process_cpu_seconds_total{job=\"browser-worker\"}[5m]) * 100", "legendFormat": "{{pod}}"}
+          ]
+        },
+        {
+          "title": "Worker Memory Over Time",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "bytes"}},
+          "targets": [
+            {"expr": "process_resident_memory_bytes{job=\"browser-worker\"}", "legendFormat": "{{pod}}"}
+          ]
+        },
+        {
+          "title": "Selenium Grid Status",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 8, "x": 0, "y": 20},
+          "targets": [
+            {"expr": "selenium_sessions_queued", "legendFormat": "Queued"},
+            {"expr": "selenium_sessions_active", "legendFormat": "Active"},
+            {"expr": "selenium_nodes_available", "legendFormat": "Nodes"}
+          ]
+        },
+        {
+          "title": "Queue Wait Time",
+          "type": "timeseries",
+          "gridPos": {"h": 4, "w": 16, "x": 8, "y": 20},
+          "fieldConfig": {"defaults": {"unit": "s"}},
+          "targets": [
+            {"expr": "selenium_session_queue_wait_time_seconds", "legendFormat": "Wait Time"}
+          ]
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["browser-pool", "argus"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "title": "Browser Pool Overview",
+      "uid": "browser-pool-overview"
+    }
+  argus-infrastructure.json: |
+    {
+      "annotations": {"list": []},
+      "editable": false,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": true,
+      "panels": [
+        {
+          "title": "Service Health",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+          "fieldConfig": {
+            "defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]}
+          },
+          "targets": [
+            {"expr": "up{job=\"browser-worker\"}", "legendFormat": "Browser Workers"},
+            {"expr": "up{job=\"browser-manager\"}", "legendFormat": "Browser Manager"},
+            {"expr": "up{job=\"prometheus\"}", "legendFormat": "Prometheus"}
+          ]
+        },
+        {
+          "title": "Cluster Resource Usage",
+          "type": "piechart",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 4},
+          "targets": [
+            {"expr": "sum(rate(process_cpu_seconds_total[5m])) * 100", "legendFormat": "CPU Used"},
+            {"expr": "100 - sum(rate(process_cpu_seconds_total[5m])) * 100", "legendFormat": "CPU Free"}
+          ]
+        },
+        {
+          "title": "Test Executions",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 16, "x": 8, "y": 4},
+          "targets": [
+            {"expr": "increase(argus_test_executions_total{status=\"success\"}[1h])", "legendFormat": "Success"},
+            {"expr": "increase(argus_test_executions_total{status=\"failed\"}[1h])", "legendFormat": "Failed"}
+          ]
+        },
+        {
+          "title": "Test Duration Distribution",
+          "type": "histogram",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [
+            {"expr": "argus_test_duration_seconds_bucket", "legendFormat": "{{le}}"}
+          ]
+        },
+        {
+          "title": "API Latency",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "ms"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m])) * 1000", "legendFormat": "p50"},
+            {"expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 1000", "legendFormat": "p95"},
+            {"expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) * 1000", "legendFormat": "p99"}
+          ]
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["argus", "infrastructure"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "title": "Argus Infrastructure",
+      "uid": "argus-infrastructure"
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-credentials
+  namespace: browser-pool
+  labels:
+    app: grafana
+type: Opaque
+stringData:
+  admin-user: admin
+  # Generate secure password: openssl rand -base64 32
+  admin-password: "CHANGE_ME_IN_PRODUCTION"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: browser-pool
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.0
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-password
+            - name: GF_INSTALL_PLUGINS
+              value: "grafana-piechart-panel"
+            - name: GF_SERVER_ROOT_URL
+              value: "https://grafana.heyargus.ai"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
+            - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+              value: "false"
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: data
+              mountPath: /var/lib/grafana
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: browser-pool
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  selector:
+    app: grafana
+---
+# External LoadBalancer for Grafana
+# DNS: grafana.heyargus.ai
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-external
+  namespace: browser-pool
+  labels:
+    app: grafana
+  annotations:
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 443
+      targetPort: 3000
+      name: https
+  selector:
+    app: grafana

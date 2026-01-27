@@ -37,6 +37,7 @@ from src.api.browser import router as browser_router
 from src.api.chat import router as chat_router
 from src.api.collaboration import router as collaboration_router
 from src.api.correlations import router as correlations_router
+from src.api.data_layer_health import router as data_layer_health_router
 from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
@@ -49,6 +50,7 @@ from src.api.integrations import router as integrations_router
 from src.api.invitations import router as invitations_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.mcp_sessions import router as mcp_sessions_router
+from src.api.middleware.tenant import TenantMiddleware
 from src.api.notifications import router as notifications_router
 from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
@@ -72,7 +74,6 @@ from src.api.security.middleware import (
     RateLimitMiddleware,
     SecurityMiddleware,
 )
-from src.api.middleware.tenant import TenantMiddleware
 from src.api.streaming import router as streaming_router
 from src.api.sync import router as sync_router
 from src.api.teams import router as teams_router
@@ -397,6 +398,7 @@ app.include_router(artifacts_router)
 app.include_router(mcp_sessions_router)
 app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
+app.include_router(data_layer_health_router)
 app.include_router(incident_correlator_router)
 app.include_router(tests_router)
 app.include_router(reports_router)
@@ -1451,34 +1453,36 @@ async def semantic_search(request: SemanticSearchRequest):
     """
     Search for similar error patterns using semantic similarity.
 
-    Uses Cloudflare Vectorize for semantic search with fallback to Jaccard similarity.
+    Uses Cognee knowledge layer for semantic search with fallback to Jaccard similarity.
     """
     import hashlib
 
+    from src.knowledge import get_cognee_client
     from src.services.supabase_client import get_supabase_client
-    from src.services.vectorize import semantic_search_errors
 
     similar_patterns = []
 
-    # Try Cloudflare Vectorize first (semantic search)
+    # Try Cognee first (semantic search)
     try:
-        vectorize_results = await semantic_search_errors(
-            error_text=request.error_text, limit=request.limit, min_score=request.min_score
+        cognee = get_cognee_client(org_id="default", project_id="default")
+        cognee_results = await cognee.find_similar_failures(
+            error_message=request.error_text, limit=request.limit
         )
 
-        for result in vectorize_results:
-            similar_patterns.append(
-                {
-                    "id": result.get("id"),
-                    "score": round(result.get("score", 0), 3),
-                    "pattern_hash": result.get("metadata", {}).get("fingerprint", ""),
-                    "category": result.get("metadata", {}).get("severity", "error"),
-                    "example_message": result.get("metadata", {}).get("message", "")[:200],
-                    "known_solutions": result.get("metadata", {}).get("solutions", []),
-                }
-            )
+        for failure in cognee_results:
+            if failure.similarity >= request.min_score:
+                similar_patterns.append(
+                    {
+                        "id": failure.id,
+                        "score": round(failure.similarity, 3),
+                        "pattern_hash": failure.metadata.get("fingerprint", "") if failure.metadata else "",
+                        "category": failure.error_type or "error",
+                        "example_message": failure.error_message[:200] if failure.error_message else "",
+                        "known_solutions": [failure.healed_selector] if failure.healed_selector else [],
+                    }
+                )
     except Exception as e:
-        logger.warning(f"Vectorize search failed, using fallback: {e}")
+        logger.warning(f"Cognee search failed, using fallback: {e}")
 
     # Fallback to Jaccard similarity if Vectorize returned no results
     if not similar_patterns:
