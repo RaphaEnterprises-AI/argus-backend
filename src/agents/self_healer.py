@@ -34,7 +34,14 @@ from ..config import ModelName
 from ..core.model_router import TaskType
 
 # Migration to Cognee (RAP-132): Using unified knowledge layer
-from ..knowledge import CogneeKnowledgeClient, get_cognee_client
+from ..knowledge import (
+    CogneeError,
+    CogneeKnowledgeClient,
+    CogneeRetrievalError,
+    CogneeSearchError,
+    CogneeStorageError,
+    get_cognee_client,
+)
 from ..retrieval import HybridRetriever, get_hybrid_retriever
 from ..services.cache import get_cached, set_cached
 from ..services.git_analyzer import SelectorChange, get_git_analyzer

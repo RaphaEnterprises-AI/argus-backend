@@ -12,6 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Import exception types for testing
+# Note: These will be imported via the mock system since we patch sys.modules
+
 
 @pytest.fixture
 def mock_cognee():
@@ -454,3 +457,161 @@ class TestDeprecationWarnings:
                 x for x in w if issubclass(x.category, DeprecationWarning)
             ]
             assert len(deprecation_warnings) >= 1
+
+
+class TestCogneeExceptions:
+    """Tests for Cognee exception types."""
+
+    def test_cognee_error_is_base_class(self, mock_env_vars):
+        """Test CogneeError is the base exception class."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import (
+                CogneeError,
+                CogneeGraphError,
+                CogneeRetrievalError,
+                CogneeSearchError,
+                CogneeStorageError,
+            )
+
+            # All exceptions should inherit from CogneeError
+            assert issubclass(CogneeStorageError, CogneeError)
+            assert issubclass(CogneeRetrievalError, CogneeError)
+            assert issubclass(CogneeSearchError, CogneeError)
+            assert issubclass(CogneeGraphError, CogneeError)
+
+            # CogneeError should inherit from Exception
+            assert issubclass(CogneeError, Exception)
+
+    @pytest.mark.asyncio
+    async def test_put_raises_storage_error_on_failure(self, mock_env_vars):
+        """Test put raises CogneeStorageError when cognee.add fails."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.add = AsyncMock(side_effect=RuntimeError("Storage failed"))
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import (
+                CogneeKnowledgeClient,
+                CogneeStorageError,
+            )
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            with pytest.raises(CogneeStorageError) as exc_info:
+                await client.put(
+                    namespace=["test"],
+                    key="key1",
+                    value={"data": "test"},
+                )
+
+            assert "Storage failed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_get_raises_retrieval_error_on_failure(self, mock_env_vars):
+        """Test get raises CogneeRetrievalError when cognee.search fails."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.search = AsyncMock(side_effect=RuntimeError("Search failed"))
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import (
+                CogneeKnowledgeClient,
+                CogneeRetrievalError,
+            )
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            with pytest.raises(CogneeRetrievalError) as exc_info:
+                await client.get(namespace=["test"], key="key1")
+
+            assert "Search failed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_search_raises_search_error_on_failure(self, mock_env_vars):
+        """Test search raises CogneeSearchError when cognee.search fails."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.search = AsyncMock(side_effect=RuntimeError("Search failed"))
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import (
+                CogneeKnowledgeClient,
+                CogneeSearchError,
+            )
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            with pytest.raises(CogneeSearchError) as exc_info:
+                await client.search(
+                    namespace=["test"],
+                    query="test query",
+                )
+
+            assert "Search failed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_add_to_knowledge_graph_raises_graph_error(self, mock_env_vars):
+        """Test add_to_knowledge_graph raises CogneeGraphError on failure."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.add = AsyncMock(side_effect=RuntimeError("Graph error"))
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import (
+                CogneeGraphError,
+                CogneeKnowledgeClient,
+            )
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            with pytest.raises(CogneeGraphError) as exc_info:
+                await client.add_to_knowledge_graph(
+                    content="Test content",
+                    content_type="test",
+                )
+
+            assert "Graph error" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_get_returns_none_for_missing_key(self, mock_env_vars):
+        """Test get returns None for missing keys (not an error)."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.search = AsyncMock(return_value=[])  # Empty results
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            # Should return None, not raise an error
+            result = await client.get(namespace=["test"], key="missing-key")
+
+            assert result is None

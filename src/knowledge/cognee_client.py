@@ -14,6 +14,10 @@ Cognee-powered layer, reducing code complexity and gaining:
 - Incremental learning
 - Graph + vector hybrid search
 - Multi-hop reasoning
+
+IMPORTANT: Cognee is a required dependency. The MemoryStore and GraphStore
+components were deprecated in favor of this unified Cognee layer. If Cognee
+is not installed, the application will fail with a clear error message.
 """
 
 import hashlib
@@ -25,16 +29,47 @@ from typing import Any, Optional
 
 import structlog
 
-# Cognee is optional for development/testing
+# Cognee is a REQUIRED dependency - fail fast if not installed
 try:
     import cognee
-
-    COGNEE_AVAILABLE = True
-except ImportError:
-    cognee = None  # type: ignore
-    COGNEE_AVAILABLE = False
+except ImportError as e:
+    raise ImportError(
+        "The cognee package is required for Argus. "
+        "This is a mandatory dependency since MemoryStore and GraphStore were deprecated. "
+        "Install it with: pip install cognee"
+    ) from e
 
 logger = structlog.get_logger(__name__)
+
+
+# =============================================================================
+# Custom Exceptions for Cognee Operations
+# =============================================================================
+
+
+class CogneeError(Exception):
+    """Base exception for all Cognee-related errors."""
+    pass
+
+
+class CogneeStorageError(CogneeError):
+    """Raised when storing data to Cognee fails."""
+    pass
+
+
+class CogneeRetrievalError(CogneeError):
+    """Raised when retrieving data from Cognee fails."""
+    pass
+
+
+class CogneeSearchError(CogneeError):
+    """Raised when searching Cognee fails."""
+    pass
+
+
+class CogneeGraphError(CogneeError):
+    """Raised when graph operations fail."""
+    pass
 
 
 @dataclass
@@ -115,13 +150,8 @@ class CogneeKnowledgeClient:
             project_id=project_id,
         )
 
-    def _ensure_cognee_available(self) -> None:
-        """Raise ImportError if cognee module is not available."""
-        if not COGNEE_AVAILABLE:
-            raise ImportError(
-                "The cognee package is required for CogneeKnowledgeClient. "
-                "Install it with: pip install cognee"
-            )
+    # Note: _ensure_cognee_available() was removed because Cognee is now
+    # a required dependency. The import will fail at module load if not installed.
 
     def _build_namespace(self, parts: list[str] | tuple[str, ...]) -> str:
         """Build a full namespace string from parts.
@@ -182,8 +212,10 @@ class CogneeKnowledgeClient:
             key: Unique key within namespace
             value: JSON-serializable value
             embed_text: Optional text for embedding generation
+
+        Raises:
+            CogneeStorageError: If storing the value fails
         """
-        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name(namespace)
         key_id = self._generate_key_id(namespace, key)
 
@@ -199,21 +231,34 @@ class CogneeKnowledgeClient:
             **value,
         }
 
-        # Add to Cognee
-        await cognee.add(
-            json.dumps(content),
-            dataset_name=dataset_name,
-        )
+        try:
+            # Add to Cognee
+            await cognee.add(
+                json.dumps(content),
+                dataset_name=dataset_name,
+            )
 
-        # Run cognify to extract knowledge and create embeddings
-        await cognee.cognify(dataset_name=dataset_name)
+            # Run cognify to extract knowledge and create embeddings
+            await cognee.cognify(dataset_name=dataset_name)
 
-        self._log.debug(
-            "Stored value in Cognee",
-            namespace=namespace,
-            key=key,
-            dataset=dataset_name,
-        )
+            self._log.debug(
+                "Stored value in Cognee",
+                namespace=namespace,
+                key=key,
+                dataset=dataset_name,
+            )
+        except Exception as e:
+            self._log.error(
+                "Failed to store value in Cognee",
+                namespace=namespace,
+                key=key,
+                dataset=dataset_name,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise CogneeStorageError(
+                f"Failed to store value in namespace {namespace}, key '{key}': {e}"
+            ) from e
 
     async def get(
         self,
@@ -230,8 +275,10 @@ class CogneeKnowledgeClient:
 
         Returns:
             Stored value or None if not found
+
+        Raises:
+            CogneeRetrievalError: If retrieval fails due to an error (not just missing key)
         """
-        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name(namespace)
         key_id = self._generate_key_id(namespace, key)
 
@@ -252,16 +299,30 @@ class CogneeKnowledgeClient:
                     # Remove internal fields
                     return {k: v for k, v in result.items() if not k.startswith("_")}
 
+            # Not found - this is a valid case, return None
             return None
 
-        except Exception as e:
-            self._log.warning(
-                "Failed to get value from Cognee",
+        except json.JSONDecodeError as e:
+            self._log.error(
+                "Failed to parse Cognee result as JSON",
                 namespace=namespace,
                 key=key,
                 error=str(e),
             )
-            return None
+            raise CogneeRetrievalError(
+                f"Failed to parse result for namespace {namespace}, key '{key}': {e}"
+            ) from e
+        except Exception as e:
+            self._log.error(
+                "Failed to get value from Cognee",
+                namespace=namespace,
+                key=key,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise CogneeRetrievalError(
+                f"Failed to get value from namespace {namespace}, key '{key}': {e}"
+            ) from e
 
     async def delete(
         self,
@@ -306,8 +367,10 @@ class CogneeKnowledgeClient:
 
         Returns:
             List of matching items with similarity scores
+
+        Raises:
+            CogneeSearchError: If the search operation fails
         """
-        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name(namespace)
 
         try:
@@ -334,13 +397,16 @@ class CogneeKnowledgeClient:
             return parsed_results
 
         except Exception as e:
-            self._log.warning(
+            self._log.error(
                 "Search failed",
                 namespace=namespace,
-                query=query[:50],
+                query=query[:50] if query else "",
                 error=str(e),
+                error_type=type(e).__name__,
             )
-            return []
+            raise CogneeSearchError(
+                f"Search failed in namespace {namespace} for query '{query[:50]}...': {e}"
+            ) from e
 
     # =========================================================================
     # Failure Pattern Interface (replaces MemoryStore failure methods)
@@ -372,8 +438,10 @@ class CogneeKnowledgeClient:
 
         Returns:
             Pattern ID
+
+        Raises:
+            CogneeStorageError: If storing the pattern fails
         """
-        self._ensure_cognee_available()
         pattern_id = hashlib.sha256(
             f"{error_message}:{original_selector}:{healed_selector}".encode()
         ).hexdigest()[:32]
@@ -531,17 +599,30 @@ class CogneeKnowledgeClient:
         Args:
             content: Text or structured content to add
             content_type: Type hint for better extraction
+
+        Raises:
+            CogneeGraphError: If adding to the knowledge graph fails
         """
-        self._ensure_cognee_available()
         dataset_name = self._get_dataset_name([content_type])
 
-        if isinstance(content, dict):
-            content = json.dumps(content)
+        try:
+            if isinstance(content, dict):
+                content = json.dumps(content)
 
-        await cognee.add(content, dataset_name=dataset_name)
-        await cognee.cognify(dataset_name=dataset_name)
+            await cognee.add(content, dataset_name=dataset_name)
+            await cognee.cognify(dataset_name=dataset_name)
 
-        self._log.debug("Added to knowledge graph", content_type=content_type)
+            self._log.debug("Added to knowledge graph", content_type=content_type)
+        except Exception as e:
+            self._log.error(
+                "Failed to add to knowledge graph",
+                content_type=content_type,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise CogneeGraphError(
+                f"Failed to add content to knowledge graph (type: {content_type}): {e}"
+            ) from e
 
     async def query_knowledge_graph(
         self,
@@ -561,9 +642,12 @@ class CogneeKnowledgeClient:
 
         Returns:
             Relevant knowledge items
+
+        Raises:
+            CogneeSearchError: If searching the knowledge graph fails
         """
-        self._ensure_cognee_available()
         all_results = []
+        errors = []
 
         # Search across specified content types or all
         types_to_search = content_types or ["codebase", "tests", "failures", "general"]
@@ -584,11 +668,28 @@ class CogneeKnowledgeClient:
                             result["type"] = content_type
                             all_results.append(result)
             except Exception as e:
-                self._log.warning(
+                self._log.error(
                     "Failed to search content type",
                     content_type=content_type,
                     error=str(e),
+                    error_type=type(e).__name__,
                 )
+                errors.append(f"{content_type}: {e}")
+
+        # If ALL searches failed, raise an error
+        if errors and not all_results:
+            raise CogneeSearchError(
+                f"Knowledge graph query failed for all content types. Errors: {'; '.join(errors)}"
+            )
+
+        # Log partial failures but return available results
+        if errors:
+            self._log.warning(
+                "Partial knowledge graph query failure",
+                query=query[:50] if query else "",
+                failed_types=len(errors),
+                successful_results=len(all_results),
+            )
 
         return all_results[:limit]
 
@@ -728,6 +829,7 @@ class CogneeKnowledgeClient:
             namespaces = [["discovery_patterns"]]
 
         results = []
+        errors = []
         for ns in namespaces:
             try:
                 matches = await self.search(
@@ -736,12 +838,19 @@ class CogneeKnowledgeClient:
                     limit=limit,
                 )
                 results.extend(matches)
-            except Exception as e:
-                self._log.warning(
+            except CogneeSearchError as e:
+                self._log.error(
                     "Failed to search discovery patterns",
                     namespace=ns,
                     error=str(e),
                 )
+                errors.append(str(e))
+
+        # If all searches failed, raise an error
+        if errors and not results:
+            raise CogneeSearchError(
+                f"Failed to search discovery patterns: {'; '.join(errors)}"
+            )
 
         # Filter by similarity and deduplicate
         filtered = []
@@ -773,33 +882,35 @@ class CogneeKnowledgeClient:
             pattern_type: Pattern type (for namespace lookup)
 
         Returns:
-            True if updated successfully
+            True if updated successfully, False if pattern not found
+
+        Raises:
+            CogneeStorageError: If the update operation fails
         """
-        try:
-            # Get current pattern
-            current = await self.get(
-                namespace=["discovery_patterns", pattern_type],
-                key=pattern_id,
-            )
+        # Get current pattern - this may raise CogneeRetrievalError
+        current = await self.get(
+            namespace=["discovery_patterns", pattern_type],
+            key=pattern_id,
+        )
 
-            if current:
-                current["times_seen"] = current.get("times_seen", 0) + 1
-                current["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-                await self.put(
-                    namespace=["discovery_patterns", pattern_type],
-                    key=pattern_id,
-                    value=current,
-                )
-                return True
-        except Exception as e:
+        if not current:
             self._log.warning(
-                "Failed to increment pattern times_seen",
+                "Pattern not found for increment",
                 pattern_id=pattern_id,
-                error=str(e),
+                pattern_type=pattern_type,
             )
+            return False
 
-        return False
+        current["times_seen"] = current.get("times_seen", 0) + 1
+        current["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        # This may raise CogneeStorageError
+        await self.put(
+            namespace=["discovery_patterns", pattern_type],
+            key=pattern_id,
+            value=current,
+        )
+        return True
 
     async def update_discovery_pattern_stats(
         self,
@@ -820,59 +931,59 @@ class CogneeKnowledgeClient:
             self_healed: Whether self-healing was applied
 
         Returns:
-            True if updated successfully
+            True if updated successfully, False if pattern not found
+
+        Raises:
+            CogneeStorageError: If the update operation fails
         """
-        try:
-            # Get current pattern
-            current = await self.get(
-                namespace=["discovery_patterns", pattern_type],
-                key=pattern_id,
+        # Get current pattern - may raise CogneeRetrievalError
+        current = await self.get(
+            namespace=["discovery_patterns", pattern_type],
+            key=pattern_id,
+        )
+
+        if not current:
+            self._log.warning(
+                "Pattern not found for stats update",
+                pattern_id=pattern_id,
+                pattern_type=pattern_type,
             )
+            return False
 
-            if not current:
-                return False
+        times_seen = current.get("times_seen", 1)
+        current_test_rate = float(current.get("test_success_rate", 0) or 0)
+        current_heal_rate = float(current.get("self_heal_success_rate", 0) or 0)
 
-            times_seen = current.get("times_seen", 1)
-            current_test_rate = float(current.get("test_success_rate", 0) or 0)
-            current_heal_rate = float(current.get("self_heal_success_rate", 0) or 0)
+        # Calculate new rolling average
+        new_test_rate = (
+            (current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)
+        ) / times_seen
 
-            # Calculate new rolling average
-            new_test_rate = (
-                (current_test_rate * (times_seen - 1)) + (100 if test_passed else 0)
+        new_heal_rate = current_heal_rate
+        if self_healed:
+            new_heal_rate = (
+                (current_heal_rate * (times_seen - 1)) + 100
             ) / times_seen
 
-            new_heal_rate = current_heal_rate
-            if self_healed:
-                new_heal_rate = (
-                    (current_heal_rate * (times_seen - 1)) + 100
-                ) / times_seen
+        current["test_success_rate"] = round(new_test_rate, 2)
+        current["self_heal_success_rate"] = round(new_heal_rate, 2)
+        current["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-            current["test_success_rate"] = round(new_test_rate, 2)
-            current["self_heal_success_rate"] = round(new_heal_rate, 2)
-            current["updated_at"] = datetime.now(timezone.utc).isoformat()
+        # This may raise CogneeStorageError
+        await self.put(
+            namespace=["discovery_patterns", pattern_type],
+            key=pattern_id,
+            value=current,
+        )
 
-            await self.put(
-                namespace=["discovery_patterns", pattern_type],
-                key=pattern_id,
-                value=current,
-            )
+        self._log.info(
+            "Updated discovery pattern stats",
+            pattern_id=pattern_id,
+            test_success_rate=new_test_rate,
+            self_heal_success_rate=new_heal_rate,
+        )
 
-            self._log.info(
-                "Updated discovery pattern stats",
-                pattern_id=pattern_id,
-                test_success_rate=new_test_rate,
-                self_heal_success_rate=new_heal_rate,
-            )
-
-            return True
-        except Exception as e:
-            self._log.warning(
-                "Failed to update pattern stats",
-                pattern_id=pattern_id,
-                error=str(e),
-            )
-
-        return False
+        return True
 
     async def get_discovery_pattern_insights(
         self,
@@ -895,6 +1006,7 @@ class CogneeKnowledgeClient:
             namespaces = [["discovery_patterns"]]
 
         patterns = []
+        errors = []
         for ns in namespaces:
             try:
                 # Use a generic query to get all patterns
@@ -904,8 +1016,19 @@ class CogneeKnowledgeClient:
                     limit=1000,
                 )
                 patterns.extend(results)
-            except Exception:
-                pass
+            except CogneeSearchError as e:
+                self._log.error(
+                    "Failed to get patterns for insights",
+                    namespace=ns,
+                    error=str(e),
+                )
+                errors.append(str(e))
+
+        # If all searches failed, raise an error
+        if errors and not patterns:
+            raise CogneeSearchError(
+                f"Failed to retrieve discovery pattern insights: {'; '.join(errors)}"
+            )
 
         # Calculate insights
         by_type = {}
@@ -985,17 +1108,25 @@ async def init_cognee_client(
 ) -> CogneeKnowledgeClient:
     """Initialize and return the Cognee client.
 
+    This function validates that Cognee is properly configured and available.
+    If Cognee is not installed or cannot be initialized, an error will be raised.
+
     Args:
         org_id: Organization ID
         project_id: Project ID
 
     Returns:
         Initialized CogneeKnowledgeClient
+
+    Raises:
+        ImportError: If cognee package is not installed
+        CogneeError: If Cognee cannot be initialized
     """
     client = get_cognee_client(org_id=org_id, project_id=project_id)
     logger.info(
         "Cognee client initialized",
         org_id=client.org_id,
         project_id=client.project_id,
+        cognee_version=getattr(cognee, "__version__", "unknown"),
     )
     return client

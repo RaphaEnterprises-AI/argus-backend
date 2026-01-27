@@ -23,7 +23,13 @@ import warnings
 from dataclasses import dataclass
 from enum import Enum
 
-from src.knowledge import CogneeKnowledgeClient, get_cognee_client
+from src.knowledge import (
+    CogneeError,
+    CogneeKnowledgeClient,
+    CogneeSearchError,
+    CogneeStorageError,
+    get_cognee_client,
+)
 from src.services.cache import (
     cache_discovery_pattern,
     get_cached_pattern,

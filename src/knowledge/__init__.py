@@ -39,7 +39,12 @@ Usage:
 """
 
 from .cognee_client import (
+    CogneeError,
+    CogneeGraphError,
     CogneeKnowledgeClient,
+    CogneeRetrievalError,
+    CogneeSearchError,
+    CogneeStorageError,
     SimilarFailure,
     get_cognee_client,
     init_cognee_client,
@@ -47,9 +52,16 @@ from .cognee_client import (
 )
 
 __all__ = [
+    # Client
     "CogneeKnowledgeClient",
     "SimilarFailure",
     "get_cognee_client",
     "reset_cognee_client",
     "init_cognee_client",
+    # Exceptions
+    "CogneeError",
+    "CogneeStorageError",
+    "CogneeRetrievalError",
+    "CogneeSearchError",
+    "CogneeGraphError",
 ]

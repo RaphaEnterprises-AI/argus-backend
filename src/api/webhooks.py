@@ -22,10 +22,92 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.knowledge import CogneeError, CogneeStorageError, get_cognee_client
 from src.services.supabase_client import get_supabase_client
-from src.services.vectorize import index_production_event
 
 logger = structlog.get_logger()
+
+
+async def index_production_event_cognee(event: dict) -> bool:
+    """Index a production event in Cognee for semantic search.
+
+    This is a helper function that wraps CogneeKnowledgeClient.store_failure_pattern
+    for backwards compatibility with webhook handlers.
+
+    Args:
+        event: Production event dict with id, title, message, etc.
+
+    Returns:
+        True if indexed successfully
+    """
+    event_id = event.get("id")
+    if not event_id:
+        logger.warning("Cannot index event without ID")
+        return False
+
+    try:
+        project_id = event.get("project_id") or "default"
+        cognee = get_cognee_client(org_id="default", project_id=project_id)
+
+        # Build searchable text from event fields
+        title = event.get("title", "")
+        message = event.get("message", "")
+        component = event.get("component", "")
+        stack_trace = event.get("stack_trace", "")
+
+        error_message = f"{title} {message}"
+        if component:
+            error_message += f" in {component}"
+        if stack_trace:
+            error_message += f" {stack_trace[:500]}"
+        error_message = error_message.strip()[:2000]
+
+        if not error_message:
+            logger.warning(f"No text to index for event {event_id}")
+            return False
+
+        # Store in Cognee
+        await cognee.store_failure_pattern(
+            error_message=error_message,
+            healed_selector=None,
+            healing_method="pending",
+            error_type=event.get("severity", "error"),
+            original_selector=event.get("url", ""),
+            metadata={
+                "event_id": event_id,
+                "title": title[:200] if title else "",
+                "message": message[:500] if message else "",
+                "severity": event.get("severity") or "error",
+                "source": event.get("source") or "unknown",
+                "component": component[:100] if component else "",
+                "url": (event.get("url") or "")[:200],
+                "fingerprint": event.get("fingerprint") or "",
+            },
+        )
+
+        logger.info(f"Indexed production event {event_id} in Cognee")
+        return True
+
+    except CogneeStorageError as e:
+        # Cognee storage failed - log error but don't break webhook processing
+        logger.error(
+            f"Cognee storage error while indexing event {event_id}: {e}",
+            error_type="CogneeStorageError",
+            event_id=event_id,
+        )
+        return False
+    except CogneeError as e:
+        # Other Cognee errors
+        logger.error(
+            f"Cognee error while indexing event {event_id}: {e}",
+            error_type=type(e).__name__,
+            event_id=event_id,
+        )
+        return False
+    except Exception as e:
+        # Unexpected errors
+        logger.warning(f"Unexpected error indexing event {event_id} in Cognee: {e}")
+        return False
 router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
 
 
@@ -412,7 +494,7 @@ async def handle_sentry_webhook(
 
             # Auto-index for semantic search
             if result.get("data"):
-                await index_production_event(result["data"][0])
+                await index_production_event_cognee(result["data"][0])
 
             logger.info("Sentry webhook processed", event_id=event_id, fingerprint=fingerprint)
 
@@ -556,7 +638,7 @@ async def handle_datadog_webhook(
             if not result.get("error") and result.get("data"):
                 processed_events.append(result["data"][0]["id"])
                 # Auto-index for semantic search
-                await index_production_event(result["data"][0])
+                await index_production_event_cognee(result["data"][0])
 
         await update_webhook_log(supabase, webhook_id, "processed")
 
@@ -671,7 +753,7 @@ async def handle_fullstory_webhook(
 
         # Auto-index for semantic search
         if result.get("data"):
-            await index_production_event(result["data"][0])
+            await index_production_event_cognee(result["data"][0])
 
         logger.info("FullStory webhook processed", event_id=event_id)
 
@@ -782,7 +864,7 @@ async def handle_logrocket_webhook(
 
         # Auto-index for semantic search
         if result.get("data"):
-            await index_production_event(result["data"][0])
+            await index_production_event_cognee(result["data"][0])
 
         logger.info("LogRocket webhook processed", event_id=event_id)
 
@@ -897,7 +979,7 @@ async def handle_newrelic_webhook(
 
         # Auto-index for semantic search
         if result.get("data"):
-            await index_production_event(result["data"][0])
+            await index_production_event_cognee(result["data"][0])
 
         logger.info("NewRelic webhook processed", event_id=event_id)
 
@@ -1016,7 +1098,7 @@ async def handle_bugsnag_webhook(
 
         # Auto-index for semantic search
         if result.get("data"):
-            await index_production_event(result["data"][0])
+            await index_production_event_cognee(result["data"][0])
 
         logger.info("Bugsnag webhook processed", event_id=event_id)
 
@@ -1583,7 +1665,7 @@ async def handle_rollbar_webhook(
 
         # Auto-index for semantic search
         if result.get("data"):
-            await index_production_event(result["data"][0])
+            await index_production_event_cognee(result["data"][0])
 
         logger.info("Rollbar webhook processed", event_id=event_id)
 

@@ -17,9 +17,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.config import get_settings
+from src.knowledge import CogneeError, CogneeSearchError, CogneeStorageError, get_cognee_client
 from src.services.cache import cache_quality_score
 from src.services.supabase_client import get_supabase_client
-from src.services.vectorize import index_production_event, semantic_search_errors
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/quality", tags=["Quality Intelligence"])
@@ -888,17 +888,38 @@ async def find_similar_errors(
     error_text: str = Query(..., description="Error text to search for"),
     limit: int = Query(5, le=20, description="Max results"),
     min_score: float = Query(0.7, ge=0, le=1, description="Minimum similarity score"),
+    project_id: str | None = Query(None, description="Project ID for tenant isolation"),
 ):
     """
     Find similar error patterns using semantic search.
 
-    Uses Cloudflare Vectorize to find errors with similar meaning,
-    not just exact text matches.
+    Uses Cognee's knowledge layer for semantic similarity matching.
     """
     try:
-        results = await semantic_search_errors(error_text, limit=limit, min_score=min_score)
-        # Handle None return from semantic_search_errors
-        results = results or []
+        cognee = get_cognee_client(
+            org_id="default",
+            project_id=project_id or "default",
+        )
+        similar_failures = await cognee.find_similar_failures(
+            error_message=error_text,
+            limit=limit,
+        )
+
+        # Convert SimilarFailure objects to dicts and filter by score
+        results = []
+        for failure in similar_failures:
+            if failure.similarity >= min_score:
+                results.append({
+                    "id": failure.id,
+                    "score": failure.similarity,
+                    "metadata": {
+                        "error_message": failure.error_message,
+                        "error_type": failure.error_type,
+                        "healed_selector": failure.healed_selector,
+                        "healing_method": failure.healing_method,
+                        "success_rate": failure.success_rate,
+                    },
+                })
 
         return {
             "query": error_text[:100],
@@ -917,13 +938,13 @@ async def find_similar_errors(
 
 
 @router.post("/backfill-index")
-async def backfill_vectorize_index(
+async def backfill_cognee_index(
     project_id: str | None = Query(None, description="Project ID (optional, indexes all if not specified)"),
     limit: int = Query(100, le=500, description="Max events to index"),
     offset: int = Query(0, description="Offset for pagination"),
 ):
     """
-    Backfill Vectorize index with existing production events.
+    Backfill Cognee knowledge layer with existing production events.
 
     Call this endpoint to index historical errors for semantic search.
     Run multiple times with different offsets to index all events.
@@ -962,17 +983,57 @@ async def backfill_vectorize_index(
                 "total": 0,
             }
 
-        # Index each event
+        # Index each event using Cognee
         indexed = 0
         failed = 0
 
         for event in events:
             try:
-                success = await index_production_event(event)
-                if success:
-                    indexed += 1
-                else:
+                event_project_id = event.get("project_id") or project_id or "default"
+                cognee = get_cognee_client(
+                    org_id="default",
+                    project_id=event_project_id,
+                )
+
+                # Build searchable error message
+                title = event.get("title", "")
+                message = event.get("message", "")
+                component = event.get("component", "")
+                stack_trace = event.get("stack_trace", "")
+
+                error_message = f"{title} {message}"
+                if component:
+                    error_message += f" in {component}"
+                if stack_trace:
+                    error_message += f" {stack_trace[:500]}"
+                error_message = error_message.strip()[:2000]
+
+                if not error_message:
+                    logger.warning(f"No text to index for event {event.get('id')}")
                     failed += 1
+                    continue
+
+                # Store as failure pattern in Cognee
+                await cognee.store_failure_pattern(
+                    error_message=error_message,
+                    healed_selector=None,  # Production events don't have healed selectors yet
+                    healing_method="pending",
+                    error_type=event.get("severity", "error"),
+                    original_selector=event.get("url", ""),
+                    metadata={
+                        "event_id": event.get("id"),
+                        "title": title[:200] if title else "",
+                        "message": message[:500] if message else "",
+                        "severity": event.get("severity") or "error",
+                        "source": event.get("source") or "unknown",
+                        "component": component[:100] if component else "",
+                        "url": (event.get("url") or "")[:200],
+                        "fingerprint": event.get("fingerprint") or "",
+                    },
+                )
+                indexed += 1
+                logger.debug(f"Indexed event {event.get('id')} in Cognee")
+
             except Exception as e:
                 logger.warning(f"Failed to index event {event.get('id')}: {e}")
                 failed += 1
@@ -997,5 +1058,5 @@ async def backfill_vectorize_index(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to backfill vectorize index", error=str(e))
+        logger.exception("Failed to backfill Cognee index", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to backfill index: {str(e)}")
