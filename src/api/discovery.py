@@ -1265,12 +1265,17 @@ async def validate_flow(flow_id: str, request: FlowValidationRequest):
 
 
 @router.post("/flows/{flow_id}/generate-test")
-async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest):
+async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest | None = None):
     """
     Generate a test from a discovered flow.
 
     Creates an executable test specification based on the flow steps.
+    Request body is optional - all fields have defaults.
     """
+    # Use defaults if no request body provided
+    if request is None:
+        request = GenerateTestRequest()
+
     flow = await get_flow_or_404(flow_id)
 
     # Build test specification
