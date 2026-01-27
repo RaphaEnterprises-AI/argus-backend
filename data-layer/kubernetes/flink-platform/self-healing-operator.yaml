@@ -1,0 +1,195 @@
+# Flink Self-Healing Operator
+# Solves: Automatic Recovery, Job Restarts, Upgrade Orchestration
+#
+# This uses the Flink Kubernetes Operator's built-in capabilities
+# plus custom automation via Kubernetes Jobs
+---
+# Enhanced Flink Deployment with Self-Healing
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: argus-flink
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/part-of: argus
+spec:
+  image: flink:1.20-java17
+  flinkVersion: v1_20
+
+  # ==========================================================
+  # SELF-HEALING: Job Lifecycle Management
+  # ==========================================================
+  job:
+    # Automatically upgrade jobs when spec changes
+    upgradeMode: savepoint
+
+    # Allow job to be stopped for upgrades
+    allowNonRestoredState: false
+
+    # Savepoint trigger settings
+    savepointTriggerNonce: 0
+
+  # ==========================================================
+  # SELF-HEALING: Automatic Restart Configuration
+  # ==========================================================
+  flinkConfiguration:
+    # High Availability
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://argus-flink-checkpoints/ha
+
+    # Restart strategy - exponential backoff
+    restart-strategy.type: exponential-delay
+    restart-strategy.exponential-delay.initial-backoff: 1s
+    restart-strategy.exponential-delay.max-backoff: 60s
+    restart-strategy.exponential-delay.backoff-multiplier: 2.0
+    restart-strategy.exponential-delay.reset-backoff-threshold: 300s
+
+    # Checkpointing for recovery
+    execution.checkpointing.interval: "60000"
+    execution.checkpointing.mode: EXACTLY_ONCE
+    execution.checkpointing.unaligned.enabled: "true"
+    state.backend.type: rocksdb
+    state.backend.incremental: "true"
+    state.checkpoints.dir: s3://argus-flink-checkpoints/checkpoints
+    state.savepoints.dir: s3://argus-flink-checkpoints/savepoints
+
+    # Metrics for monitoring
+    metrics.reporters: prometheus
+    metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prometheus.port: "9249"
+
+  # ==========================================================
+  # POD TEMPLATE: Health Checks & Anti-Affinity
+  # ==========================================================
+  podTemplate:
+    spec:
+      # Spread TaskManagers across nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    component: taskmanager
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: flink-main-container
+          # Environment from secrets
+          envFrom:
+            - secretRef:
+                name: redpanda-credentials
+            - secretRef:
+                name: flink-s3-credentials
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /jobs/overview
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 5
+
+          # Resource limits
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+
+  # ==========================================================
+  # JOB MANAGER: Single replica with HA
+  # ==========================================================
+  jobManager:
+    resource:
+      memory: "2048m"
+      cpu: 1
+    replicas: 1
+
+  # ==========================================================
+  # TASK MANAGER: Scalable workers
+  # ==========================================================
+  taskManager:
+    resource:
+      memory: "4096m"
+      cpu: 2
+    replicas: 2  # KEDA will scale this
+
+---
+# CronJob: Periodic Savepoint (backup)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flink-savepoint-backup
+  namespace: argus-data
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: flink
+          containers:
+            - name: savepoint
+              image: bitnami/kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Trigger savepoint via Flink REST API
+                  JM_POD=$(kubectl get pods -n argus-data -l component=jobmanager -o jsonpath='{.items[0].metadata.name}')
+                  JOB_ID=$(kubectl exec -n argus-data $JM_POD -- curl -s localhost:8081/jobs | jq -r '.jobs[0].id')
+
+                  if [ "$JOB_ID" != "null" ] && [ -n "$JOB_ID" ]; then
+                    echo "Triggering savepoint for job $JOB_ID"
+                    kubectl exec -n argus-data $JM_POD -- curl -X POST \
+                      "localhost:8081/jobs/$JOB_ID/savepoints" \
+                      -H "Content-Type: application/json" \
+                      -d '{"cancel-job": false, "target-directory": "s3://argus-flink-checkpoints/savepoints"}'
+                    echo "Savepoint triggered"
+                  else
+                    echo "No running job found"
+                  fi
+          restartPolicy: OnFailure
+
+---
+# CronJob: Cleanup old checkpoints (cost savings)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flink-checkpoint-cleanup
+  namespace: argus-data
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: cleanup
+              image: amazon/aws-cli:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Keep only last 7 days of checkpoints
+                  aws s3 ls s3://argus-flink-checkpoints/checkpoints/ --recursive \
+                    | awk '$1 < "'$(date -d '7 days ago' +%Y-%m-%d)'" {print $4}' \
+                    | xargs -I {} aws s3 rm s3://argus-flink-checkpoints/{}
+                  echo "Cleanup completed"
+              envFrom:
+                - secretRef:
+                    name: flink-s3-credentials
+          restartPolicy: OnFailure

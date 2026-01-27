@@ -1,0 +1,146 @@
+# Flink Session Cluster for Argus
+# Connects to Redpanda Serverless for stream processing
+---
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: argus-flink
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: stream-processing
+spec:
+  image: flink:1.20-java17
+  flinkVersion: v1_20
+  flinkConfiguration:
+    # Task slots
+    taskmanager.numberOfTaskSlots: "2"
+
+    # Memory
+    jobmanager.memory.process.size: 1024m
+    taskmanager.memory.process.size: 2048m
+
+    # High availability (using K8s)
+    high-availability.type: kubernetes
+    high-availability.storageDir: file:///tmp/flink-ha
+
+    # Checkpointing
+    execution.checkpointing.interval: "60000"
+    execution.checkpointing.mode: EXACTLY_ONCE
+    state.backend.type: hashmap
+    state.checkpoints.dir: file:///tmp/flink-checkpoints
+
+    # Web UI
+    web.submit.enable: "true"
+
+    # Kafka/Redpanda connection (loaded from secret)
+    # These will be overridden by environment variables from secret
+
+  serviceAccount: flink
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          envFrom:
+            - secretRef:
+                name: redpanda-credentials
+          env:
+            # Redpanda Serverless connection
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: redpanda-credentials
+                  key: bootstrap_servers
+            - name: KAFKA_SASL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: redpanda-credentials
+                  key: sasl_username
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redpanda-credentials
+                  key: sasl_password
+
+  jobManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+    replicas: 1
+
+  taskManager:
+    resource:
+      memory: "2048m"
+      cpu: 1
+    replicas: 2
+
+---
+# Redpanda credentials secret (update with your actual values)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redpanda-credentials
+  namespace: argus-data
+type: Opaque
+stringData:
+  bootstrap_servers: "d5rq6j17lc71h60f3oog.any.ap-south-1.mpx.prd.cloud.redpanda.com:9092"
+  sasl_username: "bapatla92"
+  sasl_password: "PpoOCp1nneHSPNIdBLh2NV5GbEuadZ"
+  sasl_mechanism: "SCRAM-SHA-256"
+  security_protocol: "SASL_SSL"
+
+---
+# Service account for Flink
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flink
+  namespace: argus-data
+
+---
+# RBAC for Flink (needs to manage pods for HA)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flink
+  namespace: argus-data
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "services"]
+    verbs: ["create", "delete", "get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["create", "delete", "get", "list", "watch", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flink
+  namespace: argus-data
+subjects:
+  - kind: ServiceAccount
+    name: flink
+    namespace: argus-data
+roleRef:
+  kind: Role
+  name: flink
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Flink Web UI Service (for debugging)
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-webui
+  namespace: argus-data
+spec:
+  selector:
+    app: argus-flink
+    component: jobmanager
+  ports:
+    - name: webui
+      port: 8081
+      targetPort: 8081
+  type: ClusterIP

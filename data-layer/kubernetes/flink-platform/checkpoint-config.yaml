@@ -1,0 +1,133 @@
+# Flink Checkpoint Configuration
+# Solves: State Recovery, Exactly-Once Semantics, Large State Management
+#
+# Uses S3-compatible storage (Cloudflare R2 or AWS S3) for checkpoints
+# Enables automatic recovery from any failure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-checkpoint-config
+  namespace: argus-data
+data:
+  flink-conf.yaml: |
+    # ==========================================================
+    # CHECKPOINTING - Automatic State Snapshots
+    # ==========================================================
+
+    # Enable checkpointing every 60 seconds
+    execution.checkpointing.interval: 60000
+
+    # Exactly-once semantics (strongest guarantee)
+    execution.checkpointing.mode: EXACTLY_ONCE
+
+    # Minimum pause between checkpoints (prevents checkpoint storms)
+    execution.checkpointing.min-pause: 30000
+
+    # Timeout for checkpoint completion
+    execution.checkpointing.timeout: 600000
+
+    # Allow only 1 checkpoint at a time
+    execution.checkpointing.max-concurrent-checkpoints: 1
+
+    # Enable unaligned checkpoints for better performance under backpressure
+    execution.checkpointing.unaligned.enabled: true
+
+    # ==========================================================
+    # STATE BACKEND - RocksDB for Large State
+    # ==========================================================
+
+    # Use RocksDB for large state (spills to disk)
+    state.backend.type: rocksdb
+
+    # Incremental checkpoints (only save changes, not full state)
+    state.backend.incremental: true
+
+    # Local state storage
+    state.backend.rocksdb.localdir: /tmp/flink-rocksdb
+
+    # ==========================================================
+    # CHECKPOINT STORAGE - S3/R2 for Durability
+    # ==========================================================
+
+    # Checkpoint storage location (Cloudflare R2 - S3 compatible)
+    state.checkpoints.dir: s3://argus-flink-checkpoints/checkpoints
+
+    # Savepoint storage location
+    state.savepoints.dir: s3://argus-flink-checkpoints/savepoints
+
+    # Retain checkpoints on cancellation (for recovery)
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+    # ==========================================================
+    # S3 CONFIGURATION (Works with R2, MinIO, AWS S3)
+    # ==========================================================
+
+    # S3 endpoint (Cloudflare R2)
+    s3.endpoint: https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com
+
+    # Path style access (required for R2/MinIO)
+    s3.path.style.access: true
+
+    # Credentials from environment
+    s3.access-key: ${AWS_ACCESS_KEY_ID}
+    s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
+
+    # ==========================================================
+    # RESTART STRATEGY - Automatic Recovery
+    # ==========================================================
+
+    # Exponential backoff restart strategy
+    restart-strategy.type: exponential-delay
+    restart-strategy.exponential-delay.initial-backoff: 1s
+    restart-strategy.exponential-delay.max-backoff: 60s
+    restart-strategy.exponential-delay.backoff-multiplier: 2.0
+    restart-strategy.exponential-delay.reset-backoff-threshold: 300s
+
+    # Maximum restart attempts (0 = infinite)
+    restart-strategy.exponential-delay.attempts-before-reset-backoff: 10
+
+    # ==========================================================
+    # HIGH AVAILABILITY - Kubernetes Native
+    # ==========================================================
+
+    # Use Kubernetes for HA coordination
+    high-availability.type: kubernetes
+
+    # HA storage directory
+    high-availability.storageDir: s3://argus-flink-checkpoints/ha
+
+    # Cluster ID for HA
+    high-availability.cluster-id: argus-flink
+
+    # ==========================================================
+    # MEMORY TUNING
+    # ==========================================================
+
+    # JobManager memory
+    jobmanager.memory.process.size: 1600m
+    jobmanager.memory.heap.size: 1024m
+
+    # TaskManager memory
+    taskmanager.memory.process.size: 4096m
+    taskmanager.memory.flink.size: 2048m
+    taskmanager.memory.managed.fraction: 0.4
+
+    # Network buffers for high throughput
+    taskmanager.memory.network.fraction: 0.1
+    taskmanager.memory.network.min: 64mb
+    taskmanager.memory.network.max: 1gb
+
+---
+# S3 credentials secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flink-s3-credentials
+  namespace: argus-data
+type: Opaque
+stringData:
+  # Cloudflare R2 credentials (or AWS S3)
+  AWS_ACCESS_KEY_ID: "${CLOUDFLARE_R2_ACCESS_KEY_ID}"
+  AWS_SECRET_ACCESS_KEY: "${CLOUDFLARE_R2_SECRET_ACCESS_KEY}"
+  CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID}"

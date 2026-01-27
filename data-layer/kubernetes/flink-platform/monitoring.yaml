@@ -1,0 +1,247 @@
+# Flink Monitoring Stack
+# Solves: Visibility, Backpressure Detection, Performance Issues
+#
+# Components:
+# - Prometheus ServiceMonitor for Flink metrics
+# - PrometheusRules for alerting
+# - Grafana dashboard ConfigMap
+---
+# Prometheus ServiceMonitor - Scrapes Flink metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flink-metrics
+  namespace: argus-data
+  labels:
+    app: flink
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: argus-flink
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - argus-data
+
+---
+# Prometheus Alerting Rules
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: flink-alerts
+  namespace: argus-data
+  labels:
+    app: flink
+    release: prometheus
+spec:
+  groups:
+    - name: flink.rules
+      rules:
+        # ==========================================================
+        # BACKPRESSURE ALERTS
+        # ==========================================================
+        - alert: FlinkBackpressureHigh
+          expr: |
+            avg(flink_taskmanager_job_task_backPressuredTimeMsPerSecond) by (job_name, task_name) > 500
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink task {{ $labels.task_name }} experiencing backpressure"
+            description: "Task {{ $labels.task_name }} in job {{ $labels.job_name }} has been backpressured for >500ms/sec for 5 minutes. Consider scaling up TaskManagers."
+            runbook_url: "https://docs.argus.ai/runbooks/flink-backpressure"
+
+        - alert: FlinkBackpressureCritical
+          expr: |
+            avg(flink_taskmanager_job_task_backPressuredTimeMsPerSecond) by (job_name, task_name) > 800
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL: Flink task {{ $labels.task_name }} severely backpressured"
+            description: "Task is spending >80% of time backpressured. Immediate scaling required."
+
+        # ==========================================================
+        # CHECKPOINT ALERTS
+        # ==========================================================
+        - alert: FlinkCheckpointFailing
+          expr: |
+            increase(flink_jobmanager_job_numberOfFailedCheckpoints[10m]) > 3
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink checkpoints failing for job {{ $labels.job_name }}"
+            description: "More than 3 checkpoints have failed in the last 10 minutes. State recovery may be compromised."
+
+        - alert: FlinkCheckpointDurationHigh
+          expr: |
+            flink_jobmanager_job_lastCheckpointDuration > 300000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink checkpoint taking too long"
+            description: "Checkpoint duration exceeds 5 minutes. Consider enabling incremental checkpoints or reducing state size."
+
+        - alert: FlinkCheckpointSizeGrowing
+          expr: |
+            increase(flink_jobmanager_job_lastCheckpointSize[1h]) > 1073741824
+          for: 10m
+          labels:
+            severity: info
+          annotations:
+            summary: "Flink checkpoint size growing rapidly"
+            description: "Checkpoint size increased by >1GB in the last hour. Monitor for state explosion."
+
+        # ==========================================================
+        # JOB HEALTH ALERTS
+        # ==========================================================
+        - alert: FlinkJobNotRunning
+          expr: |
+            flink_jobmanager_job_uptime == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Flink job {{ $labels.job_name }} is not running"
+            description: "Job has been down for 2 minutes. Check logs for errors."
+
+        - alert: FlinkJobRestarting
+          expr: |
+            increase(flink_jobmanager_job_numRestarts[30m]) > 5
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink job {{ $labels.job_name }} restarting frequently"
+            description: "Job has restarted {{ $value }} times in 30 minutes. Investigate root cause."
+
+        - alert: FlinkTaskManagerDown
+          expr: |
+            flink_jobmanager_numRegisteredTaskManagers < 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Flink TaskManagers below minimum"
+            description: "Only {{ $value }} TaskManagers registered. Minimum is 2."
+
+        # ==========================================================
+        # KAFKA LAG ALERTS
+        # ==========================================================
+        - alert: FlinkKafkaLagHigh
+          expr: |
+            sum(flink_taskmanager_job_task_operator_KafkaSourceReader_KafkaConsumer_records_lag_max) by (job_name) > 10000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink Kafka consumer lag high"
+            description: "Consumer lag exceeds 10,000 records. Processing is falling behind."
+
+        - alert: FlinkKafkaLagCritical
+          expr: |
+            sum(flink_taskmanager_job_task_operator_KafkaSourceReader_KafkaConsumer_records_lag_max) by (job_name) > 100000
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL: Flink Kafka consumer lag very high"
+            description: "Consumer lag exceeds 100,000 records. Immediate action required."
+
+        # ==========================================================
+        # RESOURCE ALERTS
+        # ==========================================================
+        - alert: FlinkHeapMemoryHigh
+          expr: |
+            flink_jobmanager_Status_JVM_Memory_Heap_Used / flink_jobmanager_Status_JVM_Memory_Heap_Max > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink JobManager heap memory >90%"
+            description: "Consider increasing JobManager memory."
+
+        - alert: FlinkGCTimeHigh
+          expr: |
+            rate(flink_taskmanager_Status_JVM_GarbageCollector_G1_Young_Generation_Time[5m]) > 500
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink GC time excessive"
+            description: "GC is taking >500ms per 5 minutes. Memory pressure detected."
+
+---
+# Grafana Dashboard ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-grafana-dashboard
+  namespace: argus-data
+  labels:
+    grafana_dashboard: "1"
+data:
+  flink-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "title": "Job Status",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [{"expr": "flink_jobmanager_job_uptime", "legendFormat": "{{job_name}}"}]
+        },
+        {
+          "title": "Records Processed/sec",
+          "type": "graph",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [{"expr": "rate(flink_taskmanager_job_task_operator_numRecordsOut[1m])", "legendFormat": "{{task_name}}"}]
+        },
+        {
+          "title": "Kafka Consumer Lag",
+          "type": "graph",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [{"expr": "flink_taskmanager_job_task_operator_KafkaSourceReader_KafkaConsumer_records_lag_max", "legendFormat": "{{topic}}"}]
+        },
+        {
+          "title": "Backpressure",
+          "type": "graph",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [{"expr": "flink_taskmanager_job_task_backPressuredTimeMsPerSecond", "legendFormat": "{{task_name}}"}]
+        },
+        {
+          "title": "Checkpoint Duration",
+          "type": "graph",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [{"expr": "flink_jobmanager_job_lastCheckpointDuration / 1000", "legendFormat": "Duration (sec)"}]
+        },
+        {
+          "title": "TaskManager Memory",
+          "type": "graph",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+          "targets": [
+            {"expr": "flink_taskmanager_Status_JVM_Memory_Heap_Used", "legendFormat": "Heap Used"},
+            {"expr": "flink_taskmanager_Status_JVM_Memory_Heap_Max", "legendFormat": "Heap Max"}
+          ]
+        }
+      ],
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["flink", "streaming"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "title": "Flink Overview - Argus",
+      "uid": "flink-overview"
+    }

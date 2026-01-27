@@ -1,0 +1,82 @@
+# KEDA - Kubernetes Event Driven Autoscaler
+# Automatically scales Flink TaskManagers based on Kafka consumer lag
+#
+# Problem Solved: Backpressure
+# When Kafka lag increases, KEDA automatically adds more TaskManagers
+# When lag decreases, it scales down to save costs
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: flink-taskmanager-scaler
+  namespace: argus-data
+spec:
+  scaleTargetRef:
+    apiVersion: flink.apache.org/v1beta1
+    kind: FlinkDeployment
+    name: argus-flink
+  pollingInterval: 30        # Check every 30 seconds
+  cooldownPeriod: 300        # Wait 5 min before scaling down
+  minReplicaCount: 2         # Minimum TaskManagers
+  maxReplicaCount: 10        # Maximum TaskManagers
+
+  triggers:
+    # Scale based on Kafka consumer lag
+    - type: kafka
+      metadata:
+        bootstrapServers: d5rq6j17lc71h60f3oog.any.ap-south-1.mpx.prd.cloud.redpanda.com:9092
+        consumerGroup: flink-test-analytics
+        topic: argus.test.executed
+        lagThreshold: "1000"  # Scale up when lag > 1000 messages
+        offsetResetPolicy: earliest
+      authenticationRef:
+        name: redpanda-trigger-auth
+
+    # Also monitor the failure topic
+    - type: kafka
+      metadata:
+        bootstrapServers: d5rq6j17lc71h60f3oog.any.ap-south-1.mpx.prd.cloud.redpanda.com:9092
+        consumerGroup: flink-failure-patterns
+        topic: argus.test.failed
+        lagThreshold: "500"
+        offsetResetPolicy: earliest
+      authenticationRef:
+        name: redpanda-trigger-auth
+
+---
+# KEDA trigger authentication for Redpanda SASL
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: redpanda-trigger-auth
+  namespace: argus-data
+spec:
+  secretTargetRef:
+    - parameter: sasl
+      name: redpanda-credentials
+      key: sasl_mechanism
+    - parameter: username
+      name: redpanda-credentials
+      key: sasl_username
+    - parameter: password
+      name: redpanda-credentials
+      key: sasl_password
+    - parameter: tls
+      name: redpanda-credentials
+      key: tls_enabled
+
+---
+# Additional secret for KEDA TLS
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redpanda-credentials
+  namespace: argus-data
+type: Opaque
+stringData:
+  bootstrap_servers: "d5rq6j17lc71h60f3oog.any.ap-south-1.mpx.prd.cloud.redpanda.com:9092"
+  sasl_username: "bapatla92"
+  sasl_password: "PpoOCp1nneHSPNIdBLh2NV5GbEuadZ"
+  sasl_mechanism: "SCRAM-SHA-256"
+  security_protocol: "SASL_SSL"
+  tls_enabled: "enable"

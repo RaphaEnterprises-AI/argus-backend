@@ -1,0 +1,361 @@
+# Apache Flink Session Cluster for Argus
+# Production-ready deployment with:
+# - Kubernetes-native HA
+# - SASL authentication to Redpanda
+# - Cloudflare R2 for checkpoint storage (S3-compatible)
+# - Resource-appropriate sizing for Vultr cluster
+#
+# Prerequisites:
+#   1. Flink Kubernetes Operator installed (helm install flink-operator ...)
+#   2. cert-manager installed
+#   3. Redpanda running with SASL enabled
+#   4. Cloudflare R2 bucket created
+#
+# Installation:
+#   1. Update the flink-r2-credentials secret with your actual R2 credentials
+#   2. kubectl apply -f flink-deployment.yaml
+#   3. Wait for pods: kubectl get pods -n argus-data -l app=argus-flink -w
+#
+# Verify:
+#   kubectl logs -n argus-data -l component=jobmanager -f
+#   kubectl port-forward svc/flink-rest -n argus-data 8081:8081
+---
+# NOTE: R2 credentials secret is created separately via:
+#   kubectl create secret generic flink-r2-credentials -n argus-data \
+#     --from-literal=AWS_ACCESS_KEY_ID=<your-key> \
+#     --from-literal=AWS_SECRET_ACCESS_KEY=<your-secret> \
+#     --from-literal=CLOUDFLARE_ACCOUNT_ID=<your-account-id>
+---
+# FlinkDeployment - Session Cluster with R2 Checkpoints
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: argus-flink
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: stream-processing
+spec:
+  # Flink 1.20 with Java 17 - latest stable
+  image: flink:1.20-java17
+  flinkVersion: v1_20
+  serviceAccount: flink
+
+  # ============================================================
+  # Flink Configuration
+  # ============================================================
+  flinkConfiguration:
+    # Task slots per TaskManager (2 slots = can run 2 parallel tasks)
+    taskmanager.numberOfTaskSlots: "2"
+
+    # Java 17 module access flags (required for Flink 1.20+)
+    env.java.opts.all: "--add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED"
+
+    # Memory configuration (conservative for small cluster)
+    jobmanager.memory.process.size: 1024m
+    taskmanager.memory.process.size: 2048m
+    taskmanager.memory.managed.fraction: "0.3"
+
+    # --------------------------------------------------------
+    # Kubernetes-native High Availability
+    # --------------------------------------------------------
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://argus-artifacts/flink/ha
+
+    # --------------------------------------------------------
+    # Checkpointing with Cloudflare R2
+    # --------------------------------------------------------
+    execution.checkpointing.interval: "60000"
+    execution.checkpointing.mode: EXACTLY_ONCE
+    execution.checkpointing.min-pause: "30000"
+    execution.checkpointing.timeout: "300000"
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+    # State backend - HashMap for simplicity (use RocksDB for large state)
+    state.backend.type: hashmap
+    state.checkpoints.dir: s3://argus-artifacts/flink/checkpoints
+    state.savepoints.dir: s3://argus-artifacts/flink/savepoints
+
+    # --------------------------------------------------------
+    # S3/R2 Configuration
+    # --------------------------------------------------------
+    # Cloudflare R2 endpoint (S3-compatible)
+    # Format: https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+    s3.endpoint: https://4957164416d09fb70ffd01ea18a86f4c.r2.cloudflarestorage.com
+
+    # Path-style access required for R2 (not virtual-hosted style)
+    s3.path.style.access: "true"
+
+    # Credentials are passed via environment variables
+    # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+
+    # --------------------------------------------------------
+    # Restart Strategy
+    # --------------------------------------------------------
+    restart-strategy.type: exponential-delay
+    restart-strategy.exponential-delay.initial-backoff: 1s
+    restart-strategy.exponential-delay.max-backoff: 60s
+    restart-strategy.exponential-delay.backoff-multiplier: "2.0"
+    restart-strategy.exponential-delay.reset-backoff-threshold: 300s
+
+    # --------------------------------------------------------
+    # Web UI
+    # --------------------------------------------------------
+    web.submit.enable: "true"
+    web.cancel.enable: "true"
+
+    # --------------------------------------------------------
+    # Kafka/Redpanda Configuration
+    # --------------------------------------------------------
+    # Internal Redpanda address (within K8s cluster)
+    kafka.bootstrap.servers: redpanda.argus-data.svc.cluster.local:9092
+    kafka.security.protocol: SASL_PLAINTEXT
+    kafka.sasl.mechanism: SCRAM-SHA-512
+
+    # --------------------------------------------------------
+    # Metrics for Prometheus
+    # --------------------------------------------------------
+    metrics.reporters: prometheus
+    metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prometheus.port: "9249"
+
+  # ============================================================
+  # Pod Template - Environment, Volumes, Probes
+  # ============================================================
+  podTemplate:
+    spec:
+      # Spread across nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: argus-flink
+                topologyKey: kubernetes.io/hostname
+
+      # Enable S3 filesystem plugin for R2
+      initContainers:
+        - name: enable-s3-plugin
+          image: flink:1.20-java17
+          command:
+            - /bin/bash
+            - -c
+            - |
+              # Copy S3 Presto plugin to plugins directory
+              # Presto plugin is recommended for checkpointing
+              mkdir -p /opt/flink/plugins/s3-fs-presto
+              cp /opt/flink/opt/flink-s3-fs-presto-*.jar /opt/flink/plugins/s3-fs-presto/
+              echo "S3 Presto plugin enabled"
+          volumeMounts:
+            - name: flink-plugins
+              mountPath: /opt/flink/plugins
+
+      volumes:
+        - name: flink-plugins
+          emptyDir: {}
+
+      containers:
+        - name: flink-main-container
+          # Mount plugins directory
+          volumeMounts:
+            - name: flink-plugins
+              mountPath: /opt/flink/plugins
+
+          # Environment variables
+          envFrom:
+            # R2 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+            - secretRef:
+                name: flink-r2-credentials
+
+          env:
+            # Kafka/Redpanda SASL credentials
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "redpanda.argus-data.svc.cluster.local:9092"
+            - name: KAFKA_SASL_MECHANISM
+              value: "SCRAM-SHA-512"
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: "SASL_PLAINTEXT"
+            - name: KAFKA_SASL_USERNAME
+              value: "argus-service"
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keda-kafka-secrets
+                  key: password
+
+          # Startup probe (allows JVM warmup time)
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+
+          # Liveness probe
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+
+          # Readiness probe
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+  # ============================================================
+  # JobManager Configuration
+  # ============================================================
+  jobManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+    replicas: 1
+    podTemplate:
+      spec:
+        initContainers:
+          - name: enable-s3-plugin
+            image: flink:1.20-java17
+            command:
+              - /bin/bash
+              - -c
+              - |
+                mkdir -p /opt/flink/plugins/s3-fs-presto
+                cp /opt/flink/opt/flink-s3-fs-presto-*.jar /opt/flink/plugins/s3-fs-presto/
+            volumeMounts:
+              - name: flink-plugins
+                mountPath: /opt/flink/plugins
+        volumes:
+          - name: flink-plugins
+            emptyDir: {}
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - name: flink-plugins
+                mountPath: /opt/flink/plugins
+
+  # ============================================================
+  # TaskManager Configuration
+  # ============================================================
+  taskManager:
+    resource:
+      memory: "1024m"  # Reduced for small cluster
+      cpu: 0.5
+    replicas: 1  # Start with 1, scale as needed
+    podTemplate:
+      spec:
+        initContainers:
+          - name: enable-s3-plugin
+            image: flink:1.20-java17
+            command:
+              - /bin/bash
+              - -c
+              - |
+                mkdir -p /opt/flink/plugins/s3-fs-presto
+                cp /opt/flink/opt/flink-s3-fs-presto-*.jar /opt/flink/plugins/s3-fs-presto/
+            volumeMounts:
+              - name: flink-plugins
+                mountPath: /opt/flink/plugins
+        volumes:
+          - name: flink-plugins
+            emptyDir: {}
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - name: flink-plugins
+                mountPath: /opt/flink/plugins
+
+---
+# Service for Flink Web UI and REST API
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-rest
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/part-of: argus
+spec:
+  selector:
+    app: argus-flink
+    component: jobmanager
+  ports:
+    - name: rest
+      port: 8081
+      targetPort: 8081
+    - name: metrics
+      port: 9249
+      targetPort: 9249
+  type: ClusterIP
+
+---
+# NetworkPolicy for Flink
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flink-network-policy
+  namespace: argus-data
+spec:
+  podSelector:
+    matchLabels:
+      app: argus-flink
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow internal Flink communication (JM <-> TM)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: argus-flink
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9249
+    # Allow Web UI access
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8081
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow Redpanda access
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow Cloudflare R2 (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow Kubernetes API (for HA)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443

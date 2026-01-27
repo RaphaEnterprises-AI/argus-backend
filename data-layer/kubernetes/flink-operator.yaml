@@ -1,0 +1,51 @@
+# Apache Flink Kubernetes Operator
+# Manages Flink clusters and jobs on K8s
+#
+# Install:
+#   kubectl create -f https://github.com/jetstack/cert-manager/releases/download/v1.8.2/cert-manager.yaml
+#   helm repo add flink-operator https://downloads.apache.org/flink/flink-kubernetes-operator-1.10.0/
+#   helm install flink-operator flink-operator/flink-kubernetes-operator -n argus-data -f flink-operator.yaml
+---
+# Operator configuration
+operatorPod:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Webhook for validation (requires cert-manager)
+webhook:
+  create: true
+
+# Default Flink configuration for all deployments
+defaultConfiguration:
+  flink-conf.yaml: |
+    # Task slots per TaskManager
+    taskmanager.numberOfTaskSlots: 2
+
+    # Memory configuration
+    jobmanager.memory.process.size: 1024m
+    taskmanager.memory.process.size: 2048m
+
+    # Checkpointing (for fault tolerance)
+    execution.checkpointing.interval: 60000
+    execution.checkpointing.mode: EXACTLY_ONCE
+    state.backend.type: hashmap
+    state.checkpoints.dir: file:///tmp/flink-checkpoints
+
+    # Restart strategy
+    restart-strategy.type: exponential-delay
+    restart-strategy.exponential-delay.initial-backoff: 1s
+    restart-strategy.exponential-delay.max-backoff: 60s
+
+# Log configuration
+log4j-console.properties: |
+  rootLogger.level = INFO
+  rootLogger.appenderRef.console.ref = ConsoleAppender
+  appender.console.name = ConsoleAppender
+  appender.console.type = CONSOLE
+  appender.console.layout.type = PatternLayout
+  appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n

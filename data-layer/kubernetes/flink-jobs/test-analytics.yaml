@@ -1,0 +1,166 @@
+# Flink SQL Job: Test Analytics
+# Processes test execution events and computes real-time metrics
+---
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionJob
+metadata:
+  name: test-analytics
+  namespace: argus-data
+spec:
+  deploymentName: argus-flink
+  job:
+    jarURI: local:///opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.20.jar
+    entryClass: org.apache.flink.table.gateway.SqlGateway
+    args: []
+    parallelism: 2
+    upgradeMode: stateless
+
+---
+# ConfigMap with Flink SQL statements
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-sql-jobs
+  namespace: argus-data
+data:
+  test-analytics.sql: |
+    -- Flink SQL for Test Analytics
+    -- Connects to Redpanda Serverless and computes real-time metrics
+
+    -- Create Kafka source table for test executions
+    CREATE TABLE test_executed (
+        event_id STRING,
+        event_type STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        run_id STRING,
+        status STRING,
+        duration_ms BIGINT,
+        error_message STRING,
+        `timestamp` TIMESTAMP(3),
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.executed',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = 'SASL_SSL',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-256',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-test-analytics',
+        'scan.startup.mode' = 'earliest-offset',
+        'format' = 'json',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    -- Create sink table for aggregated metrics (write back to Kafka)
+    CREATE TABLE test_metrics (
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        org_id STRING,
+        project_id STRING,
+        total_tests BIGINT,
+        passed_tests BIGINT,
+        failed_tests BIGINT,
+        pass_rate DOUBLE,
+        avg_duration_ms DOUBLE,
+        p95_duration_ms BIGINT,
+        PRIMARY KEY (window_start, org_id, project_id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.metrics.test-summary',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = 'SASL_SSL',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-256',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json'
+    );
+
+    -- Compute 5-minute windowed metrics
+    INSERT INTO test_metrics
+    SELECT
+        TUMBLE_START(`timestamp`, INTERVAL '5' MINUTE) as window_start,
+        TUMBLE_END(`timestamp`, INTERVAL '5' MINUTE) as window_end,
+        org_id,
+        project_id,
+        COUNT(*) as total_tests,
+        COUNT(CASE WHEN status = 'passed' THEN 1 END) as passed_tests,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_tests,
+        CAST(COUNT(CASE WHEN status = 'passed' THEN 1 END) AS DOUBLE) / COUNT(*) as pass_rate,
+        AVG(CAST(duration_ms AS DOUBLE)) as avg_duration_ms,
+        CAST(PERCENTILE_APPROX(duration_ms, 0.95) AS BIGINT) as p95_duration_ms
+    FROM test_executed
+    GROUP BY
+        TUMBLE(`timestamp`, INTERVAL '5' MINUTE),
+        org_id,
+        project_id;
+
+  failure-patterns.sql: |
+    -- Flink SQL for Failure Pattern Detection
+    -- Identifies recurring failures for self-healing
+
+    CREATE TABLE test_failures (
+        event_id STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        error_message STRING,
+        selector STRING,
+        screenshot_url STRING,
+        `timestamp` TIMESTAMP(3),
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.failed',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = 'SASL_SSL',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-256',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-failure-patterns',
+        'scan.startup.mode' = 'earliest-offset',
+        'format' = 'json'
+    );
+
+    -- Sink for healing requests
+    CREATE TABLE healing_requests (
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        failure_count BIGINT,
+        last_error STRING,
+        last_selector STRING,
+        window_start TIMESTAMP(3),
+        priority STRING,
+        PRIMARY KEY (org_id, project_id, test_id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.healing.requested',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = 'SASL_SSL',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-256',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json'
+    );
+
+    -- Detect tests failing 3+ times in 1 hour -> trigger healing
+    INSERT INTO healing_requests
+    SELECT
+        org_id,
+        project_id,
+        test_id,
+        COUNT(*) as failure_count,
+        LAST_VALUE(error_message) as last_error,
+        LAST_VALUE(selector) as last_selector,
+        TUMBLE_START(`timestamp`, INTERVAL '1' HOUR) as window_start,
+        CASE
+            WHEN COUNT(*) >= 5 THEN 'critical'
+            WHEN COUNT(*) >= 3 THEN 'high'
+            ELSE 'medium'
+        END as priority
+    FROM test_failures
+    GROUP BY
+        TUMBLE(`timestamp`, INTERVAL '1' HOUR),
+        org_id,
+        project_id,
+        test_id
+    HAVING COUNT(*) >= 3;
