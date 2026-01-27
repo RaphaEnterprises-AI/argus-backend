@@ -285,8 +285,8 @@ class CogneeKnowledgeClient:
         try:
             # Search for the specific key
             results = await cognee.search(
-                query=f"_id:{key_id}",
-                dataset_name=dataset_name,
+                query_text=f"_id:{key_id}",
+                datasets=[dataset_name],
                 top_k=1,
             )
 
@@ -375,8 +375,8 @@ class CogneeKnowledgeClient:
 
         try:
             results = await cognee.search(
-                query=query,
-                dataset_name=dataset_name,
+                query_text=query,
+                datasets=[dataset_name],
                 top_k=limit,
             )
 
@@ -656,8 +656,8 @@ class CogneeKnowledgeClient:
             dataset_name = self._get_dataset_name([content_type])
             try:
                 results = await cognee.search(
-                    query=query,
-                    dataset_name=dataset_name,
+                    query_text=query,
+                    datasets=[dataset_name],
                     top_k=limit // len(types_to_search),
                 )
                 if results:
