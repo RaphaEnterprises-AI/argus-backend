@@ -18,19 +18,23 @@ from src.api.context import require_organization_id
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
-# Internal URLs (K8s ClusterIP services)
-# These point to the kube-prometheus-stack deployed in the monitoring namespace
+# Monitoring service URLs
+# When running on Railway (external to K8s), use Cloudflare Tunnel URLs.
+# When running inside K8s, use ClusterIP service URLs.
+#
+# Priority: GRAFANA_URL env var -> External tunnel URL (default for Railway)
+# For K8s internal access, set GRAFANA_INTERNAL_URL to the ClusterIP service.
 GRAFANA_INTERNAL_URL = os.environ.get(
     "GRAFANA_INTERNAL_URL",
-    os.environ.get("GRAFANA_URL", "http://monitoring-grafana.monitoring.svc.cluster.local:80"),
+    os.environ.get("GRAFANA_URL", "https://grafana-internal.heyargus.ai"),
 )
 PROMETHEUS_INTERNAL_URL = os.environ.get(
     "PROMETHEUS_INTERNAL_URL",
-    os.environ.get("PROMETHEUS_URL", "http://monitoring-prometheus.monitoring.svc.cluster.local:9090"),
+    os.environ.get("PROMETHEUS_URL", "https://prometheus-internal.heyargus.ai"),
 )
 ALERTMANAGER_INTERNAL_URL = os.environ.get(
     "ALERTMANAGER_INTERNAL_URL",
-    "http://monitoring-alertmanager.monitoring.svc.cluster.local:9093",
+    os.environ.get("ALERTMANAGER_URL", "https://alertmanager-internal.heyargus.ai"),
 )
 
 # Optional auth for Grafana (service account token)

@@ -1,0 +1,270 @@
+# Cloudflare Tunnel for Monitoring Stack External Access
+# Provides secure access to Prometheus, Grafana, and AlertManager from Railway backend
+#
+# Prerequisites:
+#   1. Create a Cloudflare Tunnel via CLI or Zero Trust dashboard:
+#      cloudflared tunnel create argus-monitoring
+#   2. Get the tunnel credentials JSON and create the secret:
+#      kubectl create secret generic cloudflare-tunnel-credentials \
+#        --from-file=credentials.json=/path/to/tunnel-credentials.json \
+#        --namespace=monitoring
+#   3. Configure DNS in Cloudflare:
+#      cloudflared tunnel route dns argus-monitoring prometheus.argus-internal.heyargus.com
+#      cloudflared tunnel route dns argus-monitoring grafana.argus-internal.heyargus.com
+#      cloudflared tunnel route dns argus-monitoring alertmanager.argus-internal.heyargus.com
+#
+# Deploy with:
+#   kubectl apply -f cloudflare-tunnel-config.yaml
+#   kubectl apply -f cloudflare-tunnel.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-tunnel
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: argus-monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflare-tunnel
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudflare-tunnel
+        app.kubernetes.io/component: ingress
+        app.kubernetes.io/part-of: argus-monitoring
+      annotations:
+        # Restart on config changes
+        checksum/config: "{{ include (print $.Template.BasePath \"/cloudflare-tunnel-config.yaml\") . | sha256sum }}"
+    spec:
+      serviceAccountName: cloudflare-tunnel
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2024.1.5
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config.yaml
+            - run
+          env:
+            - name: TUNNEL_METRICS
+              value: "0.0.0.0:2000"
+          ports:
+            - name: metrics
+              containerPort: 2000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared
+              readOnly: true
+            - name: credentials
+              mountPath: /etc/cloudflared-credentials
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflare-tunnel-config
+        - name: credentials
+          secret:
+            secretName: cloudflare-tunnel-credentials
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: cloudflare-tunnel
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudflare-tunnel
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudflare-tunnel
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/part-of: argus-monitoring
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflare-tunnel
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/part-of: argus-monitoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflare-tunnel
+---
+# ServiceMonitor for Prometheus to scrape cloudflared metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloudflare-tunnel
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/part-of: argus-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflare-tunnel
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+---
+# Service for metrics endpoint (used by ServiceMonitor)
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflare-tunnel
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/part-of: argus-monitoring
+spec:
+  selector:
+    app.kubernetes.io/name: cloudflare-tunnel
+  ports:
+    - name: metrics
+      port: 2000
+      targetPort: metrics
+      protocol: TCP
+  type: ClusterIP
+---
+# Network Policy - allow egress to monitoring services and Cloudflare
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflare-tunnel-policy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/part-of: argus-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflare-tunnel
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Prometheus to scrape metrics
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 2000
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to Prometheus
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow connection to Grafana
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 80
+    # Allow connection to AlertManager
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 9093
+    # Allow connection to Langfuse
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: langfuse
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow outbound to Cloudflare (tunnel connection)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: UDP
+          port: 7844  # Cloudflare tunnel QUIC

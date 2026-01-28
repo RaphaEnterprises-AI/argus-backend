@@ -1,0 +1,131 @@
+# Cloudflare Tunnel Configuration for Monitoring Stack
+# Routes external traffic to internal monitoring services via secure tunnel
+#
+# This ConfigMap defines the tunnel routing rules for:
+#   - prometheus-internal.heyargus.ai -> Prometheus (port 9090)
+#   - grafana-internal.heyargus.ai -> Grafana (port 80)
+#   - alertmanager-internal.heyargus.ai -> AlertManager (port 9093)
+#   - langfuse-internal.heyargus.ai -> Langfuse (port 3000)
+#
+# Prerequisites (see cloudflare-tunnel.yaml for full setup):
+#   1. Tunnel must be created: cloudflared tunnel create argus-monitoring
+#   2. Credentials secret must exist in the monitoring namespace:
+#      kubectl create secret generic cloudflare-tunnel-credentials \
+#        --from-file=credentials.json=/path/to/tunnel-credentials.json \
+#        --namespace=monitoring
+#   3. DNS routes must be configured in Cloudflare:
+#      cloudflared tunnel route dns argus-monitoring prometheus-internal.heyargus.ai
+#      cloudflared tunnel route dns argus-monitoring grafana-internal.heyargus.ai
+#      cloudflared tunnel route dns argus-monitoring alertmanager-internal.heyargus.ai
+#      cloudflared tunnel route dns argus-monitoring langfuse-internal.heyargus.ai
+#
+# Security Notes:
+#   - All traffic is encrypted end-to-end via Cloudflare Tunnel
+#   - noTLSVerify is enabled for internal cluster services (they use HTTP internally)
+#   - Access policies should be configured in Cloudflare Zero Trust dashboard
+#   - Consider enabling Cloudflare Access for authentication on sensitive endpoints
+#
+# Deploy with:
+#   kubectl apply -f cloudflare-tunnel-config.yaml
+#   kubectl apply -f cloudflare-tunnel.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-tunnel-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: argus-monitoring
+data:
+  config.yaml: |
+    # Cloudflare Tunnel Configuration
+    # Tunnel: argus-monitoring
+    #
+    # This configuration routes traffic from Cloudflare's edge to internal
+    # Kubernetes services. The tunnel provides secure, encrypted access
+    # without exposing services directly to the internet.
+
+    tunnel: argus-monitoring
+    credentials-file: /etc/cloudflared-credentials/credentials.json
+
+    # Metrics endpoint for health checks and Prometheus scraping
+    metrics: 0.0.0.0:2000
+
+    # Disable auto-update (managed by Kubernetes deployment)
+    no-autoupdate: true
+
+    # Graceful shutdown timeout for draining connections
+    grace-period: 30s
+
+    # Connection protocol (auto selects QUIC when available)
+    protocol: auto
+
+    # Ingress rules - routes traffic from Cloudflare to internal services
+    # Order matters: first match wins, catch-all must be last
+    ingress:
+      # ==========================================================
+      # Prometheus - Metrics storage and alerting queries
+      # ==========================================================
+      - hostname: prometheus-internal.heyargus.ai
+        service: http://monitoring-prometheus.monitoring.svc.cluster.local:9090
+        originRequest:
+          # Disable TLS verification (internal HTTP service)
+          noTLSVerify: true
+          # Connection establishment timeout
+          connectTimeout: 30s
+          # TCP keep-alive interval for long-running connections
+          tcpKeepAlive: 30s
+          # Keep-alive settings for connection pooling
+          keepAliveTimeout: 90s
+          keepAliveConnections: 100
+          # TLS handshake timeout (for HTTPS origins)
+          tlsTimeout: 10s
+
+      # ==========================================================
+      # Grafana - Dashboards and visualization
+      # ==========================================================
+      - hostname: grafana-internal.heyargus.ai
+        service: http://monitoring-grafana.monitoring.svc.cluster.local:80
+        originRequest:
+          noTLSVerify: true
+          connectTimeout: 30s
+          tcpKeepAlive: 30s
+          keepAliveTimeout: 90s
+          keepAliveConnections: 100
+          tlsTimeout: 10s
+          # Note: Grafana uses websockets for live updates
+          # Cloudflare Tunnel automatically handles websocket upgrades
+
+      # ==========================================================
+      # AlertManager - Alert management, silencing, and routing
+      # ==========================================================
+      - hostname: alertmanager-internal.heyargus.ai
+        service: http://monitoring-alertmanager.monitoring.svc.cluster.local:9093
+        originRequest:
+          noTLSVerify: true
+          connectTimeout: 30s
+          tcpKeepAlive: 30s
+          keepAliveTimeout: 90s
+          keepAliveConnections: 100
+          tlsTimeout: 10s
+
+      # ==========================================================
+      # Langfuse - LLM Observability (traces, sessions, prompts)
+      # ==========================================================
+      - hostname: langfuse-internal.heyargus.ai
+        service: http://langfuse-web.monitoring.svc.cluster.local:3000
+        originRequest:
+          noTLSVerify: true
+          connectTimeout: 30s
+          tcpKeepAlive: 30s
+          keepAliveTimeout: 90s
+          keepAliveConnections: 100
+          tlsTimeout: 10s
+
+      # ==========================================================
+      # Catch-all rule (required by Cloudflare)
+      # Returns 404 for any unmatched hostnames/paths
+      # ==========================================================
+      - service: http_status:404
