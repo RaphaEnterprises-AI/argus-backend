@@ -18,6 +18,14 @@ from src.api.context import require_organization_id
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
+# Log CF Access configuration on module load (helps debug Railway deployments)
+_cf_configured = bool(os.environ.get("CF_ACCESS_CLIENT_ID")) and bool(os.environ.get("CF_ACCESS_CLIENT_SECRET"))
+logger.info(
+    "monitoring_proxy_init",
+    cf_access_configured=_cf_configured,
+    grafana_token_configured=bool(os.environ.get("GRAFANA_SERVICE_TOKEN")),
+)
+
 # Monitoring service URLs
 # When running on Railway (external to K8s), use Cloudflare Tunnel URLs.
 # When running inside K8s, use ClusterIP service URLs.
@@ -45,6 +53,15 @@ GRAFANA_SERVICE_TOKEN = os.environ.get("GRAFANA_SERVICE_TOKEN", "")
 # Generate at: Cloudflare Zero Trust → Access → Service Auth → Create Service Token
 CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
 CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+
+
+def _get_cf_headers() -> dict[str, str]:
+    """Get Cloudflare Access headers for all requests to monitoring services."""
+    headers = {}
+    if CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET:
+        headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
+        headers["CF-Access-Client-Secret"] = CF_ACCESS_CLIENT_SECRET
+    return headers
 
 
 async def _proxy_request(
@@ -117,7 +134,7 @@ async def _proxy_request(
 async def grafana_health(_org_id: str = Depends(require_organization_id)) -> dict[str, Any]:
     """Check Grafana health (authenticated)."""
     try:
-        headers = {}
+        headers = _get_cf_headers()
         if GRAFANA_SERVICE_TOKEN:
             headers["Authorization"] = f"Bearer {GRAFANA_SERVICE_TOKEN}"
 
@@ -144,7 +161,7 @@ async def list_grafana_dashboards(
 ) -> dict[str, Any]:
     """List available Grafana dashboards."""
     try:
-        headers = {}
+        headers = _get_cf_headers()
         if GRAFANA_SERVICE_TOKEN:
             headers["Authorization"] = f"Bearer {GRAFANA_SERVICE_TOKEN}"
 
@@ -179,7 +196,7 @@ async def get_grafana_dashboard(
 ) -> dict[str, Any]:
     """Get a specific Grafana dashboard by UID."""
     try:
-        headers = {}
+        headers = _get_cf_headers()
         if GRAFANA_SERVICE_TOKEN:
             headers["Authorization"] = f"Bearer {GRAFANA_SERVICE_TOKEN}"
 
@@ -230,8 +247,9 @@ async def proxy_grafana_api(
 async def prometheus_health(_org_id: str = Depends(require_organization_id)) -> dict[str, Any]:
     """Check Prometheus health (authenticated)."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-            response = await client.get(f"{PROMETHEUS_INTERNAL_URL.rstrip('/')}/-/healthy")
+            response = await client.get(f"{PROMETHEUS_INTERNAL_URL.rstrip('/')}/-/healthy", headers=headers)
             response.raise_for_status()
             return {
                 "status": "healthy",
@@ -256,10 +274,12 @@ async def prometheus_query(
         if time:
             params["time"] = time
 
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(
                 f"{PROMETHEUS_INTERNAL_URL.rstrip('/')}/api/v1/query",
                 params=params,
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()
@@ -285,10 +305,12 @@ async def prometheus_query_range(
             "step": step,
         }
 
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(
                 f"{PROMETHEUS_INTERNAL_URL.rstrip('/')}/api/v1/query_range",
                 params=params,
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()
@@ -303,9 +325,11 @@ async def prometheus_targets(
 ) -> dict[str, Any]:
     """Get Prometheus scrape targets status."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(
                 f"{PROMETHEUS_INTERNAL_URL.rstrip('/')}/api/v1/targets",
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()
@@ -320,9 +344,11 @@ async def prometheus_alerts(
 ) -> dict[str, Any]:
     """Get active Prometheus alerts."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(
                 f"{PROMETHEUS_INTERNAL_URL.rstrip('/')}/api/v1/alerts",
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()
@@ -350,8 +376,9 @@ async def proxy_prometheus_api(
 async def alertmanager_health(_org_id: str = Depends(require_organization_id)) -> dict[str, Any]:
     """Check AlertManager health (authenticated)."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-            response = await client.get(f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/-/healthy")
+            response = await client.get(f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/-/healthy", headers=headers)
             response.raise_for_status()
             return {
                 "status": "healthy",
@@ -370,9 +397,11 @@ async def alertmanager_alerts(
 ) -> dict[str, Any]:
     """Get active alerts from AlertManager."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(
                 f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/alerts",
+                headers=headers,
             )
             response.raise_for_status()
             return {"alerts": response.json()}
@@ -387,9 +416,11 @@ async def alertmanager_silences(
 ) -> dict[str, Any]:
     """Get active silences from AlertManager."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(
                 f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/silences",
+                headers=headers,
             )
             response.raise_for_status()
             return {"silences": response.json()}
@@ -406,10 +437,12 @@ async def create_alertmanager_silence(
     """Create a new silence in AlertManager."""
     try:
         body = await request.json()
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.post(
                 f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/silences",
                 json=body,
+                headers=headers,
             )
             response.raise_for_status()
             return {"silence": response.json()}
@@ -425,9 +458,11 @@ async def delete_alertmanager_silence(
 ) -> dict[str, Any]:
     """Delete a silence from AlertManager."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.delete(
                 f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/silence/{silence_id}",
+                headers=headers,
             )
             response.raise_for_status()
             return {"status": "deleted", "silence_id": silence_id}
@@ -446,9 +481,11 @@ async def alertmanager_receivers(
 ) -> dict[str, Any]:
     """Get configured receivers from AlertManager."""
     try:
+        headers = _get_cf_headers()
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(
                 f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/receivers",
+                headers=headers,
             )
             response.raise_for_status()
             return {"receivers": response.json()}
