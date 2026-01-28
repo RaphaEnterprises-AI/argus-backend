@@ -57,7 +57,8 @@ RUN pip install --upgrade pip && \
     "cognee[postgres,falkordb]>=0.1.0" \
     "falkordb>=1.0.0" \
     "aiokafka>=0.10.0" \
-    "redis>=5.0.0"
+    "redis>=5.0.0" \
+    "prometheus-client>=0.21.0"
 
 # Copy application code
 COPY src/ /app/src/
