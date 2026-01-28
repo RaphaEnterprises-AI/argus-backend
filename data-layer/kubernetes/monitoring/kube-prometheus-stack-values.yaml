@@ -146,8 +146,16 @@ grafana:
     dashboards:
       enabled: true
       searchNamespace: ALL
+      # Fix SSL cert verification issue with K8s API
+      skipTlsVerify: true
+      # Explicitly set env var for k8s-sidecar
+      env:
+        SKIP_TLS_VERIFY: "true"
     datasources:
       enabled: true
+      skipTlsVerify: true
+      env:
+        SKIP_TLS_VERIFY: "true"
 
   # Default datasources
   datasources:
@@ -166,8 +174,15 @@ grafana:
       root_url: "%(protocol)s://%(domain)s/grafana"
     security:
       allow_embedding: true
+    # Anonymous access enabled - Cloudflare Access handles authentication
+    # Users must pass CF Access auth before reaching Grafana
     auth.anonymous:
-      enabled: false
+      enabled: true
+      org_name: Main Org.
+      org_role: Viewer
+    # Disable Grafana's login page (CF Access is the login)
+    auth:
+      disable_login_form: true
     users:
       viewers_can_edit: false
     # Enable service accounts for API access
