@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.model_router import TaskType
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 
 
@@ -66,6 +66,12 @@ class CodeAnalyzerAgent(BaseAgent):
 
     # Code analysis can use cost-effective models like DeepSeek
     DEFAULT_TASK_TYPE = TaskType.CODE_ANALYSIS
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.CODE_ANALYSIS,
+        AgentCapability.DEPENDENCY_GRAPH,
+    ]
 
     def _get_system_prompt(self) -> str:
         """Get enhanced system prompt for code analysis."""

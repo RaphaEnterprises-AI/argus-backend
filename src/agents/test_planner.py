@@ -10,7 +10,7 @@ This agent generates comprehensive test specifications including:
 import json
 from dataclasses import dataclass, field
 
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .code_analyzer import TestableSurface
 from .prompts import get_enhanced_prompt
 
@@ -111,6 +111,12 @@ class TestPlannerAgent(BaseAgent):
     - Test data and preconditions
     - Estimated durations
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.TEST_PLANNING,
+        AgentCapability.TEST_GENERATION,
+    ]
 
     def _get_system_prompt(self) -> str:
         """Get enhanced system prompt for test planning."""

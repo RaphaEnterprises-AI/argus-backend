@@ -13,6 +13,7 @@ import json
 import logging
 import signal
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -20,8 +21,86 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError
 import cognee
 from aiohttp import web
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from config import WorkerConfig, load_config
+
+# =============================================================================
+# Prometheus Metrics
+# =============================================================================
+
+# Event processing metrics
+EVENTS_PROCESSED = Counter(
+    "cognee_events_processed_total",
+    "Total number of events processed by the Cognee worker",
+    ["event_type", "status"],  # status: success, error, dlq
+)
+
+EVENTS_PROCESSING_DURATION = Histogram(
+    "cognee_event_processing_duration_seconds",
+    "Time spent processing each event",
+    ["event_type"],
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
+)
+
+# Kafka consumer metrics
+KAFKA_CONSUMER_RUNNING = Gauge(
+    "cognee_kafka_consumer_running",
+    "Whether the Kafka consumer is running (1=running, 0=stopped)",
+)
+
+KAFKA_MESSAGES_RECEIVED = Counter(
+    "cognee_kafka_messages_received_total",
+    "Total number of Kafka messages received",
+    ["topic"],
+)
+
+KAFKA_CONSUMER_LAG = Gauge(
+    "cognee_kafka_consumer_lag",
+    "Estimated consumer lag (messages behind)",
+    ["topic", "partition"],
+)
+
+# Neo4j connection metrics
+NEO4J_CONNECTION_STATUS = Gauge(
+    "cognee_neo4j_connection_status",
+    "Neo4j connection status (1=connected, 0=disconnected)",
+)
+
+NEO4J_CONNECTION_ATTEMPTS = Counter(
+    "cognee_neo4j_connection_attempts_total",
+    "Total Neo4j connection attempts",
+    ["status"],  # success, failed
+)
+
+# DLQ metrics
+DLQ_MESSAGES = Counter(
+    "cognee_dlq_messages_total",
+    "Total messages sent to Dead Letter Queue",
+    ["original_topic", "error_type"],
+)
+
+# Cognee pipeline metrics
+COGNEE_COGNIFY_DURATION = Histogram(
+    "cognee_cognify_duration_seconds",
+    "Time spent in Cognee cognify pipeline",
+    ["dataset_type"],
+    buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0],
+)
+
+COGNEE_SEARCH_DURATION = Histogram(
+    "cognee_search_duration_seconds",
+    "Time spent in Cognee search operations",
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+)
+
+# Worker info
+WORKER_INFO = Gauge(
+    "cognee_worker_info",
+    "Worker information",
+    ["version", "consumer_group"],
+)
+WORKER_INFO.labels(version="1.0.0", consumer_group="argus-cognee-workers").set(1)
 
 
 # Configure logging
@@ -120,6 +199,7 @@ class CogneeKafkaWorker:
 
         if not self.config.neo4j.uri:
             logger.warning("Neo4j URI not configured, skipping connection test")
+            NEO4J_CONNECTION_STATUS.set(0)
             return
 
         driver = AsyncGraphDatabase.driver(
@@ -137,9 +217,12 @@ class CogneeKafkaWorker:
                     result = await session.run("RETURN 1 AS test")
                     await result.single()
                 logger.info("Neo4j Aura connection successful")
+                NEO4J_CONNECTION_STATUS.set(1)
+                NEO4J_CONNECTION_ATTEMPTS.labels(status="success").inc()
                 await driver.close()
                 return
             except ServiceUnavailable as e:
+                NEO4J_CONNECTION_ATTEMPTS.labels(status="failed").inc()
                 if attempt < max_retries:
                     logger.warning(
                         f"Neo4j unavailable (Aura may be waking up), "
@@ -147,11 +230,14 @@ class CogneeKafkaWorker:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
+                    NEO4J_CONNECTION_STATUS.set(0)
                     await driver.close()
                     raise RuntimeError(
                         f"Failed to connect to Neo4j Aura after {max_retries} attempts: {e}"
                     )
             except Exception as e:
+                NEO4J_CONNECTION_ATTEMPTS.labels(status="failed").inc()
+                NEO4J_CONNECTION_STATUS.set(0)
                 await driver.close()
                 raise RuntimeError(f"Neo4j connection error: {e}")
 
@@ -274,6 +360,20 @@ class CogneeKafkaWorker:
         org_id = tenant.get("org_id") or value.get("org_id", "unknown")
         project_id = tenant.get("project_id") or value.get("project_id", "unknown")
 
+        # Categorize error type for metrics
+        error_type = "processing_error"
+        if "deserialize" in error.lower() or "json" in error.lower():
+            error_type = "deserialization_error"
+        elif "neo4j" in error.lower() or "graph" in error.lower():
+            error_type = "graph_database_error"
+        elif "kafka" in error.lower() or "connection" in error.lower():
+            error_type = "connection_error"
+        elif "tenant" in error.lower() or "org_id" in error.lower():
+            error_type = "validation_error"
+
+        # Track DLQ metrics
+        DLQ_MESSAGES.labels(original_topic=original_topic, error_type=error_type).inc()
+
         dlq_event = {
             "event_type": "dlq",
             "event_version": "1.0",
@@ -285,7 +385,7 @@ class CogneeKafkaWorker:
             "original_key": key,
             "original_payload": value,
             "error_message": error,
-            "error_type": "processing_error",
+            "error_type": error_type,
             "retry_count": 0,
             "max_retries": self.config.max_retries,
             "first_failed_at": datetime.now(timezone.utc).isoformat(),
@@ -343,7 +443,11 @@ class CogneeKafkaWorker:
 
         # Run Cognee's cognify pipeline to extract knowledge
         logger.info(f"Running Cognee cognify for dataset {dataset_name}...")
+        cognify_start = time.time()
         await cognee.cognify(dataset_name=dataset_name)
+        cognify_duration = time.time() - cognify_start
+        COGNEE_COGNIFY_DURATION.labels(dataset_type="codebase").observe(cognify_duration)
+        logger.info(f"Cognify completed in {cognify_duration:.2f}s")
 
         # Produce analyzed event with tenant context
         analyzed_event = {
@@ -437,11 +541,13 @@ class CogneeKafkaWorker:
 
         # Search for similar failures in the knowledge graph
         try:
+            search_start = time.time()
             similar_failures = await cognee.search(
                 query=error_message,
                 dataset_name=tests_dataset,
                 top_k=5,
             )
+            COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
 
             if similar_failures:
                 logger.info(
@@ -501,22 +607,26 @@ class CogneeKafkaWorker:
         # Search knowledge graph for relevant code context
         code_context = []
         try:
+            search_start = time.time()
             code_context = await cognee.search(
                 query=failure_reason,
                 dataset_name=codebase_dataset,
                 top_k=10,
             )
+            COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
         except Exception as e:
             logger.warning(f"Error searching codebase: {e}")
 
         # Search for similar past failures and their resolutions
         similar_failures = []
         try:
+            search_start = time.time()
             similar_failures = await cognee.search(
                 query=failure_reason,
                 dataset_name=failures_dataset,
                 top_k=5,
             )
+            COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
         except Exception as e:
             logger.warning(f"Error searching failures: {e}")
 
@@ -557,12 +667,28 @@ class CogneeKafkaWorker:
 
         logger.debug(f"Received message from {topic}: {key}")
 
+        # Track received messages
+        KAFKA_MESSAGES_RECEIVED.labels(topic=topic).inc()
+
+        # Determine event type for metrics
+        if topic == "argus.codebase.ingested":
+            event_type = "codebase_ingested"
+        elif topic.startswith("argus.test."):
+            event_type = f"test_{topic.split('.')[-1]}"
+        elif topic == "argus.healing.requested":
+            event_type = "healing_requested"
+        else:
+            event_type = "unknown"
+
         # Check for deserialization errors
         if isinstance(value, dict) and value.get("__deserialize_error__"):
             logger.warning(f"Skipping malformed message {key}: JSON decode failed")
+            EVENTS_PROCESSED.labels(event_type=event_type, status="error").inc()
             await self._send_to_dlq(topic, key, {"raw": value.get("raw", "")[:500]}, "JSON deserialization failed")
             return
 
+        # Track processing time
+        start_time = time.time()
         try:
             if topic == "argus.codebase.ingested":
                 await self._process_codebase_ingested(key, value)
@@ -573,7 +699,17 @@ class CogneeKafkaWorker:
             else:
                 logger.warning(f"Unknown topic: {topic}")
 
+            # Track successful processing
+            duration = time.time() - start_time
+            EVENTS_PROCESSING_DURATION.labels(event_type=event_type).observe(duration)
+            EVENTS_PROCESSED.labels(event_type=event_type, status="success").inc()
+
         except Exception as e:
+            # Track failed processing
+            duration = time.time() - start_time
+            EVENTS_PROCESSING_DURATION.labels(event_type=event_type).observe(duration)
+            EVENTS_PROCESSED.labels(event_type=event_type, status="error").inc()
+
             logger.error(f"Error processing message {key}: {e}", exc_info=True)
             await self._send_to_dlq(topic, key, value, str(e))
 
@@ -645,7 +781,7 @@ class CogneeKafkaWorker:
 
 
 class HealthServer:
-    """HTTP server for liveness and readiness probes."""
+    """HTTP server for liveness, readiness probes, and Prometheus metrics."""
 
     def __init__(self, worker: CogneeKafkaWorker, port: int):
         self.worker = worker
@@ -653,6 +789,7 @@ class HealthServer:
         self.app = web.Application()
         self.app.router.add_get("/health", self.health_check)
         self.app.router.add_get("/ready", self.readiness_check)
+        self.app.router.add_get("/metrics", self.prometheus_metrics)
         self.runner: Optional[web.AppRunner] = None
 
     async def health_check(self, request: web.Request) -> web.Response:
@@ -662,8 +799,24 @@ class HealthServer:
     async def readiness_check(self, request: web.Request) -> web.Response:
         """Readiness probe - can we accept traffic?"""
         if self.worker.running and self.worker.consumer:
+            KAFKA_CONSUMER_RUNNING.set(1)
             return web.json_response({"status": "ready"})
+        KAFKA_CONSUMER_RUNNING.set(0)
         return web.json_response({"status": "not_ready"}, status=503)
+
+    async def prometheus_metrics(self, request: web.Request) -> web.Response:
+        """Prometheus metrics endpoint."""
+        # Update consumer running status
+        KAFKA_CONSUMER_RUNNING.set(1 if (self.worker.running and self.worker.consumer) else 0)
+
+        # Generate metrics in Prometheus text format
+        metrics_output = generate_latest()
+        # Note: aiohttp requires charset to be passed separately, not in content_type
+        return web.Response(
+            body=metrics_output,
+            content_type="text/plain",
+            charset="utf-8",
+        )
 
     async def start(self):
         """Start the health check server."""

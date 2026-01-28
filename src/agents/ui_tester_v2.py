@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestAssertion, TestSpec
 from .test_planner import TestStep as PlannerTestStep
@@ -128,6 +128,13 @@ class UITesterAgentV2(BaseAgent):
             app_url="https://example.com"
         )
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.BROWSER_AUTOMATION,
+        AgentCapability.SCREENSHOT,
+        AgentCapability.DOM_ANALYSIS,
+    ]
 
     def __init__(
         self,

@@ -1,5 +1,65 @@
 # Argus Data Layer - Network Policies
 # Restricts network access to only allow traffic within argus-data namespace
+# and from monitoring namespace for Prometheus scraping
+---
+# Allow Prometheus to scrape metrics from all pods in argus-data
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scraping
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow ingress from monitoring namespace for Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        # Redis exporter metrics (FalkorDB, Valkey)
+        - protocol: TCP
+          port: 9121
+        # Redpanda admin/metrics
+        - protocol: TCP
+          port: 9644
+        # Flink metrics
+        - protocol: TCP
+          port: 9249
+        - protocol: TCP
+          port: 8081
+        # Cognee worker health
+        - protocol: TCP
+          port: 8080
+---
+# Allow Langfuse (monitoring namespace) to access Valkey
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-langfuse-to-valkey
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: argus-data
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 6379
 ---
 # Default deny all ingress traffic
 apiVersion: networking.k8s.io/v1

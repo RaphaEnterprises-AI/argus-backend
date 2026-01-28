@@ -63,7 +63,7 @@ from ..core.model_router import (
     TaskComplexity,
     TaskType,
 )
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 
 logger = structlog.get_logger()
@@ -151,6 +151,10 @@ class RouterAgent(BaseAgent):
             enable_learning=True,         # Track outcomes
         ))
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    # RouterAgent doesn't have testable capabilities - it's an internal routing agent
+    CAPABILITIES: list[str] = []
 
     # Routing categories
     COMPLEXITY_TIERS = {

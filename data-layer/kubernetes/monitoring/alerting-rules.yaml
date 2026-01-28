@@ -1,0 +1,350 @@
+# Argus Platform PrometheusRules
+# Critical alerts for E2E Testing Platform infrastructure
+#
+# Deploy with: kubectl apply -f alerting-rules.yaml
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argus-platform-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: argus-alerts
+    app.kubernetes.io/part-of: argus
+    release: monitoring  # Required for Prometheus Operator to pick up rules
+spec:
+  groups:
+    # =========================================================================
+    # Cognee Worker Alerts
+    # =========================================================================
+    - name: cognee-worker
+      interval: 30s
+      rules:
+        - alert: CogneeWorkerDown
+          expr: up{job="cognee-worker"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: cognee-worker
+          annotations:
+            summary: "Cognee worker is down"
+            description: "Cognee worker {{ $labels.pod }} has been down for more than 5 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/cognee-worker-down"
+
+        - alert: CogneeWorkerHighErrorRate
+          expr: |
+            (
+              sum(rate(cognee_events_processed_total{status="error"}[5m])) by (pod)
+              /
+              sum(rate(cognee_events_processed_total[5m])) by (pod)
+            ) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: cognee-worker
+          annotations:
+            summary: "Cognee worker has high error rate"
+            description: "Cognee worker {{ $labels.pod }} has error rate > 10% for the last 5 minutes (current: {{ $value | humanizePercentage }})"
+
+        - alert: CogneeKafkaConsumerNotRunning
+          expr: cognee_kafka_consumer_running == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: cognee-worker
+          annotations:
+            summary: "Cognee Kafka consumer is not running"
+            description: "Cognee worker {{ $labels.pod }} Kafka consumer has stopped for more than 2 minutes."
+
+        - alert: CogneeHighProcessingLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(cognee_event_processing_duration_seconds_bucket[5m])) by (le, pod)
+            ) > 30
+          for: 10m
+          labels:
+            severity: warning
+            component: cognee-worker
+          annotations:
+            summary: "Cognee event processing is slow"
+            description: "Cognee worker {{ $labels.pod }} P95 processing latency > 30s (current: {{ $value | humanizeDuration }})"
+
+        - alert: CogneeGraphBuildErrors
+          expr: |
+            sum(rate(cognee_graph_operations_total{status="error"}[15m])) by (pod) > 0
+          for: 15m
+          labels:
+            severity: warning
+            component: cognee-worker
+          annotations:
+            summary: "Cognee graph build errors"
+            description: "Cognee worker {{ $labels.pod }} has persistent graph build errors in the last 15 minutes."
+
+    # =========================================================================
+    # Data Layer Alerts (FalkorDB, Valkey, Redpanda)
+    # =========================================================================
+    - name: data-layer
+      interval: 30s
+      rules:
+        - alert: FalkorDBDown
+          expr: up{job="falkordb"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: falkordb
+          annotations:
+            summary: "FalkorDB is down"
+            description: "FalkorDB instance {{ $labels.pod }} has been down for more than 2 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/falkordb-down"
+
+        - alert: FalkorDBHighMemory
+          expr: |
+            redis_memory_used_bytes{job="falkordb"}
+            /
+            redis_memory_max_bytes{job="falkordb"} > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            component: falkordb
+          annotations:
+            summary: "FalkorDB memory usage high"
+            description: "FalkorDB {{ $labels.pod }} memory usage > 85% (current: {{ $value | humanizePercentage }})"
+
+        - alert: FalkorDBHighConnections
+          expr: redis_connected_clients{job="falkordb"} > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: falkordb
+          annotations:
+            summary: "FalkorDB high connection count"
+            description: "FalkorDB {{ $labels.pod }} has {{ $value }} connected clients."
+
+        - alert: ValkeyDown
+          expr: up{job="valkey"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: valkey
+          annotations:
+            summary: "Valkey cache is down"
+            description: "Valkey instance {{ $labels.pod }} has been down for more than 2 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/valkey-down"
+
+        - alert: ValkeyHighMemory
+          expr: |
+            redis_memory_used_bytes{job="valkey"}
+            /
+            redis_memory_max_bytes{job="valkey"} > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            component: valkey
+          annotations:
+            summary: "Valkey memory usage high"
+            description: "Valkey {{ $labels.pod }} memory usage > 85% (current: {{ $value | humanizePercentage }})"
+
+        - alert: RedpandaClusterUnhealthy
+          expr: redpanda_cluster_partitions_underreplicated > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: redpanda
+          annotations:
+            summary: "Redpanda cluster has underreplicated partitions"
+            description: "Redpanda has {{ $value }} underreplicated partitions for more than 5 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/redpanda-underreplicated"
+
+        - alert: RedpandaBrokerDown
+          expr: up{job="redpanda"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: redpanda
+          annotations:
+            summary: "Redpanda broker is down"
+            description: "Redpanda broker {{ $labels.pod }} has been down for more than 2 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/redpanda-broker-down"
+
+        - alert: RedpandaHighConsumerLag
+          expr: |
+            max(kafka_consumer_group_lag{group="argus-cognee-workers"}) by (topic) > 1000
+          for: 10m
+          labels:
+            severity: warning
+            component: redpanda
+          annotations:
+            summary: "High Kafka consumer lag"
+            description: "Consumer group argus-cognee-workers has lag > 1000 on topic {{ $labels.topic }} (current: {{ $value }})"
+
+        - alert: RedpandaHighDiskUsage
+          expr: |
+            redpanda_storage_disk_used_bytes
+            /
+            redpanda_storage_disk_total_bytes > 0.80
+          for: 15m
+          labels:
+            severity: warning
+            component: redpanda
+          annotations:
+            summary: "Redpanda disk usage high"
+            description: "Redpanda broker {{ $labels.pod }} disk usage > 80% (current: {{ $value | humanizePercentage }})"
+
+    # =========================================================================
+    # Browser Pool Alerts
+    # =========================================================================
+    - name: browser-pool
+      interval: 30s
+      rules:
+        - alert: BrowserManagerDown
+          expr: up{job="browser-manager"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: browser-manager
+          annotations:
+            summary: "Browser manager is down"
+            description: "Browser manager {{ $labels.pod }} has been down for more than 2 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/browser-manager-down"
+
+        - alert: BrowserWorkerDown
+          expr: up{job="browser-worker"} == 0
+          for: 2m
+          labels:
+            severity: warning
+            component: browser-worker
+          annotations:
+            summary: "Browser worker is down"
+            description: "Browser worker {{ $labels.pod }} has been down for more than 2 minutes."
+
+        - alert: AllBrowserWorkersDown
+          expr: count(up{job="browser-worker"} == 1) == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: browser-pool
+          annotations:
+            summary: "All browser workers are down"
+            description: "No browser workers are available. Test execution is blocked."
+            runbook_url: "https://docs.heyargus.com/runbooks/browser-pool-down"
+
+        - alert: BrowserPoolCapacityLow
+          expr: |
+            sum(browser_pool_available_browsers)
+            /
+            sum(browser_pool_max_browsers) < 0.2
+          for: 10m
+          labels:
+            severity: warning
+            component: browser-pool
+          annotations:
+            summary: "Browser pool capacity low"
+            description: "Less than 20% browser capacity available (current: {{ $value | humanizePercentage }})"
+
+        - alert: BrowserSessionsStuck
+          expr: browser_sessions_active > 50
+          for: 15m
+          labels:
+            severity: warning
+            component: browser-pool
+          annotations:
+            summary: "High number of active browser sessions"
+            description: "{{ $value }} browser sessions active for > 15 minutes. Sessions may be stuck."
+
+    # =========================================================================
+    # Langfuse/LLM Observability Alerts
+    # =========================================================================
+    - name: llm-observability
+      interval: 1m
+      rules:
+        - alert: LangfuseDown
+          expr: up{job="langfuse"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: langfuse
+          annotations:
+            summary: "Langfuse observability is down"
+            description: "Langfuse {{ $labels.pod }} has been down for more than 5 minutes. LLM tracing is unavailable."
+
+        - alert: HighLLMCostRate
+          expr: |
+            sum(rate(langfuse_tokens_total{type="output"}[1h])) * 0.000015
+            +
+            sum(rate(langfuse_tokens_total{type="input"}[1h])) * 0.000003 > 10
+          for: 30m
+          labels:
+            severity: warning
+            component: llm
+          annotations:
+            summary: "High LLM cost rate"
+            description: "Estimated LLM cost rate > $10/hour for the last 30 minutes."
+
+        - alert: HighLLMErrorRate
+          expr: |
+            sum(rate(langfuse_requests_total{status="error"}[15m]))
+            /
+            sum(rate(langfuse_requests_total[15m])) > 0.05
+          for: 15m
+          labels:
+            severity: warning
+            component: llm
+          annotations:
+            summary: "High LLM API error rate"
+            description: "LLM API error rate > 5% for the last 15 minutes (current: {{ $value | humanizePercentage }})"
+
+    # =========================================================================
+    # General Platform Health Alerts
+    # =========================================================================
+    - name: platform-health
+      interval: 1m
+      rules:
+        - alert: ArgusNamespacePodsCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace=~"argus-.*|browser-pool"}[1h]) > 5
+          for: 5m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "Pod crash looping in Argus namespace"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times in the last hour."
+
+        - alert: ArgusNamespaceHighCPU
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{namespace=~"argus-.*|browser-pool"}[5m])) by (pod)
+            /
+            sum(kube_pod_container_resource_limits{resource="cpu", namespace=~"argus-.*|browser-pool"}) by (pod) > 0.9
+          for: 15m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "High CPU usage in Argus workload"
+            description: "Pod {{ $labels.pod }} CPU usage > 90% of limit for 15 minutes."
+
+        - alert: ArgusNamespaceHighMemory
+          expr: |
+            sum(container_memory_working_set_bytes{namespace=~"argus-.*|browser-pool"}) by (pod)
+            /
+            sum(kube_pod_container_resource_limits{resource="memory", namespace=~"argus-.*|browser-pool"}) by (pod) > 0.9
+          for: 15m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "High memory usage in Argus workload"
+            description: "Pod {{ $labels.pod }} memory usage > 90% of limit for 15 minutes."
+
+        - alert: ArgusPVCNearFull
+          expr: |
+            kubelet_volume_stats_used_bytes{namespace=~"argus-.*|monitoring"}
+            /
+            kubelet_volume_stats_capacity_bytes{namespace=~"argus-.*|monitoring"} > 0.85
+          for: 15m
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "PVC near capacity"
+            description: "PVC {{ $labels.persistentvolumeclaim }} in {{ $labels.namespace }} is > 85% full (current: {{ $value | humanizePercentage }})"

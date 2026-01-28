@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec, TestStep
 
@@ -128,6 +128,13 @@ class UITesterAgent(BaseAgent):
     - Claude for visual verification
     - Screenshot capture for evidence
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.BROWSER_AUTOMATION,
+        AgentCapability.SCREENSHOT,
+        AgentCapability.DOM_ANALYSIS,
+    ]
 
     def __init__(
         self,

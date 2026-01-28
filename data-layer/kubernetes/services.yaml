@@ -49,3 +49,23 @@ spec:
       protocol: TCP
   selector:
     app.kubernetes.io/name: valkey
+---
+# Cognee Worker service (for metrics scraping)
+apiVersion: v1
+kind: Service
+metadata:
+  name: cognee-worker
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: worker
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: health
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: cognee-worker

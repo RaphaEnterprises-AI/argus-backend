@@ -12,6 +12,31 @@ This package provides:
 - SupervisorGraph: Multi-agent supervisor pattern
 - PostgresSaver: Durable execution with PostgreSQL
 - Human-in-the-loop approval workflows with breakpoints
+- AgentRegistry: Agent discovery and health monitoring for A2A communication (RAP-228)
+- A2AProtocol: Agent-to-agent communication protocol over Kafka (RAP-229)
+  - Request/response messaging with correlation and timeout
+  - Broadcast messaging to all subscribers
+  - Circuit breaker pattern for fault tolerance
+  - Heartbeat monitoring for agent health
+- MARP: Multi-Agent Reasoning Protocol for consensus decisions (RAP-235)
+  - Proposal submission and voting mechanisms
+  - Multiple consensus strategies (majority, confidence-weighted, expertise-weighted)
+  - Tie-breaking and human escalation
+  - Full audit trail for compliance and debugging
+- WorkflowComposer: Dynamic workflow composition at runtime (RAP-232)
+  - Task decomposition using LLM analysis
+  - Capability-based agent discovery and assignment
+  - Dependency graph building with parallel execution
+  - LangGraph state machine compilation
+- TaskDecomposer: Break complex tasks into executable subtasks
+  - LLM-powered task analysis
+  - Capability identification
+  - Dependency inference
+- ParallelExecutor: Execute workflow tasks concurrently
+  - Dependency-aware scheduling
+  - Configurable parallelism limits
+  - Streaming execution updates
+  - Resource management and rate limiting
 
 .. note::
     For knowledge/memory operations, use `src.knowledge.CogneeKnowledgeClient`
@@ -56,6 +81,97 @@ from .supervisor import (
     SupervisorState,
     create_initial_supervisor_state,
     create_supervisor_graph,
+)
+
+# Agent Registry for A2A communication (RAP-228)
+from .agent_registry import (
+    AgentInfo,
+    AgentRegistry,
+    Capability,
+    DEFAULT_AGENT_CAPABILITIES,
+    discover_agents,
+    get_agent_registry,
+    get_default_capabilities,
+    heartbeat,
+    init_agent_registry,
+    register_agent,
+    reset_agent_registry,
+    shutdown_agent_registry,
+    unregister_agent,
+)
+
+# A2A Protocol for agent-to-agent communication (RAP-229)
+from .a2a_protocol import (
+    A2AProtocol,
+    AgentBroadcast,
+    AgentHeartbeat,
+    AgentRequestEvent,
+    AgentResponse,
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+    MessageType,
+    create_a2a_protocol_from_settings,
+)
+
+# MARP - Multi-Agent Reasoning Protocol for consensus (RAP-235)
+from .marp import (
+    MARP,
+    Proposal,
+    Resolution,
+    ResolutionStatus,
+    TieError,
+    Vote,
+    VoteType,
+)
+from .consensus import (
+    BordaCount,
+    ConfidenceWeighted,
+    ExpertiseWeighted,
+    MajorityVoting,
+    QuadraticVoting,
+    SuperMajority,
+    create_strategy,
+)
+from .resolver import (
+    AuditEntry,
+    ConflictResolver,
+    DashboardEscalationHandler,
+    EscalationLevel,
+    EscalationRequest,
+    SlackEscalationHandler,
+    TieBreakStrategy,
+)
+
+# Dynamic Workflow Composer (RAP-232)
+from .workflow_composer import (
+    CompiledWorkflow,
+    ExecutionMode,
+    TaskDefinition,
+    TaskPriority,
+    WorkflowComposer,
+    WorkflowConstraints,
+    WorkflowPlan,
+    WorkflowResult,
+    WorkflowStage,
+    WorkflowState,
+)
+from .task_decomposer import (
+    DecompositionConfig,
+    SmartDecomposer,
+    TaskDecomposer,
+)
+from .parallel_executor import (
+    ExecutionProgress,
+    ExecutionStrategy,
+    ParallelExecutor,
+    ParallelStrategy,
+    PipelineStrategy,
+    ResourceManager,
+    SequentialStrategy,
+    StageExecutionUpdate,
+    StageStatus,
+    WorkflowResult as ParallelWorkflowResult,
 )
 
 
@@ -116,8 +232,83 @@ __all__ = [
     "create_initial_supervisor_state",
     "SUPERVISOR_AGENTS",
     "SUPERVISOR_AGENT_DESCRIPTIONS",
+    # Agent Registry (RAP-228)
+    "AgentRegistry",
+    "AgentInfo",
+    "Capability",
+    "get_agent_registry",
+    "reset_agent_registry",
+    "init_agent_registry",
+    "shutdown_agent_registry",
+    "register_agent",
+    "unregister_agent",
+    "discover_agents",
+    "heartbeat",
+    "get_default_capabilities",
+    "DEFAULT_AGENT_CAPABILITIES",
+    # A2A Protocol (RAP-229)
+    "A2AProtocol",
+    "AgentRequestEvent",
+    "AgentResponse",
+    "AgentBroadcast",
+    "AgentHeartbeat",
+    "MessageType",
+    "CircuitBreaker",
+    "CircuitState",
+    "CircuitOpenError",
+    "create_a2a_protocol_from_settings",
+    # MARP - Multi-Agent Reasoning Protocol (RAP-235)
+    "MARP",
+    "Proposal",
+    "Vote",
+    "VoteType",
+    "Resolution",
+    "ResolutionStatus",
+    "TieError",
+    # Consensus Strategies
+    "MajorityVoting",
+    "ConfidenceWeighted",
+    "ExpertiseWeighted",
+    "SuperMajority",
+    "BordaCount",
+    "QuadraticVoting",
+    "create_strategy",
+    # Conflict Resolution
+    "ConflictResolver",
+    "TieBreakStrategy",
+    "EscalationLevel",
+    "EscalationRequest",
+    "AuditEntry",
+    "SlackEscalationHandler",
+    "DashboardEscalationHandler",
     # Lazy-loaded components
     "get_supervisor_graph_factory",
     "get_chat_graph",
     "get_memory_store",
+    # Dynamic Workflow Composer (RAP-232)
+    "WorkflowComposer",
+    "TaskDefinition",
+    "TaskPriority",
+    "WorkflowConstraints",
+    "WorkflowStage",
+    "WorkflowPlan",
+    "WorkflowState",
+    "CompiledWorkflow",
+    "WorkflowResult",
+    "ExecutionMode",
+    # Task Decomposer
+    "TaskDecomposer",
+    "SmartDecomposer",
+    "DecompositionConfig",
+    # Parallel Executor
+    "ParallelExecutor",
+    "StageStatus",
+    "StageExecutionUpdate",
+    "ExecutionProgress",
+    "ExecutionStrategy",
+    "SequentialStrategy",
+    "ParallelStrategy",
+    "PipelineStrategy",
+    "ResourceManager",
+    "ParallelWorkflowResult",
 ]

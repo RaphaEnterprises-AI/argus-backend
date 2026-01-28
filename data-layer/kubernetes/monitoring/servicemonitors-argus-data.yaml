@@ -1,0 +1,162 @@
+# ServiceMonitors for argus-data namespace
+# Enables Prometheus Operator to scrape metrics from data layer components
+#
+# Deploy with: kubectl apply -f servicemonitors-argus-data.yaml
+---
+# FalkorDB ServiceMonitor - Graph Database
+# Scrapes redis_exporter sidecar metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: falkordb
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - argus-data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: graph-database
+---
+# Valkey ServiceMonitor - Cache Layer
+# Scrapes redis_exporter sidecar metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: valkey
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - argus-data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: cache
+---
+# Redpanda ServiceMonitor - Streaming Platform
+# Scrapes admin API metrics endpoint
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redpanda
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: redpanda
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - argus-data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redpanda
+      app.kubernetes.io/instance: redpanda
+  endpoints:
+    # Admin API metrics (port 9644)
+    - port: admin
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /public_metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: streaming
+---
+# Flink ServiceMonitor - Stream Processing
+# Scrapes Flink metrics endpoint
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flink
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - argus-data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flink
+  endpoints:
+    # Flink Prometheus metrics via named port
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: stream-processing
+---
+# Cognee Worker ServiceMonitor - Knowledge Graph Builder
+# Scrapes Prometheus metrics from the worker's /metrics endpoint
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cognee-worker
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cognee-worker
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - argus-data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cognee-worker
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: knowledge-worker

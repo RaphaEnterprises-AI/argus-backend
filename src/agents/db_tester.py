@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
 
@@ -94,6 +94,12 @@ class DBTesterAgent(BaseAgent):
     - Relationship verification
     - Before/after state comparison
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    # Note: DB testing uses generic capabilities - may add DB-specific ones later
+    CAPABILITIES = [
+        AgentCapability.SCHEMA_VALIDATION,
+    ]
 
     def __init__(self, database_url: str | None = None, **kwargs):
         """Initialize with optional database URL.

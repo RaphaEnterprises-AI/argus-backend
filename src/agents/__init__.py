@@ -24,7 +24,7 @@ from .accessibility_checker import (
 )
 from .api_tester import APITesterAgent
 from .auto_discovery import AutoDiscovery, DiscoveryResult, QuickDiscover
-from .base import AgentResult, AICapability, AIResponse, BaseAgent, UsageStats
+from .base import AgentCapability, AgentResult, AICapability, AIResponse, BaseAgent, UsageStats
 from .code_analyzer import CodeAnalyzerAgent
 from .db_tester import DBTesterAgent
 from .nlp_test_creator import ConversationalTestBuilder, GeneratedTest, NLPTestCreator
@@ -89,9 +89,22 @@ from .test_impact_analyzer import (
     SmartTestSelector,
 )
 
+# MR/PR Analyzer (RAP-234)
+from .mr_analyzer import (
+    MRAnalyzerAgent,
+    MRAnalysis,
+    TestSuggestion,
+    ChangeAnalysis,
+    ChangeType,
+    TestPriority,
+    TestType,
+    create_mr_analyzer,
+)
+
 __all__ = [
     # Base
     "BaseAgent",
+    "AgentCapability",
     "AgentResult",
     "AICapability",
     "AIResponse",
@@ -162,4 +175,13 @@ __all__ = [
     "CodeChange",
     "ChangeRisk",
     "SmartTestSelector",
+    # MR/PR Analyzer (RAP-234)
+    "MRAnalyzerAgent",
+    "MRAnalysis",
+    "TestSuggestion",
+    "ChangeAnalysis",
+    "ChangeType",
+    "TestPriority",
+    "TestType",
+    "create_mr_analyzer",
 ]

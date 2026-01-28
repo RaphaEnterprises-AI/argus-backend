@@ -1,0 +1,506 @@
+# Grafana Dashboards for Argus E2E Testing Platform
+# Auto-discovered by Grafana sidecar via label grafana_dashboard=1
+#
+# Deploy with: kubectl apply -f grafana-dashboards-configmap.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-cognee-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: argus
+data:
+  cognee-worker.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "pluginVersion": "10.0.0",
+          "targets": [{"expr": "sum(rate(cognee_events_processed_total{status=\"success\"}[5m]))", "refId": "A"}],
+          "title": "Events Processed/sec",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "cognee_kafka_consumer_running", "refId": "A"}],
+          "title": "Kafka Consumer Status",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DISCONNECTED"}, "1": {"color": "green", "index": 1, "text": "CONNECTED"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "cognee_neo4j_connection_status", "refId": "A"}],
+          "title": "Neo4j Connection",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 10}, {"color": "red", "value": 50}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(cognee_dlq_messages_total[5m])) * 60", "refId": "A"}],
+          "title": "DLQ Messages/min",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [{"expr": "sum(rate(cognee_events_processed_total[5m])) by (event_type, status)", "legendFormat": "{{event_type}} - {{status}}", "refId": "A"}],
+          "title": "Events Processed by Type",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum(rate(cognee_event_processing_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum(rate(cognee_event_processing_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "B"},
+            {"expr": "histogram_quantile(0.99, sum(rate(cognee_event_processing_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "C"}
+          ],
+          "title": "Event Processing Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7,
+          "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum(rate(cognee_cognify_duration_seconds_bucket[5m])) by (le, dataset_type))", "legendFormat": "p50 - {{dataset_type}}", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum(rate(cognee_cognify_duration_seconds_bucket[5m])) by (le, dataset_type))", "legendFormat": "p95 - {{dataset_type}}", "refId": "B"}
+          ],
+          "title": "Cognee Cognify Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 8,
+          "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [{"expr": "sum(rate(cognee_kafka_messages_received_total[5m])) by (topic)", "legendFormat": "{{topic}}", "refId": "A"}],
+          "title": "Kafka Messages by Topic",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["argus", "cognee", "knowledge-graph"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Argus - Cognee Worker",
+      "uid": "argus-cognee-worker",
+      "version": 1
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-data-layer-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: argus
+data:
+  data-layer.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 0},
+          "id": 100,
+          "options": {"content": "# Argus Data Layer\nFalkorDB (Graph) | Valkey (Cache) | Redpanda (Streaming)", "mode": "markdown"},
+          "title": "",
+          "type": "text"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 8, "x": 0, "y": 2},
+          "id": 1,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"falkordb\"}", "refId": "A"}],
+          "title": "FalkorDB Status",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 8, "x": 8, "y": 2},
+          "id": 2,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"valkey\"}", "refId": "A"}],
+          "title": "Valkey Status",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 8, "x": 16, "y": 2},
+          "id": 3,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"redpanda\"}", "refId": "A"}],
+          "title": "Redpanda Status",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "bytes"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+          "id": 4,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "redis_memory_used_bytes{job=\"falkordb\"}", "legendFormat": "FalkorDB Used", "refId": "A"},
+            {"expr": "redis_memory_used_bytes{job=\"valkey\"}", "legendFormat": "Valkey Used", "refId": "B"}
+          ],
+          "title": "Memory Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+          "id": 5,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "redis_connected_clients{job=\"falkordb\"}", "legendFormat": "FalkorDB Clients", "refId": "A"},
+            {"expr": "redis_connected_clients{job=\"valkey\"}", "legendFormat": "Valkey Clients", "refId": "B"}
+          ],
+          "title": "Connected Clients",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "ops"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "id": 6,
+          "options": {"legend": {"calcs": ["mean"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "rate(redis_commands_processed_total{job=\"falkordb\"}[5m])", "legendFormat": "FalkorDB Ops/s", "refId": "A"},
+            {"expr": "rate(redis_commands_processed_total{job=\"valkey\"}[5m])", "legendFormat": "Valkey Ops/s", "refId": "B"}
+          ],
+          "title": "Operations/sec",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "id": 7,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "redis_db_keys{job=\"falkordb\"}", "legendFormat": "FalkorDB Keys (db{{db}})", "refId": "A"},
+            {"expr": "redis_db_keys{job=\"valkey\"}", "legendFormat": "Valkey Keys (db{{db}})", "refId": "B"}
+          ],
+          "title": "Database Keys",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["argus", "data-layer", "falkordb", "valkey", "redpanda"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Argus - Data Layer",
+      "uid": "argus-data-layer",
+      "version": 1
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-browser-pool-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: argus
+data:
+  browser-pool.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 0},
+          "id": 100,
+          "options": {"content": "# Argus Browser Pool\nBrowser Manager | Browser Workers", "mode": "markdown"},
+          "title": "",
+          "type": "text"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 8, "x": 0, "y": 2},
+          "id": 1,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"browser-manager\"}", "refId": "A"}],
+          "title": "Browser Manager Status",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 2}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 8, "x": 8, "y": 2},
+          "id": 2,
+          "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"browser-worker\"} == 1)", "refId": "A"}],
+          "title": "Active Workers",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 4, "w": 8, "x": 16, "y": 2},
+          "id": 3,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(browser_tests_total[5m])) * 60", "refId": "A"}],
+          "title": "Tests/min",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+          "id": 4,
+          "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [{"expr": "sum(rate(browser_tests_total[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A"}],
+          "title": "Tests by Status",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+          "id": 5,
+          "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum(rate(browser_test_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum(rate(browser_test_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "B"},
+            {"expr": "histogram_quantile(0.99, sum(rate(browser_test_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "C"}
+          ],
+          "title": "Test Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+          "id": 6,
+          "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+          "targets": [
+            {"expr": "browser_active_sessions", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "title": "Active Browser Sessions",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["argus", "browser-pool", "playwright"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Argus - Browser Pool",
+      "uid": "argus-browser-pool",
+      "version": 1
+    }

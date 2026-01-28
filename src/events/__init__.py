@@ -20,6 +20,11 @@ from src.events.schemas import (
     HealingCompletedEvent,
     DLQEvent,
     EventType,
+    # A2A Communication Events
+    AgentRequestEvent,
+    AgentResponseEvent,
+    AgentBroadcastEvent,
+    AgentHeartbeatEvent,
 )
 from src.events.producer import EventProducer
 from src.events.topics import (
@@ -31,6 +36,11 @@ from src.events.topics import (
     TOPIC_HEALING_REQUESTED,
     TOPIC_HEALING_COMPLETED,
     TOPIC_DLQ,
+    # A2A Communication Topics
+    TOPIC_AGENT_REQUEST,
+    TOPIC_AGENT_RESPONSE,
+    TOPIC_AGENT_BROADCAST,
+    TOPIC_AGENT_HEARTBEAT,
     TopicConfig,
     get_topic_for_event,
 )
@@ -49,6 +59,11 @@ __all__ = [
     "HealingCompletedEvent",
     "DLQEvent",
     "EventType",
+    # A2A Communication Events
+    "AgentRequestEvent",
+    "AgentResponseEvent",
+    "AgentBroadcastEvent",
+    "AgentHeartbeatEvent",
     # Producer
     "EventProducer",
     # Topics
@@ -60,6 +75,11 @@ __all__ = [
     "TOPIC_HEALING_REQUESTED",
     "TOPIC_HEALING_COMPLETED",
     "TOPIC_DLQ",
+    # A2A Communication Topics
+    "TOPIC_AGENT_REQUEST",
+    "TOPIC_AGENT_RESPONSE",
+    "TOPIC_AGENT_BROADCAST",
+    "TOPIC_AGENT_HEARTBEAT",
     "TopicConfig",
     "get_topic_for_event",
 ]

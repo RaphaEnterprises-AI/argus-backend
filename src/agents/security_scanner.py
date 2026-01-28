@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Literal
 
 from ..core.model_router import TaskType
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 
 
@@ -138,6 +138,11 @@ class SecurityScannerAgent(BaseAgent):
 
     Uses AI for intelligent vulnerability analysis and reducing false positives.
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.SECURITY_SCAN,
+    ]
 
     DEFAULT_TASK_TYPE = TaskType.CODE_ANALYSIS
 

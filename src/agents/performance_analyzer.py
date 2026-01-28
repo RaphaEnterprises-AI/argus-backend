@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from ..core.model_router import TaskType
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 
 
@@ -123,6 +123,11 @@ class PerformanceAnalyzerAgent(BaseAgent):
     """
 
     DEFAULT_TASK_TYPE = TaskType.TEXT_EXTRACTION
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.PERFORMANCE_ANALYSIS,
+    ]
 
     def _get_system_prompt(self) -> str:
         """Get enhanced system prompt for performance analysis."""

@@ -46,7 +46,7 @@ from ..retrieval import HybridRetriever, get_hybrid_retriever
 from ..services.cache import get_cached, set_cached
 from ..services.git_analyzer import SelectorChange, get_git_analyzer
 from ..services.source_analyzer import get_source_analyzer
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 
 logger = logging.getLogger(__name__)
@@ -216,6 +216,14 @@ class SelfHealerAgent(BaseAgent):
 
     # Self-healing requires high-quality reasoning models
     DEFAULT_TASK_TYPE = TaskType.SELF_HEALING
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.HEALING,
+        AgentCapability.SELECTOR_FIX,
+        AgentCapability.ASSERTION_FIX,
+        AgentCapability.GIT_BLAME,
+    ]
 
     def __init__(
         self,

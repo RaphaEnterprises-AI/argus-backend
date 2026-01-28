@@ -66,6 +66,26 @@ data:
 
   # Cloudflare Key Vault (for BYOK decryption)
   CLOUDFLARE_WORKER_URL: "https://argus-api.heyargus.workers.dev"
+
+  # =============================================================================
+  # Observability Configuration
+  # =============================================================================
+  # Cognee supports pluggable observability backends:
+  # - langfuse: LLM tracing with Langfuse (recommended for production)
+  # - keywordsai: Keywords AI observability
+  # - none: Disable LLM tracing (default)
+  #
+  # This provides zero vendor lock-in - just change MONITORING_TOOL
+  # Traces include: LLM calls, token usage, latency, spans
+  MONITORING_TOOL: "langfuse"
+
+  # Langfuse Configuration (for LLM call tracing)
+  # Self-hosted Langfuse in monitoring namespace
+  LANGFUSE_HOST: "http://langfuse-web.monitoring.svc.cluster.local:3000"
+  # Enable debug mode for development
+  LANGFUSE_DEBUG: "false"
+  # Flush interval for batching traces (seconds)
+  LANGFUSE_FLUSH_INTERVAL: "10"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -88,7 +108,9 @@ spec:
         app.kubernetes.io/part-of: argus
         app.kubernetes.io/component: worker
       annotations:
-        prometheus.io/scrape: "false"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       securityContext:
         fsGroup: 1000
@@ -190,6 +212,20 @@ spec:
                 secretKeyRef:
                   name: argus-data-secrets
                   key: neo4j-password
+            # Langfuse Observability (for LLM call tracing)
+            # Get keys from https://cloud.langfuse.com -> Settings -> API Keys
+            - name: LANGFUSE_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: langfuse-public-key
+                  optional: true
+            - name: LANGFUSE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: langfuse-secret-key
+                  optional: true
           resources:
             requests:
               cpu: "100m"

@@ -1,0 +1,64 @@
+# ServiceMonitors for browser-pool namespace
+# Enables Prometheus Operator to scrape metrics from browser automation components
+#
+# Deploy with: kubectl apply -f servicemonitors-browser-pool.yaml
+---
+# Browser Manager ServiceMonitor - Orchestrates browser automation
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: browser-manager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: browser-manager
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - browser-pool
+  selector:
+    matchLabels:
+      app: browser-manager
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: browser-manager
+---
+# Browser Worker ServiceMonitor - Executes browser automation tasks
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: browser-worker
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: browser-worker
+    app.kubernetes.io/part-of: argus
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - browser-pool
+  selector:
+    matchLabels:
+      app: browser-worker
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: browser-worker

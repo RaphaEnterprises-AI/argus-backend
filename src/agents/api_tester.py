@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
 
@@ -90,6 +90,12 @@ class APITesterAgent(BaseAgent):
     - Authentication token management
     - Request chaining with variable extraction
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    CAPABILITIES = [
+        AgentCapability.API_TESTING,
+        AgentCapability.SCHEMA_VALIDATION,
+    ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -72,6 +72,18 @@ from src.services.prometheus_collector import (
     create_prometheus_collector,
 )
 from src.services.supabase_client import SupabaseClient, get_supabase_client
+from src.services.cicd_monitor import (
+    CICDMonitor,
+    FileChange,
+    MRInfo,
+    MonitoredProject,
+    PRInfo,
+    PRState,
+    VCSPlatform,
+    get_cicd_monitor,
+    start_cicd_monitoring,
+    stop_cicd_monitoring,
+)
 
 __all__ = [
     # Supabase
@@ -140,4 +152,15 @@ __all__ = [
     "ExtractedSelector",
     "ComponentInfo",
     "SelectorMapping",
+    # CI/CD Monitor
+    "CICDMonitor",
+    "get_cicd_monitor",
+    "start_cicd_monitoring",
+    "stop_cicd_monitoring",
+    "PRInfo",
+    "MRInfo",
+    "FileChange",
+    "MonitoredProject",
+    "VCSPlatform",
+    "PRState",
 ]

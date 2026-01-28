@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .base import AgentResult, BaseAgent
+from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 
 
@@ -96,6 +96,10 @@ class ReporterAgent(BaseAgent):
     - GitHub issue creation
     - Slack/email notifications
     """
+
+    # RAP-231: Agent capabilities for A2A discovery
+    # ReporterAgent has no specific testing capabilities to advertise
+    CAPABILITIES: list[str] = []
 
     def _get_system_prompt(self) -> str:
         """Get enhanced system prompt for reporting."""

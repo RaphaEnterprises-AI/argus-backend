@@ -89,6 +89,11 @@ from .vercel_integration import (
     VercelProject,
     create_vercel_integration,
 )
+from .comment_poster import (
+    CommentPoster,
+    CommentResult,
+    create_comment_poster,
+)
 
 __all__ = [
     # Existing integrations
@@ -165,4 +170,8 @@ __all__ = [
     "IncidentAnalysis",
     "TimelineEntry",
     "create_pagerduty_integration",
+    # Comment Poster (RAP-234)
+    "CommentPoster",
+    "CommentResult",
+    "create_comment_poster",
 ]
