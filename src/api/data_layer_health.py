@@ -402,7 +402,7 @@ async def _check_prometheus_health() -> ComponentHealth:
     """Check Prometheus health."""
     start = datetime.now()
     prometheus_url = os.environ.get(
-        "PROMETHEUS_URL", "http://prometheus.browser-pool.svc.cluster.local:9090"
+        "PROMETHEUS_URL", "http://monitoring-prometheus.monitoring.svc.cluster.local:9090"
     )
 
     # Check if URL is internal K8s (not accessible from external services)
@@ -542,7 +542,7 @@ async def _check_grafana_health() -> ComponentHealth:
             name="Grafana",
             status=HealthStatus.UNKNOWN,
             message="GRAFANA_URL not configured",
-            details={"hint": "Set GRAFANA_URL to http://grafana.browser-pool.svc.cluster.local:3000"},
+            details={"hint": "Set GRAFANA_URL to http://monitoring-grafana.monitoring.svc.cluster.local:80"},
             checked_at=datetime.now().isoformat(),
         )
 

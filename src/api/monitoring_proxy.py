@@ -18,14 +18,19 @@ from src.api.context import require_organization_id
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
-# Internal URLs (K8s ClusterIP or external with auth)
+# Internal URLs (K8s ClusterIP services)
+# These point to the kube-prometheus-stack deployed in the monitoring namespace
 GRAFANA_INTERNAL_URL = os.environ.get(
     "GRAFANA_INTERNAL_URL",
-    os.environ.get("GRAFANA_URL", "http://grafana.browser-pool.svc.cluster.local:3000"),
+    os.environ.get("GRAFANA_URL", "http://monitoring-grafana.monitoring.svc.cluster.local:80"),
 )
 PROMETHEUS_INTERNAL_URL = os.environ.get(
     "PROMETHEUS_INTERNAL_URL",
-    os.environ.get("PROMETHEUS_URL", "http://prometheus.browser-pool.svc.cluster.local:9090"),
+    os.environ.get("PROMETHEUS_URL", "http://monitoring-prometheus.monitoring.svc.cluster.local:9090"),
+)
+ALERTMANAGER_INTERNAL_URL = os.environ.get(
+    "ALERTMANAGER_INTERNAL_URL",
+    "http://monitoring-alertmanager.monitoring.svc.cluster.local:9093",
 )
 
 # Optional auth for Grafana (service account token)
@@ -313,3 +318,129 @@ async def proxy_prometheus_api(
 ):
     """Proxy Prometheus API requests."""
     return await _proxy_request(PROMETHEUS_INTERNAL_URL, f"api/v1/{path}", request)
+
+
+# =============================================================================
+# AlertManager Proxy Endpoints
+# =============================================================================
+
+
+@router.get("/alertmanager/health")
+async def alertmanager_health(_org_id: str = Depends(require_organization_id)) -> dict[str, Any]:
+    """Check AlertManager health (authenticated)."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/-/healthy")
+            response.raise_for_status()
+            return {
+                "status": "healthy",
+                "alertmanager": "AlertManager is Healthy.",
+            }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+        }
+
+
+@router.get("/alertmanager/alerts")
+async def alertmanager_alerts(
+    _org_id: str = Depends(require_organization_id),
+) -> dict[str, Any]:
+    """Get active alerts from AlertManager."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/alerts",
+            )
+            response.raise_for_status()
+            return {"alerts": response.json()}
+    except Exception as e:
+        logger.error("Failed to get AlertManager alerts", error=str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/alertmanager/silences")
+async def alertmanager_silences(
+    _org_id: str = Depends(require_organization_id),
+) -> dict[str, Any]:
+    """Get active silences from AlertManager."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/silences",
+            )
+            response.raise_for_status()
+            return {"silences": response.json()}
+    except Exception as e:
+        logger.error("Failed to get AlertManager silences", error=str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.post("/alertmanager/silences")
+async def create_alertmanager_silence(
+    request: Request,
+    _org_id: str = Depends(require_organization_id),
+) -> dict[str, Any]:
+    """Create a new silence in AlertManager."""
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.post(
+                f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/silences",
+                json=body,
+            )
+            response.raise_for_status()
+            return {"silence": response.json()}
+    except Exception as e:
+        logger.error("Failed to create AlertManager silence", error=str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.delete("/alertmanager/silence/{silence_id}")
+async def delete_alertmanager_silence(
+    silence_id: str,
+    _org_id: str = Depends(require_organization_id),
+) -> dict[str, Any]:
+    """Delete a silence from AlertManager."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.delete(
+                f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/silence/{silence_id}",
+            )
+            response.raise_for_status()
+            return {"status": "deleted", "silence_id": silence_id}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Silence not found")
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to delete AlertManager silence", silence_id=silence_id, error=str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/alertmanager/receivers")
+async def alertmanager_receivers(
+    _org_id: str = Depends(require_organization_id),
+) -> dict[str, Any]:
+    """Get configured receivers from AlertManager."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                f"{ALERTMANAGER_INTERNAL_URL.rstrip('/')}/api/v2/receivers",
+            )
+            response.raise_for_status()
+            return {"receivers": response.json()}
+    except Exception as e:
+        logger.error("Failed to get AlertManager receivers", error=str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.api_route("/alertmanager/api/v2/{path:path}", methods=["GET", "POST", "DELETE"])
+async def proxy_alertmanager_api(
+    path: str,
+    request: Request,
+    _org_id: str = Depends(require_organization_id),
+):
+    """Proxy AlertManager API requests."""
+    return await _proxy_request(ALERTMANAGER_INTERNAL_URL, f"api/v2/{path}", request)
