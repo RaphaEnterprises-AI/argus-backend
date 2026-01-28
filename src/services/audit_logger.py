@@ -183,7 +183,7 @@ class AuditLogger:
             result = await supabase.request(
                 "/audit_logs",
                 method="POST",
-                data={
+                body={
                     "id": audit_id,
                     "organization_id": organization_id,
                     "user_id": user_id,
