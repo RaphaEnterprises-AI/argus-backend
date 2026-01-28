@@ -157,17 +157,8 @@ grafana:
       env:
         SKIP_TLS_VERIFY: "true"
 
-  # Default datasources
-  datasources:
-    datasources.yaml:
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          uid: prometheus
-          url: http://monitoring-prometheus:9090
-          access: proxy
-          isDefault: true
+  # Note: Datasources are auto-provisioned by the sidecar with correct UIDs
+  # The chart creates a datasource ConfigMap with uid: prometheus automatically
 
   # Grafana.ini settings
   grafana.ini:
