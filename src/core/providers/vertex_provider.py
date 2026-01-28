@@ -67,6 +67,8 @@ from src.core.providers.base import (
     ProviderError,
     RateLimitError,
     ToolCall,
+    mask_api_key,
+    validate_temperature,
 )
 
 logger = structlog.get_logger()

@@ -46,6 +46,8 @@ from src.core.providers.base import (
     ProviderError,
     RateLimitError,
     ToolCall,
+    mask_api_key,
+    validate_temperature,
 )
 
 logger = structlog.get_logger()
@@ -391,6 +393,15 @@ class OpenRouterProvider(BaseProvider):
         if not self.api_key:
             raise AuthenticationError("OpenRouter API key not configured")
 
+        # Validate and clamp temperature to valid range (0.0-2.0)
+        validated_temp = validate_temperature(temperature)
+        if validated_temp != temperature:
+            logger.debug(
+                "Temperature clamped to valid range",
+                original=temperature,
+                clamped=validated_temp,
+            )
+
         # Convert ChatMessage objects to dicts
         message_dicts = []
         for msg in messages:
@@ -403,7 +414,7 @@ class OpenRouterProvider(BaseProvider):
         payload: dict[str, Any] = {
             "model": model,
             "messages": message_dicts,
-            "temperature": temperature,
+            "temperature": validated_temp,
         }
 
         if max_tokens is not None:
@@ -637,6 +648,14 @@ class OpenRouterProvider(BaseProvider):
             )
 
         return result
+
+    def __repr__(self) -> str:
+        """String representation with masked API key for security."""
+        return (
+            f"<OpenRouterProvider("
+            f"api_key={mask_api_key(self.api_key)}, "
+            f"cached_models={len(self._models_cache) if self._models_cache else 0})>"
+        )
 
     async def __aenter__(self) -> "OpenRouterProvider":
         """Async context manager entry."""

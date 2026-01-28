@@ -28,6 +28,8 @@ from .base import (
     ProviderError,
     RateLimitError,
     ToolCall,
+    mask_api_key,
+    validate_temperature,
 )
 
 

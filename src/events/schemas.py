@@ -25,6 +25,12 @@ class EventType(str, Enum):
     HEALING_COMPLETED = "healing.completed"
     DLQ = "dlq"
 
+    # A2A Communication Events
+    AGENT_REQUEST = "agent.request"
+    AGENT_RESPONSE = "agent.response"
+    AGENT_BROADCAST = "agent.broadcast"
+    AGENT_HEARTBEAT = "agent.heartbeat"
+
 
 class TenantInfo(BaseModel):
     """Tenant context for multi-tenant isolation.
@@ -340,3 +346,115 @@ class DLQEvent(BaseEvent):
     # Resolution
     is_resolved: bool = Field(default=False, description="Whether issue was resolved")
     resolution_notes: Optional[str] = Field(None, description="Notes on resolution")
+
+
+# =============================================================================
+# A2A Communication Events
+# =============================================================================
+
+class AgentRequestEvent(BaseEvent):
+    """Request from one agent to another.
+
+    Used for direct agent-to-agent communication where one agent needs
+    a specific capability from another agent.
+    """
+
+    event_type: EventType = Field(default=EventType.AGENT_REQUEST, frozen=True)
+
+    # Routing
+    from_agent: str = Field(..., description="ID of the requesting agent")
+    to_agent: str = Field(..., description="ID of the target agent")
+    request_id: str = Field(..., description="Unique request ID for correlation")
+
+    # Request details
+    capability: str = Field(
+        ...,
+        description="Capability being requested (e.g., 'analyze_code', 'heal_test')"
+    )
+    payload: dict = Field(
+        default_factory=dict,
+        description="Request payload specific to the capability"
+    )
+    timeout_ms: int = Field(
+        default=30000,
+        description="Request timeout in milliseconds"
+    )
+
+
+class AgentResponseEvent(BaseEvent):
+    """Response from agent to requester.
+
+    Correlates with an AgentRequestEvent via request_id.
+    """
+
+    event_type: EventType = Field(default=EventType.AGENT_RESPONSE, frozen=True)
+
+    # Correlation
+    request_id: str = Field(..., description="Request ID this response correlates to")
+
+    # Routing
+    from_agent: str = Field(..., description="ID of the responding agent")
+    to_agent: str = Field(..., description="ID of the requesting agent")
+
+    # Response details
+    success: bool = Field(..., description="Whether the request was successful")
+    payload: dict = Field(
+        default_factory=dict,
+        description="Response payload"
+    )
+    error: Optional[str] = Field(
+        None,
+        description="Error message if success=false"
+    )
+
+
+class AgentBroadcastEvent(BaseEvent):
+    """Broadcast message to all agents.
+
+    Used for system-wide notifications like configuration changes,
+    new capabilities available, or shared state updates.
+    """
+
+    event_type: EventType = Field(default=EventType.AGENT_BROADCAST, frozen=True)
+
+    # Source
+    from_agent: str = Field(..., description="ID of the broadcasting agent")
+
+    # Broadcast details
+    topic: str = Field(
+        ...,
+        description="Broadcast topic (e.g., 'config_update', 'capability_added')"
+    )
+    payload: dict = Field(
+        default_factory=dict,
+        description="Broadcast payload"
+    )
+
+
+class AgentHeartbeatEvent(BaseEvent):
+    """Agent health heartbeat.
+
+    Emitted periodically by each agent to indicate health status
+    and advertise capabilities.
+    """
+
+    event_type: EventType = Field(default=EventType.AGENT_HEARTBEAT, frozen=True)
+
+    # Agent identity
+    agent_id: str = Field(..., description="Unique agent instance ID")
+    agent_type: str = Field(
+        ...,
+        description="Agent type (e.g., 'code_analyzer', 'ui_tester', 'self_healer')"
+    )
+
+    # Capabilities
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="List of capabilities this agent provides"
+    )
+
+    # Status
+    status: str = Field(
+        ...,
+        description="Agent status: 'healthy', 'degraded', 'unhealthy', 'shutting_down'"
+    )

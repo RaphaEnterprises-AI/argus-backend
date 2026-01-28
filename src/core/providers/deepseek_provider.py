@@ -29,6 +29,8 @@ from src.core.providers.base import (
     QuotaExceededError,
     RateLimitError,
     ToolCall,
+    mask_api_key,
+    validate_temperature,
 )
 
 logger = structlog.get_logger()
@@ -316,11 +318,14 @@ class DeepSeekProvider(BaseProvider):
         client = await self._get_client()
         start_time = time.time()
 
+        # Validate and clamp temperature to valid range (0.0-2.0)
+        validated_temp = validate_temperature(temperature)
+
         # Build request payload (OpenAI-compatible format)
         payload: dict[str, Any] = {
             "model": model,
             "messages": self._convert_messages(messages),
-            "temperature": temperature,
+            "temperature": validated_temp,
         }
 
         if max_tokens:
@@ -517,6 +522,14 @@ class DeepSeekProvider(BaseProvider):
             True if model supports extended reasoning
         """
         return "reasoner" in model.lower() or "r1" in model.lower()
+
+    def __repr__(self) -> str:
+        """String representation with masked API key for security."""
+        return (
+            f"<DeepSeekProvider("
+            f"api_key={mask_api_key(self.api_key)}, "
+            f"base_url='{self.base_url}')>"
+        )
 
     async def __aenter__(self) -> "DeepSeekProvider":
         """Async context manager entry."""

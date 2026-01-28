@@ -14,6 +14,11 @@ RAP-217: Unified _call_ai() abstraction layer
 - Respects preferred_provider
 - Enforces cost limits
 - Provides automatic fallback
+
+RAP-231: Agent-to-Agent (A2A) Protocol Support
+- Capability declarations for inter-agent discovery
+- Agent mesh registration for distributed coordination
+- Inter-agent querying by capability
 """
 
 import json
@@ -54,6 +59,57 @@ from ..core.providers import (
 )
 
 T = TypeVar("T")
+
+
+# =============================================================================
+# RAP-231: Agent Capability Declarations for A2A Protocol
+# =============================================================================
+
+
+class AgentCapability:
+    """Standard agent capabilities for A2A protocol discovery.
+
+    These capability constants allow agents to declare what they can do,
+    enabling other agents to discover and query them based on capabilities.
+
+    Usage:
+        class MyAgent(BaseAgent):
+            CAPABILITIES = [
+                AgentCapability.CODE_ANALYSIS,
+                AgentCapability.GIT_BLAME,
+            ]
+    """
+
+    # Code Analysis Capabilities
+    CODE_ANALYSIS = "code_analysis"
+    GIT_BLAME = "git_blame"
+    DEPENDENCY_GRAPH = "dependency_graph"
+
+    # Self-Healing Capabilities
+    SELECTOR_FIX = "selector_fix"
+    ASSERTION_FIX = "assertion_fix"
+    HEALING = "healing"
+
+    # Browser/UI Capabilities
+    BROWSER_AUTOMATION = "browser_automation"
+    SCREENSHOT = "screenshot"
+    DOM_ANALYSIS = "dom_analysis"
+
+    # API Testing Capabilities
+    API_TESTING = "api_testing"
+    SCHEMA_VALIDATION = "schema_validation"
+
+    # Test Planning Capabilities
+    TEST_PLANNING = "test_planning"
+    TEST_GENERATION = "test_generation"
+
+    # Advanced Analysis Capabilities
+    VISUAL_COMPARISON = "visual_comparison"
+    PERFORMANCE_ANALYSIS = "performance_analysis"
+    SECURITY_SCAN = "security_scan"
+    ACCESSIBILITY_CHECK = "accessibility_check"
+    FLAKY_DETECTION = "flaky_detection"
+    MR_ANALYSIS = "mr_analysis"  # Merge Request / Code Change Analysis
 
 
 class AICapability(str, Enum):
@@ -181,21 +237,30 @@ class BaseAgent(ABC):
     - Retry logic with exponential backoff and automatic fallback
     - JSON response parsing
     - Structured logging
+    - A2A protocol support for inter-agent communication (RAP-231)
 
     Subclasses must implement:
     - execute(): Main agent logic
     - _get_system_prompt(): Agent-specific system prompt
     - _get_task_type(): Task type for model routing (optional)
+
+    Subclasses should declare capabilities:
+    - CAPABILITIES: List of AgentCapability constants this agent supports
     """
 
     # Default task type - subclasses should override
     DEFAULT_TASK_TYPE: TaskType = TaskType.GENERAL
+
+    # RAP-231: Agent capabilities for A2A discovery
+    # Subclasses should override with their specific capabilities
+    CAPABILITIES: list[str] = []
 
     def __init__(
         self,
         config: AgentConfig | None = None,
         model: ModelName | None = None,
         use_multi_model: bool = True,
+        register_with_mesh: bool = False,
     ):
         """Initialize agent with configuration.
 
@@ -203,6 +268,7 @@ class BaseAgent(ABC):
             config: Optional agent configuration
             model: Override model selection (legacy, single-model mode)
             use_multi_model: Enable multi-model routing for cost optimization
+            register_with_mesh: Whether to register with the agent mesh (RAP-231)
         """
         self.settings = get_settings()
         self.config = config or AgentConfig()
@@ -212,11 +278,22 @@ class BaseAgent(ABC):
         self._client: anthropic.Anthropic | None = None
         self._model_router: ModelRouter | None = None
         self._usage = UsageStats()
+
+        # RAP-231: A2A Protocol support
+        # Import here to avoid circular imports
+        from ..orchestrator.a2a_protocol import A2AProtocol
+        self._a2a_protocol: A2AProtocol | None = None
+        self._agent_id: str | None = None
+
         self.log = structlog.get_logger().bind(
             agent=self.__class__.__name__,
             model=self.model.value,
             multi_model=self.use_multi_model,
         )
+
+        # Auto-register with mesh if requested
+        if register_with_mesh:
+            self._register_with_mesh()
 
     @property
     def model_router(self) -> ModelRouter:
@@ -243,6 +320,145 @@ class BaseAgent(ABC):
     def usage(self) -> UsageStats:
         """Get cumulative usage statistics."""
         return self._usage
+
+    # =========================================================================
+    # RAP-231: Agent-to-Agent (A2A) Protocol Methods
+    # =========================================================================
+
+    def _register_with_mesh(self) -> str | None:
+        """Register this agent with the agent registry for A2A discovery.
+
+        Registers the agent's capabilities so other agents can discover
+        and communicate with it.
+
+        Returns:
+            The assigned agent ID, or None if registration failed.
+
+        Example:
+            ```python
+            agent = CodeAnalyzerAgent(register_with_mesh=True)
+            # Agent is now discoverable by other agents
+            ```
+        """
+        try:
+            from ..orchestrator.agent_registry import get_agent_registry
+
+            registry = get_agent_registry()
+            agent_type = self.__class__.__name__.lower().replace("agent", "")
+
+            # Register with our declared capabilities
+            self._agent_id = registry.register(
+                agent_type=agent_type,
+                capabilities=self.CAPABILITIES,
+                metadata={
+                    "class": self.__class__.__name__,
+                    "model": self.model.value,
+                    "multi_model": self.use_multi_model,
+                },
+            )
+
+            self.log.info(
+                "Registered with agent mesh",
+                agent_id=self._agent_id,
+                capabilities=self.CAPABILITIES,
+            )
+
+            return self._agent_id
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to register with agent mesh",
+                error=str(e),
+            )
+            return None
+
+    async def query_agent(
+        self,
+        capability: str,
+        payload: dict[str, Any],
+        timeout_ms: int = 30000,
+    ) -> dict[str, Any] | None:
+        """Query another agent by capability via A2A protocol.
+
+        Finds an agent that supports the requested capability and sends
+        a request to it. This enables inter-agent collaboration.
+
+        Args:
+            capability: The capability to query (e.g., AgentCapability.HEALING)
+            payload: The request payload to send
+            timeout_ms: Request timeout in milliseconds
+
+        Returns:
+            The response payload from the target agent, or None if no agent
+            was found or the request failed.
+
+        Example:
+            ```python
+            # From UITesterAgent, request help from SelfHealerAgent
+            response = await self.query_agent(
+                capability=AgentCapability.SELECTOR_FIX,
+                payload={
+                    "test_id": "test-123",
+                    "failed_selector": "#login-btn",
+                    "error": "Element not found",
+                },
+            )
+            if response and response.get("success"):
+                new_selector = response["healed_selector"]
+            ```
+        """
+        try:
+            from ..orchestrator.agent_registry import get_agent_registry
+
+            # Find an agent with the requested capability
+            registry = get_agent_registry()
+            agents = registry.discover(capability)
+
+            if not agents:
+                self.log.warning(
+                    "No agent found with capability",
+                    capability=capability,
+                )
+                return None
+
+            # Select the first healthy agent
+            target_agent = agents[0]
+
+            # Initialize A2A protocol if needed
+            if self._a2a_protocol is None:
+                from ..orchestrator.a2a_protocol import A2AProtocol
+
+                agent_type = self.__class__.__name__.lower().replace("agent", "")
+                self._a2a_protocol = A2AProtocol(
+                    agent_id=self._agent_id or f"{agent_type}-{id(self)}",
+                    agent_type=agent_type,
+                )
+                await self._a2a_protocol.start()
+
+            # Send the request
+            response = await self._a2a_protocol.request(
+                to_agent=target_agent.agent_id,
+                capability=capability,
+                payload=payload,
+                timeout_ms=timeout_ms,
+            )
+
+            self.log.debug(
+                "A2A query completed",
+                capability=capability,
+                target_agent=target_agent.agent_id,
+                success=response.success if response else False,
+            )
+
+            return response.payload if response and response.success else None
+
+        except Exception as e:
+            self.log.error(
+                "A2A query failed",
+                capability=capability,
+                error=str(e),
+            )
+            return None
 
     @abstractmethod
     async def execute(self, **kwargs) -> AgentResult:

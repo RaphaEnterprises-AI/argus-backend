@@ -31,6 +31,8 @@ from src.core.providers.base import (
     ProviderError,
     RateLimitError,
     ToolCall,
+    mask_api_key,
+    validate_temperature,
 )
 
 logger = logging.getLogger(__name__)
@@ -411,11 +413,14 @@ class MistralProvider(BaseProvider):
 
         client = await self._get_client()
 
+        # Validate and clamp temperature to valid range (0.0-1.0 for Mistral)
+        validated_temp = validate_temperature(temperature, max_temp=1.0)
+
         # Build request payload
         payload: dict[str, Any] = {
             "model": model,
             "messages": self._convert_messages(messages),
-            "temperature": temperature,
+            "temperature": validated_temp,
         }
 
         if max_tokens is not None:
@@ -629,6 +634,14 @@ class MistralProvider(BaseProvider):
         # Cache the models
         self._models_cache = models
         return models
+
+    def __repr__(self) -> str:
+        """String representation with masked API key for security."""
+        return (
+            f"<MistralProvider("
+            f"api_key={mask_api_key(self.api_key)}, "
+            f"base_url='{self.base_url}')>"
+        )
 
     async def __aenter__(self) -> "MistralProvider":
         """Async context manager entry."""

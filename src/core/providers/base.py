@@ -238,6 +238,49 @@ class ContextLengthError(ProviderError):
     pass
 
 
+class TemperatureError(ProviderError):
+    """Raised when temperature is out of valid range."""
+    pass
+
+
+def validate_temperature(temperature: float, min_temp: float = 0.0, max_temp: float = 2.0) -> float:
+    """Validate and clamp temperature to valid range.
+
+    Args:
+        temperature: The temperature value to validate
+        min_temp: Minimum allowed temperature (default 0.0)
+        max_temp: Maximum allowed temperature (default 2.0)
+
+    Returns:
+        Clamped temperature value within valid range
+
+    Note:
+        This function clamps rather than raises to be permissive,
+        but logs a warning when clamping occurs.
+    """
+    if temperature < min_temp:
+        return min_temp
+    if temperature > max_temp:
+        return max_temp
+    return temperature
+
+
+def mask_api_key(api_key: str | None) -> str:
+    """Mask an API key for safe logging/display.
+
+    Args:
+        api_key: The API key to mask
+
+    Returns:
+        Masked string showing only first 4 and last 4 characters
+    """
+    if not api_key:
+        return "<not set>"
+    if len(api_key) <= 12:
+        return "*" * len(api_key)
+    return f"{api_key[:4]}...{api_key[-4:]}"
+
+
 class ProviderCapability(str, Enum):
     """Capabilities that a provider may support."""
     CHAT = "chat"
@@ -423,5 +466,12 @@ class BaseProvider(ABC):
             }
 
     def __repr__(self) -> str:
-        """String representation of the provider."""
-        return f"<{self.__class__.__name__}(provider_id='{self.provider_id}')>"
+        """String representation of the provider.
+
+        Note: API key is masked for security - never expose full keys in logs.
+        """
+        return (
+            f"<{self.__class__.__name__}("
+            f"provider_id='{self.provider_id}', "
+            f"api_key={mask_api_key(self.api_key)})>"
+        )

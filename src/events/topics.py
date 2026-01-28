@@ -24,6 +24,12 @@ TOPIC_HEALING_REQUESTED = "argus.healing.requested"
 TOPIC_HEALING_COMPLETED = "argus.healing.completed"
 TOPIC_DLQ = "argus.dlq"
 
+# A2A Communication Topics
+TOPIC_AGENT_REQUEST = "argus.agent.request"
+TOPIC_AGENT_RESPONSE = "argus.agent.response"
+TOPIC_AGENT_BROADCAST = "argus.agent.broadcast"
+TOPIC_AGENT_HEARTBEAT = "argus.agent.heartbeat"
+
 
 @dataclass
 class TopicConfig:
@@ -99,6 +105,32 @@ TOPIC_CONFIGS: dict[str, TopicConfig] = {
         retention_ms=90 * 24 * 60 * 60 * 1000,  # 90 days - keep failures longer
         cleanup_policy="compact,delete",  # Compact to keep latest per key
     ),
+    # A2A Communication Topics
+    TOPIC_AGENT_REQUEST: TopicConfig(
+        name=TOPIC_AGENT_REQUEST,
+        partitions=6,
+        retention_ms=24 * 60 * 60 * 1000,  # 1 day - requests are short-lived
+        consumer_group="argus-agents",
+    ),
+    TOPIC_AGENT_RESPONSE: TopicConfig(
+        name=TOPIC_AGENT_RESPONSE,
+        partitions=6,
+        retention_ms=24 * 60 * 60 * 1000,  # 1 day - responses are short-lived
+        consumer_group="argus-agents",
+    ),
+    TOPIC_AGENT_BROADCAST: TopicConfig(
+        name=TOPIC_AGENT_BROADCAST,
+        partitions=3,  # Fewer partitions for broadcasts (all agents consume all messages)
+        retention_ms=7 * 24 * 60 * 60 * 1000,  # 7 days
+        consumer_group="argus-agents",
+    ),
+    TOPIC_AGENT_HEARTBEAT: TopicConfig(
+        name=TOPIC_AGENT_HEARTBEAT,
+        partitions=3,  # Fewer partitions for heartbeats
+        retention_ms=1 * 60 * 60 * 1000,  # 1 hour - heartbeats are ephemeral
+        cleanup_policy="compact,delete",  # Compact to keep latest per agent
+        consumer_group="argus-monitor",
+    ),
 }
 
 
@@ -115,6 +147,11 @@ EVENT_TYPE_TO_TOPIC: dict[EventType, str] = {
     EventType.HEALING_REQUESTED: TOPIC_HEALING_REQUESTED,
     EventType.HEALING_COMPLETED: TOPIC_HEALING_COMPLETED,
     EventType.DLQ: TOPIC_DLQ,
+    # A2A Communication
+    EventType.AGENT_REQUEST: TOPIC_AGENT_REQUEST,
+    EventType.AGENT_RESPONSE: TOPIC_AGENT_RESPONSE,
+    EventType.AGENT_BROADCAST: TOPIC_AGENT_BROADCAST,
+    EventType.AGENT_HEARTBEAT: TOPIC_AGENT_HEARTBEAT,
 }
 
 

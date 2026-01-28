@@ -28,6 +28,8 @@ from .base import (
     QuotaExceededError,
     RateLimitError,
     ToolCall,
+    mask_api_key,
+    validate_temperature,
 )
 
 

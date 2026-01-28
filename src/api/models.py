@@ -10,6 +10,7 @@ helping users select the right model for their tasks.
 """
 
 import os
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/api/v1", tags=["Models"])
 # Cache for model list (refreshed periodically)
 _model_cache: dict[str, Any] = {}
 _cache_timestamp: datetime | None = None
+_cache_lock = threading.Lock()  # Thread-safe cache updates
 CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
@@ -416,16 +418,33 @@ def _build_model_list() -> list[ModelResponse]:
 
 
 def _get_cached_models() -> list[ModelResponse]:
-    """Get models from cache or rebuild."""
+    """Get models from cache or rebuild.
+
+    Uses a threading lock to prevent race conditions when multiple
+    concurrent requests trigger cache rebuild simultaneously.
+    """
     global _model_cache, _cache_timestamp
 
     now = datetime.now(UTC)
 
+    # Check if cache is valid without acquiring lock (fast path)
     if (
-        _cache_timestamp is None
-        or (now - _cache_timestamp).total_seconds() > CACHE_TTL_SECONDS
-        or "models" not in _model_cache
+        _cache_timestamp is not None
+        and (now - _cache_timestamp).total_seconds() <= CACHE_TTL_SECONDS
+        and "models" in _model_cache
     ):
+        return _model_cache["models"]
+
+    # Cache miss - acquire lock and rebuild
+    with _cache_lock:
+        # Double-check after acquiring lock (another thread may have rebuilt)
+        if (
+            _cache_timestamp is not None
+            and (now - _cache_timestamp).total_seconds() <= CACHE_TTL_SECONDS
+            and "models" in _model_cache
+        ):
+            return _model_cache["models"]
+
         _model_cache["models"] = _build_model_list()
         _cache_timestamp = now
         logger.debug("Rebuilt model cache", model_count=len(_model_cache["models"]))

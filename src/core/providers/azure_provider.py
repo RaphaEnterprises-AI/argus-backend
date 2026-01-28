@@ -54,6 +54,8 @@ from src.core.providers.base import (
     ContentFilterError,
     ContextLengthError,
     ProviderError,
+    mask_api_key,
+    validate_temperature,
 )
 
 logger = structlog.get_logger()
@@ -282,6 +284,9 @@ class AzureOpenAIProvider(BaseProvider):
         """
         start_time = time.time()
 
+        # Validate and clamp temperature to valid range (0.0-2.0)
+        validated_temp = validate_temperature(temperature)
+
         # Use default deployment if model not specified
         deployment_name = model or self.default_deployment
         if not deployment_name:
@@ -301,7 +306,7 @@ class AzureOpenAIProvider(BaseProvider):
         params: dict[str, Any] = {
             "model": deployment_name,  # In Azure, this is the deployment name
             "messages": formatted_messages,
-            "temperature": temperature,
+            "temperature": validated_temp,
         }
 
         if max_tokens is not None:
@@ -686,13 +691,14 @@ class AzureOpenAIProvider(BaseProvider):
             self._handle_error(e)
 
     def __repr__(self) -> str:
-        """String representation."""
+        """String representation with masked API key for security."""
         endpoint_display = (
             self.endpoint[:30] + "..." if len(self.endpoint) > 30 else self.endpoint
         )
         return (
             f"<AzureOpenAIProvider("
             f"endpoint='{endpoint_display}', "
+            f"api_key={mask_api_key(self.api_key)}, "
             f"api_version='{self.api_version}'"
             f")>"
         )
