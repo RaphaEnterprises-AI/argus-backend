@@ -26,6 +26,19 @@ from src.api.context import require_organization_id
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/health", tags=["Health"])
 
+# Cloudflare Access Service Token for Zero Trust authentication
+CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+
+
+def _get_cf_access_headers() -> dict[str, str]:
+    """Get Cloudflare Access headers if configured."""
+    headers = {}
+    if CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET:
+        headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
+        headers["CF-Access-Client-Secret"] = CF_ACCESS_CLIENT_SECRET
+    return headers
+
 
 class HealthStatus(str, Enum):
     """Health status values."""
@@ -409,7 +422,8 @@ async def _check_prometheus_health() -> ComponentHealth:
     is_internal = ".svc.cluster.local" in prometheus_url or ".svc:" in prometheus_url
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        headers = _get_cf_access_headers()
+        async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
             response = await client.get(f"{prometheus_url.rstrip('/')}/-/healthy")
             response.raise_for_status()
 
@@ -420,7 +434,7 @@ async def _check_prometheus_health() -> ComponentHealth:
             status=HealthStatus.HEALTHY,
             latency_ms=round(latency, 2),
             message="Prometheus operational",
-            details={"url": prometheus_url, "access": "direct"},
+            details={"url": prometheus_url, "access": "cloudflare-tunnel"},
             checked_at=datetime.now().isoformat(),
         )
 
@@ -541,8 +555,8 @@ async def _check_grafana_health() -> ComponentHealth:
     is_internal = ".svc.cluster.local" in grafana_url or ".svc:" in grafana_url
 
     try:
-        # Use verify=False for self-signed certs on internal K8s endpoints
-        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+        headers = _get_cf_access_headers()
+        async with httpx.AsyncClient(timeout=5.0, verify=False, headers=headers) as client:
             # Check Grafana health endpoint
             response = await client.get(f"{grafana_url.rstrip('/')}/api/health")
             response.raise_for_status()
@@ -560,7 +574,7 @@ async def _check_grafana_health() -> ComponentHealth:
                 details={
                     "version": data.get("version"),
                     "database": db_status,
-                    "access": "direct",
+                    "access": "cloudflare-tunnel",
                 },
                 checked_at=datetime.now().isoformat(),
             )

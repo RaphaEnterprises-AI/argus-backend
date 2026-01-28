@@ -7,6 +7,7 @@ This service collects metrics from Prometheus/VictoriaMetrics for:
 - Custom Argus metrics (test execution times, success rates)
 """
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -14,6 +15,10 @@ import httpx
 import structlog
 
 logger = structlog.get_logger()
+
+# Cloudflare Access Service Token for Zero Trust authentication
+CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 
 
 @dataclass
@@ -108,9 +113,14 @@ class PrometheusCollector:
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
+        """Get or create HTTP client with Cloudflare Access headers if configured."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=self.timeout)
+            headers = {}
+            # Add Cloudflare Access service token headers for Zero Trust authentication
+            if CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET:
+                headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
+                headers["CF-Access-Client-Secret"] = CF_ACCESS_CLIENT_SECRET
+            self._client = httpx.AsyncClient(timeout=self.timeout, headers=headers)
         return self._client
 
     async def close(self) -> None:
