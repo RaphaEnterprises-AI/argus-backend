@@ -35,6 +35,7 @@ from src.api.artifacts import router as artifacts_router
 from src.api.audit import router as audit_router
 from src.api.browser import router as browser_router
 from src.api.chat import router as chat_router
+from src.api.cicd import router as cicd_router
 from src.api.collaboration import router as collaboration_router
 from src.api.correlations import router as correlations_router
 from src.api.data_layer_health import router as data_layer_health_router
@@ -55,6 +56,7 @@ from src.api.invitations import router as invitations_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.middleware.tenant import TenantMiddleware
+from src.api.models import router as models_router
 from src.api.notifications import router as notifications_router
 from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
@@ -394,6 +396,7 @@ app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
 app.include_router(chat_router)
+app.include_router(cicd_router)
 app.include_router(streaming_router)
 app.include_router(approvals_router)
 app.include_router(time_travel_router)
@@ -424,6 +427,7 @@ app.include_router(api_testing_router)
 app.include_router(sast_router)
 app.include_router(vcs_github_webhook_router)
 app.include_router(vcs_gitlab_webhook_router)
+app.include_router(models_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

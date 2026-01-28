@@ -24,7 +24,7 @@ from .accessibility_checker import (
 )
 from .api_tester import APITesterAgent
 from .auto_discovery import AutoDiscovery, DiscoveryResult, QuickDiscover
-from .base import AgentResult, BaseAgent
+from .base import AgentResult, AICapability, AIResponse, BaseAgent, UsageStats
 from .code_analyzer import CodeAnalyzerAgent
 from .db_tester import DBTesterAgent
 from .nlp_test_creator import ConversationalTestBuilder, GeneratedTest, NLPTestCreator
@@ -93,6 +93,9 @@ __all__ = [
     # Base
     "BaseAgent",
     "AgentResult",
+    "AICapability",
+    "AIResponse",
+    "UsageStats",
     # Specialized Agents
     "CodeAnalyzerAgent",
     "TestPlannerAgent",

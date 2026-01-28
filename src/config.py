@@ -8,12 +8,29 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class ModelProvider(str, Enum):
     """Supported model providers."""
+    # Primary providers
     ANTHROPIC = "anthropic"
-    VERTEX_AI = "vertex_ai"  # Claude via Google Cloud (unified GCP billing)
     OPENAI = "openai"
     GOOGLE = "google"
-    GROQ = "groq"
-    TOGETHER = "together"
+
+    # Cloud platform providers
+    VERTEX_AI = "vertex_ai"  # Claude via Google Cloud (unified GCP billing)
+    AZURE_OPENAI = "azure_openai"  # OpenAI via Azure
+    AWS_BEDROCK = "aws_bedrock"  # Claude/Llama via AWS Bedrock
+
+    # Inference providers (fast/cheap)
+    GROQ = "groq"  # Fast Llama inference
+    TOGETHER = "together"  # Open models
+    FIREWORKS = "fireworks"  # Fast inference
+    CEREBRAS = "cerebras"  # Ultra-fast inference
+
+    # Specialized providers
+    OPENROUTER = "openrouter"  # Multi-model router
+    DEEPSEEK = "deepseek"  # DeepSeek models
+    MISTRAL = "mistral"  # Mistral models
+    PERPLEXITY = "perplexity"  # Search-augmented models
+    COHERE = "cohere"  # Enterprise NLP
+    XAI = "xai"  # Grok models
 
 
 class ModelName(str, Enum):
@@ -49,13 +66,36 @@ class Settings(BaseSettings):
         populate_by_name=True
     )
 
-    # API Keys - Multi-Provider Support
+    # ==========================================================================
+    # API Keys - Multi-Provider Support (RAP-202)
+    # ==========================================================================
     # Made optional for health checks; validated at runtime when needed
+
+    # Primary providers
     anthropic_api_key: SecretStr | None = Field(None, description="Anthropic API key")
     openai_api_key: SecretStr | None = Field(None, description="OpenAI API key (for GPT-4)")
     google_api_key: SecretStr | None = Field(None, description="Google API key (for Gemini)")
+
+    # Inference providers (fast/cheap)
     groq_api_key: SecretStr | None = Field(None, description="Groq API key (for fast Llama)")
     together_api_key: SecretStr | None = Field(None, description="Together API key (for open models)")
+    fireworks_api_key: SecretStr | None = Field(None, description="Fireworks API key (for fast inference)")
+    cerebras_api_key: SecretStr | None = Field(None, description="Cerebras API key (for ultra-fast inference)")
+
+    # Multi-model router
+    openrouter_api_key: SecretStr | None = Field(None, description="OpenRouter API key (multi-model router)")
+
+    # Specialized providers
+    deepseek_api_key: SecretStr | None = Field(None, description="DeepSeek API key")
+    mistral_api_key: SecretStr | None = Field(None, description="Mistral API key")
+    perplexity_api_key: SecretStr | None = Field(None, description="Perplexity API key (search-augmented)")
+    cohere_api_key: SecretStr | None = Field(None, description="Cohere API key (enterprise NLP)")
+    xai_api_key: SecretStr | None = Field(None, description="xAI API key (Grok models)")
+
+    # Cloud platform providers
+    azure_openai_api_key: SecretStr | None = Field(None, description="Azure OpenAI API key")
+    azure_openai_endpoint: str | None = Field(None, description="Azure OpenAI endpoint URL")
+    aws_bedrock_region: str | None = Field(None, description="AWS Bedrock region (e.g., us-east-1, us-west-2)")
 
     # Vertex AI Configuration (Claude via Google Cloud)
     # Benefits: Unified GCP billing, committed spend, enterprise features, Computer Use supported
