@@ -38,6 +38,7 @@ from src.api.chat import router as chat_router
 from src.api.collaboration import router as collaboration_router
 from src.api.correlations import router as correlations_router
 from src.api.data_layer_health import router as data_layer_health_router
+from src.api.monitoring_proxy import router as monitoring_proxy_router
 from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
@@ -410,6 +411,7 @@ app.include_router(mcp_sessions_router)
 app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
 app.include_router(data_layer_health_router)
+app.include_router(monitoring_proxy_router)
 app.include_router(incident_correlator_router)
 app.include_router(insights_router)
 app.include_router(tests_router)
