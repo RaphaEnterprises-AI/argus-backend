@@ -1,0 +1,271 @@
+# kube-prometheus-stack Helm Values
+# Industry-grade monitoring for Argus E2E Testing Platform
+#
+# Deploy with:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm install monitoring prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring --create-namespace \
+#     -f kube-prometheus-stack-values.yaml
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+fullnameOverride: "monitoring"
+
+# =============================================================================
+# Prometheus
+# =============================================================================
+prometheus:
+  prometheusSpec:
+    # Scrape all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Resource limits
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 500m
+      limits:
+        memory: 2Gi
+        cpu: 1000m
+
+    # Retention
+    retention: 15d
+    retentionSize: "10GB"
+
+    # Storage - 50GB persistent volume
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: vultr-block-storage-hdd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+    # Additional scrape configs for external targets (if needed)
+    additionalScrapeConfigs: []
+
+  # Service - ClusterIP only (no public access)
+  service:
+    type: ClusterIP
+
+# =============================================================================
+# Alertmanager
+# =============================================================================
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+
+    # Storage (Vultr minimum is 40GB)
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: vultr-block-storage-hdd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 40Gi
+
+  # Service - ClusterIP only
+  service:
+    type: ClusterIP
+
+  # Default config - customize for Slack/PagerDuty
+  config:
+    global:
+      resolve_timeout: 5m
+
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'default-receiver'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'critical-receiver'
+        - match:
+            severity: warning
+          receiver: 'warning-receiver'
+
+    receivers:
+      - name: 'default-receiver'
+        # Configure webhook/slack here
+      - name: 'critical-receiver'
+        # Configure PagerDuty/Slack critical channel
+      - name: 'warning-receiver'
+        # Configure Slack warning channel
+
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace']
+
+# =============================================================================
+# Grafana
+# =============================================================================
+grafana:
+  # Admin credentials - override via --set or external secret
+  adminUser: admin
+  # adminPassword will be auto-generated if not set
+  # Set via: --set grafana.adminPassword=<secure-password>
+
+  # Service - ClusterIP only (access via backend proxy)
+  service:
+    type: ClusterIP
+
+  # Resource limits
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+  # Persistence (Vultr minimum is 40GB)
+  persistence:
+    enabled: true
+    storageClassName: vultr-block-storage-hdd
+    size: 40Gi
+
+  # Sidecar for dashboard/datasource provisioning
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+
+  # Default datasources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://monitoring-prometheus:9090
+          access: proxy
+          isDefault: true
+
+  # Grafana.ini settings
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/grafana"
+    security:
+      allow_embedding: true
+    auth.anonymous:
+      enabled: false
+    users:
+      viewers_can_edit: false
+    # Enable service accounts for API access
+    service_accounts:
+      enabled: true
+
+# =============================================================================
+# Node Exporter (host metrics)
+# =============================================================================
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 100m
+
+# =============================================================================
+# Kube State Metrics (K8s object metrics)
+# =============================================================================
+kubeStateMetrics:
+  enabled: true
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 100m
+
+# =============================================================================
+# Prometheus Operator
+# =============================================================================
+prometheusOperator:
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+# =============================================================================
+# Default Rules (pre-built alerting rules)
+# =============================================================================
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false  # Not using etcd directly
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: true
+    kubeApiserverHistogram: true
+    kubeApiserverSlos: true
+    kubeControllerManager: false  # Managed by Vultr
+    kubelet: true
+    kubeProxy: false  # Managed by Vultr
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeSchedulerAlerting: false  # Managed by Vultr
+    kubeSchedulerRecording: false
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+
+# =============================================================================
+# Component Scraping (managed K8s - disable some)
+# =============================================================================
+kubeApiServer:
+  enabled: true
+
+kubeControllerManager:
+  enabled: false  # Managed by Vultr VKE
+
+kubeScheduler:
+  enabled: false  # Managed by Vultr VKE
+
+kubeProxy:
+  enabled: false  # Managed by Vultr VKE
+
+kubeEtcd:
+  enabled: false  # Managed by Vultr VKE
+
+# =============================================================================
+# Thanos (optional - for long-term storage)
+# =============================================================================
+thanosRuler:
+  enabled: false
