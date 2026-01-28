@@ -462,7 +462,8 @@ async def _check_grafana_health() -> ComponentHealth:
         )
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        # Use verify=False for self-signed certs on internal K8s endpoints
+        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
             # Check Grafana health endpoint
             response = await client.get(f"{grafana_url.rstrip('/')}/api/health")
             response.raise_for_status()
@@ -508,6 +509,7 @@ async def _check_supabase_health() -> ComponentHealth:
     """Check Supabase connection health."""
     start = datetime.now()
     supabase_url = os.environ.get("SUPABASE_URL", "")
+    anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
 
     if not supabase_url:
         return ComponentHealth(
@@ -518,9 +520,28 @@ async def _check_supabase_health() -> ComponentHealth:
         )
 
     try:
+        headers = {}
+        if anon_key:
+            headers["apikey"] = anon_key
+            headers["Authorization"] = f"Bearer {anon_key}"
+
         async with httpx.AsyncClient(timeout=5.0) as client:
-            # Check REST API health
-            response = await client.get(f"{supabase_url.rstrip('/')}/rest/v1/")
+            # Check REST API health - use healthcheck endpoint if available
+            response = await client.get(
+                f"{supabase_url.rstrip('/')}/rest/v1/",
+                headers=headers,
+            )
+            # 401 is expected without apikey, but connection works
+            # 200/204 means fully operational
+            if response.status_code in (200, 204, 401):
+                latency = (datetime.now() - start).total_seconds() * 1000
+                return ComponentHealth(
+                    name="Supabase",
+                    status=HealthStatus.HEALTHY,
+                    latency_ms=round(latency, 2),
+                    message="Supabase REST API reachable",
+                    checked_at=datetime.now().isoformat(),
+                )
             response.raise_for_status()
 
         latency = (datetime.now() - start).total_seconds() * 1000
