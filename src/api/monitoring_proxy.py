@@ -40,6 +40,12 @@ ALERTMANAGER_INTERNAL_URL = os.environ.get(
 # Optional auth for Grafana (service account token)
 GRAFANA_SERVICE_TOKEN = os.environ.get("GRAFANA_SERVICE_TOKEN", "")
 
+# Cloudflare Access Service Token for Zero Trust authentication
+# These headers are required when Cloudflare Access protects the monitoring URLs
+# Generate at: Cloudflare Zero Trust → Access → Service Auth → Create Service Token
+CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+CF_ACCESS_CLIENT_SECRET = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+
 
 async def _proxy_request(
     base_url: str,
@@ -47,12 +53,23 @@ async def _proxy_request(
     request: Request,
     auth_header: str | None = None,
 ) -> Response:
-    """Proxy a request to an internal service."""
+    """Proxy a request to an internal service.
+
+    When Cloudflare Access is enabled, includes service token headers
+    to authenticate the backend with the Zero Trust gateway.
+    """
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
     headers = {}
     if auth_header:
         headers["Authorization"] = auth_header
+
+    # Add Cloudflare Access service token headers if configured
+    # This allows the backend to bypass Cloudflare Access protection
+    # while blocking direct browser access to monitoring URLs
+    if CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET:
+        headers["CF-Access-Client-Id"] = CF_ACCESS_CLIENT_ID
+        headers["CF-Access-Client-Secret"] = CF_ACCESS_CLIENT_SECRET
 
     # Forward safe headers
     for key in ["Accept", "Content-Type"]:
