@@ -126,15 +126,326 @@ This project leverages the full power of LangGraph 1.0 for production-ready orch
 - Conversation memory with semantic search
 - File: `src/orchestrator/chat_graph.py`
 
+## 🤖 Agent-to-Agent (A2A) Architecture
+
+Argus uses a **mesh + supervisor hybrid** pattern where agents can communicate peer-to-peer while still being orchestrated by a supervisor for high-level coordination.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            AGENT MESH LAYER                                  │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                      Agent Registry                                     │ │
+│  │  - 41 capabilities registered (code_analysis, self_healing, etc.)      │ │
+│  │  - Health monitoring with 60-second heartbeat timeout                  │ │
+│  │  - Service discovery for capability-based routing                      │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│      ┌─────────────────────────────┼─────────────────────────────┐          │
+│      │                             │                             │          │
+│      ▼                             ▼                             ▼          │
+│  ┌──────────┐              ┌──────────┐              ┌──────────┐          │
+│  │ Agent A  │◀────────────▶│ Agent B  │◀────────────▶│ Agent C  │          │
+│  │          │  A2A Protocol│          │  A2A Protocol│          │          │
+│  └────┬─────┘              └────┬─────┘              └────┬─────┘          │
+│       │                         │                         │                 │
+│       └─────────────────────────┴─────────────────────────┘                 │
+│                                 │                                            │
+│  ┌──────────────────────────────▼───────────────────────────────────────┐   │
+│  │                         MESSAGE BUS (Kafka)                           │   │
+│  │  argus.agent.request   │ argus.agent.response │ argus.agent.broadcast │   │
+│  │  argus.agent.heartbeat │ (6 partitions each)                          │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                          ┌─────────▼───────────┐
+                          │     SUPERVISOR      │
+                          │  (High-level only)  │
+                          │  - Task decomposition│
+                          │  - Final aggregation │
+                          └─────────────────────┘
+```
+
+### A2A Protocol (src/orchestrator/a2a_protocol.py)
+
+Agents communicate via Kafka topics using a request-response pattern:
+
+```python
+from src.orchestrator.a2a_protocol import A2AProtocol
+
+# Initialize protocol
+a2a = A2AProtocol()
+
+# Query another agent
+response = await a2a.request(
+    to_agent="CodeAnalyzer",
+    capability="git_blame",
+    payload={"file": "src/auth.py", "line": 42},
+    timeout=30.0
+)
+
+# Broadcast to all agents
+await a2a.broadcast(
+    topic="failure_detected",
+    message={"test_id": "123", "error": "Selector changed"}
+)
+
+# Subscribe to broadcasts
+await a2a.subscribe(
+    topic="failure_detected",
+    handler=self.handle_failure
+)
+```
+
+### Agent Registry (src/orchestrator/agent_registry.py)
+
+Central registry for agent capabilities and health monitoring:
+
+```python
+from src.orchestrator.agent_registry import AgentRegistry, AgentCapability
+
+# 41 capability constants available
+AgentCapability.CODE_ANALYSIS      # Analyze source code
+AgentCapability.SELECTOR_ANALYSIS  # Analyze UI selectors
+AgentCapability.GIT_BLAME          # Git history analysis
+AgentCapability.SELF_HEALING       # Fix broken tests
+AgentCapability.TEST_GENERATION    # Generate test cases
+AgentCapability.VISUAL_COMPARISON  # Compare screenshots
+# ... and 35 more
+
+# Discover agents by capability
+registry = AgentRegistry.get_instance()
+agents = registry.discover(AgentCapability.SELF_HEALING)
+# Returns: [AgentInfo(type=SelfHealerAgent, healthy=True, ...)]
+
+# Query specific agent
+response = await registry.query(
+    agent_type=CodeAnalyzerAgent,
+    request=AgentRequest(capability="git_blame", payload={...})
+)
+```
+
+### BaseAgent A2A Integration (src/agents/base.py)
+
+All agents inherit A2A capabilities:
+
+```python
+class MyAgent(BaseAgent):
+    # Declare agent capabilities
+    CAPABILITIES = [
+        AgentCapability.CODE_ANALYSIS,
+        AgentCapability.TEST_GENERATION,
+    ]
+
+    async def execute(self, state: TestingState) -> TestingState:
+        # Query another agent via A2A
+        blame_info = await self.query_agent(
+            agent_type=CodeAnalyzerAgent,
+            capability="git_blame",
+            payload={"file": "src/auth.py", "line": 42}
+        )
+
+        # Use the response
+        if blame_info.success:
+            author = blame_info.payload["author"]
+            commit = blame_info.payload["commit"]
+```
+
+### Dynamic Workflow Composition (src/orchestrator/workflow_composer.py)
+
+Create workflows at runtime based on task requirements:
+
+```python
+from src.orchestrator.workflow_composer import WorkflowComposer
+from src.orchestrator.task_decomposer import TaskDecomposer
+
+# Decompose complex task
+decomposer = TaskDecomposer()
+subtasks = await decomposer.decompose(
+    "Analyze auth.py failure and suggest fix"
+)
+# Returns: [
+#   TaskDefinition(type="code_analysis", target="auth.py"),
+#   TaskDefinition(type="git_blame", target="auth.py:42"),
+#   TaskDefinition(type="self_healing", depends_on=[0, 1]),
+# ]
+
+# Compose workflow from subtasks
+composer = WorkflowComposer()
+workflow = composer.compose(
+    tasks=subtasks,
+    constraints=WorkflowConstraints(max_parallel=3, timeout=120)
+)
+
+# Execute compiled workflow
+result = await workflow.run()
+```
+
+### Multi-Agent Reasoning Protocol (MARP)
+
+For complex decisions requiring multiple agent perspectives:
+
+```python
+from src.orchestrator.marp import MARP
+from src.orchestrator.consensus import ConsensusStrategy
+
+marp = MARP()
+
+# Agents propose solutions
+await marp.propose(
+    topic="root_cause_analysis",
+    agent="SelfHealer",
+    solution={"cause": "selector_changed", "fix": "update_xpath"},
+    confidence=0.85,
+    reasoning="DOM structure changed after refactor"
+)
+
+await marp.propose(
+    topic="root_cause_analysis",
+    agent="CodeAnalyzer",
+    solution={"cause": "api_changed", "fix": "update_endpoint"},
+    confidence=0.72,
+    reasoning="Backend endpoint renamed"
+)
+
+# Resolve with consensus
+resolution = await marp.resolve(
+    topic="root_cause_analysis",
+    strategy=ConsensusStrategy.CONFIDENCE_WEIGHTED
+)
+# Returns highest confidence solution with supporting evidence
+```
+
+### Consensus Strategies (src/orchestrator/consensus.py)
+
+Six strategies for multi-agent voting:
+
+| Strategy | Use Case |
+|----------|----------|
+| `MajorityVoting` | Simple decisions, equal agent expertise |
+| `ConfidenceWeighted` | Weight votes by confidence scores |
+| `ExpertiseWeighted` | Weight by agent's domain expertise |
+| `SuperMajority` | Critical decisions (67%+ agreement) |
+| `BordaCount` | Ranked preferences with multiple options |
+| `QuadraticVoting` | Prevent single agent domination |
+
+### Incremental Codebase Indexing (src/indexer/)
+
+Delta-aware analysis for large codebases:
+
+```python
+from src.indexer.incremental_indexer import IncrementalIndexer
+
+indexer = IncrementalIndexer()
+
+# Analyze only changed files (10x faster)
+changes = await indexer.analyze_changes(
+    repo_url="https://github.com/org/repo",
+    from_commit="abc123",
+    to_commit="def456"
+)
+
+# Smart indexing (auto-chooses full vs incremental)
+update = await indexer.smart_index(
+    project_id="proj_123",
+    force_full=False  # Only if needed
+)
+```
+
+### Proactive CI/CD Monitoring (src/services/cicd_monitor.py)
+
+GitLab Duo-style automatic analysis:
+
+```python
+from src.services.cicd_monitor import CICDMonitor
+
+monitor = CICDMonitor()
+
+# Poll for new MRs/PRs
+github_prs = await monitor.poll_github(project_id, repo="org/repo")
+gitlab_mrs = await monitor.poll_gitlab(project_id, repo="org/repo")
+
+# Auto-trigger analysis
+for pr in github_prs:
+    if pr.is_new or pr.has_new_commits:
+        analysis = await monitor.trigger_analysis(pr)
+        # Posts test suggestions as PR comment
+```
+
+### A2A Kafka Topics
+
+```
+argus.agent.request     → Agent-to-agent requests (6 partitions)
+argus.agent.response    → Responses to requests (6 partitions)
+argus.agent.broadcast   → Pub/sub broadcasts (6 partitions)
+argus.agent.heartbeat   → Health monitoring (6 partitions)
+```
+
+### Key A2A Files
+
+| File | Purpose |
+|------|---------|
+| `src/orchestrator/agent_registry.py` | Agent capability registry + discovery |
+| `src/orchestrator/a2a_protocol.py` | Kafka-based peer-to-peer messaging |
+| `src/orchestrator/workflow_composer.py` | Runtime workflow composition |
+| `src/orchestrator/task_decomposer.py` | Break complex tasks into subtasks |
+| `src/orchestrator/parallel_executor.py` | Concurrent agent execution |
+| `src/orchestrator/marp.py` | Multi-agent reasoning protocol |
+| `src/orchestrator/consensus.py` | 6 voting/consensus strategies |
+| `src/orchestrator/resolver.py` | Conflict resolution patterns |
+| `src/indexer/incremental_indexer.py` | Delta-aware codebase analysis |
+| `src/indexer/change_manifest.py` | Track file changes |
+| `src/indexer/git_integration.py` | Git diff analysis |
+| `src/services/cicd_monitor.py` | GitHub + GitLab polling |
+| `src/agents/mr_analyzer.py` | MR/PR analysis agent |
+| `src/integrations/comment_poster.py` | Auto-post to PRs/MRs |
+
+### Circuit Breaker Pattern
+
+A2A protocol includes fault tolerance:
+
+```python
+# Built into A2AProtocol
+class CircuitBreaker:
+    failure_threshold: int = 5      # Open after 5 failures
+    reset_timeout: float = 60.0     # Try again after 60s
+    half_open_max_calls: int = 3    # Test calls in half-open
+
+# Automatic protection
+response = await a2a.request(...)  # Fails fast if circuit open
+```
+
 ## Tech Stack
 
-- **Orchestration**: LangGraph (Python)
-- **AI Models**: Claude Sonnet 4.5 (primary), Claude Haiku 4.5 (fast checks), Claude Opus 4.5 (complex debugging)
+### AI & ML Layer
+- **AI Router**: OpenRouter (300+ models, unified API, auto-failover)
+- **Primary Models**: Claude Sonnet 4.5 (default), Claude Haiku 4.5 (fast), Claude Opus 4.5 (complex)
+- **Providers**: Anthropic, OpenAI, Google Vertex, DeepSeek, Mistral, Cerebras, Fireworks, Cohere, xAI
+- **Knowledge Graph**: Cognee (ECL pipeline) + Neo4j Aura (graph DB) + pgvector (embeddings)
+- **Embeddings**: Cohere embed-multilingual-v3.0 (1024-dim)
+
+### Event & Streaming Layer
+- **Message Broker**: Redpanda/Kafka (6 partitions, ZSTD compression)
+- **Stream Processing**: Apache Flink (exactly-once semantics)
+- **Real-time**: Server-Sent Events (SSE) for dashboard
+
+### Orchestration & Agents
+- **Orchestration**: LangGraph (Python) with PostgresSaver
 - **UI Testing**: Claude Computer Use API + Playwright (hybrid)
 - **API Testing**: httpx + pydantic for validation
-- **Database**: sqlalchemy for DB introspection
+
+### Infrastructure
+- **Database**: Supabase (PostgreSQL + Auth + Realtime + pgvector)
+- **Storage**: Cloudflare R2 (screenshots, artifacts)
+- **Secrets**: Cloudflare Key Vault (AES-256 encryption)
+- **Cache**: Valkey/Redis
+- **Kubernetes**: Vultr VKE (data layer)
+
+### Integrations
 - **MCP Servers**: filesystem, github, postgres (configurable)
 - **Workflow Trigger**: n8n webhooks (optional)
+- **Monitoring**: Prometheus + Grafana + Alertmanager
 
 ## Directory Structure
 
@@ -151,8 +462,38 @@ e2e-testing-agent/                    # MONOREPO ROOT
 │   ├── main.py                       # Entry point
 │   ├── config.py                     # Configuration management
 │   ├── api/                          # FastAPI routes
+│   │   ├── cicd.py                   # CI/CD, builds, pipelines, test impact
+│   │   └── ...
 │   ├── orchestrator/                 # LangGraph state machine & nodes
-│   ├── agents/                       # AI agents (code_analyzer, ui_tester, etc.)
+│   │   ├── supervisor.py             # Multi-agent supervisor
+│   │   ├── agent_registry.py         # 🆕 A2A capability registry
+│   │   ├── a2a_protocol.py           # 🆕 Peer-to-peer messaging
+│   │   ├── workflow_composer.py      # 🆕 Dynamic workflow creation
+│   │   ├── task_decomposer.py        # 🆕 Task breakdown
+│   │   ├── parallel_executor.py      # 🆕 Concurrent execution
+│   │   ├── marp.py                   # 🆕 Multi-agent reasoning
+│   │   ├── consensus.py              # 🆕 Voting strategies
+│   │   └── resolver.py               # 🆕 Conflict resolution
+│   ├── agents/                       # AI agents (24+ agents)
+│   │   ├── base.py                   # BaseAgent with A2A support
+│   │   ├── code_analyzer.py          # Code analysis
+│   │   ├── self_healer.py            # Self-healing
+│   │   ├── mr_analyzer.py            # 🆕 MR/PR analysis
+│   │   └── ...                       # 20+ more agents
+│   ├── indexer/                      # 🆕 Codebase indexing
+│   │   ├── incremental_indexer.py    # Delta-aware analysis
+│   │   ├── change_manifest.py        # Change tracking
+│   │   └── git_integration.py        # Git diff analysis
+│   ├── services/                     # Background services
+│   │   ├── cicd_monitor.py           # 🆕 GitHub/GitLab polling
+│   │   └── ...
+│   ├── integrations/                 # External integrations
+│   │   ├── comment_poster.py         # 🆕 PR/MR comments
+│   │   └── ...
+│   ├── events/                       # Kafka event system
+│   │   ├── topics.py                 # Topic definitions (12 topics)
+│   │   ├── schemas.py                # Event schemas
+│   │   └── producer.py               # Event producer
 │   ├── computer_use/                 # Claude Computer Use API wrapper
 │   ├── tools/                        # Playwright, API, DB tools
 │   └── utils/                        # Logging, tokens, prompts
@@ -322,6 +663,475 @@ class BaseAgent(ABC):
         # Implementation with retry logic, token tracking
 ```
 
+## ⚠️ CRITICAL: Unified AI Architecture
+
+**NEVER add ad-hoc AI/Claude calls directly in API endpoints or services.** This codebase has a sophisticated unified AI architecture that ALL AI features MUST follow.
+
+### The Golden Rule
+
+```python
+# ❌ WRONG - Never do this
+def some_api_endpoint():
+    client = anthropic.Anthropic()
+    response = client.messages.create(model="claude-sonnet-4-5", ...)
+
+# ✅ CORRECT - Always use the unified abstraction
+class SomeAgent(BaseAgent):
+    async def execute(self):
+        response = await self._call_ai(
+            messages=[...],
+            task_type=TaskType.CODE_ANALYSIS,
+            required_capabilities=[AICapability.REASONING],
+            max_cost=0.05
+        )
+```
+
+### Unified `_call_ai()` Method
+
+All agents inherit from `BaseAgent` and use `_call_ai()` which provides:
+
+```python
+async def _call_ai(
+    messages: list[dict],                          # OpenAI format
+    task_type: TaskType | None = None,             # Routing hint
+    required_capabilities: list[AICapability] = [], # VISION, TOOLS, JSON_MODE
+    preferred_provider: str | None = None,         # "openrouter", "anthropic"
+    max_cost: float | None = None,                 # Budget limit per call
+    max_tokens: int = 4096,
+    temperature: float = 0.0,
+    tools: list[dict] | None = None,
+    images: list[bytes] | None = None,
+    json_mode: bool = False,
+) -> AIResponse:
+    """
+    Unified AI abstraction that:
+    1. Routes to best model based on TaskType + capabilities
+    2. Manages costs (cheapest model for simple tasks)
+    3. Provides automatic failover across 300+ models via OpenRouter
+    4. Tracks all usage for billing
+    5. Enforces budgets
+    """
+```
+
+### TaskType-Based Model Routing
+
+```
+TaskType                    → Model Tier      → Cost
+─────────────────────────────────────────────────────
+TRIVIAL (classification)    → Flash           → $0.10-0.30/1M
+SIMPLE (extraction)         → Value           → $0.14-0.50/1M
+MODERATE (code analysis)    → Standard        → $0.50-2.00/1M
+COMPLEX (visual comparison) → Premium         → $3-15/1M
+EXPERT (self-healing)       → Expert          → $15+/1M
+```
+
+### Event-Driven AI Architecture
+
+AI operations MUST emit events for downstream processing:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  API Endpoint → Agent._call_ai() → Model Router → Provider          │
+│       │                                                │             │
+│       ▼                                                ▼             │
+│  EventProducer.send()                           AIResponse          │
+│       │                                                              │
+│       ▼                                                              │
+│  Kafka Topic (argus.*)                                              │
+│       │                                                              │
+│       ▼                                                              │
+│  Cognee Worker → ECL Pipeline → Knowledge Graph (Neo4j)            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Cognee Knowledge Graph Integration
+
+Store patterns for semantic learning:
+
+```python
+# Store failure patterns for future reference
+cognee_client = get_cognee_client()
+
+# Add to knowledge base with embeddings for semantic search
+await cognee_client.put(
+    key=f"failure_pattern_{pattern_hash}",
+    value={"failure_type": "selector_changed", "fix": "...", "confidence": 0.95},
+    namespace=f"org_{org_id}_failure_patterns",
+    embeddings=True,
+)
+
+# Later: Find similar past failures via semantic search
+similar = await cognee_client.semantic_search(
+    query="Button selector changed after refactor",
+    namespace=f"org_{org_id}_failure_patterns",
+    top_k=5,
+)
+```
+
+### Multi-Tenant Dataset Naming
+
+```
+Format: org_{org_id}_project_{project_id}_{type}
+
+Examples:
+  org_acme_project_webapp_codebases
+  org_acme_project_webapp_failure_patterns
+  org_acme_project_webapp_healing_history
+```
+
+### Kafka Topics (12 Total)
+
+```
+# AI Learning Loop Topics
+argus.codebase.ingested     → Code added to system
+argus.codebase.analyzed     → Code analysis complete
+argus.test.created          → New test created
+argus.test.executed         → Test run complete
+argus.test.failed           → Test failure (triggers healing)
+argus.healing.requested     → Healing needed
+argus.healing.completed     → Healing done (learning opportunity)
+argus.dlq                   → Dead letter queue
+
+# A2A Communication Topics (NEW)
+argus.agent.request         → Agent-to-agent requests
+argus.agent.response        → Responses to requests
+argus.agent.broadcast       → Pub/sub broadcasts
+argus.agent.heartbeat       → Health monitoring
+```
+
+### 🔄 Complete AI Learning Loop (CI/CD → Cognee → Self-Healing)
+
+This is the **critical integration** that enables autonomous learning and self-healing. Understanding this flow is essential for maintaining and extending Argus.
+
+#### Data Flow Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        CI/CD API (src/api/cicd.py)                          │
+│                                                                             │
+│  ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────┐ │
+│  │ Test Impact Analysis│    │ Deployment Risk    │    │ Test Execution  │ │
+│  │ POST /test-impact   │    │ GET /deploy-risk   │    │ POST /tests/run │ │
+│  └─────────┬───────────┘    └─────────┬──────────┘    └────────┬────────┘ │
+│            │                          │                        │          │
+│            ▼                          ▼                        ▼          │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │  _emit_test_event()  |  _emit_healing_request()  |  _store_in_cognee│  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      Redpanda/Kafka (Vultr K8s)                             │
+│                                                                             │
+│  argus.test.executed → argus.test.failed → argus.healing.requested         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  Cognee Worker (data-layer/cognee-worker/)                  │
+│                                                                             │
+│  1. Consumes events from Kafka                                              │
+│  2. Runs ECL Pipeline (Extract → Cognify → Load)                           │
+│  3. Stores in Neo4j knowledge graph with embeddings                        │
+│  4. Enables semantic search for pattern matching                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Self-Healing Agent (src/agents/self_healer.py)          │
+│                                                                             │
+│  1. Queries Cognee for similar past failures                               │
+│  2. Finds successful fixes for similar patterns                            │
+│  3. Applies fix with confidence score                                      │
+│  4. Stores result back in Cognee (learning loop!)                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Helper Functions (src/api/cicd.py)
+
+These functions enable the AI learning loop in CI/CD endpoints:
+
+```python
+# 1. Emit test events to Kafka for downstream processing
+async def _emit_test_event(
+    event_type: EventType,
+    test_data: dict,
+    user_id: str,
+    org_id: str,
+    project_id: str,
+) -> None:
+    """Emit test execution events to Kafka for Cognee processing."""
+    from src.events.producer import get_event_producer
+
+    producer = get_event_producer()
+    await producer.send(
+        topic=f"argus.test.{event_type.value}",
+        event=TestExecutedEvent(
+            metadata=EventMetadata(user_id=user_id, org_id=org_id),
+            project_id=project_id,
+            **test_data,
+        )
+    )
+
+# 2. Request self-healing for failed tests
+async def _emit_healing_request(
+    failure_data: dict,
+    user_id: str,
+    org_id: str,
+    project_id: str,
+) -> None:
+    """Emit healing request when test fails - triggers SelfHealerAgent."""
+    from src.events.producer import get_event_producer
+
+    producer = get_event_producer()
+    await producer.send(
+        topic="argus.healing.requested",
+        event=HealingRequestedEvent(
+            metadata=EventMetadata(user_id=user_id, org_id=org_id),
+            project_id=project_id,
+            **failure_data,
+        )
+    )
+
+# 3. Store analysis results in Cognee for learning
+async def _store_analysis_in_cognee(
+    analysis_type: str,  # "test_impact", "deployment_risk", etc.
+    data: dict,
+    org_id: str,
+    project_id: str,
+) -> None:
+    """Store analysis results in Cognee knowledge graph."""
+    from src.knowledge.cognee_client import get_cognee_client
+
+    cognee = get_cognee_client()
+    namespace = f"org_{org_id}_project_{project_id}_{analysis_type}"
+
+    await cognee.put(
+        key=f"{analysis_type}_{data.get('commit_sha', 'unknown')}",
+        value=data,
+        namespace=namespace,
+        embeddings=True,  # Enable semantic search
+    )
+```
+
+#### Wiring Up New Features
+
+When adding CI/CD or testing features, follow this pattern:
+
+```python
+@router.post("/new-feature")
+async def new_feature_endpoint(request: Request):
+    # 1. Authenticate and get context
+    user_id = request.state.user_id
+    org_id = request.state.organization_id
+
+    # 2. Query Cognee for historical context (optional but recommended)
+    cognee = get_cognee_client()
+    similar_patterns = await cognee.semantic_search(
+        query="relevant search query",
+        namespace=f"org_{org_id}_project_{project_id}_patterns",
+        top_k=5,
+    )
+
+    # 3. Run AI analysis (use existing agents!)
+    result = await some_agent.analyze(...)
+
+    # 4. CRITICAL: Emit event to Kafka
+    await _emit_test_event(
+        event_type=EventType.TEST_EXECUTED,
+        test_data=result.to_dict(),
+        user_id=user_id,
+        org_id=org_id,
+        project_id=project_id,
+    )
+
+    # 5. CRITICAL: Store in Cognee for learning
+    await _store_analysis_in_cognee(
+        analysis_type="feature_analysis",
+        data=result.to_dict(),
+        org_id=org_id,
+        project_id=project_id,
+    )
+
+    return result
+```
+
+#### Current Integration Status
+
+| Endpoint | Kafka Events | Cognee Storage | Notes |
+|----------|--------------|----------------|-------|
+| `/cicd/test-impact/analyze` | ✅ | ✅ | Stores impact analysis for learning |
+| `/cicd/deployment-risk` | ✅ | ✅ | AI-powered risk assessment |
+| `/tests/run` | ⚠️ | ⚠️ | Needs `_emit_test_event` on failure |
+| `/cicd/pipelines/*` | ⚠️ | ⚠️ | Pipeline events need wiring |
+| `/cicd/builds/*` | ⚠️ | ⚠️ | Build events need wiring |
+| Schedule executor | ⚠️ | ⚠️ | Scheduled tests need event emission |
+
+**⚠️ = Partially implemented, needs completion**
+
+#### Cognee Dataset Namespaces
+
+```
+org_{org_id}_project_{project_id}_test_impact       → Test impact analyses
+org_{org_id}_project_{project_id}_deployment_risk   → Deployment risk assessments
+org_{org_id}_project_{project_id}_failure_patterns  → Test failure patterns
+org_{org_id}_project_{project_id}_healing_history   → Self-healing attempts
+org_{org_id}_project_{project_id}_code_changes      → Code change patterns
+```
+
+### Creating New AI Features (Checklist)
+
+When adding ANY new AI-powered feature:
+
+1. [ ] **Create an Agent class** extending `BaseAgent`
+2. [ ] **Use `_call_ai()`** with appropriate `TaskType`
+3. [ ] **Set `max_cost`** to prevent runaway spending
+4. [ ] **Query Cognee first** for historical patterns
+5. [ ] **Emit events** to appropriate Kafka topic
+6. [ ] **Store results in Cognee** for future learning
+7. [ ] **Track costs** via `ai_cost_tracker`
+
+### Example: Proper AI Feature Implementation
+
+```python
+# src/agents/test_impact_agent.py
+class TestImpactAgent(BaseAgent):
+    """AI-powered test impact analysis."""
+
+    DEFAULT_TASK_TYPE = TaskType.CODE_ANALYSIS
+
+    async def analyze_impact(
+        self,
+        changed_files: list[str],
+        tests: list[dict],
+        org_id: str,
+        project_id: str,
+    ) -> TestImpactResult:
+        # 1. Query Cognee for historical patterns
+        cognee = get_cognee_client()
+        similar_changes = await cognee.semantic_search(
+            query=f"code changes affecting {changed_files}",
+            namespace=f"org_{org_id}_code_impact_patterns",
+            top_k=5,
+        )
+
+        # 2. Build context-aware prompt
+        prompt = self._build_prompt(changed_files, tests, similar_changes)
+
+        # 3. Use unified _call_ai() - routes to best model automatically
+        response = await self._call_ai(
+            messages=[{"role": "user", "content": prompt}],
+            task_type=TaskType.CODE_ANALYSIS,
+            required_capabilities=[AICapability.REASONING],
+            max_cost=0.05,  # Budget limit
+            json_mode=True,
+        )
+
+        # 4. Parse and validate response
+        result = self._parse_response(response.content)
+
+        # 5. Emit event for downstream processing
+        await self.event_producer.send(TestImpactAnalyzedEvent(
+            org_id=org_id,
+            project_id=project_id,
+            changed_files=changed_files,
+            impacted_tests=result.impacted_tests,
+            confidence=result.confidence,
+        ))
+
+        # 6. Store in Cognee for future learning
+        await cognee.put(
+            key=f"impact_analysis_{hash(tuple(changed_files))}",
+            value=result.to_dict(),
+            namespace=f"org_{org_id}_code_impact_patterns",
+            embeddings=True,
+        )
+
+        return result
+```
+
+### Key Files for AI Architecture
+
+| File | Purpose |
+|------|---------|
+| `src/agents/base.py` | BaseAgent with `_call_ai()` abstraction |
+| `src/agents/__init__.py` | Agent registry - all agents exported here |
+| `src/agents/test_impact_analyzer.py` | AI-powered test impact analysis |
+| `src/agents/router_agent.py` | Intelligent model selection |
+| `src/core/providers/` | Provider implementations (11 total) |
+| `src/core/model_router.py` | TaskType → Model routing logic |
+| `src/knowledge/cognee_client.py` | Cognee knowledge graph client |
+| `src/services/correlation_engine.py` | AI-powered SDLC event correlation |
+| `src/events/producer.py` | Kafka event producer |
+| `src/events/schemas.py` | Event type definitions |
+| `src/services/ai_cost_tracker.py` | Cost tracking & budgets |
+| `src/orchestrator/supervisor.py` | LangGraph supervisor - dynamic agent routing |
+| `data-layer/cognee-worker/` | Kafka consumer → Cognee pipeline |
+
+### ⚠️ CRITICAL: Agent Reuse Pattern
+
+**NEVER duplicate AI logic in API endpoints.** Always reuse existing agents.
+
+The agents in `src/agents/` already implement sophisticated AI logic. API endpoints should
+IMPORT and USE these agents, not implement their own heuristics.
+
+**Existing Agents (20+):**
+```python
+from src.agents import (
+    TestImpactAnalyzer,     # AI-powered test impact analysis
+    SmartTestSelector,      # Risk-based test selection
+    SelfHealerAgent,        # Self-healing with Cognee learning
+    CodeAnalyzerAgent,      # Codebase understanding
+    UITesterAgent,          # Browser testing
+    APITesterAgent,         # API testing
+    VisualAI,               # Screenshot comparison
+    NLPTestCreator,         # Natural language → tests
+    AutoDiscovery,          # Autonomous app crawling
+    FlakyTestDetector,      # Flaky test detection
+    PerformanceAnalyzerAgent,
+    SecurityScannerAgent,
+    AccessibilityCheckerAgent,
+    # ... and more
+)
+```
+
+**WRONG - Duplicating logic in API endpoint:**
+```python
+# ❌ src/api/cicd.py
+def _calculate_file_impact_score(file_path: str) -> float:
+    # Heuristic implementation - BAD!
+    if "auth" in file_path: return 0.8
+    ...
+```
+
+**CORRECT - Reuse existing agent:**
+```python
+# ✅ src/api/cicd.py
+from src.agents import TestImpactAnalyzer
+
+async def analyze_test_impact(...):
+    analyzer = TestImpactAnalyzer()
+    analysis = await analyzer.analyze_impact(change, all_tests)
+    return analysis
+```
+
+### Dynamic Agent Routing (LangGraph Supervisor)
+
+The supervisor (`src/orchestrator/supervisor.py`) routes to agents DYNAMICALLY using an LLM.
+To add a new agent:
+
+1. Create agent in `src/agents/new_agent.py` extending `BaseAgent`
+2. Export from `src/agents/__init__.py`
+3. Add to `AGENTS` list and `AGENT_DESCRIPTIONS` in supervisor.py
+4. Create wrapper function `supervisor_new_agent_node()`
+5. Register in `create_supervisor_graph()`
+
+The supervisor LLM will automatically route to the new agent when appropriate.
+
 ## Environment Variables
 
 ```bash
@@ -388,6 +1198,128 @@ When implementing this project:
 3. **Use Sonnet 4.5 as default** - it has the best cost/capability balance for testing
 4. **Implement token tracking early** - costs can spiral quickly with screenshots
 5. **Build the hybrid Playwright+ComputerUse approach** - Playwright for speed, Computer Use for verification
+
+## 🚀 Deployment URLs & Infrastructure
+
+### Production Endpoints
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Backend API** | `https://argus-brain-production.up.railway.app` | Main FastAPI backend (Railway) |
+| **Dashboard** | `https://app.heyargus.ai` | Next.js dashboard (Vercel) |
+| **Docs** | `https://docs.heyargus.ai` | MkDocs documentation |
+| **Status Page** | `https://status.heyargus.ai` | Service status |
+
+### API Health Check
+
+```bash
+# Check backend health
+curl https://argus-brain-production.up.railway.app/health
+
+# Check API version
+curl https://argus-brain-production.up.railway.app/api/v1/health
+```
+
+### Railway CLI Commands
+
+```bash
+# Check current service
+railway status
+
+# Get domain
+railway domain
+
+# View logs
+railway logs
+
+# Deploy
+railway up --detach
+
+# Check variables
+railway variables
+```
+
+### Kubernetes (Vultr VKE) - Data Layer
+
+```bash
+# Namespaces
+kubectl get ns argus-data    # Data layer (Redpanda, FalkorDB, Valkey, Cognee)
+kubectl get ns monitoring    # Prometheus, Grafana, Alertmanager
+
+# Check pods
+kubectl get pods -n argus-data
+kubectl get pods -n monitoring
+
+# Redpanda cluster health
+kubectl exec -n argus-data redpanda-0 -- rpk cluster health
+
+# List Kafka topics
+kubectl exec -n argus-data redpanda-0 -- rpk topic list
+
+# Check consumer group (Cognee worker)
+kubectl exec -n argus-data redpanda-0 -- rpk group describe argus-cognee-workers
+
+# View Grafana dashboards (via Cloudflare Tunnel)
+# Access: https://monitoring.heyargus.ai/grafana
+```
+
+### Data Layer Health Check (from API)
+
+```bash
+# Full data layer health (9 components)
+curl -s "https://argus-brain-production.up.railway.app/api/v1/health/data-layer" \
+  -H "X-API-Key: YOUR_API_KEY" | jq .
+
+# Individual component
+curl -s "https://argus-brain-production.up.railway.app/api/v1/health/data-layer/redpanda" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+### Verified Components (Jan 2026)
+
+| Component | Status | Access | Notes |
+|-----------|--------|--------|-------|
+| Redpanda | ✅ Healthy | K8s Internal + NodePort | 65.20.67.126:31092 |
+| Cognee | ✅ v0.5.1 | Supabase PostgreSQL | pgvector enabled |
+| FalkorDB | ✅ Healthy | K8s Internal | Graph DB for knowledge |
+| Valkey | ✅ Healthy | K8s Internal | Redis-compatible cache |
+| Flink | ✅ Healthy | K8s Internal | Stream processing |
+| Selenium Grid | ✅ 3 nodes | K8s + NodePort | Browser automation |
+| Prometheus | ✅ Healthy | Cloudflare Tunnel | Metrics collection |
+| Grafana | ✅ v12.3.1 | Cloudflare Tunnel | Dashboards |
+| Supabase | ✅ Healthy | Public API | Database + Auth |
+
+### A2A Architecture Verification
+
+```bash
+# Verify A2A Kafka topics exist
+kubectl exec -n argus-data redpanda-0 -- rpk topic list | grep agent
+# Expected: argus.agent.{request,response,broadcast,heartbeat}
+
+# Check topic partitions
+kubectl exec -n argus-data redpanda-0 -- rpk topic describe argus.agent.request
+
+# Test AI-powered test impact analysis
+curl -X POST "https://argus-brain-production.up.railway.app/api/v1/cicd/test-impact/analyze" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "X-Organization-Id: YOUR_ORG_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"PROJECT_ID","commit_sha":"test","branch":"main","changed_files":[{"path":"src/auth.py","change_type":"modified","additions":10,"deletions":5}]}'
+
+# Test CI/CD endpoints
+curl "https://argus-brain-production.up.railway.app/api/v1/cicd/builds?project_id=PROJECT_ID" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "X-Organization-Id: YOUR_ORG_ID"
+```
+
+### Environment Variable Groups
+
+| Group | Source | Services |
+|-------|--------|----------|
+| Supabase | Railway secrets | Backend, Dashboard |
+| Cloudflare | Railway secrets | Backend, Workers |
+| Anthropic/OpenRouter | Railway secrets | Backend |
+| Kubernetes | ConfigMaps/Secrets | Data layer |
 
 ## References
 
