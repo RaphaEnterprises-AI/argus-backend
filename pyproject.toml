@@ -46,6 +46,7 @@ dependencies = [
     # Utilities
     "rich>=13.9.0",
     "structlog>=24.4.0",
+    "prometheus-client>=0.21.0",  # Metrics export for monitoring
     "python-dotenv>=1.0.0",
     "tiktoken>=0.8.0",
     "pillow>=10.4.0",
