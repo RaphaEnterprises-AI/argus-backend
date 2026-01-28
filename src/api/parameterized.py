@@ -1315,7 +1315,7 @@ async def list_execution_results(
 
 @router.post("/tests/{test_id}/execute", response_model=dict)
 async def execute_test(test_id: str, dry_run: bool = Query(False, description="Preview without executing")):
-    """Execute a parameterized test.
+    """Execute a parameterized test (legacy endpoint, preview only).
 
     Args:
         test_id: Test ID
@@ -1380,3 +1380,410 @@ async def execute_test(test_id: str, dry_run: bool = Query(False, description="P
         "status": "started",
         "message": "Execution started. Poll /results endpoint for updates.",
     }
+
+
+# =============================================================================
+# Parameterized Test Execution Engine
+# =============================================================================
+
+
+class ExecuteTestRequest(BaseModel):
+    """Request to execute a parameterized test with full options."""
+
+    test_id: str = Field(..., description="ID of the parameterized test to execute")
+    parameter_sets: list[dict[str, Any]] | None = Field(
+        None, description="Optional inline parameter sets (overrides stored sets)"
+    )
+    selected_set_ids: list[str] | None = Field(
+        None, description="Run only these parameter set IDs (filters stored sets)"
+    )
+    app_url: str = Field(..., description="Application URL to test against")
+    browser: str = Field("chromium", description="Browser to use (chromium, firefox, webkit)")
+    environment: str = Field("staging", description="Environment name")
+    iteration_mode: str = Field("sequential", description="Iteration mode (sequential, parallel, random)")
+    max_parallel: int = Field(5, ge=1, le=20, description="Max parallel workers for parallel mode")
+    timeout_per_iteration_ms: int = Field(60000, ge=1000, le=300000, description="Timeout per iteration in ms")
+    stop_on_failure: bool = Field(False, description="Stop execution on first failure")
+    retry_failed_iterations: int = Field(0, ge=0, le=3, description="Number of retries for failed iterations")
+    triggered_by: str | None = Field(None, description="User or system triggering the execution")
+    trigger_type: str = Field("manual", description="Trigger type (manual, scheduled, webhook, ci)")
+
+
+class ExecuteTestResponse(BaseModel):
+    """Response from test execution."""
+
+    success: bool
+    result_id: str
+    test_id: str
+    test_name: str
+    total_iterations: int
+    passed: int
+    failed: int
+    skipped: int
+    error: int
+    status: str
+    duration_ms: int
+    avg_iteration_ms: float | None = None
+    min_iteration_ms: int | None = None
+    max_iteration_ms: int | None = None
+    iteration_results: list[dict[str, Any]]
+    failure_summary: dict[str, Any] | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+@router.post("/execute", response_model=ExecuteTestResponse)
+async def execute_parameterized_test(request: ExecuteTestRequest):
+    """Execute a parameterized test with full execution engine.
+
+    This endpoint provides the complete parameterized test execution capability:
+    - Resolves {{param}} placeholders with actual values from parameter sets
+    - Iterates through all parameter sets (sequential, parallel, or random)
+    - Executes each iteration via the browser pool API
+    - Tracks results per iteration with detailed metrics
+    - Supports retries, timeouts, and stop-on-failure
+    - Persists results to Supabase for dashboard viewing
+
+    Args:
+        request: ExecuteTestRequest with test_id, parameter_sets, and execution options
+
+    Returns:
+        ExecuteTestResponse with aggregated results from all iterations
+
+    Example:
+        ```json
+        {
+            "test_id": "uuid-of-parameterized-test",
+            "app_url": "http://localhost:3000",
+            "browser": "chromium",
+            "iteration_mode": "sequential",
+            "selected_set_ids": ["set-1", "set-2"]
+        }
+        ```
+    """
+    from src.config import get_settings
+    settings = get_settings()
+    from src.parameterized.executor import ParameterizedTestExecutor
+    from src.parameterized.models import IterationMode, ParameterizedTest, ParameterSet
+
+    # Get test from database
+    test_data = await _get_test_from_db(request.test_id)
+    if not test_data:
+        raise HTTPException(status_code=404, detail=f"Test {request.test_id} not found")
+
+    # Get parameter sets (use provided or fetch from DB)
+    if request.parameter_sets:
+        param_sets_data = request.parameter_sets
+    else:
+        param_sets_data = await _get_parameter_sets_from_db(request.test_id)
+
+    if not param_sets_data:
+        raise HTTPException(
+            status_code=400,
+            detail="No parameter sets available. Provide parameter_sets or create them for this test."
+        )
+
+    # Convert test data to ParameterizedTest model
+    test = ParameterizedTest(
+        id=test_data.get("id"),
+        name=test_data.get("name", "Unnamed Test"),
+        description=test_data.get("description"),
+        steps=[
+            TestStep(**s) if isinstance(s, dict) and "action" in s else TestStep(action="custom", description=str(s))
+            for s in (test_data.get("steps") or [])
+        ],
+        assertions=[
+            TestAssertion(**a) if isinstance(a, dict) and "type" in a else TestAssertion(type="custom", description=str(a))
+            for a in (test_data.get("assertions") or [])
+        ],
+        setup=[
+            TestStep(**s) if isinstance(s, dict) and "action" in s else TestStep(action="custom", description=str(s))
+            for s in (test_data.get("setup") or [])
+        ],
+        teardown=[
+            TestStep(**s) if isinstance(s, dict) and "action" in s else TestStep(action="custom", description=str(s))
+            for s in (test_data.get("teardown") or [])
+        ],
+        iteration_mode=IterationMode(test_data.get("iteration_mode", "sequential")),
+        timeout=test_data.get("timeout_per_iteration_ms", 60000),
+    )
+
+    # Convert parameter sets to models
+    param_sets = []
+    for ps in param_sets_data:
+        param_sets.append(ParameterSet(
+            name=ps.get("name", f"set_{len(param_sets)}"),
+            values=ps.get("values", {}),
+            description=ps.get("description"),
+            tags=ps.get("tags", []),
+            skip=ps.get("skip", False),
+            skip_reason=ps.get("skip_reason"),
+        ))
+
+    # Determine browser API URL
+    browser_api_url = getattr(settings, "BROWSER_API_URL", None)
+    if not browser_api_url:
+        # Default to internal endpoint
+        base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
+        browser_api_url = f"{base_url}/api/v1/browser/test"
+
+    logger.info(
+        "Executing parameterized test",
+        test_id=request.test_id,
+        test_name=test.name,
+        total_sets=len(param_sets),
+        browser_api_url=browser_api_url,
+        iteration_mode=request.iteration_mode,
+    )
+
+    # Create executor
+    executor = ParameterizedTestExecutor(
+        browser_api_url=browser_api_url,
+        timeout_per_iteration_ms=request.timeout_per_iteration_ms,
+        max_retries=request.retry_failed_iterations,
+        stop_on_failure=request.stop_on_failure,
+        max_parallel=request.max_parallel,
+    )
+
+    # Execute the test
+    try:
+        result = await executor.execute(
+            test=test,
+            parameter_sets=param_sets,
+            app_url=request.app_url,
+            browser=request.browser,
+            environment=request.environment,
+            test_id=request.test_id,
+            triggered_by=request.triggered_by,
+            trigger_type=request.trigger_type,
+            iteration_mode=request.iteration_mode,
+            selected_set_ids=request.selected_set_ids,
+        )
+    except Exception as e:
+        logger.exception("Parameterized test execution failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
+
+    # Persist result to database
+    result_data = {
+        "id": result.id,
+        "parameterized_test_id": result.parameterized_test_id,
+        "test_run_id": result.test_run_id,
+        "schedule_run_id": result.schedule_run_id,
+        "total_iterations": result.total_iterations,
+        "passed": result.passed,
+        "failed": result.failed,
+        "skipped": result.skipped,
+        "error": result.error,
+        "duration_ms": result.duration_ms,
+        "avg_iteration_ms": result.avg_iteration_ms,
+        "min_iteration_ms": result.min_iteration_ms,
+        "max_iteration_ms": result.max_iteration_ms,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+        "iteration_mode": result.iteration_mode,
+        "parallel_workers": result.parallel_workers,
+        "status": result.status.value,
+        "iteration_results": [r.to_dict() for r in result.iteration_results],
+        "failure_summary": result.failure_summary,
+        "environment": result.environment,
+        "browser": result.browser,
+        "app_url": result.app_url,
+        "triggered_by": result.triggered_by,
+        "trigger_type": result.trigger_type,
+        "metadata": result.metadata,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    await _save_execution_result_to_db(result_data)
+
+    # Also save individual iteration results
+    supabase = await get_supabase()
+    if supabase:
+        for iteration in result.iteration_results:
+            iteration_data = {
+                "id": iteration.id,
+                "parameterized_result_id": result.id,
+                "parameter_set_id": iteration.parameter_set_id,
+                "iteration_index": iteration.iteration_index,
+                "parameter_values": iteration.parameter_set.values,
+                "status": iteration.status.value,
+                "started_at": iteration.started_at.isoformat() if iteration.started_at else None,
+                "completed_at": iteration.completed_at.isoformat() if iteration.completed_at else None,
+                "duration_ms": iteration.duration_ms,
+                "step_results": iteration.step_results,
+                "error_message": iteration.error_message,
+                "error_stack": iteration.error_stack,
+                "error_screenshot_url": iteration.error_screenshot_url,
+                "assertions_passed": iteration.assertions_passed,
+                "assertions_failed": iteration.assertions_failed,
+                "retry_count": iteration.retry_count,
+                "is_retry": iteration.is_retry,
+                "original_iteration_id": iteration.original_iteration_id,
+                "metadata": iteration.metadata,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+            try:
+                await supabase.insert("iteration_results", [iteration_data])
+            except Exception as e:
+                logger.warning("Failed to save iteration result", iteration_id=iteration.id, error=str(e))
+
+    # Update test's last run status
+    await _update_test_in_db(request.test_id, {
+        "last_run_at": datetime.now(UTC).isoformat(),
+        "last_run_status": result.status.value,
+    })
+
+    logger.info(
+        "Parameterized test execution completed",
+        test_id=request.test_id,
+        result_id=result.id,
+        status=result.status.value,
+        passed=result.passed,
+        failed=result.failed,
+        duration_ms=result.duration_ms,
+    )
+
+    return ExecuteTestResponse(
+        success=result.status.value in ("passed", "completed"),
+        result_id=result.id,
+        test_id=request.test_id,
+        test_name=test.name,
+        total_iterations=result.total_iterations,
+        passed=result.passed,
+        failed=result.failed,
+        skipped=result.skipped,
+        error=result.error,
+        status=result.status.value,
+        duration_ms=result.duration_ms,
+        avg_iteration_ms=result.avg_iteration_ms,
+        min_iteration_ms=result.min_iteration_ms,
+        max_iteration_ms=result.max_iteration_ms,
+        iteration_results=[r.to_dict() for r in result.iteration_results],
+        failure_summary=result.failure_summary if result.failure_summary else None,
+        started_at=result.started_at.isoformat() if result.started_at else None,
+        completed_at=result.completed_at.isoformat() if result.completed_at else None,
+    )
+
+
+class ExecuteInlineRequest(BaseModel):
+    """Request to execute an inline parameterized test (no pre-saved test required)."""
+
+    name: str = Field(..., description="Test name")
+    steps: list[dict[str, Any]] = Field(..., description="Test steps with {{param}} placeholders")
+    assertions: list[dict[str, Any]] | None = Field(None, description="Test assertions")
+    parameter_sets: list[dict[str, Any]] = Field(..., description="Parameter sets to iterate")
+    app_url: str = Field(..., description="Application URL to test against")
+    browser: str = Field("chromium", description="Browser to use")
+    iteration_mode: str = Field("sequential", description="Iteration mode")
+    timeout_per_iteration_ms: int = Field(60000, description="Timeout per iteration in ms")
+    stop_on_failure: bool = Field(False, description="Stop on first failure")
+
+
+@router.post("/execute/inline", response_model=ExecuteTestResponse)
+async def execute_inline_parameterized_test(request: ExecuteInlineRequest):
+    """Execute an inline parameterized test without pre-saving.
+
+    This endpoint allows executing a parameterized test directly without first
+    creating it in the database. Useful for one-off testing or CI/CD integration.
+
+    Args:
+        request: ExecuteInlineRequest with test definition and parameter sets
+
+    Returns:
+        ExecuteTestResponse with aggregated results
+
+    Example:
+        ```json
+        {
+            "name": "Login Test",
+            "steps": [
+                {"action": "fill", "target": "#username", "value": "{{username}}"},
+                {"action": "fill", "target": "#password", "value": "{{password}}"},
+                {"action": "click", "target": "#submit"}
+            ],
+            "assertions": [
+                {"type": "url_contains", "expected": "{{expected_url}}"}
+            ],
+            "parameter_sets": [
+                {"name": "admin", "values": {"username": "admin", "password": "admin123", "expected_url": "dashboard"}},
+                {"name": "user", "values": {"username": "user", "password": "user123", "expected_url": "home"}}
+            ],
+            "app_url": "http://localhost:3000"
+        }
+        ```
+    """
+    from src.config import get_settings
+    settings = get_settings()
+    from src.parameterized.executor import ParameterizedTestExecutor
+    from src.parameterized.models import IterationMode, ParameterizedTest, ParameterSet
+
+    # Create test model
+    test = ParameterizedTest(
+        id=str(uuid.uuid4()),
+        name=request.name,
+        steps=[
+            TestStep(**s) if isinstance(s, dict) and "action" in s else TestStep(action="custom", description=str(s))
+            for s in request.steps
+        ],
+        assertions=[
+            TestAssertion(**a) if isinstance(a, dict) and "type" in a else TestAssertion(type="custom", description=str(a))
+            for a in (request.assertions or [])
+        ],
+        iteration_mode=IterationMode(request.iteration_mode),
+        timeout=request.timeout_per_iteration_ms,
+    )
+
+    # Create parameter sets
+    param_sets = []
+    for ps in request.parameter_sets:
+        param_sets.append(ParameterSet(
+            name=ps.get("name", f"set_{len(param_sets)}"),
+            values=ps.get("values", {}),
+            skip=ps.get("skip", False),
+        ))
+
+    # Get browser API URL
+    browser_api_url = getattr(settings, "BROWSER_API_URL", None)
+    if not browser_api_url:
+        base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
+        browser_api_url = f"{base_url}/api/v1/browser/test"
+
+    # Create and execute
+    executor = ParameterizedTestExecutor(
+        browser_api_url=browser_api_url,
+        timeout_per_iteration_ms=request.timeout_per_iteration_ms,
+        stop_on_failure=request.stop_on_failure,
+    )
+
+    try:
+        result = await executor.execute(
+            test=test,
+            parameter_sets=param_sets,
+            app_url=request.app_url,
+            browser=request.browser,
+            iteration_mode=request.iteration_mode,
+        )
+    except Exception as e:
+        logger.exception("Inline parameterized test execution failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
+
+    return ExecuteTestResponse(
+        success=result.status.value in ("passed", "completed"),
+        result_id=result.id,
+        test_id=test.id or "",
+        test_name=test.name,
+        total_iterations=result.total_iterations,
+        passed=result.passed,
+        failed=result.failed,
+        skipped=result.skipped,
+        error=result.error,
+        status=result.status.value,
+        duration_ms=result.duration_ms,
+        avg_iteration_ms=result.avg_iteration_ms,
+        min_iteration_ms=result.min_iteration_ms,
+        max_iteration_ms=result.max_iteration_ms,
+        iteration_results=[r.to_dict() for r in result.iteration_results],
+        failure_summary=result.failure_summary if result.failure_summary else None,
+        started_at=result.started_at.isoformat() if result.started_at else None,
+        completed_at=result.completed_at.isoformat() if result.completed_at else None,
+    )

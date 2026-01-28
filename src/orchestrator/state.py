@@ -144,6 +144,9 @@ class TestingState(TypedDict):
     # Failures for healing
     failures: list[dict]  # List of FailureAnalysis dicts
     healing_queue: list[str]  # test_ids to heal
+    healed_tests: list[str]  # test_ids that were successfully healed
+    healed_test_specs: dict[str, dict]  # test_id -> healed TestSpec dict
+    retry_queue: list[str]  # test_ids queued for retry after healing
 
     # Screenshots and evidence
     screenshots: list[str]  # Base64 encoded
@@ -172,6 +175,16 @@ class TestingState(TypedDict):
     session_id: str | None  # For tracking across requests
     security_summary: dict | None  # Files analyzed, secrets redacted, etc.
 
+    # Multi-tenant context (for event streaming)
+    org_id: str | None  # Organization ID for event partitioning
+    project_id: str | None  # Project ID for event context
+
+    # Analysis service results (from DependencyAnalyzer, GitAnalyzer, SourceAnalyzer)
+    dependency_analysis: dict | None  # Module/component/route graph
+    git_analysis: dict | None  # Recent commits, contributors, selector changes
+    source_analysis: dict | None  # Extracted selectors, stability scores
+    impact_analysis: dict | None  # Test impact analysis results (affected tests, skipped tests)
+
 
 def create_initial_state(
     codebase_path: str,
@@ -179,6 +192,8 @@ def create_initial_state(
     pr_number: int | None = None,
     changed_files: list[str] | None = None,
     user_id: str | None = None,
+    org_id: str | None = None,
+    project_id: str | None = None,
 ) -> TestingState:
     """Create initial state for a test run."""
     import uuid
@@ -202,6 +217,9 @@ def create_initial_state(
         skipped_count=0,
         failures=[],
         healing_queue=[],
+        healed_tests=[],
+        healed_test_specs={},
+        retry_queue=[],
         screenshots=[],
         total_input_tokens=0,
         total_output_tokens=0,
@@ -217,4 +235,10 @@ def create_initial_state(
         user_id=user_id or "anonymous",
         session_id=session_id,
         security_summary=None,
+        org_id=org_id,
+        project_id=project_id,
+        dependency_analysis=None,
+        git_analysis=None,
+        source_analysis=None,
+        impact_analysis=None,
     )

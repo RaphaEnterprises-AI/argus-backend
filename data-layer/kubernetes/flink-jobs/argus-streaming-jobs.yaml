@@ -1,0 +1,390 @@
+# =============================================================================
+# Argus Flink Streaming Jobs
+# =============================================================================
+# Comprehensive streaming job definitions for the Argus platform.
+# Includes: metrics aggregation, anomaly detection, and self-healing triggers.
+#
+# Prerequisites:
+#   1. Flink Kubernetes Operator installed
+#   2. FlinkDeployment 'argus-flink' running in argus-data namespace
+#   3. Redpanda/Kafka topics created
+#   4. Kafka credentials secret (keda-kafka-secrets) exists
+#
+# Installation:
+#   kubectl apply -f argus-streaming-jobs.yaml
+#
+# Monitoring:
+#   kubectl logs -n argus-data -l app=argus-flink-jobs -f
+#   kubectl port-forward svc/flink-rest -n argus-data 8081:8081
+# =============================================================================
+---
+# ConfigMap: SQL Job Definitions
+# Contains all Flink SQL statements for streaming jobs
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-flink-sql-jobs
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink-jobs
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: streaming
+data:
+  # =========================================================================
+  # Job 1: Test Metrics Aggregation
+  # =========================================================================
+  test-metrics-aggregation.sql: |
+    -- Test Metrics Aggregation Job
+    -- Aggregates test results by time window for dashboards
+
+    SET 'execution.checkpointing.interval' = '60s';
+    SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
+
+    -- Source: Test execution events
+    CREATE TABLE IF NOT EXISTS test_executed (
+        event_id STRING,
+        event_type STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        test_name STRING,
+        run_id STRING,
+        status STRING,
+        duration_ms BIGINT,
+        error_message STRING,
+        error_type STRING,
+        retry_count INT,
+        browser STRING,
+        `timestamp` TIMESTAMP(3),
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '5' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.executed',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-test-metrics',
+        'scan.startup.mode' = 'latest-offset',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    -- Sink: 5-minute aggregated metrics
+    CREATE TABLE IF NOT EXISTS test_metrics_5m (
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        org_id STRING,
+        project_id STRING,
+        total_tests BIGINT,
+        passed_tests BIGINT,
+        failed_tests BIGINT,
+        skipped_tests BIGINT,
+        pass_rate DOUBLE,
+        avg_duration_ms DOUBLE,
+        p95_duration_ms BIGINT,
+        processing_time TIMESTAMP(3),
+        PRIMARY KEY (window_start, org_id, project_id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.metrics.test-summary-5m',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601'
+    );
+
+    -- 5-minute tumbling window aggregation
+    INSERT INTO test_metrics_5m
+    SELECT
+        TUMBLE_START(`timestamp`, INTERVAL '5' MINUTE) AS window_start,
+        TUMBLE_END(`timestamp`, INTERVAL '5' MINUTE) AS window_end,
+        org_id,
+        project_id,
+        COUNT(*) AS total_tests,
+        COUNT(CASE WHEN status = 'passed' THEN 1 END) AS passed_tests,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) AS failed_tests,
+        COUNT(CASE WHEN status = 'skipped' THEN 1 END) AS skipped_tests,
+        CASE WHEN COUNT(*) > 0
+            THEN CAST(COUNT(CASE WHEN status = 'passed' THEN 1 END) AS DOUBLE) / COUNT(*)
+            ELSE 0.0
+        END AS pass_rate,
+        AVG(CAST(duration_ms AS DOUBLE)) AS avg_duration_ms,
+        CAST(PERCENTILE_APPROX(duration_ms, 0.95) AS BIGINT) AS p95_duration_ms,
+        CURRENT_TIMESTAMP AS processing_time
+    FROM test_executed
+    WHERE org_id IS NOT NULL AND project_id IS NOT NULL
+    GROUP BY
+        TUMBLE(`timestamp`, INTERVAL '5' MINUTE),
+        org_id,
+        project_id;
+
+  # =========================================================================
+  # Job 2: Anomaly Detection - Latency Spikes
+  # =========================================================================
+  anomaly-latency.sql: |
+    -- Latency Spike Detection Job
+    -- Alerts when test latency exceeds thresholds
+
+    SET 'execution.checkpointing.interval' = '60s';
+
+    CREATE TABLE IF NOT EXISTS test_executed_latency (
+        event_id STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        test_name STRING,
+        status STRING,
+        duration_ms BIGINT,
+        `timestamp` TIMESTAMP(3),
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '10' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.executed',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-anomaly-latency',
+        'scan.startup.mode' = 'latest-offset',
+        'format' = 'json',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    CREATE TABLE IF NOT EXISTS latency_alerts (
+        alert_id STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        test_name STRING,
+        window_start TIMESTAMP(3),
+        avg_duration_ms DOUBLE,
+        p95_duration_ms BIGINT,
+        max_duration_ms BIGINT,
+        severity STRING,
+        detection_time TIMESTAMP(3),
+        PRIMARY KEY (alert_id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.alerts.latency-spike',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601'
+    );
+
+    -- Detect latency spikes (> 5s avg or > 15s p95)
+    INSERT INTO latency_alerts
+    SELECT
+        CONCAT('lat-', org_id, '-', test_id, '-',
+               CAST(UNIX_TIMESTAMP(TUMBLE_START(`timestamp`, INTERVAL '5' MINUTE)) AS STRING)) AS alert_id,
+        org_id,
+        project_id,
+        test_id,
+        LAST_VALUE(test_name) AS test_name,
+        TUMBLE_START(`timestamp`, INTERVAL '5' MINUTE) AS window_start,
+        AVG(CAST(duration_ms AS DOUBLE)) AS avg_duration_ms,
+        CAST(PERCENTILE_APPROX(duration_ms, 0.95) AS BIGINT) AS p95_duration_ms,
+        MAX(duration_ms) AS max_duration_ms,
+        CASE
+            WHEN AVG(CAST(duration_ms AS DOUBLE)) > 30000 THEN 'critical'
+            WHEN AVG(CAST(duration_ms AS DOUBLE)) > 15000 THEN 'high'
+            WHEN AVG(CAST(duration_ms AS DOUBLE)) > 5000 THEN 'medium'
+            ELSE 'low'
+        END AS severity,
+        CURRENT_TIMESTAMP AS detection_time
+    FROM test_executed_latency
+    WHERE status IN ('passed', 'failed') AND duration_ms > 0
+    GROUP BY
+        TUMBLE(`timestamp`, INTERVAL '5' MINUTE),
+        org_id, project_id, test_id
+    HAVING AVG(CAST(duration_ms AS DOUBLE)) > 5000
+       OR CAST(PERCENTILE_APPROX(duration_ms, 0.95) AS BIGINT) > 15000;
+
+  # =========================================================================
+  # Job 3: Anomaly Detection - Failure Spikes
+  # =========================================================================
+  anomaly-failures.sql: |
+    -- Failure Spike Detection Job
+    -- Triggers self-healing for tests with repeated failures
+
+    SET 'execution.checkpointing.interval' = '60s';
+
+    CREATE TABLE IF NOT EXISTS test_executed_failures (
+        event_id STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        test_name STRING,
+        status STRING,
+        error_message STRING,
+        error_type STRING,
+        selector STRING,
+        `timestamp` TIMESTAMP(3),
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '10' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.executed',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-anomaly-failures',
+        'scan.startup.mode' = 'latest-offset',
+        'format' = 'json',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    CREATE TABLE IF NOT EXISTS healing_requests (
+        request_id STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        test_name STRING,
+        failure_count BIGINT,
+        window_minutes INT,
+        last_error_message STRING,
+        last_error_type STRING,
+        last_selector STRING,
+        error_fingerprint STRING,
+        priority STRING,
+        healing_type STRING,
+        request_time TIMESTAMP(3),
+        PRIMARY KEY (request_id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.healing.requested',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601'
+    );
+
+    -- Trigger self-healing for 3+ failures in 15 minutes
+    INSERT INTO healing_requests
+    SELECT
+        CONCAT('heal-', org_id, '-', test_id, '-',
+               CAST(UNIX_TIMESTAMP(TUMBLE_START(`timestamp`, INTERVAL '15' MINUTE)) AS STRING)) AS request_id,
+        org_id,
+        project_id,
+        test_id,
+        LAST_VALUE(test_name) AS test_name,
+        COUNT(*) AS failure_count,
+        15 AS window_minutes,
+        LAST_VALUE(error_message) AS last_error_message,
+        LAST_VALUE(error_type) AS last_error_type,
+        LAST_VALUE(selector) AS last_selector,
+        MD5(COALESCE(LAST_VALUE(error_message), '')) AS error_fingerprint,
+        CASE
+            WHEN COUNT(*) >= 10 THEN 'critical'
+            WHEN COUNT(*) >= 5 THEN 'high'
+            WHEN COUNT(*) >= 3 THEN 'medium'
+            ELSE 'low'
+        END AS priority,
+        CASE
+            WHEN LAST_VALUE(error_type) LIKE '%Selector%' THEN 'selector_update'
+            WHEN LAST_VALUE(error_type) LIKE '%Timeout%' THEN 'timeout_adjustment'
+            ELSE 'ai_analysis'
+        END AS healing_type,
+        CURRENT_TIMESTAMP AS request_time
+    FROM test_executed_failures
+    WHERE status = 'failed' AND org_id IS NOT NULL
+    GROUP BY
+        TUMBLE(`timestamp`, INTERVAL '15' MINUTE),
+        org_id, project_id, test_id
+    HAVING COUNT(*) >= 3;
+
+---
+# FlinkSessionJob: Test Metrics Aggregation
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionJob
+metadata:
+  name: test-metrics-aggregation
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: test-metrics-aggregation
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: streaming
+spec:
+  deploymentName: argus-flink
+  job:
+    jarURI: local:///opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.20.jar
+    entryClass: org.apache.flink.table.gateway.SqlGateway
+    args:
+      - "-f"
+      - "/opt/flink/sql/test-metrics-aggregation.sql"
+    parallelism: 2
+    upgradeMode: stateless
+    state: running
+
+---
+# FlinkSessionJob: Anomaly Detection - Latency
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionJob
+metadata:
+  name: anomaly-detection-latency
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: anomaly-detection-latency
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: streaming
+spec:
+  deploymentName: argus-flink
+  job:
+    jarURI: local:///opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.20.jar
+    entryClass: org.apache.flink.table.gateway.SqlGateway
+    args:
+      - "-f"
+      - "/opt/flink/sql/anomaly-latency.sql"
+    parallelism: 1
+    upgradeMode: stateless
+    state: running
+
+---
+# FlinkSessionJob: Anomaly Detection - Failures (Self-Healing Trigger)
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionJob
+metadata:
+  name: anomaly-detection-failures
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: anomaly-detection-failures
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: streaming
+spec:
+  deploymentName: argus-flink
+  job:
+    jarURI: local:///opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.20.jar
+    entryClass: org.apache.flink.table.gateway.SqlGateway
+    args:
+      - "-f"
+      - "/opt/flink/sql/anomaly-failures.sql"
+    parallelism: 1
+    upgradeMode: stateless
+    state: running
+
+---
+# PodMonitor for Prometheus metrics scraping
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flink-jobs-monitor
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink-jobs
+    app.kubernetes.io/part-of: argus
+spec:
+  selector:
+    matchLabels:
+      app: argus-flink
+  podMetricsEndpoints:
+    - port: metrics
+      path: /
+      interval: 30s

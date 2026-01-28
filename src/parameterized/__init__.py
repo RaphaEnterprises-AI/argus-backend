@@ -44,6 +44,14 @@ from src.parameterized.data_sources import (
     JSONDataSource,
 )
 from src.parameterized.engine import ParameterizationEngine
+from src.parameterized.executor import (
+    ExecutionResult,
+    ExecutionStatus,
+    IterationResult,
+    IterationStatus,
+    ParameterizedTestExecutor,
+    resolve_parameters,
+)
 from src.parameterized.models import (
     DataSource,
     DataSourceType,
@@ -76,4 +84,11 @@ __all__ = [
     "DataSourceFactory",
     # Engine
     "ParameterizationEngine",
+    # Executor
+    "ParameterizedTestExecutor",
+    "ExecutionResult",
+    "ExecutionStatus",
+    "IterationResult",
+    "IterationStatus",
+    "resolve_parameters",
 ]

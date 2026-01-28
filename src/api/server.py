@@ -42,11 +42,14 @@ from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
 from src.api.github_webhooks import router as github_webhooks_router
+from src.api.global_tests import router as global_tests_router
 from src.api.healing import router as healing_router
 from src.api.impact_graph import router as impact_graph_router
 from src.api.incident_correlator import router as incident_correlator_router
 from src.api.infra_optimizer import router as infra_optimizer_router
+from src.api.insights import router as insights_router
 from src.api.integrations import router as integrations_router
+from src.api.integrations_ai import router as integrations_ai_router
 from src.api.invitations import router as invitations_router
 from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.mcp_sessions import router as mcp_sessions_router
@@ -81,6 +84,8 @@ from src.api.tests import router as tests_router
 from src.api.time_travel import router as time_travel_router
 from src.api.users import router as users_router
 from src.api.visual_ai import router as visual_ai_router
+from src.api.webhooks.github import router as vcs_github_webhook_router
+from src.api.webhooks.gitlab import router as vcs_gitlab_webhook_router
 
 # API Routers
 from src.api.webhooks import router as webhooks_router
@@ -90,8 +95,13 @@ from src.orchestrator.checkpointer import setup_checkpointer, shutdown_checkpoin
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
 from src.services.supabase_client import get_supabase_client
+from src.workers.cognee_consumer import CogneeConsumer
 
 logger = structlog.get_logger()
+
+# Module-level reference to CogneeConsumer for graceful shutdown
+_cognee_consumer: CogneeConsumer | None = None
+_cognee_consumer_task: asyncio.Task | None = None
 
 # =============================================================================
 # Frontend Alias Models
@@ -378,6 +388,7 @@ app.include_router(correlations_router)
 app.include_router(impact_graph_router)
 app.include_router(failure_patterns_router)
 app.include_router(github_webhooks_router)
+app.include_router(global_tests_router)
 app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
@@ -400,13 +411,17 @@ app.include_router(mcp_screenshots_router)
 app.include_router(infra_optimizer_router)
 app.include_router(data_layer_health_router)
 app.include_router(incident_correlator_router)
+app.include_router(insights_router)
 app.include_router(tests_router)
 app.include_router(reports_router)
 app.include_router(integrations_router)
+app.include_router(integrations_ai_router)
 app.include_router(oauth_router)
 app.include_router(pr_comments_router)
 app.include_router(api_testing_router)
 app.include_router(sast_router)
+app.include_router(vcs_github_webhook_router)
+app.include_router(vcs_gitlab_webhook_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -1146,6 +1161,30 @@ async def create_test_from_nlp(body: NLPTestRequest, request: Request):
             name=saved_test["name"],
             project_id=body.project_id,
         )
+
+        # Emit TEST_CREATED event to Redpanda for downstream processing
+        try:
+            from src.services.event_gateway import emit_test_created, get_event_gateway
+            event_gateway = get_event_gateway()
+            if event_gateway.is_running:
+                await emit_test_created(
+                    test_id=saved_test["id"],
+                    test_name=saved_test["name"],
+                    test_type="generated",  # NLP-generated test
+                    org_id=org_id,
+                    project_id=body.project_id,
+                    user_id=user["user_id"],
+                    source="nlp_generated",
+                    priority=saved_test.get("priority", "medium"),
+                    tags=saved_test.get("tags", []),
+                    steps_count=len(saved_test.get("steps", [])),
+                    metadata={
+                        "original_description": body.description[:500],
+                    },
+                )
+        except Exception as e:
+            # Event emission is non-critical - log but don't fail the request
+            logger.warning("Failed to emit TEST_CREATED event", error=str(e), test_id=saved_test["id"])
 
         return {
             "success": True,
@@ -2362,6 +2401,20 @@ async def startup():
         # Event gateway is optional - don't fail startup if Redpanda is not configured
         logger.warning("Failed to start event gateway (Redpanda may not be configured)", error=str(e))
 
+    # Start CogneeConsumer as background worker for knowledge graph processing
+    global _cognee_consumer, _cognee_consumer_task
+    try:
+        _cognee_consumer = CogneeConsumer()
+        _cognee_consumer_task = asyncio.create_task(_cognee_consumer.run())
+        logger.info(
+            "CogneeConsumer started",
+            input_topic=_cognee_consumer.config.input_topic,
+            consumer_group=_cognee_consumer.config.consumer_group,
+        )
+    except Exception as e:
+        # CogneeConsumer is optional - don't fail startup if Kafka/Cognee is not configured
+        logger.warning("Failed to start CogneeConsumer (Kafka/Cognee may not be configured)", error=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -2400,6 +2453,21 @@ async def shutdown():
         logger.info("Event gateway stopped")
     except Exception as e:
         logger.warning("Failed to stop event gateway", error=str(e))
+
+    # Stop CogneeConsumer gracefully
+    global _cognee_consumer, _cognee_consumer_task
+    try:
+        if _cognee_consumer:
+            await _cognee_consumer.stop()
+        if _cognee_consumer_task:
+            _cognee_consumer_task.cancel()
+            try:
+                await _cognee_consumer_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("CogneeConsumer stopped")
+    except Exception as e:
+        logger.warning("Failed to stop CogneeConsumer", error=str(e))
 
     # Gracefully close database connection pool
     await shutdown_checkpointer()

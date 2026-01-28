@@ -157,6 +157,9 @@ spec:
       volumes:
         - name: flink-plugins
           emptyDir: {}
+        - name: flink-sql-jobs
+          configMap:
+            name: argus-flink-sql-jobs
 
       containers:
         - name: flink-main-container
@@ -164,6 +167,9 @@ spec:
           volumeMounts:
             - name: flink-plugins
               mountPath: /opt/flink/plugins
+            - name: flink-sql-jobs
+              mountPath: /opt/flink/sql
+              readOnly: true
 
           # Environment variables
           envFrom:
@@ -238,11 +244,17 @@ spec:
         volumes:
           - name: flink-plugins
             emptyDir: {}
+          - name: flink-sql-jobs
+            configMap:
+              name: argus-flink-sql-jobs
         containers:
           - name: flink-main-container
             volumeMounts:
               - name: flink-plugins
                 mountPath: /opt/flink/plugins
+              - name: flink-sql-jobs
+                mountPath: /opt/flink/sql
+                readOnly: true
 
   # ============================================================
   # TaskManager Configuration
@@ -269,11 +281,17 @@ spec:
         volumes:
           - name: flink-plugins
             emptyDir: {}
+          - name: flink-sql-jobs
+            configMap:
+              name: argus-flink-sql-jobs
         containers:
           - name: flink-main-container
             volumeMounts:
               - name: flink-plugins
                 mountPath: /opt/flink/plugins
+              - name: flink-sql-jobs
+                mountPath: /opt/flink/sql
+                readOnly: true
 
 ---
 # Service for Flink Web UI and REST API

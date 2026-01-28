@@ -82,12 +82,26 @@ def get_interrupt_nodes(settings: Settings) -> list[str]:
     return interrupt_nodes
 
 
-def route_after_analysis(state: TestingState) -> Literal["plan_tests", "report", "__end__"]:
-    """Route after code analysis."""
+def route_after_analysis(state: TestingState) -> Literal["analyze_impact", "plan_tests", "report", "__end__"]:
+    """Route after code analysis.
+
+    Routes to impact analysis when changed files are present,
+    otherwise directly to test planning.
+    """
     if state.get("error"):
         return "report"
     if not state.get("testable_surfaces"):
         logger.warning("No testable surfaces found")
+        return "report"
+    # Route to impact analysis if we have changed files
+    if state.get("changed_files"):
+        return "analyze_impact"
+    return "plan_tests"
+
+
+def route_after_impact_analysis(state: TestingState) -> Literal["plan_tests", "report", "__end__"]:
+    """Route after test impact analysis."""
+    if state.get("error"):
         return "report"
     return "plan_tests"
 
@@ -104,17 +118,14 @@ def route_after_planning(state: TestingState) -> Literal["execute_test", "report
 
 def route_after_execution(
     state: TestingState
-) -> Literal["execute_test", "self_heal", "report", "__end__"]:
-    """Route after test execution."""
+) -> Literal["execute_test", "detect_flaky", "self_heal", "report", "__end__"]:
+    """Route after test execution.
+
+    When all tests complete, routes to flaky detection before reporting.
+    """
     # Check for errors
     if state.get("error"):
         return "report"
-
-    # Check if we need to heal any failures
-    if state.get("healing_queue") and state["should_continue"]:
-        settings = get_settings()
-        if settings.self_heal_enabled:
-            return "self_heal"
 
     # Check if more tests to run
     current_idx = state.get("current_test_index", 0)
@@ -123,14 +134,70 @@ def route_after_execution(
     if current_idx < len(test_plan):
         return "execute_test"
 
+    # All tests done - check if we need to heal any failures
+    if state.get("healing_queue") and state["should_continue"]:
+        settings = get_settings()
+        if settings.self_heal_enabled:
+            return "self_heal"
+
+    # All tests done and no healing - go to flaky detection
+    return "detect_flaky"
+
+
+def route_after_flaky_detection(
+    state: TestingState
+) -> Literal["request_approval", "self_heal", "report", "quality_check", "__end__"]:
+    """Route after flaky test detection.
+
+    Routes based on findings:
+    - To request_approval if human approval is configured and there are failures
+    - To self_heal if there are retry candidates
+    - To quality_check (in enhanced graph) or report otherwise
+
+    This function handles routing for both basic and enhanced graphs.
+    """
+    if state.get("error"):
+        return "report"
+
+    # Check if we have retry candidates from flaky detection
+    retry_candidates = state.get("retry_candidates", [])
+    settings = get_settings()
+
+    # Check if we need human approval (for enhanced graph)
+    if should_request_approval(state) and hasattr(settings, 'require_human_approval_for_healing'):
+        if settings.require_human_approval_for_healing:
+            return "request_approval"
+
+    if retry_candidates and settings.self_heal_enabled:
+        # Add retry candidates to healing queue
+        state["healing_queue"] = retry_candidates
+        return "self_heal"
+
+    # For enhanced graph, route to quality_check; basic graph catches "report"
     return "report"
 
 
 def route_after_healing(
     state: TestingState
-) -> Literal["execute_test", "report", "__end__"]:
-    """Route after self-healing attempt."""
-    # If healing was successful, retry the test
+) -> Literal["execute_test", "detect_flaky", "report", "__end__"]:
+    """Route after self-healing attempt.
+
+    If the SelfHealerAgent successfully healed tests, re-execute them.
+    The healed_tests list contains test IDs that were auto-healed and should be retried.
+    """
+    # If healing was successful and we have healed tests, retry them
+    healed_tests = state.get("healed_tests", [])
+    if healed_tests:
+        logger.info(
+            "Routing to execute healed tests",
+            healed_count=len(healed_tests),
+            healed_tests=healed_tests,
+        )
+        # Reset current_test_index to retry healed tests
+        # The healed test specs are already updated in test_plan by self_heal_node
+        return "execute_test"
+
+    # Legacy check: if healing_queue still has items (shouldn't happen with new implementation)
     if state.get("healing_queue"):
         return "execute_test"
 
@@ -140,6 +207,10 @@ def route_after_healing(
 
     if current_idx < len(test_plan):
         return "execute_test"
+
+    # After healing, check for flaky tests if not already done
+    if not state.get("flaky_analysis"):
+        return "detect_flaky"
 
     return "report"
 
@@ -502,10 +573,14 @@ def route_after_approval(state: TestingState) -> Literal["self_heal", "report"]:
 
 def route_after_healing_enhanced(
     state: TestingState
-) -> Literal["execute_healed", "report"]:
-    """Route after self-healing."""
+) -> Literal["prepare_healed", "report"]:
+    """Route after self-healing.
+
+    If the SelfHealerAgent successfully healed tests, route to prepare_healed
+    which sets up the state for re-execution.
+    """
     if state.get("healed_tests"):
-        return "execute_healed"
+        return "prepare_healed"
     return "report"
 
 
@@ -556,6 +631,11 @@ def create_testing_graph(settings: Settings) -> StateGraph:
     """
     Create the LangGraph state machine for testing orchestration.
 
+    This graph integrates three key specialized agents:
+    - TestPlannerAgent: Intelligent test plan generation (replaces direct Claude calls)
+    - FlakyTestDetector: Post-execution flakiness analysis and quarantine
+    - TestImpactAnalyzer: Change-based test selection (10-100x CI/CD speedup)
+
     Graph structure:
 
         [START]
@@ -565,9 +645,15 @@ def create_testing_graph(settings: Settings) -> StateGraph:
       │analyze_code │
       └─────────────┘
            │
-           ▼
+           ├── (changed files?) ──┐
+           │                      ▼
+           │              ┌───────────────┐
+           │              │analyze_impact │  ← TestImpactAnalyzer
+           │              └───────────────┘
+           │                      │
+           ▼◄─────────────────────┘
       ┌─────────────┐
-      │ plan_tests  │
+      │ plan_tests  │  ← TestPlannerAgent
       └─────────────┘
            │
            ▼
@@ -577,7 +663,12 @@ def create_testing_graph(settings: Settings) -> StateGraph:
            │                       │
            ├─── (more tests) ──────┤
            │                       │
-           ├─── (failure) ────┐    │
+           ▼                       │
+      ┌──────────────┐             │
+      │detect_flaky  │  ← FlakyTestDetector
+      └──────────────┘             │
+           │                       │
+           ├─── (retries) ────┐    │
            │                  ▼    │
            │            ┌──────────┴──┐
            │            │  self_heal  │
@@ -594,6 +685,8 @@ def create_testing_graph(settings: Settings) -> StateGraph:
     # Import node implementations
     from .nodes import (
         analyze_code_node,
+        analyze_test_impact_node,
+        detect_flaky_tests_node,
         execute_test_node,
         plan_tests_node,
         report_node,
@@ -605,17 +698,32 @@ def create_testing_graph(settings: Settings) -> StateGraph:
 
     # Add nodes
     graph.add_node("analyze_code", analyze_code_node)
+    graph.add_node("analyze_impact", analyze_test_impact_node)
     graph.add_node("plan_tests", plan_tests_node)
     graph.add_node("execute_test", execute_test_node)
+    graph.add_node("detect_flaky", detect_flaky_tests_node)
     graph.add_node("self_heal", self_heal_node)
     graph.add_node("report", report_node)
 
     # Define edges
     graph.set_entry_point("analyze_code")
 
+    # After code analysis, route to impact analysis (if changed files) or plan tests
     graph.add_conditional_edges(
         "analyze_code",
         route_after_analysis,
+        {
+            "analyze_impact": "analyze_impact",
+            "plan_tests": "plan_tests",
+            "report": "report",
+            "__end__": END,
+        }
+    )
+
+    # After impact analysis, always route to plan tests
+    graph.add_conditional_edges(
+        "analyze_impact",
+        route_after_impact_analysis,
         {
             "plan_tests": "plan_tests",
             "report": "report",
@@ -633,22 +741,37 @@ def create_testing_graph(settings: Settings) -> StateGraph:
         }
     )
 
+    # After test execution, route to more tests, flaky detection, or healing
     graph.add_conditional_edges(
         "execute_test",
         route_after_execution,
         {
             "execute_test": "execute_test",
+            "detect_flaky": "detect_flaky",
             "self_heal": "self_heal",
             "report": "report",
             "__end__": END,
         }
     )
 
+    # After flaky detection, route to healing (for retries) or report
+    graph.add_conditional_edges(
+        "detect_flaky",
+        route_after_flaky_detection,
+        {
+            "self_heal": "self_heal",
+            "report": "report",
+            "__end__": END,
+        }
+    )
+
+    # After healing, route to execute tests, flaky detection, or report
     graph.add_conditional_edges(
         "self_heal",
         route_after_healing,
         {
             "execute_test": "execute_test",
+            "detect_flaky": "detect_flaky",
             "report": "report",
             "__end__": END,
         }
@@ -1041,8 +1164,12 @@ def create_enhanced_testing_graph(settings: Settings) -> StateGraph:
     """
     from .nodes import (
         analyze_code_node,
+        analyze_test_impact_node,
+        detect_flaky_tests_node,
+        execute_healed_test_node,
         execute_test_node,
         plan_tests_node,
+        prepare_healed_tests_node,
         report_node,
         self_heal_node,
     )
@@ -1051,26 +1178,41 @@ def create_enhanced_testing_graph(settings: Settings) -> StateGraph:
 
     # Add main nodes
     graph.add_node("analyze_code", analyze_code_node)
-    graph.add_node("plan_tests", plan_tests_node)
+    graph.add_node("analyze_impact", analyze_test_impact_node)  # TestImpactAnalyzer
+    graph.add_node("plan_tests", plan_tests_node)  # TestPlannerAgent
     graph.add_node("execute_sequential", execute_test_node)
     graph.add_node("execute_parallel", create_parallel_test_batches)
     graph.add_node("execute_ui_tests_parallel", execute_ui_tests_parallel)
     graph.add_node("execute_api_tests_parallel", execute_api_tests_parallel)
     graph.add_node("execute_db_tests_parallel", execute_db_tests_parallel)
     graph.add_node("aggregate_results", aggregate_parallel_results)
+    graph.add_node("detect_flaky", detect_flaky_tests_node)  # FlakyTestDetector
     graph.add_node("request_approval", request_human_approval)
     graph.add_node("self_heal", self_heal_node)
-    graph.add_node("execute_healed", execute_test_node)
+    graph.add_node("prepare_healed", prepare_healed_tests_node)  # Prepare state for retrying healed tests
+    graph.add_node("execute_healed", execute_healed_test_node)  # Re-execute healed tests
     graph.add_node("quality_check", create_quality_subgraph().compile())
     graph.add_node("report", report_node)
 
     # Entry point
     graph.set_entry_point("analyze_code")
 
-    # Analysis → Planning
+    # Analysis → Impact Analysis (if changed files) or Planning
     graph.add_conditional_edges(
         "analyze_code",
         route_after_analysis,
+        {
+            "analyze_impact": "analyze_impact",
+            "plan_tests": "plan_tests",
+            "report": "report",
+            "__end__": END,
+        }
+    )
+
+    # Impact Analysis → Planning (TestImpactAnalyzer)
+    graph.add_conditional_edges(
+        "analyze_impact",
+        route_after_impact_analysis,
         {
             "plan_tests": "plan_tests",
             "report": "report",
@@ -1078,7 +1220,7 @@ def create_enhanced_testing_graph(settings: Settings) -> StateGraph:
         }
     )
 
-    # Planning → Execution (parallel or sequential)
+    # Planning → Execution (parallel or sequential) - Uses TestPlannerAgent
     graph.add_conditional_edges(
         "plan_tests",
         route_after_planning_enhanced,
@@ -1094,21 +1236,16 @@ def create_enhanced_testing_graph(settings: Settings) -> StateGraph:
     graph.add_edge("execute_api_tests_parallel", "aggregate_results")
     graph.add_edge("execute_db_tests_parallel", "aggregate_results")
 
-    # Aggregation → Approval/Healing/Report
-    graph.add_conditional_edges(
-        "aggregate_results",
-        route_after_execution_enhanced,
-        {
-            "request_approval": "request_approval",
-            "self_heal": "self_heal",
-            "report": "quality_check",
-        }
-    )
+    # Aggregation → Flaky Detection → Approval/Healing/Report
+    graph.add_edge("aggregate_results", "detect_flaky")
 
-    # Sequential execution → same routing
+    # Sequential execution → Flaky Detection
+    graph.add_edge("execute_sequential", "detect_flaky")
+
+    # Flaky Detection → Approval/Healing/Report (FlakyTestDetector)
     graph.add_conditional_edges(
-        "execute_sequential",
-        route_after_execution_enhanced,
+        "detect_flaky",
+        route_after_flaky_detection,
         {
             "request_approval": "request_approval",
             "self_heal": "self_heal",
@@ -1126,18 +1263,34 @@ def create_enhanced_testing_graph(settings: Settings) -> StateGraph:
         }
     )
 
-    # Healing → Re-execute or Report
+    # Healing → Prepare for re-execution or Report
     graph.add_conditional_edges(
         "self_heal",
         route_after_healing_enhanced,
         {
-            "execute_healed": "execute_healed",
+            "prepare_healed": "prepare_healed",
             "report": "quality_check",
         }
     )
 
-    # Healed execution → Quality Check
-    graph.add_edge("execute_healed", "quality_check")
+    # Prepare healed tests → Execute healed tests
+    graph.add_edge("prepare_healed", "execute_healed")
+
+    # Healed execution → Check if more to retry, or go to flaky detection
+    def route_after_healed_execution(state: TestingState) -> Literal["execute_healed", "detect_flaky"]:
+        """Route after executing a healed test."""
+        if state.get("retry_queue"):
+            return "execute_healed"
+        return "detect_flaky"
+
+    graph.add_conditional_edges(
+        "execute_healed",
+        route_after_healed_execution,
+        {
+            "execute_healed": "execute_healed",
+            "detect_flaky": "detect_flaky",
+        }
+    )
 
     # Quality check → Report
     graph.add_edge("quality_check", "report")

@@ -69,6 +69,26 @@ from .ui_tester_v2 import AssertionResult, StepResult, UITesterAgent, UITesterAg
 # Competitive Features
 from .visual_ai import VisualAI, VisualComparisonResult, VisualRegressionManager
 
+# Flaky Test Detection
+from .flaky_detector import (
+    FlakyTestDetector,
+    FlakinessReport,
+    FlakinessLevel,
+    FlakyCause,
+    QuarantineConfig,
+    SmartRetryStrategy,
+    TestRun,
+)
+
+# Test Impact Analysis
+from .test_impact_analyzer import (
+    TestImpactAnalyzer,
+    ImpactAnalysis,
+    CodeChange,
+    ChangeRisk,
+    SmartTestSelector,
+)
+
 __all__ = [
     # Base
     "BaseAgent",
@@ -125,4 +145,18 @@ __all__ = [
     "RoutingDecision",
     "TaskContext",
     "route_with_agent",
+    # Flaky Test Detection
+    "FlakyTestDetector",
+    "FlakinessReport",
+    "FlakinessLevel",
+    "FlakyCause",
+    "QuarantineConfig",
+    "SmartRetryStrategy",
+    "TestRun",
+    # Test Impact Analysis
+    "TestImpactAnalyzer",
+    "ImpactAnalysis",
+    "CodeChange",
+    "ChangeRisk",
+    "SmartTestSelector",
 ]

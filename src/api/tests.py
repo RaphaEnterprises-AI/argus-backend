@@ -434,23 +434,20 @@ async def create_test(body: CreateTestRequest, request: Request):
 
     # Emit TEST_CREATED event to Redpanda for downstream processing
     try:
-        from src.services.event_gateway import EventType, get_event_gateway
+        from src.services.event_gateway import emit_test_created, get_event_gateway
         event_gateway = get_event_gateway()
         if event_gateway.is_running:
-            await event_gateway.publish(
-                event_type=EventType.TEST_CREATED,
-                data={
-                    "test_id": test["id"],
-                    "test_name": body.name,
-                    "project_id": body.project_id,
-                    "source": body.source,
-                    "step_count": len(body.steps) if body.steps else 0,
-                    "tags": body.tags or [],
-                    "priority": body.priority,
-                },
+            await emit_test_created(
+                test_id=test["id"],
+                test_name=body.name,
+                test_type="manual",  # API-created tests default to manual type
                 org_id=org_id,
                 project_id=body.project_id,
                 user_id=user["user_id"],
+                source=body.source,
+                priority=body.priority,
+                tags=body.tags or [],
+                steps_count=len(body.steps) if body.steps else 0,
             )
     except Exception as e:
         # Event emission is non-critical - log but don't fail the request

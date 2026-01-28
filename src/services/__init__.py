@@ -11,6 +11,29 @@ from src.services.ai_cost_tracker import (
     get_cost_tracker,
     record_ai_usage,
 )
+from src.services.dependency_analyzer import (
+    CodeModule,
+    ComponentNode,
+    DependencyAnalyzer,
+    ImpactResult,
+    RouteNode,
+    get_dependency_analyzer,
+)
+from src.services.git_analyzer import (
+    CodeChange,
+    GitAnalyzer,
+    GitBlameResult,
+    GitCommit,
+    SelectorChange,
+    get_git_analyzer,
+)
+from src.services.source_analyzer import (
+    ComponentInfo,
+    ExtractedSelector,
+    SelectorMapping,
+    SourceAnalyzer,
+    get_source_analyzer,
+)
 from src.services.email_service import (
     ConsoleEmailProvider,
     EmailProvider,
@@ -97,4 +120,24 @@ __all__ = [
     "emit_test_failed",
     "emit_healing_requested",
     "emit_healing_completed",
+    # Dependency Analyzer
+    "DependencyAnalyzer",
+    "get_dependency_analyzer",
+    "CodeModule",
+    "ComponentNode",
+    "RouteNode",
+    "ImpactResult",
+    # Git Analyzer
+    "GitAnalyzer",
+    "get_git_analyzer",
+    "GitCommit",
+    "GitBlameResult",
+    "SelectorChange",
+    "CodeChange",
+    # Source Analyzer
+    "SourceAnalyzer",
+    "get_source_analyzer",
+    "ExtractedSelector",
+    "ComponentInfo",
+    "SelectorMapping",
 ]

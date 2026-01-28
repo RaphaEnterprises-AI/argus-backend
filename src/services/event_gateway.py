@@ -493,6 +493,48 @@ async def emit_codebase_ingested(
     )
 
 
+async def emit_test_created(
+    test_id: str,
+    test_name: str,
+    test_type: str,
+    org_id: str,
+    project_id: str | None = None,
+    user_id: str | None = None,
+    correlation_id: str | None = None,
+    source: str | None = None,
+    priority: str | None = None,
+    tags: list[str] | None = None,
+    steps_count: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> ArgusEvent | None:
+    """Emit a TEST_CREATED event."""
+    gateway = get_event_gateway()
+    data = {
+        "test_id": test_id,
+        "test_name": test_name,
+        "test_type": test_type,
+    }
+    if source:
+        data["source"] = source
+    if priority:
+        data["priority"] = priority
+    if tags:
+        data["tags"] = tags
+    if steps_count is not None:
+        data["steps_count"] = steps_count
+    if metadata:
+        data["metadata"] = metadata
+
+    return await gateway.publish(
+        event_type=EventType.TEST_CREATED,
+        data=data,
+        org_id=org_id,
+        project_id=project_id,
+        user_id=user_id,
+        correlation_id=correlation_id,
+    )
+
+
 async def emit_test_failed(
     test_id: str,
     test_name: str,
