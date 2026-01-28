@@ -56,7 +56,8 @@ RUN pip install --upgrade pip && \
     "sentry-sdk[fastapi]>=2.0.0" \
     "cognee[postgres,falkordb]>=0.1.0" \
     "falkordb>=1.0.0" \
-    "aiokafka>=0.10.0"
+    "aiokafka>=0.10.0" \
+    "redis>=5.0.0"
 
 # Copy application code
 COPY src/ /app/src/

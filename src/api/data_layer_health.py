@@ -380,6 +380,130 @@ async def _check_prometheus_health() -> ComponentHealth:
         )
 
 
+async def _check_flink_health() -> ComponentHealth:
+    """Check Apache Flink cluster health."""
+    start = datetime.now()
+    flink_url = os.environ.get("FLINK_JOBMANAGER_URL", "")
+
+    if not flink_url:
+        return ComponentHealth(
+            name="Flink",
+            status=HealthStatus.UNKNOWN,
+            message="FLINK_JOBMANAGER_URL not configured",
+            details={"hint": "Set FLINK_JOBMANAGER_URL to http://flink-webui.argus-data:8081"},
+            checked_at=datetime.now().isoformat(),
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Check Flink REST API overview endpoint
+            response = await client.get(f"{flink_url.rstrip('/')}/overview")
+            response.raise_for_status()
+            data = response.json()
+
+        latency = (datetime.now() - start).total_seconds() * 1000
+
+        # Extract Flink metrics
+        taskmanagers = data.get("taskmanagers", 0)
+        slots_total = data.get("slots-total", 0)
+        slots_available = data.get("slots-available", 0)
+        jobs_running = data.get("jobs-running", 0)
+        jobs_finished = data.get("jobs-finished", 0)
+
+        if taskmanagers > 0:
+            return ComponentHealth(
+                name="Flink",
+                status=HealthStatus.HEALTHY,
+                latency_ms=round(latency, 2),
+                message=f"Flink cluster: {taskmanagers} TMs, {jobs_running} running jobs",
+                details={
+                    "taskmanagers": taskmanagers,
+                    "slots_total": slots_total,
+                    "slots_available": slots_available,
+                    "jobs_running": jobs_running,
+                    "jobs_finished": jobs_finished,
+                    "flink_version": data.get("flink-version"),
+                },
+                checked_at=datetime.now().isoformat(),
+            )
+        else:
+            return ComponentHealth(
+                name="Flink",
+                status=HealthStatus.DEGRADED,
+                latency_ms=round(latency, 2),
+                message="Flink JobManager up but no TaskManagers",
+                details=data,
+                checked_at=datetime.now().isoformat(),
+            )
+
+    except Exception as e:
+        latency = (datetime.now() - start).total_seconds() * 1000
+        return ComponentHealth(
+            name="Flink",
+            status=HealthStatus.UNHEALTHY,
+            latency_ms=round(latency, 2),
+            message=str(e),
+            checked_at=datetime.now().isoformat(),
+        )
+
+
+async def _check_grafana_health() -> ComponentHealth:
+    """Check Grafana health."""
+    start = datetime.now()
+    grafana_url = os.environ.get("GRAFANA_URL", "")
+
+    if not grafana_url:
+        return ComponentHealth(
+            name="Grafana",
+            status=HealthStatus.UNKNOWN,
+            message="GRAFANA_URL not configured",
+            details={"hint": "Set GRAFANA_URL to http://grafana.monitoring:3000"},
+            checked_at=datetime.now().isoformat(),
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Check Grafana health endpoint
+            response = await client.get(f"{grafana_url.rstrip('/')}/api/health")
+            response.raise_for_status()
+            data = response.json()
+
+        latency = (datetime.now() - start).total_seconds() * 1000
+
+        db_status = data.get("database", "unknown")
+        if db_status == "ok":
+            return ComponentHealth(
+                name="Grafana",
+                status=HealthStatus.HEALTHY,
+                latency_ms=round(latency, 2),
+                message="Grafana operational",
+                details={
+                    "version": data.get("version"),
+                    "database": db_status,
+                },
+                checked_at=datetime.now().isoformat(),
+            )
+        else:
+            return ComponentHealth(
+                name="Grafana",
+                status=HealthStatus.DEGRADED,
+                latency_ms=round(latency, 2),
+                message=f"Grafana database: {db_status}",
+                details=data,
+                checked_at=datetime.now().isoformat(),
+            )
+
+    except Exception as e:
+        latency = (datetime.now() - start).total_seconds() * 1000
+        return ComponentHealth(
+            name="Grafana",
+            status=HealthStatus.UNHEALTHY,
+            latency_ms=round(latency, 2),
+            message=str(e),
+            checked_at=datetime.now().isoformat(),
+        )
+
+
 async def _check_supabase_health() -> ComponentHealth:
     """Check Supabase connection health."""
     start = datetime.now()
@@ -428,11 +552,13 @@ async def get_data_layer_health(
 
     Checks connectivity and basic functionality of:
     - Redpanda (message broker)
+    - Flink (stream processing)
     - FalkorDB (graph database)
     - Valkey (cache)
     - Cognee (knowledge graph)
     - Selenium Grid (browser pool)
     - Prometheus (metrics)
+    - Grafana (visualization)
     - Supabase (primary database)
 
     Returns overall status: healthy, degraded, or unhealthy.
@@ -442,11 +568,13 @@ async def get_data_layer_health(
     # Run all health checks concurrently
     results = await asyncio.gather(
         _check_redpanda_health(),
+        _check_flink_health(),
         _check_falkordb_health(),
         _check_valkey_health(),
         _check_cognee_health(),
         _check_selenium_grid_health(),
         _check_prometheus_health(),
+        _check_grafana_health(),
         _check_supabase_health(),
         return_exceptions=True,
     )
@@ -495,22 +623,26 @@ async def get_component_health(
 
     Valid component names:
     - redpanda
+    - flink
     - falkordb
     - valkey
     - cognee
     - selenium
     - prometheus
+    - grafana
     - supabase
     """
     logger.info("checking_component_health", component=component)
 
     checks = {
         "redpanda": _check_redpanda_health,
+        "flink": _check_flink_health,
         "falkordb": _check_falkordb_health,
         "valkey": _check_valkey_health,
         "cognee": _check_cognee_health,
         "selenium": _check_selenium_grid_health,
         "prometheus": _check_prometheus_health,
+        "grafana": _check_grafana_health,
         "supabase": _check_supabase_health,
     }
 
