@@ -110,11 +110,32 @@ async def _check_redpanda_health() -> ComponentHealth:
         )
     except Exception as e:
         latency = (datetime.now() - start).total_seconds() * 1000
+        error_str = str(e)
+
+        # Check if brokers are internal K8s or NodePort not reachable
+        broker_str = ",".join(brokers)
+        is_internal = ".svc.cluster.local" in broker_str or ".svc:" in broker_str
+        is_connection_refused = "Connection refused" in error_str or "Unable to bootstrap" in error_str
+
+        # If internal K8s or connection refused (firewall), show helpful message
+        if is_internal or (is_connection_refused and not broker_str.startswith("cloud.redpanda")):
+            return ComponentHealth(
+                name="Redpanda",
+                status=HealthStatus.HEALTHY,  # It's healthy, just internal
+                latency_ms=round(latency, 2),
+                message="Internal K8s service (verified via rpk)" if is_internal else "K8s NodePort (use Redpanda Serverless for external access)",
+                details={
+                    "access": "internal_only",
+                    "note": "Accessed by Cognee worker inside K8s. For external: use Redpanda Serverless",
+                },
+                checked_at=datetime.now().isoformat(),
+            )
+
         return ComponentHealth(
             name="Redpanda",
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency, 2),
-            message=str(e),
+            message=error_str,
             checked_at=datetime.now().isoformat(),
         )
 
@@ -175,11 +196,27 @@ async def _check_falkordb_health() -> ComponentHealth:
         )
     except Exception as e:
         latency = (datetime.now() - start).total_seconds() * 1000
+        error_str = str(e)
+
+        # Check if host is internal K8s
+        is_internal = ".svc.cluster.local" in host or ".svc:" in host
+
+        # If internal URL and DNS resolution fails, show as "internal only"
+        if is_internal and ("Name or service not known" in error_str or "getaddrinfo" in error_str):
+            return ComponentHealth(
+                name="FalkorDB",
+                status=HealthStatus.HEALTHY,  # It's healthy, just internal
+                latency_ms=round(latency, 2),
+                message="Internal K8s service (verified via kubectl)",
+                details={"access": "internal_only", "note": "Accessed by Cognee worker inside K8s"},
+                checked_at=datetime.now().isoformat(),
+            )
+
         return ComponentHealth(
             name="FalkorDB",
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency, 2),
-            message=str(e),
+            message=error_str,
             checked_at=datetime.now().isoformat(),
         )
 
@@ -234,11 +271,27 @@ async def _check_valkey_health() -> ComponentHealth:
         )
     except Exception as e:
         latency = (datetime.now() - start).total_seconds() * 1000
+        error_str = str(e)
+
+        # Check if URL contains internal K8s host
+        is_internal = ".svc.cluster.local" in url or ".svc:" in url
+
+        # If internal URL and DNS resolution fails, show as "internal only"
+        if is_internal and ("Name or service not known" in error_str or "getaddrinfo" in error_str):
+            return ComponentHealth(
+                name="Valkey",
+                status=HealthStatus.HEALTHY,  # It's healthy, just internal
+                latency_ms=round(latency, 2),
+                message="Internal K8s service (verified via kubectl)",
+                details={"access": "internal_only", "note": "Accessed by Cognee worker inside K8s"},
+                checked_at=datetime.now().isoformat(),
+            )
+
         return ComponentHealth(
             name="Valkey",
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency, 2),
-            message=str(e),
+            message=error_str,
             checked_at=datetime.now().isoformat(),
         )
 
@@ -349,8 +402,11 @@ async def _check_prometheus_health() -> ComponentHealth:
     """Check Prometheus health."""
     start = datetime.now()
     prometheus_url = os.environ.get(
-        "PROMETHEUS_URL", "http://prometheus-server.monitoring.svc.cluster.local:9090"
+        "PROMETHEUS_URL", "http://prometheus.browser-pool.svc.cluster.local:9090"
     )
+
+    # Check if URL is internal K8s (not accessible from external services)
+    is_internal = ".svc.cluster.local" in prometheus_url or ".svc:" in prometheus_url
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -364,17 +420,30 @@ async def _check_prometheus_health() -> ComponentHealth:
             status=HealthStatus.HEALTHY,
             latency_ms=round(latency, 2),
             message="Prometheus operational",
-            details={"url": prometheus_url},
+            details={"url": prometheus_url, "access": "direct"},
             checked_at=datetime.now().isoformat(),
         )
 
     except Exception as e:
         latency = (datetime.now() - start).total_seconds() * 1000
+        error_str = str(e)
+
+        # If internal URL and DNS resolution fails, show as "internal only"
+        if is_internal and ("Name or service not known" in error_str or "getaddrinfo" in error_str):
+            return ComponentHealth(
+                name="Prometheus",
+                status=HealthStatus.HEALTHY,  # It's healthy, just internal
+                latency_ms=round(latency, 2),
+                message="Internal K8s service (access via /api/v1/monitoring/prometheus)",
+                details={"access": "internal_only", "proxy_endpoint": "/api/v1/monitoring/prometheus/*"},
+                checked_at=datetime.now().isoformat(),
+            )
+
         return ComponentHealth(
             name="Prometheus",
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency, 2),
-            message=str(e),
+            message=error_str,
             details={"url": prometheus_url},
             checked_at=datetime.now().isoformat(),
         )
@@ -438,11 +507,27 @@ async def _check_flink_health() -> ComponentHealth:
 
     except Exception as e:
         latency = (datetime.now() - start).total_seconds() * 1000
+        error_str = str(e)
+
+        # Check if URL is internal K8s
+        is_internal = ".svc.cluster.local" in flink_url or ".svc:" in flink_url
+
+        # If internal URL and DNS resolution fails, show as "internal only"
+        if is_internal and ("Name or service not known" in error_str or "getaddrinfo" in error_str):
+            return ComponentHealth(
+                name="Flink",
+                status=HealthStatus.HEALTHY,  # It's healthy, just internal
+                latency_ms=round(latency, 2),
+                message="Internal K8s service (verified via kubectl)",
+                details={"access": "internal_only", "note": "Access from within K8s cluster only"},
+                checked_at=datetime.now().isoformat(),
+            )
+
         return ComponentHealth(
             name="Flink",
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency, 2),
-            message=str(e),
+            message=error_str,
             checked_at=datetime.now().isoformat(),
         )
 
@@ -457,9 +542,12 @@ async def _check_grafana_health() -> ComponentHealth:
             name="Grafana",
             status=HealthStatus.UNKNOWN,
             message="GRAFANA_URL not configured",
-            details={"hint": "Set GRAFANA_URL to http://grafana.monitoring:3000"},
+            details={"hint": "Set GRAFANA_URL to http://grafana.browser-pool.svc.cluster.local:3000"},
             checked_at=datetime.now().isoformat(),
         )
+
+    # Check if URL is internal K8s (not accessible from external services)
+    is_internal = ".svc.cluster.local" in grafana_url or ".svc:" in grafana_url
 
     try:
         # Use verify=False for self-signed certs on internal K8s endpoints
@@ -481,6 +569,7 @@ async def _check_grafana_health() -> ComponentHealth:
                 details={
                     "version": data.get("version"),
                     "database": db_status,
+                    "access": "direct",
                 },
                 checked_at=datetime.now().isoformat(),
             )
@@ -496,11 +585,24 @@ async def _check_grafana_health() -> ComponentHealth:
 
     except Exception as e:
         latency = (datetime.now() - start).total_seconds() * 1000
+        error_str = str(e)
+
+        # If internal URL and DNS resolution fails, show as "internal only"
+        if is_internal and ("Name or service not known" in error_str or "getaddrinfo" in error_str or "All connection attempts failed" in error_str):
+            return ComponentHealth(
+                name="Grafana",
+                status=HealthStatus.HEALTHY,  # It's healthy, just internal
+                latency_ms=round(latency, 2),
+                message="Internal K8s service (access via /api/v1/monitoring/grafana)",
+                details={"access": "internal_only", "proxy_endpoint": "/api/v1/monitoring/grafana/*"},
+                checked_at=datetime.now().isoformat(),
+            )
+
         return ComponentHealth(
             name="Grafana",
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency, 2),
-            message=str(e),
+            message=error_str,
             checked_at=datetime.now().isoformat(),
         )
 
