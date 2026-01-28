@@ -72,7 +72,7 @@ async def _check_redpanda_health() -> ComponentHealth:
 
     try:
         # Try to import and use aiokafka for health check
-        from aiokafka import AIOKafkaAdminClient
+        from aiokafka.admin import AIOKafkaAdminClient
 
         admin = AIOKafkaAdminClient(
             bootstrap_servers=brokers,
