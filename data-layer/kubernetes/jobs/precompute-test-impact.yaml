@@ -1,0 +1,557 @@
+# =============================================================================
+# Kubernetes CronJob: Test Impact Matrix Precomputation
+# =============================================================================
+# Nightly batch job that runs Flink SQL to compute test impact correlations.
+# Analyzes 30 days of test execution history to build file-to-test mappings.
+#
+# Schedule: 2 AM UTC daily
+# Duration: ~10-30 minutes depending on data volume
+# Output: intelligence_precomputed table via Kafka sink
+#
+# Prerequisites:
+#   1. Flink cluster running (argus-flink)
+#   2. Kafka/Redpanda accessible
+#   3. Topics: argus.test.executed, argus.vcs.commit-files, argus.intelligence.precomputed
+#   4. Secrets: keda-kafka-secrets, flink-r2-credentials
+#
+# Manual trigger:
+#   kubectl create job --from=cronjob/precompute-test-impact precompute-test-impact-manual -n argus-data
+#
+# Monitoring:
+#   kubectl logs -n argus-data -l job-name=precompute-test-impact -f
+#   kubectl get jobs -n argus-data -l app.kubernetes.io/name=precompute-test-impact
+# =============================================================================
+---
+# ConfigMap: SQL Job Definition
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: precompute-test-impact-sql
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: precompute-test-impact
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: batch-processing
+data:
+  # The SQL file is mounted from the main SQL jobs ConfigMap
+  # This ConfigMap contains the job runner script
+  run-job.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "=============================================="
+    echo "Test Impact Matrix Precomputation Job"
+    echo "Started at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "=============================================="
+
+    # Calculate timestamp for 30-day lookback (milliseconds since epoch)
+    LOOKBACK_DAYS=${LOOKBACK_DAYS:-30}
+    SCAN_START_TIMESTAMP=$(( $(date +%s) * 1000 - LOOKBACK_DAYS * 24 * 60 * 60 * 1000 ))
+    export SCAN_START_TIMESTAMP
+
+    echo "Configuration:"
+    echo "  LOOKBACK_DAYS: $LOOKBACK_DAYS"
+    echo "  SCAN_START_TIMESTAMP: $SCAN_START_TIMESTAMP"
+    echo "  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-not-set}"
+    echo ""
+
+    # Wait for Flink REST API to be available
+    echo "Waiting for Flink REST API..."
+    FLINK_REST_URL="${FLINK_REST_URL:-http://flink-rest.argus-data.svc.cluster.local:8081}"
+    MAX_RETRIES=30
+    RETRY_DELAY=10
+
+    for i in $(seq 1 $MAX_RETRIES); do
+        if curl -sf "${FLINK_REST_URL}/overview" > /dev/null 2>&1; then
+            echo "Flink REST API is available"
+            break
+        fi
+        if [ $i -eq $MAX_RETRIES ]; then
+            echo "ERROR: Flink REST API not available after ${MAX_RETRIES} attempts"
+            exit 1
+        fi
+        echo "Attempt $i/$MAX_RETRIES: Flink not ready, waiting ${RETRY_DELAY}s..."
+        sleep $RETRY_DELAY
+    done
+
+    # Check cluster status
+    echo ""
+    echo "Flink cluster status:"
+    curl -sf "${FLINK_REST_URL}/overview" | jq '.' || true
+
+    # Substitute environment variables in SQL file
+    echo ""
+    echo "Preparing SQL job..."
+    envsubst < /sql/precompute_test_impact.sql > /tmp/job.sql
+
+    # Submit SQL job via Flink SQL Gateway
+    # Note: In production, use Flink SQL Gateway REST API
+    # For now, we use flink sql-client for batch execution
+    echo ""
+    echo "Submitting SQL job to Flink..."
+
+    # Create a session and run the SQL
+    /opt/flink/bin/sql-client.sh embedded \
+        -f /tmp/job.sql \
+        --jar /opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.20.jar \
+        2>&1 | tee /tmp/job-output.log
+
+    JOB_EXIT_CODE=${PIPESTATUS[0]}
+
+    echo ""
+    echo "=============================================="
+    if [ $JOB_EXIT_CODE -eq 0 ]; then
+        echo "Job completed successfully"
+    else
+        echo "Job failed with exit code: $JOB_EXIT_CODE"
+        echo ""
+        echo "Last 50 lines of output:"
+        tail -50 /tmp/job-output.log
+    fi
+    echo "Finished at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "=============================================="
+
+    exit $JOB_EXIT_CODE
+
+---
+# CronJob: Nightly Test Impact Precomputation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: precompute-test-impact
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: precompute-test-impact
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: batch-processing
+  annotations:
+    description: "Nightly job to precompute test impact matrix from execution history"
+spec:
+  # Run at 2:00 AM UTC every day
+  schedule: "0 2 * * *"
+  # Don't allow concurrent executions
+  concurrencyPolicy: Forbid
+  # Keep last 3 successful and failed jobs for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # Start new jobs even if previous ones haven't completed (up to startingDeadlineSeconds)
+  startingDeadlineSeconds: 3600  # 1 hour grace period
+  jobTemplate:
+    spec:
+      # Retry failed jobs up to 2 times
+      backoffLimit: 2
+      # Job must complete within 2 hours
+      activeDeadlineSeconds: 7200
+      # Clean up completed jobs after 24 hours
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: precompute-test-impact
+            app.kubernetes.io/part-of: argus
+            sidecar.istio.io/inject: "false"
+          annotations:
+            prometheus.io/scrape: "false"
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: flink
+          # Run on same nodes as Flink for network locality
+          affinity:
+            podAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 50
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app: argus-flink
+                    topologyKey: kubernetes.io/hostname
+
+          # Init container to wait for dependencies
+          initContainers:
+            - name: wait-for-kafka
+              image: busybox:1.36
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Waiting for Kafka/Redpanda..."
+                  until nc -z redpanda.argus-data.svc.cluster.local 9092; do
+                    echo "Kafka not ready, waiting..."
+                    sleep 5
+                  done
+                  echo "Kafka is available"
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "16Mi"
+                limits:
+                  cpu: "50m"
+                  memory: "32Mi"
+
+          containers:
+            - name: flink-sql-runner
+              image: flink:1.20-java17
+              command:
+                - /bin/bash
+                - /scripts/run-job.sh
+              env:
+                # Kafka connection
+                - name: KAFKA_BOOTSTRAP_SERVERS
+                  value: "redpanda.argus-data.svc.cluster.local:9092"
+                - name: KAFKA_SECURITY_PROTOCOL
+                  value: "SASL_PLAINTEXT"
+                - name: KAFKA_SASL_MECHANISM
+                  value: "SCRAM-SHA-512"
+                - name: KAFKA_SASL_USERNAME
+                  value: "argus-service"
+                - name: KAFKA_SASL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: keda-kafka-secrets
+                      key: password
+                # Flink REST API
+                - name: FLINK_REST_URL
+                  value: "http://flink-rest.argus-data.svc.cluster.local:8081"
+                # Job configuration
+                - name: LOOKBACK_DAYS
+                  value: "30"
+                # Java options for Flink client
+                - name: FLINK_ENV_JAVA_OPTS
+                  value: "-Xmx512m"
+              envFrom:
+                # R2 credentials for checkpoint access
+                - secretRef:
+                    name: flink-r2-credentials
+                    optional: true
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: sql-jobs
+                  mountPath: /sql
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 9999
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop:
+                    - ALL
+
+          volumes:
+            - name: scripts
+              configMap:
+                name: precompute-test-impact-sql
+                defaultMode: 0755
+            - name: sql-jobs
+              configMap:
+                name: flink-sql-jobs-batch
+                optional: true
+            - name: tmp
+              emptyDir: {}
+
+          # Security context for pod
+          securityContext:
+            fsGroup: 9999
+            runAsNonRoot: true
+
+---
+# ConfigMap: Batch SQL Jobs (contains the actual SQL file)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-sql-jobs-batch
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink-sql-jobs-batch
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: batch-processing
+data:
+  precompute_test_impact.sql: |
+    -- =============================================================================
+    -- Flink SQL Job: Test Impact Matrix Precomputation
+    -- =============================================================================
+    -- Batch mode for nightly processing
+
+    SET 'execution.runtime-mode' = 'batch';
+    SET 'execution.checkpointing.interval' = '120s';
+    SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
+
+    -- Source: Test Execution Events
+    CREATE TABLE IF NOT EXISTS test_executions_batch (
+        event_id STRING,
+        event_type STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        test_name STRING,
+        test_file_path STRING,
+        run_id STRING,
+        commit_sha STRING,
+        branch STRING,
+        status STRING,
+        duration_ms BIGINT,
+        error_message STRING,
+        error_type STRING,
+        `timestamp` TIMESTAMP(3),
+        metadata MAP<STRING, STRING>,
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '1' DAY
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.executed',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = '${KAFKA_SECURITY_PROTOCOL}',
+        'properties.sasl.mechanism' = '${KAFKA_SASL_MECHANISM}',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-precompute-test-impact',
+        'scan.startup.mode' = 'timestamp',
+        'scan.startup.timestamp-millis' = '${SCAN_START_TIMESTAMP}',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    -- Source: Commit File Changes
+    CREATE TABLE IF NOT EXISTS commit_files_batch (
+        event_id STRING,
+        org_id STRING,
+        project_id STRING,
+        commit_sha STRING,
+        file_path STRING,
+        change_type STRING,
+        lines_added INT,
+        lines_removed INT,
+        `timestamp` TIMESTAMP(3),
+        WATERMARK FOR `timestamp` AS `timestamp` - INTERVAL '1' DAY
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.vcs.commit-files',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = '${KAFKA_SECURITY_PROTOCOL}',
+        'properties.sasl.mechanism' = '${KAFKA_SASL_MECHANISM}',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-precompute-commit-files',
+        'scan.startup.mode' = 'timestamp',
+        'scan.startup.timestamp-millis' = '${SCAN_START_TIMESTAMP}',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    -- Sink: Precomputed Results
+    CREATE TABLE IF NOT EXISTS precomputed_results (
+        org_id STRING,
+        project_id STRING,
+        computation_type STRING,
+        result STRING,
+        computed_at TIMESTAMP(3),
+        valid_until TIMESTAMP(3),
+        PRIMARY KEY (org_id, project_id, computation_type) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.intelligence.precomputed',
+        'properties.bootstrap.servers' = '${KAFKA_BOOTSTRAP_SERVERS}',
+        'properties.security.protocol' = '${KAFKA_SECURITY_PROTOCOL}',
+        'properties.sasl.mechanism' = '${KAFKA_SASL_MECHANISM}',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_SASL_USERNAME}" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601'
+    );
+
+    -- View: Test File Correlations
+    CREATE TEMPORARY VIEW test_file_correlations AS
+    SELECT
+        te.org_id,
+        te.project_id,
+        te.test_id,
+        te.test_name,
+        te.test_file_path,
+        cf.file_path AS changed_file,
+        cf.change_type,
+        te.status,
+        te.duration_ms,
+        te.error_type,
+        te.`timestamp` AS executed_at,
+        te.commit_sha
+    FROM test_executions_batch te
+    JOIN commit_files_batch cf
+        ON te.commit_sha = cf.commit_sha
+        AND te.org_id = cf.org_id
+        AND te.project_id = cf.project_id
+    WHERE te.`timestamp` > CURRENT_TIMESTAMP - INTERVAL '30' DAY
+      AND te.org_id IS NOT NULL
+      AND te.project_id IS NOT NULL
+      AND te.test_name IS NOT NULL
+      AND cf.file_path IS NOT NULL
+      AND cf.file_path <> COALESCE(te.test_file_path, '');
+
+    -- View: File-Test Impact Scores
+    CREATE TEMPORARY VIEW file_test_impact AS
+    SELECT
+        org_id,
+        project_id,
+        changed_file,
+        test_id,
+        test_name,
+        test_file_path,
+        COUNT(*) AS co_occurrence_count,
+        COUNT(DISTINCT commit_sha) AS distinct_commits,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failure_count,
+        SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS pass_count,
+        CAST(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS DOUBLE) /
+            NULLIF(COUNT(*), 0) AS failure_rate,
+        CAST(
+            (0.4 * LEAST(COUNT(*) / 10.0, 1.0)) +
+            (0.6 * (CAST(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS DOUBLE) /
+                    NULLIF(COUNT(*), 0)))
+        AS DOUBLE) AS impact_score,
+        AVG(CAST(duration_ms AS DOUBLE)) AS avg_duration_ms,
+        MAX(executed_at) AS last_seen_at
+    FROM test_file_correlations
+    GROUP BY org_id, project_id, changed_file, test_id, test_name, test_file_path
+    HAVING COUNT(*) >= 3;
+
+    -- Write test impact matrix
+    INSERT INTO precomputed_results
+    SELECT
+        org_id,
+        project_id,
+        'test_impact_matrix' AS computation_type,
+        CAST(JSON_OBJECT(
+            'mappings_count' VALUE COUNT(*),
+            'unique_files' VALUE COUNT(DISTINCT changed_file),
+            'unique_tests' VALUE COUNT(DISTINCT test_name),
+            'avg_impact_score' VALUE AVG(impact_score),
+            'computed_at' VALUE CAST(CURRENT_TIMESTAMP AS STRING)
+        ) AS STRING) AS result,
+        CURRENT_TIMESTAMP AS computed_at,
+        CURRENT_TIMESTAMP + INTERVAL '24' HOUR AS valid_until
+    FROM file_test_impact
+    GROUP BY org_id, project_id;
+
+---
+# NetworkPolicy: Allow CronJob to access required services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: precompute-test-impact-netpol
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: precompute-test-impact
+    app.kubernetes.io/part-of: argus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: precompute-test-impact
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []  # No inbound traffic needed
+  egress:
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Kafka/Redpanda access
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Flink REST API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: argus-flink
+      ports:
+        - protocol: TCP
+          port: 8081
+    # Cloudflare R2 (HTTPS) for checkpoints
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# PodDisruptionBudget: Ensure job completion during cluster maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: precompute-test-impact-pdb
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: precompute-test-impact
+    app.kubernetes.io/part-of: argus
+spec:
+  # Allow disruption only when no jobs are running
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: precompute-test-impact
+
+---
+# ServiceMonitor: Prometheus metrics for job observability (if metrics available)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: precompute-test-impact-alerts
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: precompute-test-impact
+    app.kubernetes.io/part-of: argus
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: precompute-test-impact
+      rules:
+        # Alert if job hasn't run successfully in 36 hours
+        - alert: TestImpactPrecomputeStale
+          expr: |
+            (time() - kube_job_status_completion_time{job_name=~"precompute-test-impact.*", namespace="argus-data"}) > 129600
+          for: 1h
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Test impact precomputation job hasn't completed recently"
+            description: "The precompute-test-impact CronJob hasn't completed successfully in over 36 hours. Check job logs and Flink cluster status."
+
+        # Alert if job is failing repeatedly
+        - alert: TestImpactPrecomputeFailing
+          expr: |
+            kube_job_status_failed{job_name=~"precompute-test-impact.*", namespace="argus-data"} > 0
+          for: 30m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Test impact precomputation job is failing"
+            description: "The precompute-test-impact job has failed. Check logs: kubectl logs -n argus-data -l job-name={{ $labels.job_name }}"
+
+        # Alert if job is running too long
+        - alert: TestImpactPrecomputeSlow
+          expr: |
+            (time() - kube_job_status_start_time{job_name=~"precompute-test-impact.*", namespace="argus-data"})
+            * on(job_name) group_left() (kube_job_status_active{job_name=~"precompute-test-impact.*"} == 1)
+            > 5400
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Test impact precomputation job running longer than expected"
+            description: "The precompute-test-impact job has been running for over 90 minutes. This may indicate performance issues or stuck processing."

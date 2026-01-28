@@ -85,6 +85,17 @@ from src.services.source_analyzer import (
 )
 from src.services.supabase_client import SupabaseClient, get_supabase_client
 
+# Cloudflare Storage (RAP-248 Enhanced)
+from src.services.cloudflare_storage import (
+    CloudflareClient,
+    CloudflareConfig,
+    VectorizeIndexType,
+    VectorizeMemory,
+    VectorSearchResult,
+    get_cloudflare_client,
+    is_cloudflare_configured,
+)
+
 __all__ = [
     # Supabase
     "SupabaseClient",
@@ -163,4 +174,12 @@ __all__ = [
     "MonitoredProject",
     "VCSPlatform",
     "PRState",
+    # Cloudflare Storage (RAP-248 Enhanced)
+    "CloudflareClient",
+    "CloudflareConfig",
+    "VectorizeIndexType",
+    "VectorizeMemory",
+    "VectorSearchResult",
+    "get_cloudflare_client",
+    "is_cloudflare_configured",
 ]

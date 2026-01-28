@@ -48,6 +48,11 @@ from src.services.supabase_client import get_supabase_client
 # Note: EventProducer and CogneeClient are imported lazily to avoid startup failures
 # when Kafka/Cognee infrastructure is not available
 
+# RAP-250: Intelligence modules imported lazily to avoid cognee dependency at startup
+# from src.intelligence.precomputed import PrecomputedReader, get_precomputed_reader
+# from src.intelligence.query_router import QueryRouter, QueryIntent, get_query_router
+from src.services.cache import cache_discovery_pattern
+
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/cicd", tags=["CI/CD"])
 
@@ -1505,6 +1510,148 @@ Respond in JSON format:
         raise
 
 
+# =============================================================================
+# RAP-250: Precomputed Test Impact Analysis
+# =============================================================================
+
+
+def _lookup_tests_in_matrix(
+    matrix: dict[str, list[str]],
+    changed_files: list[str],
+) -> list[str]:
+    """Look up affected tests in the precomputed impact matrix.
+
+    Supports both exact path matches and partial path matches to handle
+    relative vs absolute path differences.
+
+    Args:
+        matrix: File path -> test IDs mapping from precomputed data
+        changed_files: List of changed file paths
+
+    Returns:
+        Deduplicated list of affected test IDs
+    """
+    affected = set()
+
+    for file_path in changed_files:
+        # Normalize path separators
+        normalized_path = file_path.replace("\\", "/")
+
+        # Try exact match first
+        if normalized_path in matrix:
+            affected.update(matrix[normalized_path])
+            continue
+
+        # Try partial path matches (handle relative vs absolute paths)
+        file_name = normalized_path.split("/")[-1]
+        for matrix_path, tests in matrix.items():
+            # Check if one path ends with the other
+            if matrix_path.endswith(normalized_path) or normalized_path.endswith(matrix_path):
+                affected.update(tests)
+                break
+            # Match by filename if paths don't align
+            matrix_name = matrix_path.split("/")[-1]
+            if file_name == matrix_name:
+                affected.update(tests)
+
+    return list(affected)
+
+
+@cache_discovery_pattern(ttl_seconds=300, key_prefix="test_impact")
+async def get_affected_tests(
+    org_id: str,
+    project_id: str,
+    changed_files: list[str],
+) -> tuple[list[str], str]:
+    """Get affected tests using precomputed matrix with LLM fallback.
+
+    RAP-250: This function provides ~20-50ms response times for projects
+    with precomputed data, falling back to LLM calls (~2-3s) only when
+    precomputed data is unavailable.
+
+    Args:
+        org_id: Organization ID for tenant isolation
+        project_id: Project ID
+        changed_files: List of changed file paths
+
+    Returns:
+        Tuple of (affected_test_ids, source) where source indicates
+        whether data came from 'precomputed', 'query_router', or 'llm'
+    """
+    # RAP-250: Lazy imports to avoid cognee dependency at startup
+    from src.intelligence.precomputed import get_precomputed_reader
+    from src.intelligence.query_router import get_query_router
+
+    start_time = time.time()
+
+    # Step 1: Check precomputed matrix (fastest path, ~20-50ms)
+    precomputed = get_precomputed_reader()
+    matrix = await precomputed.get_test_impact_matrix(org_id, project_id)
+
+    if matrix is not None:
+        affected_tests = _lookup_tests_in_matrix(matrix, changed_files)
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(
+            "Precomputed test impact lookup completed",
+            org_id=org_id,
+            project_id=project_id,
+            files_checked=len(changed_files),
+            tests_found=len(affected_tests),
+            latency_ms=latency_ms,
+            source="precomputed",
+        )
+
+        return affected_tests, "precomputed"
+
+    # Step 2: Try QueryRouter for intelligent routing (medium path, ~100-500ms)
+    try:
+        router = get_query_router()
+        result = await router.route(
+            query=f"test impact for files: {', '.join(changed_files[:10])}",
+            org_id=org_id,
+            project_id=project_id,
+        )
+
+        if result.data and result.source != "llm":
+            # Extract test IDs from router result
+            data = result.data
+            if isinstance(data, dict) and "results" in data:
+                affected_tests = []
+                for r in data["results"]:
+                    if isinstance(r, dict) and "test_id" in r:
+                        affected_tests.append(r["test_id"])
+                    elif isinstance(r, str):
+                        affected_tests.append(r)
+
+                latency_ms = int((time.time() - start_time) * 1000)
+                logger.info(
+                    "Query router test impact lookup completed",
+                    org_id=org_id,
+                    project_id=project_id,
+                    tests_found=len(affected_tests),
+                    latency_ms=latency_ms,
+                    source=result.source,
+                )
+                return affected_tests, f"query_router:{result.source}"
+
+    except Exception as router_error:
+        logger.debug(
+            "Query router lookup failed, falling back to LLM",
+            error=str(router_error),
+        )
+
+    # Step 3: No precomputed data available, return empty to trigger LLM fallback
+    logger.info(
+        "No precomputed test impact data available",
+        org_id=org_id,
+        project_id=project_id,
+        files_checked=len(changed_files),
+    )
+
+    return [], "none"
+
+
 async def _run_ai_deployment_risk_analysis(
     project_id: str,
     commit_sha: str | None,
@@ -2017,11 +2164,14 @@ async def analyze_test_impact(
 ):
     """Run test impact analysis for a commit.
 
+    RAP-250: Optimized to use precomputed test impact matrix first (~20-50ms),
+    falling back to LLM analysis only when precomputed data is unavailable (~2-3s).
+
     Analyzes changed files and determines which tests are likely impacted.
-    Uses simple heuristics:
-    - Path similarity matching
-    - File name to test name matching
-    - Import/dependency inference
+    Priority order:
+    1. Precomputed matrix lookup (fastest)
+    2. Cached query results (fast)
+    3. LLM analysis (slowest, most accurate)
     """
     start_time = time.time()
     user = await get_current_user(request)
@@ -2042,10 +2192,9 @@ async def analyze_test_impact(
                 commit_sha=body.commit_sha,
             )
 
-        # Set impact scores for each file (simple heuristic for display only - AI does real analysis)
+        # Set impact scores for each file (simple heuristic for display only)
         for cf in changed_files:
             if cf.impact_score == 0.5:  # Default value
-                # Simple inline calculation - high impact for auth/payment/security files
                 path_lower = cf.path.lower()
                 if any(p in path_lower for p in ["auth", "payment", "security", "api/"]):
                     cf.impact_score = 0.9
@@ -2060,58 +2209,119 @@ async def analyze_test_impact(
         )
         tests = tests_result.get("data") or []
 
-        # Use AI-powered analysis via TestImpactAnalyzer agent
+        # Create lookup for test details
+        tests_by_id = {t["id"]: t for t in tests}
+
+        # RAP-250: Use precomputed test impact matrix first
         impacted_tests: list[ImpactedTest] = []
         recommended_tests: list[str] = []
         skip_candidates: list[str] = []
         overall_confidence = 0.8
+        impact_source = "llm"  # Default to LLM
 
+        # Get org_id for precomputed lookup
         try:
-            # Run AI analysis
-            ai_impacted, ai_recommended, ai_skip, ai_confidence = await _run_ai_test_impact_analysis(
-                changed_files=[cf.model_dump() for cf in changed_files],
-                all_tests=tests,
-                commit_sha=body.commit_sha,
-                branch=body.branch,
+            from src.api.tests import get_project_org_id
+            org_id = await get_project_org_id(body.project_id)
+        except Exception:
+            org_id = None
+
+        # Try precomputed lookup first (RAP-250 optimization)
+        precomputed_test_ids: list[str] = []
+        if org_id and changed_files:
+            file_paths = [cf.path for cf in changed_files]
+            precomputed_test_ids, impact_source = await get_affected_tests(
+                org_id=org_id,
+                project_id=body.project_id,
+                changed_files=file_paths,
             )
 
-            # Convert AI results to ImpactedTest objects
-            for impact in ai_impacted:
-                impacted_tests.append(ImpactedTest(
-                    test_id=impact["test_id"],
-                    test_name=impact["test_name"],
-                    impact_reason=impact["impact_reason"],
-                    confidence=impact["confidence"],
-                    priority=impact["priority"],
-                ))
+            if precomputed_test_ids:
+                # Build ImpactedTest objects from precomputed results
+                for test_id in precomputed_test_ids:
+                    test_info = tests_by_id.get(test_id)
+                    if test_info:
+                        impacted_tests.append(ImpactedTest(
+                            test_id=test_id,
+                            test_name=test_info.get("name", ""),
+                            impact_reason=f"Precomputed impact matrix ({impact_source})",
+                            confidence=0.95,  # High confidence for precomputed data
+                            priority=test_info.get("priority", "medium"),
+                        ))
+                    else:
+                        # Test ID from matrix but not in current tests list
+                        impacted_tests.append(ImpactedTest(
+                            test_id=test_id,
+                            test_name=test_id,
+                            impact_reason=f"Precomputed impact matrix ({impact_source})",
+                            confidence=0.90,
+                            priority="medium",
+                        ))
 
-            recommended_tests = ai_recommended
-            skip_candidates = ai_skip
-            overall_confidence = ai_confidence
+                recommended_tests = precomputed_test_ids
+                all_test_ids = {t["id"] for t in tests}
+                skip_candidates = list(all_test_ids - set(precomputed_test_ids))
+                overall_confidence = 0.95
 
-            logger.info(
-                "AI-powered test impact analysis completed",
-                impacted_count=len(impacted_tests),
-                recommended_count=len(recommended_tests),
-            )
+                precomputed_time_ms = int((time.time() - start_time) * 1000)
+                logger.info(
+                    "Precomputed test impact analysis completed",
+                    project_id=body.project_id,
+                    impacted_count=len(impacted_tests),
+                    source=impact_source,
+                    latency_ms=precomputed_time_ms,
+                )
 
-        except Exception as ai_error:
-            # Fallback: mark all tests as potentially impacted if AI fails
-            logger.warning(
-                "AI analysis unavailable, using conservative fallback",
-                error=str(ai_error),
-            )
-            for test in tests:
-                impacted_tests.append(ImpactedTest(
-                    test_id=test["id"],
-                    test_name=test.get("name", ""),
-                    impact_reason="AI unavailable - conservative selection",
-                    confidence=0.5,
-                    priority=test.get("priority", "medium"),
-                ))
-            recommended_tests = [t["id"] for t in tests]
-            skip_candidates = []
-            overall_confidence = 0.5
+        # Fall back to LLM analysis if precomputed data unavailable or incomplete
+        if not impacted_tests:
+            try:
+                # Run AI analysis (slow path, ~2-3s)
+                ai_impacted, ai_recommended, ai_skip, ai_confidence = await _run_ai_test_impact_analysis(
+                    changed_files=[cf.model_dump() for cf in changed_files],
+                    all_tests=tests,
+                    commit_sha=body.commit_sha,
+                    branch=body.branch,
+                )
+
+                # Convert AI results to ImpactedTest objects
+                for impact in ai_impacted:
+                    impacted_tests.append(ImpactedTest(
+                        test_id=impact["test_id"],
+                        test_name=impact["test_name"],
+                        impact_reason=impact["impact_reason"],
+                        confidence=impact["confidence"],
+                        priority=impact["priority"],
+                    ))
+
+                recommended_tests = ai_recommended
+                skip_candidates = ai_skip
+                overall_confidence = ai_confidence
+                impact_source = "llm"
+
+                logger.info(
+                    "LLM test impact analysis completed (precomputed unavailable)",
+                    impacted_count=len(impacted_tests),
+                    recommended_count=len(recommended_tests),
+                )
+
+            except Exception as ai_error:
+                # Fallback: mark all tests as potentially impacted if AI fails
+                logger.warning(
+                    "AI analysis unavailable, using conservative fallback",
+                    error=str(ai_error),
+                )
+                for test in tests:
+                    impacted_tests.append(ImpactedTest(
+                        test_id=test["id"],
+                        test_name=test.get("name", ""),
+                        impact_reason="AI unavailable - conservative selection",
+                        confidence=0.5,
+                        priority=test.get("priority", "medium"),
+                    ))
+                recommended_tests = [t["id"] for t in tests]
+                skip_candidates = []
+                overall_confidence = 0.5
+                impact_source = "fallback"
 
         # Sort by confidence and priority
         priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -2141,6 +2351,8 @@ async def analyze_test_impact(
             "confidence_score": round(overall_confidence, 2),
             "analysis_time_ms": analysis_time_ms,
             "created_at": now,
+            # RAP-250: Track source for performance monitoring
+            "metadata": {"impact_source": impact_source},
         }
 
         # Store analysis (handle missing table gracefully)

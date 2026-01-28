@@ -416,6 +416,80 @@ class CircuitBreaker:
 response = await a2a.request(...)  # Fails fast if circuit open
 ```
 
+## Unified Instant Intelligence Layer (UIIL)
+
+**Goal**: Transform LLM-dependent operations (2-5s) to instant responses (<100ms) via 3-tier resolution.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    UNIFIED INSTANT INTELLIGENCE LAYER                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Query → [AI Gateway Cache] → [Valkey Cache] → [Cognee] → [LLM Fallback]   │
+│            (Cloudflare)        (exact match)   (vector)    (last resort)    │
+│              ~5ms                 ~2ms          ~30ms         ~2000ms        │
+│                                                                              │
+│  Expected Hit Rates:                                                         │
+│  - AI Gateway cache: 30-40% (semantic similarity)                           │
+│  - Valkey cache: 20-30% (exact match)                                       │
+│  - Cognee vector: 25-35% (confidence > 0.7)                                 │
+│  - LLM fallback: 5-15% (novel queries only)                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Intelligence Cache** | `src/intelligence/cache.py` | Valkey wrapper for Cognee search caching |
+| **Query Router** | `src/intelligence/query_router.py` | Intent detection + tier routing |
+| **Precomputed Results** | `src/intelligence/precomputed.py` | Read from intelligence_precomputed table |
+| **Cognee Worker** | `data-layer/cognee-worker/src/worker.py` | ECL pipeline + integration handlers |
+| **AI Gateway** | `src/services/cloudflare_storage.py` | LLM caching via Cloudflare |
+
+### Query Intents (7 Types)
+
+| Intent | Resolution Strategy | Target Latency |
+|--------|---------------------|----------------|
+| `SIMILAR_ERRORS` | Cache → Vector → Graph | <80ms |
+| `TEST_IMPACT` | Cache → Precomputed Matrix | <50ms |
+| `ROOT_CAUSE` | Cache → Vector → LLM Fallback | <100ms |
+| `DOCUMENTATION` | Cache → Vector Search | <50ms |
+| `CODE_CONTEXT` | Cache → Vector → Graph | <80ms |
+| `COVERAGE_GAPS` | Precomputed (nightly) | <30ms |
+| `SECURITY_IMPACT` | Cache → Graph → LLM | <100ms |
+
+### Integration Indexing (via Cognee Worker)
+
+| Integration | Kafka Topic | Status |
+|-------------|-------------|--------|
+| Codebase | `argus.codebase.ingested` | ✅ Working |
+| Test Events | `argus.test.*` | ✅ Working |
+| Healing | `argus.healing.requested` | ✅ Working |
+| Sentry | `argus.integration.sentry` | 🚧 In Progress |
+| Jira | `argus.integration.jira` | 📋 Planned |
+| GitHub PRs | `argus.integration.github.pr` | 📋 Planned |
+| Confluence | `argus.integration.confluence` | 📋 Planned |
+
+### Pre-Computation Jobs
+
+| Job | Schedule | Output |
+|-----|----------|--------|
+| Test Impact Matrix | Daily 2 AM UTC | `intelligence_precomputed` table |
+| Failure Clustering | Real-time (Flink) | `flink_failure_patterns` table |
+| Flaky Test Ranking | Daily 3 AM UTC | `intelligence_precomputed` table |
+| Coverage Gaps | Weekly Sunday 4 AM | `intelligence_precomputed` table |
+
+### Industry Patterns Used
+
+- **Netflix Pattern**: Pre-compute heavy signals in batch, contextualize in real-time <100ms
+- **Anthropic Prompt Caching**: 85% latency reduction via cache_control API
+- **GPTCache Semantic Caching**: 61-68% hit rate with similarity matching
+- **Uber/Netflix Flink**: Stateless streaming with idempotent Supabase writes
+
 ## Tech Stack
 
 ### AI & ML Layer

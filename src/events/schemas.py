@@ -31,6 +31,12 @@ class EventType(str, Enum):
     AGENT_BROADCAST = "agent.broadcast"
     AGENT_HEARTBEAT = "agent.heartbeat"
 
+    # Integration Events
+    INTEGRATION_GITHUB_PR = "integration.github.pr"
+    INTEGRATION_SENTRY = "integration.sentry"
+    INTEGRATION_CONFLUENCE = "integration.confluence"
+    INTEGRATION_JIRA = "integration.jira"
+
 
 class TenantInfo(BaseModel):
     """Tenant context for multi-tenant isolation.

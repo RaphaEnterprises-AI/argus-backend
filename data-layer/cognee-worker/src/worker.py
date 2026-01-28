@@ -24,6 +24,7 @@ from aiohttp import web
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from config import WorkerConfig, load_config
+from handlers import ConfluenceHandler, GitHubPRHandler, JiraHandler, SentryHandler
 
 # =============================================================================
 # Prometheus Metrics
@@ -130,6 +131,12 @@ class CogneeKafkaWorker:
         self.producer: Optional[AIOKafkaProducer] = None
         self.running = False
         self._setup_logging()
+
+        # Initialize handlers
+        self.github_pr_handler = GitHubPRHandler()
+        self.confluence_handler = ConfluenceHandler()
+        self.jira_handler = JiraHandler()
+        self.sentry_handler = SentryHandler()
 
     def _setup_logging(self):
         """Configure logging level from config."""
@@ -677,6 +684,14 @@ class CogneeKafkaWorker:
             event_type = f"test_{topic.split('.')[-1]}"
         elif topic == "argus.healing.requested":
             event_type = "healing_requested"
+        elif topic == "argus.integration.github.pr":
+            event_type = "integration_github_pr"
+        elif topic == "argus.integration.confluence":
+            event_type = "integration_confluence"
+        elif topic == "argus.integration.sentry":
+            event_type = "integration_sentry"
+        elif topic == "argus.integration.jira":
+            event_type = "integration_jira"
         else:
             event_type = "unknown"
 
@@ -696,6 +711,14 @@ class CogneeKafkaWorker:
                 await self._process_test_event(topic, key, value)
             elif topic == "argus.healing.requested":
                 await self._process_healing_requested(key, value)
+            elif topic == "argus.integration.github.pr":
+                await self.github_pr_handler.process(value)
+            elif topic == "argus.integration.confluence":
+                await self.confluence_handler.process(value)
+            elif topic == "argus.integration.sentry":
+                await self.sentry_handler.process(value)
+            elif topic == "argus.integration.jira":
+                await self.jira_handler.process(value)
             else:
                 logger.warning(f"Unknown topic: {topic}")
 

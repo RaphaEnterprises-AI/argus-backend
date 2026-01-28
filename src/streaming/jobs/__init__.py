@@ -9,10 +9,18 @@ from pathlib import Path
 # Directory containing SQL job files
 JOBS_DIR = Path(__file__).parent
 
-# Available job definitions
+# Available job definitions (streaming jobs)
 AVAILABLE_JOBS = {
     "test_metrics_aggregation": JOBS_DIR / "test_metrics_aggregation.sql",
     "anomaly_detection": JOBS_DIR / "anomaly_detection.sql",
+    "failure_cluster_update": JOBS_DIR / "failure_cluster_update.sql",
+    "precompute_test_impact": JOBS_DIR / "precompute_test_impact.sql",
+}
+
+# Batch jobs (run via K8s CronJob, not continuous streaming)
+# These jobs process historical data and write to precomputed tables
+BATCH_JOBS = {
+    "precompute_test_impact": JOBS_DIR / "precompute_test_impact.sql",
 }
 
 

@@ -1,0 +1,106 @@
+# Kubernetes CronJob: Flaky Test Ranking
+# Runs weekly (Sundays at 4 AM UTC) to compute flaky test rankings
+#
+# Deploy with: kubectl apply -f flaky-test-ranking.yaml
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flaky-test-ranking
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flaky-test-ranking
+    app.kubernetes.io/component: flink-job
+    app.kubernetes.io/part-of: argus
+spec:
+  # Weekly: Sundays at 4:00 AM UTC
+  schedule: "0 4 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600  # 1 hour max
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: flaky-test-ranking
+            app.kubernetes.io/component: flink-job
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: flink-sql-runner
+              image: flink:1.18-java11
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  echo "Starting Flaky Test Ranking job..."
+
+                  # Substitute environment variables in SQL
+                  envsubst < /sql/flaky_test_ranking.sql > /tmp/job.sql
+
+                  # Submit to Flink cluster
+                  /opt/flink/bin/sql-client.sh embedded \
+                    -f /tmp/job.sql \
+                    -D execution.runtime-mode=BATCH \
+                    -D jobmanager.rpc.address=flink-jobmanager.argus-data.svc.cluster.local \
+                    -D rest.address=flink-jobmanager.argus-data.svc.cluster.local
+
+                  echo "Flaky Test Ranking job completed."
+              env:
+                - name: REDPANDA_BROKERS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argus-kafka-config
+                      key: bootstrap.servers
+                - name: SUPABASE_JDBC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: supabase-credentials
+                      key: jdbc-url
+                - name: SUPABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: supabase-credentials
+                      key: username
+                - name: SUPABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: supabase-credentials
+                      key: password
+              volumeMounts:
+                - name: sql-scripts
+                  mountPath: /sql
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "250m"
+                limits:
+                  memory: "1Gi"
+                  cpu: "500m"
+          volumes:
+            - name: sql-scripts
+              configMap:
+                name: flink-sql-scripts
+---
+# ConfigMap with the SQL script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-sql-scripts
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: flink-sql-scripts
+    app.kubernetes.io/part-of: argus
+data:
+  flaky_test_ranking.sql: |
+    -- This file is mounted from the ConfigMap
+    -- Actual SQL is in src/streaming/jobs/flaky_test_ranking.sql
+    -- Copy the contents here or use a volume mount from a PVC
+
+    -- For now, this is a placeholder that shows the structure
+    -- In production, use Kustomize or Helm to inject the actual SQL
+
+    SELECT 'Flaky test ranking job placeholder - replace with actual SQL';

@@ -4,8 +4,13 @@ Provides endpoints for:
 - Configuring self-healing behavior
 - Managing healing patterns
 - Viewing healing statistics
+- Getting instant healing suggestions via intelligence layer (RAP-249)
+
+RAP-249: Updated to use intelligence layer for instant responses.
+Target latency: 50-100ms for cached/vector queries (vs 3-4s for LLM).
 """
 
+import time
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -13,10 +18,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from src.api.teams import get_current_user, log_audit, verify_org_access
+from src.intelligence import QueryIntent, QueryRouter, get_query_router
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/healing", tags=["Self-Healing"])
+
+# Confidence threshold for LLM fallback
+LLM_FALLBACK_THRESHOLD = 0.7
 
 
 # ============================================================================
@@ -112,6 +121,68 @@ class HealingStatsResponse(BaseModel):
     heals_last_30d: int
     avg_confidence: float
     recent_heals: list[dict]
+
+
+# ============================================================================
+# RAP-249: Intelligence Layer Models for Instant Suggestions
+# ============================================================================
+
+
+class HealingSuggestionRequest(BaseModel):
+    """Request for healing suggestions using intelligence layer."""
+
+    error_message: str = Field(..., description="The error message to analyze")
+    error_type: str | None = Field(None, description="Type of error (selector_changed, timing_issue, etc.)")
+    selector: str | None = Field(None, description="The broken selector (if applicable)")
+    context: dict | None = Field(None, description="Additional context (url, step_index, etc.)")
+    skip_cache: bool = Field(False, description="Skip cache lookup for fresh analysis")
+    force_llm: bool = Field(False, description="Force LLM analysis regardless of confidence")
+
+
+class HealingSuggestion(BaseModel):
+    """A single healing suggestion."""
+
+    fix_type: str = Field(..., description="Type of fix (update_selector, add_wait, increase_timeout, etc.)")
+    old_value: str | None = Field(None, description="Current/broken value")
+    new_value: str | None = Field(None, description="Suggested fix value")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    explanation: str = Field(..., description="Why this fix should work")
+    success_rate: float | None = Field(None, description="Historical success rate if from patterns")
+    pattern_id: str | None = Field(None, description="Pattern ID if from learned patterns")
+
+
+class HealingSuggestionResponse(BaseModel):
+    """Response from healing suggestion endpoint."""
+
+    suggestions: list[HealingSuggestion] = Field(default_factory=list)
+    source: str = Field(..., description="Source: cache, vector, or llm")
+    latency_ms: float = Field(..., description="Query latency in milliseconds")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Overall confidence")
+    intent: str = Field(..., description="Detected query intent")
+    cached: bool = Field(False, description="Whether result came from cache")
+    metadata: dict = Field(default_factory=dict, description="Additional metadata")
+
+
+class RootCauseRequest(BaseModel):
+    """Request for root cause analysis using intelligence layer."""
+
+    error_message: str = Field(..., description="The error message to analyze")
+    error_type: str | None = Field(None, description="Type of error")
+    context: dict | None = Field(None, description="Additional context (logs, stack trace, etc.)")
+    similar_failures: list[dict] | None = Field(None, description="Similar failures for context")
+    skip_cache: bool = Field(False, description="Skip cache lookup")
+
+
+class RootCauseResponse(BaseModel):
+    """Response from root cause analysis endpoint."""
+
+    root_cause: str = Field(..., description="Identified root cause")
+    category: str = Field(..., description="Category: selector_changed, timing_issue, etc.")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    evidence: list[str] = Field(default_factory=list)
+    suggested_actions: list[str] = Field(default_factory=list)
+    source: str = Field(..., description="Source: cache, vector, or llm")
+    latency_ms: float = Field(..., description="Query latency in milliseconds")
 
 
 # ============================================================================
@@ -530,3 +601,530 @@ async def reject_healing(org_id: str, pattern_id: str, request: Request):
     )
 
     return {"success": True, "message": "Healing rejected"}
+
+
+# ============================================================================
+# RAP-249: Intelligence Layer Endpoints for Instant Suggestions
+# ============================================================================
+
+
+@router.post("/organizations/{org_id}/suggest", response_model=HealingSuggestionResponse)
+async def get_healing_suggestions(
+    org_id: str,
+    body: HealingSuggestionRequest,
+    request: Request,
+    project_id: str | None = None,
+):
+    """Get instant healing suggestions using the intelligence layer.
+
+    This endpoint uses a tiered approach for optimal latency:
+    1. Cache lookup (~10ms) - Exact match from previous queries
+    2. Vector/hybrid search (~50-100ms) - Semantic similarity search
+    3. LLM fallback (~3-4s) - Only when confidence < 0.7
+
+    Target latency: 50-100ms for cached/vector queries.
+    """
+    start_time = time.perf_counter()
+
+    user = await get_current_user(request)
+    _, supabase_org_id = await verify_org_access(
+        org_id, user["user_id"], user_email=user.get("email"), request=request
+    )
+
+    # Initialize query router
+    query_router = get_query_router(org_id=supabase_org_id, project_id=project_id)
+
+    # Build query from request
+    query = body.error_message
+    if body.selector:
+        query = f"{query}\nSelector: {body.selector}"
+
+    # Build context for routing
+    context = body.context or {}
+    if body.error_type:
+        context["error_type"] = body.error_type
+    if project_id:
+        context["project_id"] = project_id
+
+    try:
+        # Route query through intelligence layer
+        result = await query_router.route(
+            query=query,
+            org_id=supabase_org_id,
+            project_id=project_id,
+            skip_cache=body.skip_cache,
+            force_llm=body.force_llm,
+        )
+
+        # Transform result data into suggestions
+        suggestions = _transform_to_suggestions(result.data, body)
+
+        total_latency = (time.perf_counter() - start_time) * 1000
+
+        logger.info(
+            "Healing suggestions generated",
+            org_id=org_id,
+            source=result.source,
+            confidence=result.confidence,
+            latency_ms=round(total_latency, 2),
+            suggestions_count=len(suggestions),
+        )
+
+        return HealingSuggestionResponse(
+            suggestions=suggestions,
+            source=result.source,
+            latency_ms=round(total_latency, 2),
+            confidence=result.confidence,
+            intent=result.intent.value if hasattr(result.intent, "value") else str(result.intent),
+            cached=result.source == "cache",
+            metadata={
+                "query_latency_ms": result.latency_ms,
+                "cache_key": result.cache_key,
+                **(result.metadata or {}),
+            },
+        )
+
+    except Exception as e:
+        logger.error(
+            "Healing suggestions failed",
+            org_id=org_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get healing suggestions: {str(e)}",
+        )
+
+
+@router.post("/organizations/{org_id}/analyze-root-cause", response_model=RootCauseResponse)
+async def analyze_root_cause(
+    org_id: str,
+    body: RootCauseRequest,
+    request: Request,
+    project_id: str | None = None,
+):
+    """Analyze root cause of a failure using the intelligence layer.
+
+    Uses QueryIntent.ROOT_CAUSE for analysis with semantic search
+    and LLM reasoning when needed.
+
+    Target latency: 50-100ms for cached/vector queries.
+    """
+    start_time = time.perf_counter()
+
+    user = await get_current_user(request)
+    _, supabase_org_id = await verify_org_access(
+        org_id, user["user_id"], user_email=user.get("email"), request=request
+    )
+
+    # Initialize query router with specific intent
+    query_router = get_query_router(org_id=supabase_org_id, project_id=project_id)
+
+    # Build query for root cause analysis
+    query = f"Analyze root cause: {body.error_message}"
+    if body.error_type:
+        query = f"{query}\nError type: {body.error_type}"
+
+    # Add context if provided
+    if body.context:
+        context_str = "\n".join(f"{k}: {v}" for k, v in body.context.items())
+        query = f"{query}\nContext: {context_str}"
+
+    try:
+        # Route query through intelligence layer
+        # Force the ROOT_CAUSE intent by adjusting the query
+        result = await query_router.route(
+            query=query,
+            org_id=supabase_org_id,
+            project_id=project_id,
+            skip_cache=body.skip_cache,
+            force_llm=False,  # Let the router decide based on confidence
+        )
+
+        # Transform result into root cause response
+        root_cause_data = _transform_to_root_cause(result.data, body)
+
+        total_latency = (time.perf_counter() - start_time) * 1000
+
+        logger.info(
+            "Root cause analysis completed",
+            org_id=org_id,
+            source=result.source,
+            confidence=result.confidence,
+            latency_ms=round(total_latency, 2),
+        )
+
+        return RootCauseResponse(
+            root_cause=root_cause_data.get("root_cause", "Unable to determine root cause"),
+            category=root_cause_data.get("category", "unknown"),
+            confidence=result.confidence,
+            evidence=root_cause_data.get("evidence", []),
+            suggested_actions=root_cause_data.get("suggested_actions", []),
+            source=result.source,
+            latency_ms=round(total_latency, 2),
+        )
+
+    except Exception as e:
+        logger.error(
+            "Root cause analysis failed",
+            org_id=org_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to analyze root cause: {str(e)}",
+        )
+
+
+@router.post("/organizations/{org_id}/similar-errors")
+async def find_similar_errors(
+    org_id: str,
+    body: HealingSuggestionRequest,
+    request: Request,
+    project_id: str | None = None,
+    limit: int = Query(5, ge=1, le=20),
+):
+    """Find similar errors from the knowledge base.
+
+    Uses QueryIntent.SIMILAR_ERRORS for fast semantic matching.
+    Returns similar past errors with their healing patterns.
+
+    Target latency: 50-100ms for cached/vector queries.
+    """
+    start_time = time.perf_counter()
+
+    user = await get_current_user(request)
+    _, supabase_org_id = await verify_org_access(
+        org_id, user["user_id"], user_email=user.get("email"), request=request
+    )
+
+    # Initialize query router
+    query_router = get_query_router(org_id=supabase_org_id, project_id=project_id)
+
+    # Build query for similar error search
+    query = body.error_message
+    if body.selector:
+        query = f"{query}\nSelector: {body.selector}"
+
+    try:
+        # Route query through intelligence layer
+        result = await query_router.route(
+            query=query,
+            org_id=supabase_org_id,
+            project_id=project_id,
+            skip_cache=body.skip_cache,
+            force_llm=False,  # Don't use LLM for similarity search
+        )
+
+        # Extract similar errors from result
+        similar_errors = _extract_similar_errors(result.data, limit)
+
+        total_latency = (time.perf_counter() - start_time) * 1000
+
+        logger.info(
+            "Similar errors found",
+            org_id=org_id,
+            source=result.source,
+            count=len(similar_errors),
+            latency_ms=round(total_latency, 2),
+        )
+
+        return {
+            "similar_errors": similar_errors,
+            "count": len(similar_errors),
+            "source": result.source,
+            "latency_ms": round(total_latency, 2),
+            "confidence": result.confidence,
+        }
+
+    except Exception as e:
+        logger.error(
+            "Similar errors search failed",
+            org_id=org_id,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to find similar errors: {str(e)}",
+        )
+
+
+# ============================================================================
+# Helper Functions for Intelligence Layer Transformations
+# ============================================================================
+
+
+def _transform_to_suggestions(
+    data: dict | list | None,
+    request_body: HealingSuggestionRequest,
+) -> list[HealingSuggestion]:
+    """Transform query router result data into HealingSuggestion list.
+
+    Args:
+        data: Raw data from query router
+        request_body: Original request for context
+
+    Returns:
+        List of HealingSuggestion objects
+    """
+    suggestions = []
+
+    if data is None:
+        return suggestions
+
+    # Handle different data formats from different sources
+    if isinstance(data, dict):
+        # Check for suggestions array (from LLM or processed results)
+        if "suggestions" in data:
+            for s in data["suggestions"]:
+                suggestions.append(_dict_to_suggestion(s))
+
+        # Check for results array (from vector search)
+        elif "results" in data:
+            for r in data["results"]:
+                suggestion = _result_to_suggestion(r, request_body)
+                if suggestion:
+                    suggestions.append(suggestion)
+
+        # Check for top_match (single best result)
+        elif "top_match" in data and data["top_match"]:
+            suggestion = _result_to_suggestion(data["top_match"], request_body)
+            if suggestion:
+                suggestions.append(suggestion)
+
+        # Handle analysis response (from LLM)
+        elif "analysis" in data:
+            suggestion = _analysis_to_suggestion(data, request_body)
+            if suggestion:
+                suggestions.append(suggestion)
+
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                suggestion = _result_to_suggestion(item, request_body)
+                if suggestion:
+                    suggestions.append(suggestion)
+
+    # Sort by confidence descending
+    suggestions.sort(key=lambda s: s.confidence, reverse=True)
+
+    return suggestions
+
+
+def _dict_to_suggestion(d: dict) -> HealingSuggestion:
+    """Convert a dictionary to HealingSuggestion."""
+    return HealingSuggestion(
+        fix_type=d.get("fix_type", "update_selector"),
+        old_value=d.get("old_value"),
+        new_value=d.get("new_value"),
+        confidence=float(d.get("confidence", 0.5)),
+        explanation=d.get("explanation", "Suggested fix based on similar patterns"),
+        success_rate=d.get("success_rate"),
+        pattern_id=d.get("pattern_id") or d.get("id"),
+    )
+
+
+def _result_to_suggestion(
+    result: dict,
+    request_body: HealingSuggestionRequest,
+) -> HealingSuggestion | None:
+    """Convert a vector search result to HealingSuggestion."""
+    if not result:
+        return None
+
+    # Extract healed selector if available
+    healed_selector = result.get("healed_selector")
+    if not healed_selector:
+        return None
+
+    return HealingSuggestion(
+        fix_type="update_selector",
+        old_value=request_body.selector or result.get("selector") or result.get("original_selector"),
+        new_value=healed_selector,
+        confidence=float(result.get("confidence", result.get("similarity", 0.5))),
+        explanation=f"Based on similar error pattern (method: {result.get('healing_method', 'unknown')})",
+        success_rate=float(result.get("success_rate", 0)) if result.get("success_rate") else None,
+        pattern_id=result.get("id") or result.get("pattern_id"),
+    )
+
+
+def _analysis_to_suggestion(
+    analysis: dict,
+    request_body: HealingSuggestionRequest,
+) -> HealingSuggestion | None:
+    """Convert LLM analysis response to HealingSuggestion."""
+    analysis_text = analysis.get("analysis", "")
+
+    if not analysis_text:
+        return None
+
+    return HealingSuggestion(
+        fix_type="analysis",
+        old_value=request_body.selector,
+        new_value=None,
+        confidence=0.6,  # Lower confidence for LLM-only analysis
+        explanation=analysis_text[:500],  # Truncate long explanations
+        success_rate=None,
+        pattern_id=None,
+    )
+
+
+def _transform_to_root_cause(
+    data: dict | None,
+    request_body: RootCauseRequest,
+) -> dict:
+    """Transform query router result data into root cause analysis.
+
+    Args:
+        data: Raw data from query router
+        request_body: Original request for context
+
+    Returns:
+        Dictionary with root cause analysis
+    """
+    if data is None:
+        return {
+            "root_cause": "Unable to determine root cause",
+            "category": "unknown",
+            "evidence": [],
+            "suggested_actions": [],
+        }
+
+    # Handle LLM analysis response
+    if "analysis" in data:
+        return {
+            "root_cause": data["analysis"][:500],
+            "category": _infer_category(data["analysis"], request_body.error_type),
+            "evidence": [f"LLM analysis of error: {request_body.error_message[:100]}"],
+            "suggested_actions": ["Review the analysis and apply suggested fix"],
+        }
+
+    # Handle structured root cause response
+    if "root_cause" in data:
+        return data
+
+    # Handle similar failures response
+    if "similar_failures" in data:
+        failures = data["similar_failures"]
+        if failures:
+            top_failure = failures[0]
+            return {
+                "root_cause": f"Similar to past failure: {top_failure.get('error_message', 'unknown')[:200]}",
+                "category": top_failure.get("healing_method", "unknown"),
+                "evidence": [
+                    f"Similarity: {top_failure.get('similarity', 0):.0%}",
+                    f"Previous fix: {top_failure.get('healed_selector', 'N/A')}",
+                ],
+                "suggested_actions": [
+                    f"Apply the healing method: {top_failure.get('healing_method', 'unknown')}",
+                    f"Use healed selector: {top_failure.get('healed_selector', 'N/A')}",
+                ],
+            }
+
+    # Handle results array
+    if "results" in data and data["results"]:
+        results = data["results"]
+        return {
+            "root_cause": f"Pattern matches found: {len(results)} similar errors",
+            "category": _infer_category_from_results(results),
+            "evidence": [f"Found {len(results)} similar error patterns"],
+            "suggested_actions": ["Review matched patterns for potential fixes"],
+        }
+
+    return {
+        "root_cause": "Analysis inconclusive",
+        "category": request_body.error_type or "unknown",
+        "evidence": [],
+        "suggested_actions": ["Manual investigation recommended"],
+    }
+
+
+def _infer_category(analysis: str, error_type: str | None) -> str:
+    """Infer failure category from analysis text."""
+    analysis_lower = analysis.lower()
+
+    if error_type:
+        return error_type
+
+    if "selector" in analysis_lower or "element" in analysis_lower:
+        return "selector_changed"
+    elif "timeout" in analysis_lower or "wait" in analysis_lower:
+        return "timing_issue"
+    elif "ui" in analysis_lower or "visual" in analysis_lower:
+        return "ui_changed"
+    elif "data" in analysis_lower or "assertion" in analysis_lower:
+        return "data_changed"
+    elif "bug" in analysis_lower or "defect" in analysis_lower:
+        return "real_bug"
+
+    return "unknown"
+
+
+def _infer_category_from_results(results: list) -> str:
+    """Infer category from search results."""
+    if not results:
+        return "unknown"
+
+    # Check first result for error_type
+    for r in results:
+        if isinstance(r, dict) and r.get("error_type"):
+            return r["error_type"]
+
+    return "unknown"
+
+
+def _extract_similar_errors(data: dict | list | None, limit: int) -> list[dict]:
+    """Extract similar errors from query result data.
+
+    Args:
+        data: Raw data from query router
+        limit: Maximum number of results
+
+    Returns:
+        List of similar error dictionaries
+    """
+    similar_errors = []
+
+    if data is None:
+        return similar_errors
+
+    if isinstance(data, dict):
+        # Check for results array
+        if "results" in data:
+            for r in data["results"][:limit]:
+                similar_errors.append(_format_similar_error(r))
+
+        # Check for similar_failures
+        elif "similar_failures" in data:
+            for f in data["similar_failures"][:limit]:
+                similar_errors.append(_format_similar_error(f))
+
+        # Check for suggestions with pattern data
+        elif "suggestions" in data:
+            for s in data["suggestions"][:limit]:
+                if s.get("pattern_id") or s.get("id"):
+                    similar_errors.append(_format_similar_error(s))
+
+    elif isinstance(data, list):
+        for item in data[:limit]:
+            if isinstance(item, dict):
+                similar_errors.append(_format_similar_error(item))
+
+    return similar_errors
+
+
+def _format_similar_error(error: dict) -> dict:
+    """Format a similar error for response."""
+    return {
+        "id": error.get("id") or error.get("pattern_id"),
+        "error_message": error.get("error_message"),
+        "error_type": error.get("error_type"),
+        "selector": error.get("selector") or error.get("original_selector"),
+        "healed_selector": error.get("healed_selector"),
+        "healing_method": error.get("healing_method"),
+        "similarity": error.get("similarity") or error.get("confidence", 0),
+        "success_rate": error.get("success_rate", 0),
+        "success_count": error.get("success_count", 0),
+    }

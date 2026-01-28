@@ -29,6 +29,15 @@ TOPIC_AGENT_RESPONSE = "argus.agent.response"
 TOPIC_AGENT_BROADCAST = "argus.agent.broadcast"
 TOPIC_AGENT_HEARTBEAT = "argus.agent.heartbeat"
 
+# Integration Topics
+TOPIC_INTEGRATION_GITHUB_PR = "argus.integration.github.pr"
+TOPIC_INTEGRATION_SENTRY = "argus.integration.sentry"
+TOPIC_INTEGRATION_CONFLUENCE = "argus.integration.confluence"
+TOPIC_INTEGRATION_JIRA = "argus.integration.jira"
+
+# Pattern Analysis Topics (Flink output)
+TOPIC_PATTERNS_FAILURE_CLUSTER = "argus.patterns.failure-cluster"
+
 
 @dataclass
 class TopicConfig:
@@ -130,6 +139,38 @@ TOPIC_CONFIGS: dict[str, TopicConfig] = {
         cleanup_policy="compact,delete",  # Compact to keep latest per agent
         consumer_group="argus-monitor",
     ),
+    # Integration Topics
+    TOPIC_INTEGRATION_GITHUB_PR: TopicConfig(
+        name=TOPIC_INTEGRATION_GITHUB_PR,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
+    TOPIC_INTEGRATION_SENTRY: TopicConfig(
+        name=TOPIC_INTEGRATION_SENTRY,
+        partitions=6,
+        retention_ms=14 * 24 * 60 * 60 * 1000,  # 14 days
+        consumer_group="argus-cognee-workers",
+    ),
+    TOPIC_INTEGRATION_CONFLUENCE: TopicConfig(
+        name=TOPIC_INTEGRATION_CONFLUENCE,
+        partitions=3,  # Fewer partitions for documentation indexing
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
+    TOPIC_INTEGRATION_JIRA: TopicConfig(
+        name=TOPIC_INTEGRATION_JIRA,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
+    # Pattern Analysis Topics (Flink output)
+    TOPIC_PATTERNS_FAILURE_CLUSTER: TopicConfig(
+        name=TOPIC_PATTERNS_FAILURE_CLUSTER,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-healers",  # Consumed by self-healing agents
+    ),
 }
 
 
@@ -151,6 +192,11 @@ EVENT_TYPE_TO_TOPIC: dict[EventType, str] = {
     EventType.AGENT_RESPONSE: TOPIC_AGENT_RESPONSE,
     EventType.AGENT_BROADCAST: TOPIC_AGENT_BROADCAST,
     EventType.AGENT_HEARTBEAT: TOPIC_AGENT_HEARTBEAT,
+    # Integration
+    EventType.INTEGRATION_GITHUB_PR: TOPIC_INTEGRATION_GITHUB_PR,
+    EventType.INTEGRATION_SENTRY: TOPIC_INTEGRATION_SENTRY,
+    EventType.INTEGRATION_CONFLUENCE: TOPIC_INTEGRATION_CONFLUENCE,
+    EventType.INTEGRATION_JIRA: TOPIC_INTEGRATION_JIRA,
 }
 
 

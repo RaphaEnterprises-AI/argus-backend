@@ -194,6 +194,10 @@ class WorkerConfig:
         "argus.test.executed",
         "argus.test.failed",
         "argus.healing.requested",
+        "argus.integration.github.pr",
+        "argus.integration.confluence",
+        "argus.integration.jira",
+        "argus.integration.sentry",
     ])
 
     # Output topics

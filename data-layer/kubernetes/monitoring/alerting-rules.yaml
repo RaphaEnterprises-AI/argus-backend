@@ -348,3 +348,121 @@ spec:
           annotations:
             summary: "PVC near capacity"
             description: "PVC {{ $labels.persistentvolumeclaim }} in {{ $labels.namespace }} is > 85% full (current: {{ $value | humanizePercentage }})"
+
+    # =========================================================================
+    # Intelligence Layer (UIIL) Alerts
+    # =========================================================================
+    - name: intelligence-layer
+      interval: 30s
+      rules:
+        - alert: IntelligenceHighLLMFallbackRate
+          expr: |
+            (
+              sum(rate(intelligence_llm_fallback_total[5m]))
+              /
+              sum(rate(intelligence_queries_total[5m]))
+            ) > 0.20
+          for: 10m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Intelligence layer LLM fallback rate too high"
+            description: "More than 20% of intelligence queries are falling back to LLM (current: {{ $value | humanizePercentage }}). Check cache hit rates and vector search confidence."
+            runbook_url: "https://docs.heyargus.com/runbooks/intelligence-high-llm-fallback"
+
+        - alert: IntelligenceLowCacheHitRate
+          expr: |
+            (
+              sum(rate(intelligence_cache_hits_total[5m]))
+              /
+              (sum(rate(intelligence_cache_hits_total[5m])) + sum(rate(intelligence_cache_misses_total[5m])))
+            ) < 0.50
+          for: 15m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Intelligence cache hit rate below target"
+            description: "Cache hit rate is below 50% (current: {{ $value | humanizePercentage }}). Consider warming cache or adjusting TTLs."
+
+        - alert: IntelligenceHighQueryLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket[5m])) by (le)) > 0.2
+          for: 10m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Intelligence query latency too high"
+            description: "P95 query latency exceeds 200ms for 10 minutes (current: {{ $value | humanizeDuration }}). Target is <100ms."
+
+        - alert: IntelligencePrecomputedDataStale
+          expr: |
+            (intelligence_precomputed_valid_until - time()) < 0
+          for: 30m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Precomputed intelligence data is stale"
+            description: "Precomputed data for {{ $labels.type }} has expired. Queries will fall back to real-time computation."
+
+        - alert: IntelligenceVectorSearchSlow
+          expr: |
+            histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier="vector"}[5m])) by (le)) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Vector search latency too high"
+            description: "Cognee vector search P95 latency exceeds 100ms (current: {{ $value | humanizeDuration }}). Check Cognee/Neo4j health."
+
+        - alert: IntelligenceQueryRouterErrors
+          expr: |
+            sum(rate(intelligence_query_errors_total[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Intelligence query router errors detected"
+            description: "Query router is experiencing errors at {{ $value | humanize }}/sec. Check logs for details."
+
+        - alert: IntelligenceCriticalLLMFallbackRate
+          expr: |
+            (
+              sum(rate(intelligence_llm_fallback_total[5m]))
+              /
+              sum(rate(intelligence_queries_total[5m]))
+            ) > 0.40
+          for: 5m
+          labels:
+            severity: critical
+            component: intelligence
+          annotations:
+            summary: "CRITICAL: Intelligence layer degraded to LLM mode"
+            description: "More than 40% of queries falling back to LLM. System performance severely degraded. Immediate investigation required."
+            runbook_url: "https://docs.heyargus.com/runbooks/intelligence-critical-llm-fallback"
+
+        - alert: ValkeyCacheDown
+          expr: up{job="valkey"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: intelligence
+          annotations:
+            summary: "Valkey cache is down"
+            description: "Valkey cache is unavailable. All queries will skip Tier 1 caching, causing increased latency."
+
+        - alert: ValkeyCacheHighMemory
+          expr: |
+            valkey_used_memory_bytes / valkey_maxmemory_bytes > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: intelligence
+          annotations:
+            summary: "Valkey cache memory usage high"
+            description: "Valkey is using more than 90% of allocated memory (current: {{ $value | humanizePercentage }}). Consider increasing memory or reducing TTLs."
