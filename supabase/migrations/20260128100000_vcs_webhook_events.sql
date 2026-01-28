@@ -77,7 +77,7 @@ CREATE POLICY "Users can read their org vcs_webhook_events"
             SELECT 1 FROM projects p
             JOIN organization_members om ON p.organization_id = om.organization_id
             WHERE p.id = vcs_webhook_events.project_id
-            AND om.user_id = auth.uid()
+            AND om.user_id = auth.uid()::text
         )
     );
 
@@ -100,7 +100,7 @@ CREATE POLICY "Users can read their org commit_impact_analyses"
             SELECT 1 FROM projects p
             JOIN organization_members om ON p.organization_id = om.organization_id
             WHERE p.id = commit_impact_analyses.project_id
-            AND om.user_id = auth.uid()
+            AND om.user_id = auth.uid()::text
         )
     );
 

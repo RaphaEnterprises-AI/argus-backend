@@ -65,7 +65,7 @@ CREATE POLICY "Users can view their organization performance tests"
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON om.organization_id = p.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -75,7 +75,7 @@ CREATE POLICY "Users can insert performance tests for their organization project
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON om.organization_id = p.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -85,7 +85,7 @@ CREATE POLICY "Users can update their organization performance tests"
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON om.organization_id = p.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
@@ -95,7 +95,7 @@ CREATE POLICY "Users can delete their organization performance tests"
         project_id IN (
             SELECT p.id FROM projects p
             JOIN organization_members om ON om.organization_id = p.organization_id
-            WHERE om.user_id = auth.uid()
+            WHERE om.user_id = auth.uid()::text
         )
     );
 
