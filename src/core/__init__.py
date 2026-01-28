@@ -47,8 +47,8 @@ from .risk import (
 from .tenant import (
     TenantContext,
     get_current_tenant,
-    set_current_tenant,
     require_tenant,
+    set_current_tenant,
 )
 
 __all__ = [

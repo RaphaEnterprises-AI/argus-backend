@@ -49,8 +49,8 @@ class EventProducer:
     def __init__(
         self,
         bootstrap_servers: str,
-        sasl_username: Optional[str] = None,
-        sasl_password: Optional[str] = None,
+        sasl_username: str | None = None,
+        sasl_password: str | None = None,
         security_protocol: str = "SASL_PLAINTEXT",
         sasl_mechanism: str = "SCRAM-SHA-512",
         client_id: str = "argus-api",
@@ -97,7 +97,7 @@ class EventProducer:
                 "sasl_plain_password": sasl_password,
             })
 
-        self._producer: Optional[AIOKafkaProducer] = None
+        self._producer: AIOKafkaProducer | None = None
         self._started = False
 
     @classmethod
@@ -144,8 +144,8 @@ class EventProducer:
     async def send(
         self,
         event: BaseEvent,
-        topic: Optional[str] = None,
-        headers: Optional[dict[str, str]] = None,
+        topic: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> bool:
         """Send an event to Kafka.
 
@@ -271,9 +271,9 @@ class EventProducer:
 def create_event_metadata(
     source: str,
     triggered_by: str = "api",
-    request_id: Optional[str] = None,
-    trace_id: Optional[str] = None,
-    span_id: Optional[str] = None,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    span_id: str | None = None,
 ) -> EventMetadata:
     """Helper to create EventMetadata with common defaults.
 
@@ -298,8 +298,8 @@ def create_event_metadata(
 
 def create_tenant_info(
     org_id: str,
-    project_id: Optional[str] = None,
-    user_id: Optional[str] = None,
+    project_id: str | None = None,
+    user_id: str | None = None,
 ) -> TenantInfo:
     """Helper to create TenantInfo.
 

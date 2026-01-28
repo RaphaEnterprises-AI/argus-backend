@@ -9,13 +9,14 @@ This module provides a simple pattern for Flink jobs that:
 No Flink state management needed = easy multi-region!
 """
 
-import os
-import json
 import hashlib
+import json
+import os
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, asdict
-from supabase import create_client, Client
+from typing import Any, Optional
+
+from supabase import Client, create_client
 
 # Supabase client (reuse your existing connection)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -40,7 +41,7 @@ class TestMetricsWindow:
     failed_tests: int = 0
     skipped_tests: int = 0
     total_duration_ms: int = 0
-    durations: List[int] = None  # For percentile calculation
+    durations: list[int] = None  # For percentile calculation
 
     def __post_init__(self):
         if self.durations is None:
@@ -54,13 +55,13 @@ class TestMetricsWindow:
         return f"{epoch}:{self.org_id}:{self.project_id}"
 
     @property
-    def avg_duration_ms(self) -> Optional[float]:
+    def avg_duration_ms(self) -> float | None:
         if self.total_tests > 0:
             return self.total_duration_ms / self.total_tests
         return None
 
     @property
-    def p95_duration_ms(self) -> Optional[int]:
+    def p95_duration_ms(self) -> int | None:
         if not self.durations:
             return None
         sorted_durations = sorted(self.durations)
@@ -209,7 +210,7 @@ class SupabaseSink:
 # EXAMPLE: Simple Flink Job Using This Pattern
 # =============================================================================
 
-def process_test_events_window(events: List[Dict[str, Any]]) -> None:
+def process_test_events_window(events: list[dict[str, Any]]) -> None:
     """
     Example Flink window function that processes test events.
 
@@ -220,7 +221,7 @@ def process_test_events_window(events: List[Dict[str, Any]]) -> None:
         return
 
     # Group events by org_id + project_id
-    windows: Dict[str, TestMetricsWindow] = {}
+    windows: dict[str, TestMetricsWindow] = {}
 
     # Determine window boundaries (5-minute tumbling window)
     first_event_time = datetime.fromisoformat(events[0]["timestamp"])

@@ -6,10 +6,11 @@ to knowledge graph storage with proper data isolation.
 """
 
 import sys
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 # Mock aiokafka before any src.events imports to prevent import errors
 # This is necessary because src/events/__init__.py imports EventProducer
@@ -204,7 +205,7 @@ class TestTenantContextVar:
 
     def test_require_tenant_raises_when_not_set(self):
         """require_tenant should raise when no context set."""
-        from src.core.tenant import require_tenant, _tenant_context_var
+        from src.core.tenant import _tenant_context_var, require_tenant
 
         # Clear any existing context
         _tenant_context_var.set(None)
@@ -272,7 +273,7 @@ class TestEventSchemas:
 
     def test_base_event_structure(self):
         """BaseEvent should include tenant info."""
-        from src.events.schemas import BaseEvent, TenantInfo, EventMetadata, EventType
+        from src.events.schemas import BaseEvent, EventMetadata, EventType, TenantInfo
 
         event = BaseEvent(
             event_type=EventType.TEST_EXECUTED,
@@ -287,7 +288,7 @@ class TestEventSchemas:
 
     def test_codebase_ingested_event(self):
         """CodebaseIngestedEvent should have correct structure."""
-        from src.events.schemas import CodebaseIngestedEvent, TenantInfo, EventMetadata, EventType
+        from src.events.schemas import CodebaseIngestedEvent, EventMetadata, EventType, TenantInfo
 
         event = CodebaseIngestedEvent(
             tenant=TenantInfo(org_id="org-123", project_id="proj-456"),
@@ -308,7 +309,7 @@ class TestEventSchemas:
 
     def test_test_executed_event(self):
         """TestExecutedEvent should include execution results."""
-        from src.events.schemas import TestExecutedEvent, TenantInfo, EventMetadata, EventType
+        from src.events.schemas import EventMetadata, EventType, TenantInfo, TestExecutedEvent
 
         event = TestExecutedEvent(
             tenant=TenantInfo(org_id="org-123", project_id="proj-456"),
@@ -326,7 +327,7 @@ class TestEventSchemas:
 
     def test_test_failed_event(self):
         """TestFailedEvent should include failure details."""
-        from src.events.schemas import TestFailedEvent, TenantInfo, EventMetadata, EventType
+        from src.events.schemas import EventMetadata, EventType, TenantInfo, TestFailedEvent
 
         event = TestFailedEvent(
             tenant=TenantInfo(org_id="org-123", project_id="proj-456"),
@@ -345,7 +346,7 @@ class TestEventSchemas:
 
     def test_event_to_dict(self):
         """Events should serialize to dict properly."""
-        from src.events.schemas import TestExecutedEvent, TenantInfo, EventMetadata, EventType
+        from src.events.schemas import EventMetadata, EventType, TenantInfo, TestExecutedEvent
 
         event = TestExecutedEvent(
             tenant=TenantInfo(org_id="org-123"),
@@ -374,14 +375,14 @@ class TestKafkaTopics:
     def test_topic_names_defined(self):
         """All required topics should be defined."""
         from src.events.topics import (
-            TOPIC_CODEBASE_INGESTED,
             TOPIC_CODEBASE_ANALYZED,
+            TOPIC_CODEBASE_INGESTED,
+            TOPIC_DLQ,
+            TOPIC_HEALING_COMPLETED,
+            TOPIC_HEALING_REQUESTED,
             TOPIC_TEST_CREATED,
             TOPIC_TEST_EXECUTED,
             TOPIC_TEST_FAILED,
-            TOPIC_HEALING_REQUESTED,
-            TOPIC_HEALING_COMPLETED,
-            TOPIC_DLQ,
         )
 
         assert TOPIC_CODEBASE_INGESTED == "argus.codebase.ingested"
@@ -395,7 +396,7 @@ class TestKafkaTopics:
 
     def test_get_all_topics(self):
         """Should return list of all topics."""
-        from src.events.topics import get_all_topics, TOPIC_CODEBASE_INGESTED, TOPIC_DLQ
+        from src.events.topics import TOPIC_CODEBASE_INGESTED, TOPIC_DLQ, get_all_topics
 
         topics = get_all_topics()
 
@@ -415,9 +416,10 @@ class TestTenantMiddleware:
     @pytest.mark.asyncio
     async def test_middleware_extracts_org_from_header(self):
         """Should extract org_id from X-Organization-ID header."""
-        from src.api.middleware.tenant import TenantMiddleware
-        from starlette.testclient import TestClient
         from fastapi import FastAPI, Request
+        from starlette.testclient import TestClient
+
+        from src.api.middleware.tenant import TenantMiddleware
 
         app = FastAPI()
         app.add_middleware(TenantMiddleware)
@@ -439,9 +441,10 @@ class TestTenantMiddleware:
     @pytest.mark.asyncio
     async def test_middleware_allows_public_paths(self):
         """Should allow requests to public paths without org header."""
-        from src.api.middleware.tenant import TenantMiddleware
-        from starlette.testclient import TestClient
         from fastapi import FastAPI
+        from starlette.testclient import TestClient
+
+        from src.api.middleware.tenant import TenantMiddleware
 
         app = FastAPI()
         app.add_middleware(TenantMiddleware)
@@ -488,7 +491,7 @@ class TestMultiTenantIsolation:
 
     def test_event_routing_by_tenant(self):
         """Events should include tenant info for proper routing."""
-        from src.events.schemas import TestExecutedEvent, TenantInfo, EventMetadata
+        from src.events.schemas import EventMetadata, TenantInfo, TestExecutedEvent
 
         event_org1 = TestExecutedEvent(
             tenant=TenantInfo(org_id="org-1", project_id="proj-1"),
@@ -582,7 +585,7 @@ class TestCogneeWorkerMultiTenant:
     @pytest.mark.asyncio
     async def test_worker_processes_event_with_tenant_isolation(self):
         """Worker should process events with proper tenant isolation."""
-        from src.events.schemas import CodebaseIngestedEvent, TenantInfo, EventMetadata
+        from src.events.schemas import CodebaseIngestedEvent, EventMetadata, TenantInfo
 
         # Create events for different tenants
         event1 = CodebaseIngestedEvent(
@@ -640,8 +643,9 @@ class TestOrgScopedAPIEndpoints:
     @pytest.mark.asyncio
     async def test_list_organizations_returns_user_orgs(self, mock_supabase, mock_user):
         """Should list only organizations user belongs to."""
-        from src.api.orgs import list_my_organizations
         from fastapi import Request
+
+        from src.api.orgs import list_my_organizations
 
         # Mock memberships
         mock_supabase.request = AsyncMock(side_effect=[
@@ -668,8 +672,9 @@ class TestOrgScopedAPIEndpoints:
     @pytest.mark.asyncio
     async def test_list_projects_scoped_to_org(self, mock_supabase, mock_user):
         """Should list only projects in the specified organization."""
-        from src.api.orgs import list_org_projects
         from fastapi import Request
+
+        from src.api.orgs import list_org_projects
 
         mock_supabase.request = AsyncMock(side_effect=[
             # Projects query
@@ -703,8 +708,8 @@ class TestEndToEndMultiTenantFlow:
     @pytest.mark.asyncio
     async def test_event_creation_to_processing_flow(self):
         """Test flow from event creation through processing."""
-        from src.events.schemas import CodebaseIngestedEvent, TenantInfo, EventMetadata
         from src.core.tenant import TenantContext
+        from src.events.schemas import CodebaseIngestedEvent, EventMetadata, TenantInfo
 
         # 1. API creates event with tenant context
         tenant = TenantContext(
@@ -742,7 +747,7 @@ class TestEndToEndMultiTenantFlow:
     @pytest.mark.asyncio
     async def test_cross_tenant_isolation_enforced(self):
         """Verify events from different tenants stay isolated."""
-        from src.events.schemas import TestFailedEvent, TenantInfo, EventMetadata
+        from src.events.schemas import EventMetadata, TenantInfo, TestFailedEvent
 
         # Create similar failures for different orgs
         failure_org1 = TestFailedEvent(
@@ -805,7 +810,8 @@ class TestMultiTenantEdgeCases:
     def test_concurrent_tenant_contexts(self):
         """Different async contexts should have independent tenant contexts."""
         import asyncio
-        from src.core.tenant import TenantContext, set_current_tenant, get_current_tenant
+
+        from src.core.tenant import TenantContext, get_current_tenant, set_current_tenant
 
         results = []
 
@@ -830,7 +836,7 @@ class TestMultiTenantEdgeCases:
 
     def test_event_without_optional_fields(self):
         """Events should work with minimal required fields."""
-        from src.events.schemas import TestExecutedEvent, TenantInfo, EventMetadata
+        from src.events.schemas import EventMetadata, TenantInfo, TestExecutedEvent
 
         event = TestExecutedEvent(
             tenant=TenantInfo(org_id="org-123"),  # No project_id

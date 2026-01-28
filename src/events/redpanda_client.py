@@ -15,17 +15,18 @@ Usage:
     ))
 """
 
-import os
-import json
 import asyncio
-from datetime import datetime, timezone
-from typing import Optional, Callable, Any, List, Dict
-from uuid import uuid4
-from dataclasses import dataclass, field, asdict
+import json
+import os
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime, timezone
 from enum import Enum
-import structlog
+from typing import Any, Optional
+from uuid import uuid4
 
-from confluent_kafka import Producer, Consumer, KafkaError, KafkaException
+import structlog
+from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 from confluent_kafka.admin import AdminClient, NewTopic
 
 logger = structlog.get_logger(__name__)
@@ -70,20 +71,20 @@ class ArgusEvent:
 
     # Auto-generated fields
     event_id: str = field(default_factory=lambda: str(uuid4()))
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     version: str = "1.0"
 
     # Optional context
-    project_id: Optional[str] = None
-    user_id: Optional[str] = None
+    project_id: str | None = None
+    user_id: str | None = None
 
     # Correlation for distributed tracing
-    correlation_id: Optional[str] = None
-    causation_id: Optional[str] = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
     # Source metadata
     source: str = "argus-backend"
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -110,9 +111,9 @@ class RedpandaConfig:
 
     def __init__(
         self,
-        bootstrap_servers: Optional[str] = None,
-        sasl_username: Optional[str] = None,
-        sasl_password: Optional[str] = None,
+        bootstrap_servers: str | None = None,
+        sasl_username: str | None = None,
+        sasl_password: str | None = None,
         sasl_mechanism: str = "SCRAM-SHA-256",
         security_protocol: str = "SASL_SSL",
     ):
@@ -131,7 +132,7 @@ class RedpandaConfig:
             "SASL_SSL"
         )
 
-    def to_confluent_config(self, extra: Optional[dict] = None) -> dict:
+    def to_confluent_config(self, extra: dict | None = None) -> dict:
         """Convert to confluent-kafka configuration dict."""
         config = {
             "bootstrap.servers": self.bootstrap_servers,
@@ -179,12 +180,12 @@ class RedpandaClient:
         "argus.dlq": {"partitions": 3, "retention_ms": 30 * 24 * 60 * 60 * 1000},
     }
 
-    def __init__(self, config: Optional[RedpandaConfig] = None):
+    def __init__(self, config: RedpandaConfig | None = None):
         self.config = config or RedpandaConfig()
-        self._producer: Optional[Producer] = None
-        self._admin: Optional[AdminClient] = None
-        self._consumers: Dict[str, Consumer] = {}
-        self._delivery_callbacks: Dict[str, Callable] = {}
+        self._producer: Producer | None = None
+        self._admin: AdminClient | None = None
+        self._consumers: dict[str, Consumer] = {}
+        self._delivery_callbacks: dict[str, Callable] = {}
 
     def _get_admin(self) -> AdminClient:
         """Lazy initialization of admin client."""
@@ -223,13 +224,13 @@ class RedpandaClient:
                 offset=msg.offset(),
             )
 
-    def list_topics(self) -> List[str]:
+    def list_topics(self) -> list[str]:
         """List all topics in the cluster."""
         admin = self._get_admin()
         metadata = admin.list_topics(timeout=30)
         return list(metadata.topics.keys())
 
-    def create_topics(self, topics: Optional[List[str]] = None) -> Dict[str, bool]:
+    def create_topics(self, topics: list[str] | None = None) -> dict[str, bool]:
         """
         Create topics with proper configuration.
 
@@ -273,7 +274,7 @@ class RedpandaClient:
     def publish(
         self,
         event: ArgusEvent,
-        on_delivery: Optional[Callable] = None,
+        on_delivery: Callable | None = None,
     ) -> None:
         """
         Publish an event to Redpanda (async with callback).
@@ -350,7 +351,7 @@ class RedpandaClient:
 
     def subscribe(
         self,
-        topics: List[str],
+        topics: list[str],
         group_id: str,
         auto_offset_reset: str = "earliest",
     ) -> Consumer:
@@ -387,10 +388,10 @@ class RedpandaClient:
 
     def consume(
         self,
-        topics: List[str],
+        topics: list[str],
         group_id: str,
         handler: Callable[[ArgusEvent], None],
-        max_messages: Optional[int] = None,
+        max_messages: int | None = None,
         timeout_sec: float = 1.0,
     ) -> int:
         """
@@ -468,7 +469,7 @@ class RedpandaClient:
             dlq_payload = {
                 "original_message": raw_message.decode('utf-8'),
                 "error": error,
-                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "failed_at": datetime.now(UTC).isoformat(),
             }
             producer = self._get_producer()
             producer.produce(

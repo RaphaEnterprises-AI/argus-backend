@@ -54,8 +54,10 @@ from ..core.providers import (
     ModelTier,
     OpenRouterProvider,
     ProviderError,
-    RateLimitError as ProviderRateLimitError,
     get_openrouter_provider,
+)
+from ..core.providers import (
+    RateLimitError as ProviderRateLimitError,
 )
 
 T = TypeVar("T")

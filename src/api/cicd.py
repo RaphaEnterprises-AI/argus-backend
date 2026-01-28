@@ -21,9 +21,9 @@ Uses Claude for semantic code analysis and Cognee for knowledge graph queries.
 import json
 import re
 import time
-from datetime import UTC, datetime, timedelta
-from typing import Any, List, Literal, Optional
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, Optional
 
 import httpx
 import structlog
@@ -34,16 +34,16 @@ from src.api.context import require_organization_id
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.config import get_settings
-from src.services.supabase_client import get_supabase_client
 
 # Event schemas for Kafka/Redpanda integration (AI learning loop)
 from src.events.schemas import (
-    EventType,
     EventMetadata,
+    EventType,
+    HealingRequestedEvent,
     TestExecutedEvent,
     TestFailedEvent,
-    HealingRequestedEvent,
 )
+from src.services.supabase_client import get_supabase_client
 
 # Note: EventProducer and CogneeClient are imported lazily to avoid startup failures
 # when Kafka/Cognee infrastructure is not available
@@ -106,7 +106,7 @@ class PipelineStage(BaseModel):
     started_at: str | None = None
     completed_at: str | None = None
     duration_seconds: int | None = None
-    jobs: List[dict] = Field(default_factory=list)
+    jobs: list[dict] = Field(default_factory=list)
 
 
 class Pipeline(BaseModel):
@@ -129,13 +129,13 @@ class Pipeline(BaseModel):
     updated_at: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
-    stages: List[PipelineStage] = Field(default_factory=list)
+    stages: list[PipelineStage] = Field(default_factory=list)
 
 
 class PipelineListResponse(BaseModel):
     """Response for listing pipelines."""
 
-    pipelines: List[Pipeline]
+    pipelines: list[Pipeline]
     total: int
 
 
@@ -195,7 +195,7 @@ class Deployment(BaseModel):
     risk_score: int | None = Field(
         None, ge=0, le=100, description="Overall risk score (0-100)"
     )
-    risk_factors: List[RiskFactor] = Field(default_factory=list)
+    risk_factors: list[RiskFactor] = Field(default_factory=list)
     health_check_status: str = Field(
         default="unknown",
         description="Health status: healthy, degraded, unhealthy, unknown",
@@ -211,7 +211,7 @@ class Deployment(BaseModel):
 class DeploymentListResponse(BaseModel):
     """Response for listing deployments."""
 
-    deployments: List[Deployment]
+    deployments: list[Deployment]
     total: int
 
 

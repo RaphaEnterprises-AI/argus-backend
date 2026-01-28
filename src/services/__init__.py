@@ -11,6 +11,18 @@ from src.services.ai_cost_tracker import (
     get_cost_tracker,
     record_ai_usage,
 )
+from src.services.cicd_monitor import (
+    CICDMonitor,
+    FileChange,
+    MonitoredProject,
+    MRInfo,
+    PRInfo,
+    PRState,
+    VCSPlatform,
+    get_cicd_monitor,
+    start_cicd_monitoring,
+    stop_cicd_monitoring,
+)
 from src.services.dependency_analyzer import (
     CodeModule,
     ComponentNode,
@@ -18,21 +30,6 @@ from src.services.dependency_analyzer import (
     ImpactResult,
     RouteNode,
     get_dependency_analyzer,
-)
-from src.services.git_analyzer import (
-    CodeChange,
-    GitAnalyzer,
-    GitBlameResult,
-    GitCommit,
-    SelectorChange,
-    get_git_analyzer,
-)
-from src.services.source_analyzer import (
-    ComponentInfo,
-    ExtractedSelector,
-    SelectorMapping,
-    SourceAnalyzer,
-    get_source_analyzer,
 )
 from src.services.email_service import (
     ConsoleEmailProvider,
@@ -54,6 +51,14 @@ from src.services.event_gateway import (
     emit_test_failed,
     get_event_gateway,
 )
+from src.services.git_analyzer import (
+    CodeChange,
+    GitAnalyzer,
+    GitBlameResult,
+    GitCommit,
+    SelectorChange,
+    get_git_analyzer,
+)
 from src.services.infra_optimizer import (
     AIInfraOptimizer,
     Anomaly,
@@ -71,19 +76,14 @@ from src.services.prometheus_collector import (
     SeleniumMetrics,
     create_prometheus_collector,
 )
-from src.services.supabase_client import SupabaseClient, get_supabase_client
-from src.services.cicd_monitor import (
-    CICDMonitor,
-    FileChange,
-    MRInfo,
-    MonitoredProject,
-    PRInfo,
-    PRState,
-    VCSPlatform,
-    get_cicd_monitor,
-    start_cicd_monitoring,
-    stop_cicd_monitoring,
+from src.services.source_analyzer import (
+    ComponentInfo,
+    ExtractedSelector,
+    SelectorMapping,
+    SourceAnalyzer,
+    get_source_analyzer,
 )
+from src.services.supabase_client import SupabaseClient, get_supabase_client
 
 __all__ = [
     # Supabase

@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -295,7 +296,7 @@ class ParallelExecutor:
 
                     yield update
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Check if execution is done
                     if execution_task.done():
                         break
@@ -465,7 +466,7 @@ class ParallelExecutor:
                     )
                     return
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     last_error = f"Stage timed out after {self.stage_timeout}s"
                     self.log.warning(
                         "Stage timeout",
@@ -524,8 +525,8 @@ class ParallelExecutor:
         }
 
         # Import the WorkflowComposer to use its agent invocation
-        from .workflow_composer import WorkflowComposer
         from .agent_registry import get_agent_registry
+        from .workflow_composer import WorkflowComposer
 
         # Create a temporary composer to invoke the agent
         registry = get_agent_registry()

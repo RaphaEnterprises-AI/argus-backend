@@ -8,9 +8,10 @@ Tests the Agent-to-Agent communication infrastructure:
 """
 
 import asyncio
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from uuid import uuid4
+
+import pytest
 
 # =============================================================================
 # Test Agent Registry
@@ -37,7 +38,7 @@ class TestAgentRegistry:
 
     def test_get_agent_registry(self):
         """Test that get_agent_registry returns a registry instance."""
-        from src.orchestrator.agent_registry import get_agent_registry, AgentRegistry
+        from src.orchestrator.agent_registry import AgentRegistry, get_agent_registry
 
         registry = get_agent_registry()
         assert isinstance(registry, AgentRegistry)
@@ -45,7 +46,7 @@ class TestAgentRegistry:
 
     def test_register_and_discover(self):
         """Test agent registration and discovery."""
-        from src.orchestrator.agent_registry import get_agent_registry, Capability
+        from src.orchestrator.agent_registry import Capability, get_agent_registry
 
         registry = get_agent_registry()
 
@@ -67,7 +68,7 @@ class TestAgentRegistry:
 
         # Unregister
         result = registry.unregister(agent_id)
-        assert result == True
+        assert result is True
         print("✅ Agent unregistration works")
 
     def test_agent_info_dataclass(self):
@@ -80,8 +81,8 @@ class TestAgentRegistry:
             capabilities=[Capability.CODE_ANALYSIS],
             status="healthy",  # Literal type, not enum
             metadata={"version": "1.0.0"},
-            registered_at=datetime.now(timezone.utc),
-            last_heartbeat=datetime.now(timezone.utc)
+            registered_at=datetime.now(UTC),
+            last_heartbeat=datetime.now(UTC)
         )
 
         assert agent.agent_id == "test-123"
@@ -145,7 +146,7 @@ class TestA2AProtocol:
             payload={"result": "analyzed"},
         )
 
-        assert response.success == True
+        assert response.success is True
         assert response.payload["result"] == "analyzed"
         assert response.to_agent == "requester-1"
         print("✅ AgentResponse model works")
@@ -199,7 +200,7 @@ class TestMARP:
             solution={"new_selector": "#submit-btn"},
             confidence=0.85,
             reasoning="Element ID changed",
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         assert proposal.confidence == 0.85
@@ -218,7 +219,7 @@ class TestMARP:
             vote_type=VoteType.SUPPORT,
             confidence=0.9,
             reasoning="The analysis confirms this fix",
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         assert vote.vote_type == VoteType.SUPPORT
@@ -256,7 +257,7 @@ class TestConsensus:
             solution={"fix": "update_selector"},
             confidence=0.8,
             reasoning="Test reasoning",
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         # Create votes - 3 support, 2 oppose (using positional args: vote_id, voter_id, voter_type, proposal_id, vote_type, confidence, reasoning)
@@ -288,7 +289,7 @@ class TestConsensus:
             solution={"fix": "update_selector"},
             confidence=0.8,
             reasoning="Test reasoning",
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         # High confidence oppose should outweigh low confidence supports
@@ -348,8 +349,8 @@ class TestWorkflowComposer:
 
     def test_workflow_composer_init(self):
         """Test WorkflowComposer initialization."""
-        from src.orchestrator.workflow_composer import WorkflowComposer
         from src.orchestrator.agent_registry import get_agent_registry
+        from src.orchestrator.workflow_composer import WorkflowComposer
 
         registry = get_agent_registry()
         composer = WorkflowComposer(registry)
@@ -375,7 +376,7 @@ class TestIncrementalIndexer:
 
     def test_file_change_dataclass(self):
         """Test FileChange dataclass."""
-        from src.indexer.change_manifest import FileChange, ChangeType
+        from src.indexer.change_manifest import ChangeType, FileChange
 
         change = FileChange(
             path="src/auth.py",
@@ -390,7 +391,7 @@ class TestIncrementalIndexer:
 
     def test_change_manifest(self):
         """Test ChangeManifest dataclass."""
-        from src.indexer.change_manifest import ChangeManifest, FileChange, ChangeType
+        from src.indexer.change_manifest import ChangeManifest, ChangeType, FileChange
 
         change = FileChange(
             path="src/auth.py",
@@ -445,8 +446,8 @@ class TestCICDMonitor:
             base_branch="main",
             state=PRState.OPEN,
             html_url="https://github.com/org/repo/pull/123",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
         assert pr.number == 123
@@ -465,8 +466,8 @@ class TestCICDMonitor:
             target_branch="main",
             state=PRState.OPEN,
             web_url="https://gitlab.com/org/repo/-/merge_requests/456",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
         assert mr.iid == 456

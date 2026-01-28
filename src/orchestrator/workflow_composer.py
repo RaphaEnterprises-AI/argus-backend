@@ -34,17 +34,18 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import networkx as nx
 import structlog
+from langchain_core.messages import BaseMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import Send
-from langchain_core.messages import BaseMessage
 
 from ..config import get_settings
 from .agent_registry import AgentInfo, AgentRegistry, Capability, get_agent_registry
@@ -796,7 +797,7 @@ class WorkflowComposer:
         """
         from datetime import datetime, timezone
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Get agent info from registry
         agent_info = self.registry.get(agent_id)
@@ -813,7 +814,7 @@ class WorkflowComposer:
                 timeout=timeout,
             )
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "success": result.success,
@@ -823,8 +824,8 @@ class WorkflowComposer:
                 "duration_seconds": duration,
             }
 
-        except asyncio.TimeoutError:
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+        except TimeoutError:
+            duration = (datetime.now(UTC) - start_time).total_seconds()
             return {
                 "success": False,
                 "data": None,

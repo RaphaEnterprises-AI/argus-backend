@@ -92,7 +92,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 return True
         return False
 
-    async def _extract_tenant_context(self, request: Request) -> Optional[TenantContext]:
+    async def _extract_tenant_context(self, request: Request) -> TenantContext | None:
         """Extract tenant context from request.
 
         Priority:
@@ -107,8 +107,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
         Returns:
             TenantContext if extracted, None otherwise
         """
-        org_id: Optional[str] = None
-        project_id: Optional[str] = None
+        org_id: str | None = None
+        project_id: str | None = None
 
         # 1. Try URL path pattern
         match = ORG_PROJECT_PATH_PATTERN.search(request.url.path)
@@ -141,8 +141,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return None
 
         # Get user info for context
-        user_id: Optional[str] = None
-        user_email: Optional[str] = None
+        user_id: str | None = None
+        user_email: str | None = None
         plan = "free"
 
         if user:
@@ -174,7 +174,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
 # FastAPI Dependencies
 # =============================================================================
 
-async def get_tenant_context(request: Request) -> Optional[TenantContext]:
+async def get_tenant_context(request: Request) -> TenantContext | None:
     """Get tenant context from request state.
 
     Use this dependency when tenant context is optional.
@@ -250,7 +250,7 @@ async def require_project_context(request: Request) -> TenantContext:
 
 # Type aliases for cleaner endpoint signatures
 TenantDep = Annotated[TenantContext, Depends(require_tenant_context)]
-OptionalTenantDep = Annotated[Optional[TenantContext], Depends(get_tenant_context)]
+OptionalTenantDep = Annotated[TenantContext | None, Depends(get_tenant_context)]
 ProjectTenantDep = Annotated[TenantContext, Depends(require_project_context)]
 
 

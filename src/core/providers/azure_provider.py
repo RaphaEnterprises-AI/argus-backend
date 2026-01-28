@@ -42,18 +42,18 @@ from typing import Any
 import structlog
 
 from src.core.providers.base import (
+    AuthenticationError,
     BaseProvider,
     ChatMessage,
     ChatResponse,
-    ModelInfo,
-    ModelTier,
-    ToolCall,
-    AuthenticationError,
-    RateLimitError,
-    ModelNotFoundError,
     ContentFilterError,
     ContextLengthError,
+    ModelInfo,
+    ModelNotFoundError,
+    ModelTier,
     ProviderError,
+    RateLimitError,
+    ToolCall,
     mask_api_key,
     validate_temperature,
 )
@@ -599,7 +599,11 @@ class AzureOpenAIProvider(BaseProvider):
         from openai import (
             APIConnectionError,
             APIStatusError,
+        )
+        from openai import (
             AuthenticationError as OpenAIAuthError,
+        )
+        from openai import (
             RateLimitError as OpenAIRateLimit,
         )
 

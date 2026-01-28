@@ -28,11 +28,12 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -74,9 +75,9 @@ class AgentRequestEvent(BaseModel):
     to_agent: str = Field(..., description="Target agent ID")
     capability: str = Field(..., description="Capability being requested")
     payload: dict = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     timeout_ms: int = Field(default=30000, description="Request timeout in milliseconds")
-    correlation_id: Optional[str] = Field(None, description="For tracing request chains")
+    correlation_id: str | None = Field(None, description="For tracing request chains")
     priority: int = Field(default=5, description="Priority 1-10 (1=highest)")
 
     def to_kafka_key(self) -> str:
@@ -99,9 +100,9 @@ class AgentResponse(BaseModel):
     to_agent: str = Field(..., description="Original requester agent ID")
     success: bool = Field(..., description="Whether the request succeeded")
     payload: dict = Field(default_factory=dict)
-    error: Optional[str] = Field(None, description="Error message if failed")
-    error_code: Optional[str] = Field(None, description="Error code for categorization")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    error: str | None = Field(None, description="Error message if failed")
+    error_code: str | None = Field(None, description="Error code for categorization")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_ms: int = Field(default=0, description="Time taken to process request")
 
     def to_kafka_key(self) -> str:
@@ -122,7 +123,7 @@ class AgentBroadcast(BaseModel):
     from_agent_type: str = Field(..., description="Type of broadcasting agent")
     topic: str = Field(..., description="Broadcast topic/channel")
     payload: dict = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def to_kafka_key(self) -> str:
         """Generate Kafka message key for topic-based partitioning."""
@@ -141,7 +142,7 @@ class AgentHeartbeat(BaseModel):
     status: str = Field(default="healthy", description="Agent status")
     capabilities: list[str] = Field(default_factory=list)
     load: float = Field(default=0.0, description="Current load 0.0-1.0")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict:
         """Convert to dict for Kafka serialization."""
@@ -175,7 +176,7 @@ class CircuitBreaker:
     state: CircuitState = field(default=CircuitState.CLOSED)
     failure_count: int = field(default=0)
     success_count: int = field(default=0)
-    last_failure_time: Optional[float] = field(default=None)
+    last_failure_time: float | None = field(default=None)
     half_open_requests: int = field(default=0)
 
     def record_success(self) -> None:
@@ -291,10 +292,10 @@ class A2AProtocol:
         agent_id: str,
         agent_type: str,
         bootstrap_servers: str = "localhost:9092",
-        sasl_username: Optional[str] = None,
-        sasl_password: Optional[str] = None,
-        client_id: Optional[str] = None,
-        capabilities: Optional[list[str]] = None,
+        sasl_username: str | None = None,
+        sasl_password: str | None = None,
+        client_id: str | None = None,
+        capabilities: list[str] | None = None,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 30.0,
     ):
@@ -322,8 +323,8 @@ class A2AProtocol:
         self._sasl_password = sasl_password
 
         # Kafka clients
-        self._producer: Optional[AIOKafkaProducer] = None
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._producer: AIOKafkaProducer | None = None
+        self._consumer: AIOKafkaConsumer | None = None
 
         # Request tracking
         self._pending_requests: dict[str, asyncio.Future] = {}
@@ -331,7 +332,7 @@ class A2AProtocol:
 
         # Subscription handlers
         self._subscriptions: dict[str, list[Callable]] = {}
-        self._request_handler: Optional[Callable] = None
+        self._request_handler: Callable | None = None
 
         # Circuit breakers per agent
         self._circuit_breakers: dict[str, CircuitBreaker] = {}
@@ -340,8 +341,8 @@ class A2AProtocol:
 
         # State
         self._started = False
-        self._consumer_task: Optional[asyncio.Task] = None
-        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._consumer_task: asyncio.Task | None = None
+        self._heartbeat_task: asyncio.Task | None = None
 
         self._log = logger.getChild(f"a2a.{agent_id}")
 
@@ -488,7 +489,7 @@ class A2AProtocol:
         capability: str,
         payload: dict,
         timeout: float = 30.0,
-        correlation_id: Optional[str] = None,
+        correlation_id: str | None = None,
         priority: int = 5,
     ) -> AgentResponse:
         """Send request to another agent and wait for response.
@@ -567,7 +568,7 @@ class A2AProtocol:
 
             return response
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._log.warning(
                 "Request timeout",
                 extra={
@@ -660,8 +661,8 @@ class A2AProtocol:
         to_agent: str,
         success: bool,
         payload: dict,
-        error: Optional[str] = None,
-        error_code: Optional[str] = None,
+        error: str | None = None,
+        error_code: str | None = None,
         duration_ms: int = 0,
     ) -> None:
         """Send response to a request.
@@ -925,7 +926,7 @@ class A2AProtocol:
 def create_a2a_protocol_from_settings(
     agent_id: str,
     agent_type: str,
-    capabilities: Optional[list[str]] = None,
+    capabilities: list[str] | None = None,
 ) -> A2AProtocol:
     """Create A2A Protocol using application settings.
 

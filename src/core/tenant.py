@@ -29,11 +29,11 @@ class TenantContext:
     """
 
     org_id: str
-    org_name: Optional[str] = None
-    project_id: Optional[str] = None
-    project_name: Optional[str] = None
-    user_id: Optional[str] = None
-    user_email: Optional[str] = None
+    org_name: str | None = None
+    project_id: str | None = None
+    project_name: str | None = None
+    user_id: str | None = None
+    user_email: str | None = None
     plan: str = "free"
     request_id: str = field(default_factory=lambda: str(uuid4()))
 
@@ -143,7 +143,7 @@ class TenantContext:
     # =========================================================================
 
     @classmethod
-    def for_system(cls, org_id: str, project_id: Optional[str] = None) -> "TenantContext":
+    def for_system(cls, org_id: str, project_id: str | None = None) -> "TenantContext":
         """Create context for system/background operations.
 
         Args:
@@ -192,13 +192,13 @@ class TenantContext:
 from contextvars import ContextVar
 
 # Context variable to hold tenant context for current request
-_tenant_context_var: ContextVar[Optional[TenantContext]] = ContextVar(
+_tenant_context_var: ContextVar[TenantContext | None] = ContextVar(
     "tenant_context",
     default=None
 )
 
 
-def get_current_tenant() -> Optional[TenantContext]:
+def get_current_tenant() -> TenantContext | None:
     """Get the current request's tenant context.
 
     Returns:

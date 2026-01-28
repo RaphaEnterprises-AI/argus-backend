@@ -45,6 +45,36 @@ This package provides:
 
 import warnings
 
+# A2A Protocol for agent-to-agent communication (RAP-229)
+from .a2a_protocol import (
+    A2AProtocol,
+    AgentBroadcast,
+    AgentHeartbeat,
+    AgentRequestEvent,
+    AgentResponse,
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+    MessageType,
+    create_a2a_protocol_from_settings,
+)
+
+# Agent Registry for A2A communication (RAP-228)
+from .agent_registry import (
+    DEFAULT_AGENT_CAPABILITIES,
+    AgentInfo,
+    AgentRegistry,
+    Capability,
+    discover_agents,
+    get_agent_registry,
+    get_default_capabilities,
+    heartbeat,
+    init_agent_registry,
+    register_agent,
+    reset_agent_registry,
+    shutdown_agent_registry,
+    unregister_agent,
+)
 from .checkpointer import (
     CheckpointManager,
     get_checkpointer,
@@ -52,6 +82,15 @@ from .checkpointer import (
     list_pending_threads,
     reset_checkpointer,
     setup_checkpointer,
+)
+from .consensus import (
+    BordaCount,
+    ConfidenceWeighted,
+    ExpertiseWeighted,
+    MajorityVoting,
+    QuadraticVoting,
+    SuperMajority,
+    create_strategy,
 )
 from .graph import (
     # Enhanced orchestrator (LangGraph 1.0 patterns)
@@ -66,6 +105,40 @@ from .graph import (
     create_testing_graph,
     create_testing_graph_with_interrupts,
     get_interrupt_nodes,
+)
+
+# MARP - Multi-Agent Reasoning Protocol for consensus (RAP-235)
+from .marp import (
+    MARP,
+    Proposal,
+    Resolution,
+    ResolutionStatus,
+    TieError,
+    Vote,
+    VoteType,
+)
+from .parallel_executor import (
+    ExecutionProgress,
+    ExecutionStrategy,
+    ParallelExecutor,
+    ParallelStrategy,
+    PipelineStrategy,
+    ResourceManager,
+    SequentialStrategy,
+    StageExecutionUpdate,
+    StageStatus,
+)
+from .parallel_executor import (
+    WorkflowResult as ParallelWorkflowResult,
+)
+from .resolver import (
+    AuditEntry,
+    ConflictResolver,
+    DashboardEscalationHandler,
+    EscalationLevel,
+    EscalationRequest,
+    SlackEscalationHandler,
+    TieBreakStrategy,
 )
 from .state import TestingState, create_initial_state
 from .supervisor import (
@@ -82,65 +155,10 @@ from .supervisor import (
     create_initial_supervisor_state,
     create_supervisor_graph,
 )
-
-# Agent Registry for A2A communication (RAP-228)
-from .agent_registry import (
-    AgentInfo,
-    AgentRegistry,
-    Capability,
-    DEFAULT_AGENT_CAPABILITIES,
-    discover_agents,
-    get_agent_registry,
-    get_default_capabilities,
-    heartbeat,
-    init_agent_registry,
-    register_agent,
-    reset_agent_registry,
-    shutdown_agent_registry,
-    unregister_agent,
-)
-
-# A2A Protocol for agent-to-agent communication (RAP-229)
-from .a2a_protocol import (
-    A2AProtocol,
-    AgentBroadcast,
-    AgentHeartbeat,
-    AgentRequestEvent,
-    AgentResponse,
-    CircuitBreaker,
-    CircuitOpenError,
-    CircuitState,
-    MessageType,
-    create_a2a_protocol_from_settings,
-)
-
-# MARP - Multi-Agent Reasoning Protocol for consensus (RAP-235)
-from .marp import (
-    MARP,
-    Proposal,
-    Resolution,
-    ResolutionStatus,
-    TieError,
-    Vote,
-    VoteType,
-)
-from .consensus import (
-    BordaCount,
-    ConfidenceWeighted,
-    ExpertiseWeighted,
-    MajorityVoting,
-    QuadraticVoting,
-    SuperMajority,
-    create_strategy,
-)
-from .resolver import (
-    AuditEntry,
-    ConflictResolver,
-    DashboardEscalationHandler,
-    EscalationLevel,
-    EscalationRequest,
-    SlackEscalationHandler,
-    TieBreakStrategy,
+from .task_decomposer import (
+    DecompositionConfig,
+    SmartDecomposer,
+    TaskDecomposer,
 )
 
 # Dynamic Workflow Composer (RAP-232)
@@ -155,23 +173,6 @@ from .workflow_composer import (
     WorkflowResult,
     WorkflowStage,
     WorkflowState,
-)
-from .task_decomposer import (
-    DecompositionConfig,
-    SmartDecomposer,
-    TaskDecomposer,
-)
-from .parallel_executor import (
-    ExecutionProgress,
-    ExecutionStrategy,
-    ParallelExecutor,
-    ParallelStrategy,
-    PipelineStrategy,
-    ResourceManager,
-    SequentialStrategy,
-    StageExecutionUpdate,
-    StageStatus,
-    WorkflowResult as ParallelWorkflowResult,
 )
 
 

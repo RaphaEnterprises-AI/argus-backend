@@ -10,7 +10,6 @@ from typing import Optional
 
 from src.events.schemas import EventType
 
-
 # =============================================================================
 # Topic Names
 # =============================================================================
@@ -173,7 +172,7 @@ def get_topic_for_event(event_type: EventType) -> str:
     return topic
 
 
-def get_topic_config(topic_name: str) -> Optional[TopicConfig]:
+def get_topic_config(topic_name: str) -> TopicConfig | None:
     """Get configuration for a topic.
 
     Args:

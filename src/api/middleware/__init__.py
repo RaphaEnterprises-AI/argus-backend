@@ -6,11 +6,11 @@ Provides middleware components for request processing:
 """
 
 from src.api.middleware.tenant import (
+    OptionalTenantDep,
+    TenantDep,
     TenantMiddleware,
     get_tenant_context,
     require_tenant_context,
-    TenantDep,
-    OptionalTenantDep,
 )
 
 __all__ = [

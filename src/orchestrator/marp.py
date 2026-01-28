@@ -57,10 +57,11 @@ from __future__ import annotations
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
 
@@ -634,7 +635,7 @@ class MARP:
                 self.votes[topic].append(vote)
                 return vote
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.log.warning(
                 "Vote request timed out",
                 voter_id=voter_id,

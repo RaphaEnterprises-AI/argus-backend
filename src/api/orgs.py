@@ -19,8 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from src.api.middleware.tenant import (
-    TenantDep,
     ProjectTenantDep,
+    TenantDep,
     get_tenant_context,
     require_tenant_context,
 )

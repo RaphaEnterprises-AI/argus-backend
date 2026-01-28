@@ -35,7 +35,7 @@ import asyncio
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Literal
 
@@ -133,7 +133,7 @@ class AgentInfo:
     status: Literal["healthy", "unhealthy", "unknown"]
     last_heartbeat: datetime
     metadata: dict[str, Any] = field(default_factory=dict)
-    registered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    registered_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -237,7 +237,7 @@ class AgentRegistry:
                 else:
                     normalized_capabilities.append(cap)
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             agent_info = AgentInfo(
                 agent_id=agent_id,
                 agent_type=agent_type,
@@ -415,7 +415,7 @@ class AgentRegistry:
                 return False
 
             agent = self._agents[agent_id]
-            agent.last_heartbeat = datetime.now(timezone.utc)
+            agent.last_heartbeat = datetime.now(UTC)
 
             # Mark as healthy if it was unhealthy
             if agent.status == "unhealthy":
@@ -534,7 +534,7 @@ class AgentRegistry:
         Returns:
             Dict with health check results
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         timeout_threshold = now - timedelta(seconds=self.HEARTBEAT_TIMEOUT_SECONDS)
         removal_threshold = now - timedelta(seconds=self.AUTO_REMOVE_UNHEALTHY_AFTER)
 

@@ -50,7 +50,8 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import structlog
 

@@ -83,7 +83,6 @@ CAPABILITY_KEYWORDS = {
     "visual": ["vision"],
     "image": ["vision"],
     "compare": ["vision"],
-    "screenshot": ["vision"],
     "look": ["vision"],
 
     # Performance

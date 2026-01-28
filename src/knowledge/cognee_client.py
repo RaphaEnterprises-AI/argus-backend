@@ -24,7 +24,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any, Optional
 
 import structlog
@@ -172,8 +172,8 @@ class SimilarFailure:
 
     id: str
     error_message: str
-    error_type: Optional[str]
-    original_selector: Optional[str]
+    error_type: str | None
+    original_selector: str | None
     healed_selector: str
     healing_method: str
     success_count: int
@@ -294,7 +294,7 @@ class CogneeKnowledgeClient:
         namespace: list[str] | tuple[str, ...],
         key: str,
         value: dict[str, Any],
-        embed_text: Optional[str] = None,
+        embed_text: str | None = None,
     ) -> None:
         """Store a value with optional embedding.
 
@@ -320,7 +320,7 @@ class CogneeKnowledgeClient:
             "_namespace": list(namespace),
             "_org_id": self.org_id,
             "_project_id": self.project_id,
-            "_created_at": datetime.now(timezone.utc).isoformat(),
+            "_created_at": datetime.now(UTC).isoformat(),
             "_embed_text": embed_text,
             **value,
         }
@@ -358,7 +358,7 @@ class CogneeKnowledgeClient:
         self,
         namespace: list[str] | tuple[str, ...],
         key: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get a value by namespace and key.
 
         This provides compatibility with the MemoryStore.get() interface.
@@ -437,7 +437,7 @@ class CogneeKnowledgeClient:
         await self.put(
             namespace=namespace,
             key=key,
-            value={"_deleted": True, "_deleted_at": datetime.now(timezone.utc).isoformat()},
+            value={"_deleted": True, "_deleted_at": datetime.now(UTC).isoformat()},
         )
         return True
 
@@ -511,10 +511,10 @@ class CogneeKnowledgeClient:
         error_message: str,
         healed_selector: str,
         healing_method: str,
-        test_id: Optional[str] = None,
-        error_type: Optional[str] = None,
-        original_selector: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        test_id: str | None = None,
+        error_type: str | None = None,
+        original_selector: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Store a failure pattern for future learning.
 
@@ -551,7 +551,7 @@ class CogneeKnowledgeClient:
             "success_count": 1,
             "failure_count": 0,
             "metadata": metadata or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         await self.put(
@@ -575,7 +575,7 @@ class CogneeKnowledgeClient:
         error_message: str,
         limit: int = 5,
         threshold: float = 0.7,
-        error_type: Optional[str] = None,
+        error_type: str | None = None,
     ) -> list[SimilarFailure]:
         """Find similar past failures with their healing solutions.
 
@@ -660,7 +660,7 @@ class CogneeKnowledgeClient:
         else:
             existing["failure_count"] = existing.get("failure_count", 0) + 1
 
-        existing["last_used_at"] = datetime.now(timezone.utc).isoformat()
+        existing["last_used_at"] = datetime.now(UTC).isoformat()
 
         await self.put(
             namespace=["failure_patterns"],
@@ -721,7 +721,7 @@ class CogneeKnowledgeClient:
     async def query_knowledge_graph(
         self,
         query: str,
-        content_types: Optional[list[str]] = None,
+        content_types: list[str] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         """Query the knowledge graph with natural language.
@@ -790,7 +790,7 @@ class CogneeKnowledgeClient:
     async def get_related_entities(
         self,
         entity_id: str,
-        relationship_types: Optional[list[str]] = None,
+        relationship_types: list[str] | None = None,
         hops: int = 2,
     ) -> list[dict[str, Any]]:
         """Get entities related to a given entity via graph traversal.
@@ -827,8 +827,8 @@ class CogneeKnowledgeClient:
         pattern_name: str,
         pattern_signature: str,
         pattern_data: dict[str, Any],
-        source_url: Optional[str] = None,
-        source_project_id: Optional[str] = None,
+        source_url: str | None = None,
+        source_project_id: str | None = None,
     ) -> str:
         """Store a UI discovery pattern for cross-project learning.
 
@@ -875,7 +875,7 @@ class CogneeKnowledgeClient:
             "projects_seen": 1,
             "test_success_rate": 0.0,
             "self_heal_success_rate": 0.0,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         await self.put(
@@ -897,7 +897,7 @@ class CogneeKnowledgeClient:
     async def find_similar_discovery_patterns(
         self,
         query_text: str,
-        pattern_type: Optional[str] = None,
+        pattern_type: str | None = None,
         limit: int = 5,
         min_similarity: float = 0.7,
     ) -> list[dict[str, Any]]:
@@ -996,7 +996,7 @@ class CogneeKnowledgeClient:
             return False
 
         current["times_seen"] = current.get("times_seen", 0) + 1
-        current["updated_at"] = datetime.now(timezone.utc).isoformat()
+        current["updated_at"] = datetime.now(UTC).isoformat()
 
         # This may raise CogneeStorageError
         await self.put(
@@ -1061,7 +1061,7 @@ class CogneeKnowledgeClient:
 
         current["test_success_rate"] = round(new_test_rate, 2)
         current["self_heal_success_rate"] = round(new_heal_rate, 2)
-        current["updated_at"] = datetime.now(timezone.utc).isoformat()
+        current["updated_at"] = datetime.now(UTC).isoformat()
 
         # This may raise CogneeStorageError
         await self.put(
@@ -1081,7 +1081,7 @@ class CogneeKnowledgeClient:
 
     async def get_discovery_pattern_insights(
         self,
-        pattern_type: Optional[str] = None,
+        pattern_type: str | None = None,
     ) -> dict[str, Any]:
         """Get insights about stored discovery patterns.
 
@@ -1161,12 +1161,12 @@ class CogneeKnowledgeClient:
 # Global Instance Management
 # =========================================================================
 
-_cognee_client: Optional[CogneeKnowledgeClient] = None
+_cognee_client: CogneeKnowledgeClient | None = None
 
 
 def get_cognee_client(
-    org_id: Optional[str] = None,
-    project_id: Optional[str] = None,
+    org_id: str | None = None,
+    project_id: str | None = None,
 ) -> CogneeKnowledgeClient:
     """Get or create the global Cognee client instance.
 
@@ -1200,8 +1200,8 @@ def reset_cognee_client() -> None:
 
 
 async def init_cognee_client(
-    org_id: Optional[str] = None,
-    project_id: Optional[str] = None,
+    org_id: str | None = None,
+    project_id: str | None = None,
 ) -> CogneeKnowledgeClient:
     """Initialize and return the Cognee client.
 

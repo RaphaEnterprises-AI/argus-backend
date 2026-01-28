@@ -27,6 +27,29 @@ from .auto_discovery import AutoDiscovery, DiscoveryResult, QuickDiscover
 from .base import AgentCapability, AgentResult, AICapability, AIResponse, BaseAgent, UsageStats
 from .code_analyzer import CodeAnalyzerAgent
 from .db_tester import DBTesterAgent
+
+# Flaky Test Detection
+from .flaky_detector import (
+    FlakinessLevel,
+    FlakinessReport,
+    FlakyCause,
+    FlakyTestDetector,
+    QuarantineConfig,
+    SmartRetryStrategy,
+    TestRun,
+)
+
+# MR/PR Analyzer (RAP-234)
+from .mr_analyzer import (
+    ChangeAnalysis,
+    ChangeType,
+    MRAnalysis,
+    MRAnalyzerAgent,
+    TestPriority,
+    TestSuggestion,
+    TestType,
+    create_mr_analyzer,
+)
 from .nlp_test_creator import ConversationalTestBuilder, GeneratedTest, NLPTestCreator
 
 # New Advanced Agents
@@ -58,6 +81,15 @@ from .security_scanner import (
     VulnerabilitySeverity,
 )
 from .self_healer import SelfHealerAgent
+
+# Test Impact Analysis
+from .test_impact_analyzer import (
+    ChangeRisk,
+    CodeChange,
+    ImpactAnalysis,
+    SmartTestSelector,
+    TestImpactAnalyzer,
+)
 from .test_planner import TestPlannerAgent
 
 # Legacy UI Tester - Available as UITesterAgentLegacy for migration
@@ -68,38 +100,6 @@ from .ui_tester_v2 import AssertionResult, StepResult, UITesterAgent, UITesterAg
 
 # Competitive Features
 from .visual_ai import VisualAI, VisualComparisonResult, VisualRegressionManager
-
-# Flaky Test Detection
-from .flaky_detector import (
-    FlakyTestDetector,
-    FlakinessReport,
-    FlakinessLevel,
-    FlakyCause,
-    QuarantineConfig,
-    SmartRetryStrategy,
-    TestRun,
-)
-
-# Test Impact Analysis
-from .test_impact_analyzer import (
-    TestImpactAnalyzer,
-    ImpactAnalysis,
-    CodeChange,
-    ChangeRisk,
-    SmartTestSelector,
-)
-
-# MR/PR Analyzer (RAP-234)
-from .mr_analyzer import (
-    MRAnalyzerAgent,
-    MRAnalysis,
-    TestSuggestion,
-    ChangeAnalysis,
-    ChangeType,
-    TestPriority,
-    TestType,
-    create_mr_analyzer,
-)
 
 __all__ = [
     # Base

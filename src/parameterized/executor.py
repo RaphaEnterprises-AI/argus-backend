@@ -18,9 +18,10 @@ import random
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 import structlog

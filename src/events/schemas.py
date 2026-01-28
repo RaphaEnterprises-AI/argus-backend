@@ -40,8 +40,8 @@ class TenantInfo(BaseModel):
     """
 
     org_id: str = Field(..., description="Organization ID (required for all events)")
-    project_id: Optional[str] = Field(None, description="Project ID if event is project-scoped")
-    user_id: Optional[str] = Field(None, description="User ID who triggered the event")
+    project_id: str | None = Field(None, description="Project ID if event is project-scoped")
+    user_id: str | None = Field(None, description="User ID who triggered the event")
 
     def to_cognee_dataset_prefix(self) -> str:
         """Generate Cognee dataset prefix for this tenant.
@@ -62,7 +62,7 @@ class EventMetadata(BaseModel):
         description="Correlation ID for request tracing"
     )
     source: str = Field(..., description="Service that generated the event")
-    triggered_by: Optional[str] = Field(
+    triggered_by: str | None = Field(
         None,
         description="What triggered this event (e.g., 'api', 'scheduler', 'webhook')"
     )
@@ -70,8 +70,8 @@ class EventMetadata(BaseModel):
         default_factory=datetime.utcnow,
         description="When the event was created"
     )
-    trace_id: Optional[str] = Field(None, description="Distributed tracing ID")
-    span_id: Optional[str] = Field(None, description="Distributed tracing span")
+    trace_id: str | None = Field(None, description="Distributed tracing ID")
+    span_id: str | None = Field(None, description="Distributed tracing span")
 
 
 class BaseEvent(BaseModel):
@@ -169,10 +169,10 @@ class TestCreatedEvent(BaseEvent):
     priority: str = Field(default="medium", description="Priority: critical, high, medium, low")
 
     # Optional context
-    suite_id: Optional[str] = Field(None, description="Parent test suite ID")
-    repository_id: Optional[str] = Field(None, description="Source repository")
-    target_url: Optional[str] = Field(None, description="Target URL for UI tests")
-    target_endpoint: Optional[str] = Field(None, description="Target endpoint for API tests")
+    suite_id: str | None = Field(None, description="Parent test suite ID")
+    repository_id: str | None = Field(None, description="Source repository")
+    target_url: str | None = Field(None, description="Target URL for UI tests")
+    target_endpoint: str | None = Field(None, description="Target endpoint for API tests")
 
     # Test definition
     selectors: list[str] = Field(default_factory=list, description="UI selectors used")
@@ -192,8 +192,8 @@ class TestExecutedEvent(BaseEvent):
 
     # Execution context
     trigger: str = Field(default="manual", description="Trigger: manual, ci, scheduled")
-    commit_sha: Optional[str] = Field(None, description="Commit being tested")
-    branch: Optional[str] = Field(None, description="Branch being tested")
+    commit_sha: str | None = Field(None, description="Commit being tested")
+    branch: str | None = Field(None, description="Branch being tested")
     environment: str = Field(default="staging", description="Environment: staging, production")
 
     # Results
@@ -203,8 +203,8 @@ class TestExecutedEvent(BaseEvent):
 
     # Artifacts
     screenshot_urls: list[str] = Field(default_factory=list, description="Screenshot URLs")
-    video_url: Optional[str] = Field(None, description="Video recording URL")
-    trace_url: Optional[str] = Field(None, description="Playwright trace URL")
+    video_url: str | None = Field(None, description="Video recording URL")
+    trace_url: str | None = Field(None, description="Playwright trace URL")
 
 
 class TestFailedEvent(BaseEvent):
@@ -226,15 +226,15 @@ class TestFailedEvent(BaseEvent):
         description="Error category: assertion, timeout, selector, network, script"
     )
     error_message: str = Field(..., description="Full error message")
-    stack_trace: Optional[str] = Field(None, description="Full stack trace")
-    failed_step: Optional[int] = Field(None, description="Step number that failed")
-    failed_selector: Optional[str] = Field(None, description="Selector that failed (UI tests)")
-    failed_assertion: Optional[str] = Field(None, description="Assertion that failed")
+    stack_trace: str | None = Field(None, description="Full stack trace")
+    failed_step: int | None = Field(None, description="Step number that failed")
+    failed_selector: str | None = Field(None, description="Selector that failed (UI tests)")
+    failed_assertion: str | None = Field(None, description="Assertion that failed")
 
     # Context for healing
-    page_url: Optional[str] = Field(None, description="Page URL at time of failure")
-    page_html_snapshot: Optional[str] = Field(None, description="DOM snapshot (truncated)")
-    screenshot_url: Optional[str] = Field(None, description="Failure screenshot URL")
+    page_url: str | None = Field(None, description="Page URL at time of failure")
+    page_html_snapshot: str | None = Field(None, description="DOM snapshot (truncated)")
+    screenshot_url: str | None = Field(None, description="Failure screenshot URL")
 
     # Healing hints
     is_flaky: bool = Field(default=False, description="Whether this test is known to be flaky")
@@ -267,8 +267,8 @@ class HealingRequestedEvent(BaseEvent):
 
     # Context
     error_type: str = Field(..., description="Type of error being healed")
-    failed_selector: Optional[str] = Field(None, description="Original failed selector")
-    page_context: Optional[dict[str, Any]] = Field(
+    failed_selector: str | None = Field(None, description="Original failed selector")
+    page_context: dict[str, Any] | None = Field(
         None,
         description="Page context for healing (DOM, screenshot, etc.)"
     )
@@ -290,9 +290,9 @@ class HealingCompletedEvent(BaseEvent):
     duration_ms: int = Field(..., description="Healing duration in milliseconds")
 
     # Fix details (if successful)
-    original_selector: Optional[str] = Field(None, description="Original failed selector")
-    healed_selector: Optional[str] = Field(None, description="New working selector")
-    healing_pattern_id: Optional[str] = Field(
+    original_selector: str | None = Field(None, description="Original failed selector")
+    healed_selector: str | None = Field(None, description="New working selector")
+    healing_pattern_id: str | None = Field(
         None,
         description="ID of the healing pattern used/created"
     )
@@ -302,13 +302,13 @@ class HealingCompletedEvent(BaseEvent):
         default=False,
         description="Whether healed test passed verification"
     )
-    verification_run_id: Optional[str] = Field(
+    verification_run_id: str | None = Field(
         None,
         description="Run ID of verification test"
     )
 
     # Failure details (if unsuccessful)
-    failure_reason: Optional[str] = Field(
+    failure_reason: str | None = Field(
         None,
         description="Why healing failed (if success=false)"
     )
@@ -332,7 +332,7 @@ class DLQEvent(BaseEvent):
     # Failure info
     error_message: str = Field(..., description="Processing error message")
     error_type: str = Field(..., description="Error type/class")
-    stack_trace: Optional[str] = Field(None, description="Full stack trace")
+    stack_trace: str | None = Field(None, description="Full stack trace")
 
     # Retry info
     retry_count: int = Field(default=0, description="Number of retry attempts")
@@ -345,7 +345,7 @@ class DLQEvent(BaseEvent):
 
     # Resolution
     is_resolved: bool = Field(default=False, description="Whether issue was resolved")
-    resolution_notes: Optional[str] = Field(None, description="Notes on resolution")
+    resolution_notes: str | None = Field(None, description="Notes on resolution")
 
 
 # =============================================================================
@@ -402,7 +402,7 @@ class AgentResponseEvent(BaseEvent):
         default_factory=dict,
         description="Response payload"
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         None,
         description="Error message if success=false"
     )

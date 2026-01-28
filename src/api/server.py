@@ -39,7 +39,6 @@ from src.api.cicd import router as cicd_router
 from src.api.collaboration import router as collaboration_router
 from src.api.correlations import router as correlations_router
 from src.api.data_layer_health import router as data_layer_health_router
-from src.api.monitoring_proxy import router as monitoring_proxy_router
 from src.api.discovery import router as discovery_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
@@ -57,6 +56,7 @@ from src.api.mcp_screenshots import router as mcp_screenshots_router
 from src.api.mcp_sessions import router as mcp_sessions_router
 from src.api.middleware.tenant import TenantMiddleware
 from src.api.models import router as models_router
+from src.api.monitoring_proxy import router as monitoring_proxy_router
 from src.api.notifications import router as notifications_router
 from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
@@ -87,11 +87,11 @@ from src.api.tests import router as tests_router
 from src.api.time_travel import router as time_travel_router
 from src.api.users import router as users_router
 from src.api.visual_ai import router as visual_ai_router
-from src.api.webhooks.github import router as vcs_github_webhook_router
-from src.api.webhooks.gitlab import router as vcs_gitlab_webhook_router
 
 # API Routers
 from src.api.webhooks import router as webhooks_router
+from src.api.webhooks.github import router as vcs_github_webhook_router
+from src.api.webhooks.gitlab import router as vcs_gitlab_webhook_router
 from src.config import get_settings
 from src.integrations.reporter import create_report_from_state, create_reporter
 from src.orchestrator.checkpointer import setup_checkpointer, shutdown_checkpointer

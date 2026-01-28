@@ -32,6 +32,11 @@ from .amplitude_integration import (
     UserPath,
     create_amplitude_integration,
 )
+from .comment_poster import (
+    CommentPoster,
+    CommentResult,
+    create_comment_poster,
+)
 from .github_integration import GitHubIntegration, create_github_integration
 from .jira_integration import (
     AcceptanceCriteriaExtractor,
@@ -88,11 +93,6 @@ from .vercel_integration import (
     VercelIntegration,
     VercelProject,
     create_vercel_integration,
-)
-from .comment_poster import (
-    CommentPoster,
-    CommentResult,
-    create_comment_poster,
 )
 
 __all__ = [
