@@ -1,0 +1,226 @@
+# Langfuse Helm Chart Values - Self-hosted LLM Observability
+# For Cognee knowledge graph worker tracing
+#
+# Deploy with:
+#   helm repo add langfuse https://langfuse.github.io/langfuse-k8s
+#   helm repo update
+#   helm install langfuse langfuse/langfuse -n monitoring -f langfuse-values.yaml
+#
+# Docs: https://langfuse.com/self-hosting/deployment/kubernetes-helm
+# GitHub: https://github.com/langfuse/langfuse-k8s
+# =============================================================================
+
+# Global storage class for Vultr
+global:
+  storageClass: vultr-block-storage-hdd
+
+# =============================================================================
+# Langfuse Configuration (Global)
+# =============================================================================
+# Note: The Helm chart uses "langfuse:" for global settings and nested "web:"/"worker:" for specific deployments
+langfuse:
+  # Node.js environment
+  nodeEnv: production
+
+  # NextAuth secret (generate with: openssl rand -base64 32)
+  nextauth:
+    secret:
+      secretKeyRef:
+        name: langfuse-auth-secret
+        key: nextauth-secret
+
+  # Salt for API key hashing (generate with: openssl rand -base64 32)
+  salt:
+    secretKeyRef:
+      name: langfuse-auth-secret
+      key: salt
+
+  # Headless initialization - auto-create org, project, and API keys
+  # See: https://langfuse.com/self-hosting/administration/headless-initialization
+  additionalEnv:
+    - name: LANGFUSE_INIT_ORG_ID
+      value: "argus-org"
+    - name: LANGFUSE_INIT_ORG_NAME
+      value: "Argus Testing Platform"
+    - name: LANGFUSE_INIT_PROJECT_ID
+      value: "argus-cognee"
+    - name: LANGFUSE_INIT_PROJECT_NAME
+      value: "Cognee Knowledge Worker"
+    - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+      value: "pk-lf-argus-cognee-2026-public-a1b2c3d4e5f6"
+    - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-auth-secret
+          key: langfuse-project-secret
+    - name: LANGFUSE_INIT_USER_EMAIL
+      value: "admin@heyargus.com"
+    - name: LANGFUSE_INIT_USER_NAME
+      value: "Argus Admin"
+    - name: LANGFUSE_INIT_USER_PASSWORD
+      value: "ArgusLangfuse2026"
+    - name: TELEMETRY_ENABLED
+      value: "false"
+    - name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+      value: "false"
+
+  # Web deployment settings
+  web:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    additionalEnv:
+      - name: NEXTAUTH_URL
+        value: "https://langfuse-internal.heyargus.ai"
+
+# =============================================================================
+# Langfuse Worker (async processing)
+# =============================================================================
+langfuseWorker:
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# =============================================================================
+# PostgreSQL - Use bundled PostgreSQL (simpler setup)
+# =============================================================================
+postgresql:
+  deploy: true
+
+  auth:
+    username: langfuse
+    database: postgres_langfuse
+    password: "langfuse-pg-password-2026"
+    existingSecret: ""
+
+  primary:
+    persistence:
+      enabled: true
+      size: 40Gi  # Vultr minimum
+      storageClass: vultr-block-storage-hdd
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# =============================================================================
+# ClickHouse - OLAP database for traces
+# =============================================================================
+clickhouse:
+  deploy: true
+
+  auth:
+    username: default
+    password: "langfuse-clickhouse-password-2026"
+    existingSecret: ""
+
+  shards: 1
+  replicaCount: 1
+
+  persistence:
+    enabled: true
+    size: 40Gi  # Vultr minimum
+    storageClass: vultr-block-storage-hdd
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Zookeeper configuration (ClickHouse dependency)
+  zookeeper:
+    replicaCount: 1  # Single node for dev/staging (reduce from 3)
+    persistence:
+      enabled: true
+      size: 40Gi  # Vultr minimum
+      storageClass: vultr-block-storage-hdd
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# =============================================================================
+# Redis/Valkey - Use existing Valkey from argus-data namespace
+# =============================================================================
+redis:
+  deploy: false
+  host: "valkey.argus-data.svc.cluster.local"
+  port: 6379
+
+  auth:
+    username: "default"
+    password: "97e480472555549de30192da9f1d0e52f28e83a5762eb5506020e925923931fc"
+    existingSecret: ""
+    database: 1  # Use database 1 to avoid conflicts with Cognee worker
+
+# =============================================================================
+# S3/Blob Storage - Cloudflare R2 (S3-compatible, free tier)
+# =============================================================================
+# Configure R2 bucket in Cloudflare dashboard, then add credentials to secret
+# See: https://developers.cloudflare.com/r2/api/s3/api/
+s3:
+  deploy: false
+  storageProvider: s3
+  bucket: "langfuse-argus"
+  region: "auto"
+  endpoint: "https://4957164416d09fb70ffd01ea18a86f4c.r2.cloudflarestorage.com"
+  forcePathStyle: true
+
+  # R2 credentials from secret
+  accessKeyId:
+    secretKeyRef:
+      name: langfuse-r2-secret
+      key: access-key-id
+  secretAccessKey:
+    secretKeyRef:
+      name: langfuse-r2-secret
+      key: secret-access-key
+
+# Note: langfuse configuration moved to top of file
+
+# =============================================================================
+# Ingress - Disabled (access via backend proxy)
+# =============================================================================
+ingress:
+  enabled: false
+
+# =============================================================================
+# Service Monitor for Prometheus
+# =============================================================================
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  labels:
+    release: monitoring
+  interval: 30s
+
+# =============================================================================
+# Pod Security
+# =============================================================================
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000

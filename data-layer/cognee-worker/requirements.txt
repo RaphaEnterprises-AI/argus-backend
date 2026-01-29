@@ -3,6 +3,7 @@
 
 # Kafka/Redpanda client
 aiokafka>=0.10.0
+certifi>=2024.0.0  # CA certificates for SSL connections (required for Redpanda Cloud)
 python-snappy>=0.7.0  # Required for Kafka message compression
 lz4>=4.0.0  # Additional compression support
 

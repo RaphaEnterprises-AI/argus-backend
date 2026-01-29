@@ -306,8 +306,10 @@ class CogneeKafkaWorker:
     def _create_ssl_context(self) -> ssl.SSLContext | None:
         """Create SSL context for SASL_SSL connections (e.g., Redpanda Cloud)."""
         if self.config.kafka.security_protocol in ("SSL", "SASL_SSL"):
-            ssl_context = ssl.create_default_context()
-            # Use system CA certificates for Redpanda Cloud
+            import certifi
+            # Use certifi's CA bundle for reliable certificate verification
+            # This is required for Redpanda Cloud SSL connections
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
             return ssl_context
         return None
 

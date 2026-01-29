@@ -301,6 +301,170 @@ data:
         org_id, project_id, test_id
     HAVING COUNT(*) >= 3;
 
+  # =========================================================================
+  # Job 4: Failure Cluster Update (RAP-246)
+  # =========================================================================
+  failure-cluster-update.sql: |
+    -- Failure Cluster Update Job
+    -- Clusters failures by error fingerprint and writes to Supabase
+    -- RAP-246: Real-time failure pattern detection for self-healing
+
+    SET 'execution.checkpointing.interval' = '60s';
+    SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
+
+    -- Source: Test failure events
+    CREATE TABLE IF NOT EXISTS argus_test_failed (
+        event_id STRING,
+        event_type STRING,
+        org_id STRING NOT NULL,
+        project_id STRING NOT NULL,
+        test_id STRING NOT NULL,
+        test_name STRING,
+        run_id STRING,
+        status STRING,
+        error_message STRING,
+        error_type STRING,
+        selector STRING,
+        screenshot_url STRING,
+        stack_trace STRING,
+        browser STRING,
+        environment STRING,
+        retry_count INT,
+        duration_ms BIGINT,
+        metadata MAP<STRING, STRING>,
+        event_time TIMESTAMP(3),
+        WATERMARK FOR event_time AS event_time - INTERVAL '30' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.test.failed',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'properties.group.id' = 'flink-failure-cluster-update',
+        'scan.startup.mode' = 'latest-offset',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601',
+        'json.ignore-parse-errors' = 'true'
+    );
+
+    -- Sink: Failure patterns to Supabase
+    CREATE TABLE IF NOT EXISTS flink_failure_patterns (
+        idempotency_key STRING NOT NULL,
+        org_id STRING NOT NULL,
+        project_id STRING NOT NULL,
+        test_id STRING NOT NULL,
+        window_start TIMESTAMP(3) NOT NULL,
+        window_end TIMESTAMP(3) NOT NULL,
+        failure_count BIGINT NOT NULL,
+        last_error_message STRING,
+        last_selector STRING,
+        error_fingerprint STRING,
+        healing_priority STRING,
+        healing_requested BOOLEAN,
+        processing_region STRING,
+        PRIMARY KEY (idempotency_key) NOT ENFORCED
+    ) WITH (
+        'connector' = 'jdbc',
+        'url' = '${SUPABASE_JDBC_URL}',
+        'table-name' = 'flink_failure_patterns',
+        'username' = '${SUPABASE_DB_USER}',
+        'password' = '${SUPABASE_DB_PASSWORD}',
+        'driver' = 'org.postgresql.Driver',
+        'sink.buffer-flush.max-rows' = '100',
+        'sink.buffer-flush.interval' = '5s',
+        'sink.max-retries' = '3'
+    );
+
+    -- Kafka sink for downstream consumers
+    CREATE TABLE IF NOT EXISTS failure_pattern_events (
+        idempotency_key STRING,
+        org_id STRING,
+        project_id STRING,
+        test_id STRING,
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        failure_count BIGINT,
+        last_error_message STRING,
+        last_selector STRING,
+        error_fingerprint STRING,
+        healing_priority STRING,
+        healing_requested BOOLEAN,
+        processing_region STRING,
+        PRIMARY KEY (idempotency_key) NOT ENFORCED
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'argus.patterns.failure-cluster',
+        'properties.bootstrap.servers' = 'redpanda.argus-data.svc.cluster.local:9092',
+        'properties.security.protocol' = 'SASL_PLAINTEXT',
+        'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+        'properties.sasl.jaas.config' = 'org.apache.flink.kafka.shaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="argus-service" password="${KAFKA_SASL_PASSWORD}";',
+        'format' = 'json',
+        'json.timestamp-format.standard' = 'ISO-8601'
+    );
+
+    -- 15-minute tumbling window aggregation to Supabase
+    INSERT INTO flink_failure_patterns
+    SELECT
+        CONCAT(
+            CAST(UNIX_TIMESTAMP(window_start) AS STRING), ':',
+            org_id, ':',
+            test_id
+        ) AS idempotency_key,
+        org_id,
+        project_id,
+        test_id,
+        window_start,
+        window_end,
+        COUNT(*) AS failure_count,
+        LAST_VALUE(error_message) AS last_error_message,
+        LAST_VALUE(selector) AS last_selector,
+        MD5(COALESCE(LAST_VALUE(error_message), 'unknown')) AS error_fingerprint,
+        CASE
+            WHEN COUNT(*) >= 10 THEN 'critical'
+            WHEN COUNT(*) >= 5 THEN 'high'
+            WHEN COUNT(*) >= 3 THEN 'medium'
+            ELSE 'low'
+        END AS healing_priority,
+        COUNT(*) >= 3 AS healing_requested,
+        '${PROCESSING_REGION}' AS processing_region
+    FROM TABLE(
+        TUMBLE(TABLE argus_test_failed, DESCRIPTOR(event_time), INTERVAL '15' MINUTE)
+    )
+    WHERE org_id IS NOT NULL AND project_id IS NOT NULL AND test_id IS NOT NULL
+    GROUP BY org_id, project_id, test_id, window_start, window_end;
+
+    -- Parallel insert to Kafka for real-time consumers
+    INSERT INTO failure_pattern_events
+    SELECT
+        CONCAT(
+            CAST(UNIX_TIMESTAMP(window_start) AS STRING), ':',
+            org_id, ':',
+            test_id
+        ) AS idempotency_key,
+        org_id,
+        project_id,
+        test_id,
+        window_start,
+        window_end,
+        COUNT(*) AS failure_count,
+        LAST_VALUE(error_message) AS last_error_message,
+        LAST_VALUE(selector) AS last_selector,
+        MD5(COALESCE(LAST_VALUE(error_message), 'unknown')) AS error_fingerprint,
+        CASE
+            WHEN COUNT(*) >= 10 THEN 'critical'
+            WHEN COUNT(*) >= 5 THEN 'high'
+            WHEN COUNT(*) >= 3 THEN 'medium'
+            ELSE 'low'
+        END AS healing_priority,
+        COUNT(*) >= 3 AS healing_requested,
+        '${PROCESSING_REGION}' AS processing_region
+    FROM TABLE(
+        TUMBLE(TABLE argus_test_failed, DESCRIPTOR(event_time), INTERVAL '15' MINUTE)
+    )
+    WHERE org_id IS NOT NULL AND project_id IS NOT NULL AND test_id IS NOT NULL
+    GROUP BY org_id, project_id, test_id, window_start, window_end;
+
 ---
 # FlinkSessionJob: Test Metrics Aggregation
 apiVersion: flink.apache.org/v1beta1
@@ -369,6 +533,43 @@ spec:
     parallelism: 1
     upgradeMode: stateless
     state: running
+
+---
+# FlinkSessionJob: Failure Cluster Update (RAP-246)
+# Clusters failures by error fingerprint for pattern analysis and self-healing
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionJob
+metadata:
+  name: failure-cluster-update
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: failure-cluster-update
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: streaming
+    argus.io/feature: self-healing
+  annotations:
+    argus.io/jira-ticket: RAP-246
+    argus.io/description: "Clusters failures by error fingerprint using 15-minute tumbling windows"
+spec:
+  deploymentName: argus-flink
+  job:
+    jarURI: local:///opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.20.jar
+    entryClass: org.apache.flink.table.gateway.SqlGateway
+    args:
+      - "-f"
+      - "/opt/flink/sql/failure-cluster-update.sql"
+    # Higher parallelism for failure processing (more critical path)
+    parallelism: 2
+    upgradeMode: stateless
+    state: running
+  # Resource configuration for failure processing
+  flinkConfiguration:
+    taskmanager.memory.process.size: "2g"
+    taskmanager.numberOfTaskSlots: "2"
+    # JDBC connector for Supabase sink
+    execution.checkpointing.interval: "60s"
+    execution.checkpointing.mode: "EXACTLY_ONCE"
+    state.checkpoints.num-retained: "3"
 
 ---
 # PodMonitor for Prometheus metrics scraping

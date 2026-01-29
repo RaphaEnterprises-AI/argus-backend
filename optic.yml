@@ -1,0 +1,110 @@
+# Optic Configuration for API Change Detection
+# Docs: https://www.useoptic.com/docs
+#
+# This configuration defines:
+# 1. Which changes are considered "breaking"
+# 2. Rules for API governance
+# 3. Changelog generation settings
+
+ruleset:
+  # ============================================================================
+  # Breaking Change Rules
+  # ============================================================================
+  # These changes will fail CI and require explicit approval
+
+  - breaking-changes:
+      # Removing endpoints
+      - remove-endpoint: error
+
+      # Removing required parameters
+      - remove-required-request-property: error
+
+      # Adding required parameters to existing endpoints
+      - add-required-request-property: error
+
+      # Changing parameter types
+      - change-request-property-type: error
+
+      # Removing response properties
+      - remove-response-property: error
+
+      # Changing response property types
+      - change-response-property-type: error
+
+      # Changing HTTP methods
+      - change-operation-method: error
+
+      # Changing path parameters
+      - change-path-parameter: error
+
+  # ============================================================================
+  # Non-Breaking Change Rules (Warnings)
+  # ============================================================================
+  # These are logged but don't fail CI
+
+  - non-breaking-changes:
+      # Adding new endpoints
+      - add-endpoint: info
+
+      # Adding optional parameters
+      - add-optional-request-property: info
+
+      # Adding response properties
+      - add-response-property: info
+
+      # Deprecating endpoints
+      - deprecate-endpoint: warn
+
+  # ============================================================================
+  # API Governance Rules
+  # ============================================================================
+  # Best practices enforcement
+
+  - governance:
+      # All endpoints should have descriptions
+      - require-operation-description: warn
+
+      # All parameters should have descriptions
+      - require-parameter-description: warn
+
+      # Require operation IDs
+      - require-operation-id: error
+
+      # Require tags
+      - require-operation-tags: warn
+
+      # Response should have schema
+      - require-response-schema: warn
+
+# ============================================================================
+# Changelog Configuration
+# ============================================================================
+changelog:
+  # Format for the generated changelog
+  format: markdown
+
+  # Group changes by tag
+  group-by: tags
+
+  # Include change details
+  include:
+    - added
+    - removed
+    - changed
+    - deprecated
+
+# ============================================================================
+# Ignore Patterns
+# ============================================================================
+# Endpoints or changes to ignore in diff
+
+ignore:
+  # Ignore internal/debug endpoints
+  paths:
+    - /health
+    - /docs
+    - /redoc
+    - /openapi.json
+
+  # Ignore specific operations
+  operations: []

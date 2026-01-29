@@ -334,6 +334,7 @@ spec:
     # - pgvector (Supabase PostgreSQL)
     # - Neo4j Aura (knowledge graph via Bolt protocol)
     # - Cohere API (embeddings)
+    # - Redpanda Cloud (Kafka event streaming)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -348,3 +349,5 @@ spec:
           port: 5432  # PostgreSQL (Supabase pgvector)
         - protocol: TCP
           port: 7687  # Neo4j Bolt protocol (Aura)
+        - protocol: TCP
+          port: 9092  # Kafka/Redpanda Cloud

@@ -1,0 +1,11 @@
+# Cloudflare Pages Configuration for api.heyargus.ai
+# Deploy with: npx wrangler pages deploy . --project-name=argus-api-docs
+
+name = "argus-api-docs"
+compatibility_date = "2025-09-17"
+
+# Custom domain: api.heyargus.ai
+# Configure in Cloudflare Dashboard: Pages → argus-api-docs → Custom domains
+
+# Build output directory
+# pages_build_output_dir = "."

@@ -1,0 +1,346 @@
+# API Version Control Workflow (100% FREE)
+#
+# This workflow:
+# 1. Regenerates OpenAPI spec on every PR
+# 2. Detects breaking changes using Optic (FREE)
+# 3. Generates docs with ReDoc → deploys to Cloudflare Pages (FREE)
+# 4. Generates changelog with oasdiff (FREE, open-source)
+# 5. Blocks PRs with undocumented breaking changes
+#
+# Documentation URL: https://api.heyargus.ai
+
+name: API Version Control
+
+on:
+  pull_request:
+    paths:
+      - 'src/api/**'
+      - 'openapi.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/api/**'
+      - 'openapi.json'
+
+jobs:
+  # ============================================================================
+  # Job 1: Generate fresh OpenAPI spec
+  # ============================================================================
+  generate-openapi:
+    name: Generate OpenAPI Spec
+    runs-on: ubuntu-latest
+    outputs:
+      spec-changed: ${{ steps.diff.outputs.changed }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install fastapi pydantic pydantic-settings structlog
+
+      - name: Generate OpenAPI spec
+        run: |
+          python scripts/generate_openapi.py > openapi.generated.json 2>/dev/null
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if ! diff -q openapi.json openapi.generated.json > /dev/null 2>&1; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::OpenAPI spec has changed!"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload generated spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi.generated.json
+
+  # ============================================================================
+  # Job 2: Detect breaking changes with Optic
+  # ============================================================================
+  breaking-change-detection:
+    name: Detect Breaking Changes
+    runs-on: ubuntu-latest
+    needs: generate-openapi
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for base comparison
+
+      - name: Download generated spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+
+      - name: Install Optic
+        run: npm install -g @useoptic/optic
+
+      - name: Get base OpenAPI spec
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Safely use the base ref through environment variable
+          git show "origin/${BASE_REF}:openapi.json" > openapi.base.json 2>/dev/null || cp openapi.json openapi.base.json
+
+      - name: Run Optic diff
+        id: optic
+        run: |
+          # Run Optic and capture output
+          optic diff openapi.base.json openapi.generated.json --check > optic-result.txt 2>&1 || true
+
+          # Check for breaking changes
+          if grep -qi "breaking" optic-result.txt 2>/dev/null; then
+            echo "has-breaking=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Breaking API changes detected!"
+          else
+            echo "has-breaking=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Output results for logging
+          cat optic-result.txt
+
+      - name: Comment on PR with API changes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Build comment from Optic results
+          COMMENT="## 🔍 API Change Analysis\n\n"
+
+          if [ -f optic-result.txt ]; then
+            COMMENT="${COMMENT}\`\`\`\n$(cat optic-result.txt)\n\`\`\`\n"
+          else
+            COMMENT="${COMMENT}Optic analysis completed. Check workflow logs for details.\n"
+          fi
+
+          COMMENT="${COMMENT}\n---\n*Powered by [Optic](https://useoptic.com)*"
+
+          # Post comment using gh CLI
+          echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --body-file -
+
+      - name: Fail on undocumented breaking changes
+        if: steps.optic.outputs.has-breaking == 'true'
+        run: |
+          echo "::error::This PR contains breaking API changes!"
+          echo "Please document these changes in the PR description or update the API version."
+          exit 1
+
+  # ============================================================================
+  # Job 3: Generate & Deploy API Documentation (FREE - Cloudflare Pages)
+  # ============================================================================
+  update-docs:
+    name: Deploy to api.heyargus.ai
+    runs-on: ubuntu-latest
+    needs: generate-openapi
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need previous commit for changelog
+
+      - name: Download generated spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate API Documentation
+        run: |
+          # Install tools
+          npm install -g @redocly/cli
+
+          # Create versioned directory structure
+          mkdir -p api-docs/v1
+
+          # Generate ReDoc HTML for current version (v1)
+          redocly build-docs openapi.generated.json \
+            --title "Argus API v1" \
+            --disableGoogleFont \
+            -o api-docs/v1/index.html
+
+          # Copy OpenAPI spec for download
+          cp openapi.generated.json api-docs/v1/openapi.json
+
+      - name: Generate Changelog
+        run: |
+          # Get previous spec
+          git show HEAD~1:openapi.json > openapi.previous.json 2>/dev/null || \
+            cp openapi.generated.json openapi.previous.json
+
+          # Generate changelog using oasdiff Docker
+          docker run --rm -v $(pwd):/specs tufin/oasdiff changelog \
+            /specs/openapi.previous.json /specs/openapi.generated.json \
+            --format markdown > api-docs/v1/CHANGELOG.md 2>/dev/null || \
+            echo -e "# API Changelog\n\nInitial version." > api-docs/v1/CHANGELOG.md
+
+      - name: Create Version Index Page
+        run: |
+          cat > api-docs/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Argus API Documentation</title>
+            <style>
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                min-height: 100vh;
+                color: #fff;
+                padding: 2rem;
+              }
+              .container { max-width: 800px; margin: 0 auto; }
+              h1 {
+                font-size: 2.5rem;
+                margin-bottom: 0.5rem;
+                background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+              }
+              .subtitle { color: #8892b0; margin-bottom: 3rem; }
+              .version-card {
+                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 12px;
+                padding: 1.5rem;
+                margin-bottom: 1rem;
+                transition: all 0.3s ease;
+              }
+              .version-card:hover {
+                background: rgba(255,255,255,0.08);
+                border-color: #00d4ff;
+                transform: translateY(-2px);
+              }
+              .version-card.current { border-left: 4px solid #00d4ff; }
+              .version-card.deprecated { border-left: 4px solid #ff6b6b; opacity: 0.8; }
+              .version-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+              .version-name { font-size: 1.5rem; font-weight: 600; }
+              .badge {
+                font-size: 0.75rem;
+                padding: 0.25rem 0.75rem;
+                border-radius: 20px;
+                font-weight: 500;
+              }
+              .badge.current { background: #00d4ff; color: #000; }
+              .badge.deprecated { background: #ff6b6b; color: #fff; }
+              .version-desc { color: #8892b0; margin-bottom: 1rem; }
+              .links { display: flex; gap: 1rem; flex-wrap: wrap; }
+              .links a {
+                color: #00d4ff;
+                text-decoration: none;
+                font-weight: 500;
+              }
+              .links a:hover { text-decoration: underline; }
+              .footer {
+                margin-top: 3rem;
+                padding-top: 2rem;
+                border-top: 1px solid rgba(255,255,255,0.1);
+                color: #8892b0;
+                font-size: 0.875rem;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>Argus API</h1>
+              <p class="subtitle">AI-Powered E2E Testing Platform</p>
+
+              <div class="version-card current">
+                <div class="version-header">
+                  <span class="version-name">v1</span>
+                  <span class="badge current">Current</span>
+                </div>
+                <p class="version-desc">
+                  Latest stable API version with full feature support.
+                  419 endpoints for test management, execution, and analytics.
+                </p>
+                <div class="links">
+                  <a href="/v1/">Documentation</a>
+                  <a href="/v1/openapi.json">OpenAPI Spec</a>
+                  <a href="/v1/CHANGELOG.md">Changelog</a>
+                </div>
+              </div>
+
+              <!-- Future versions will be added here -->
+              <!--
+              <div class="version-card deprecated">
+                <div class="version-header">
+                  <span class="version-name">v1</span>
+                  <span class="badge deprecated">Deprecated</span>
+                </div>
+                <p class="version-desc">
+                  Sunset: October 1, 2026. Please migrate to v2.
+                </p>
+                <div class="links">
+                  <a href="/v1/">Documentation</a>
+                  <a href="/migration/v1-to-v2">Migration Guide</a>
+                </div>
+              </div>
+              -->
+
+              <div class="footer">
+                <p>Base URL: <code>https://app.heyargus.ai/api/v1/</code></p>
+                <p style="margin-top: 0.5rem;">
+                  <a href="https://heyargus.ai" style="color: #00d4ff;">heyargus.ai</a> •
+                  <a href="https://github.com/your-org/argus" style="color: #00d4ff;">GitHub</a>
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy api-docs --project-name=argus-api-docs
+
+  # ============================================================================
+  # Job 4: Commit updated OpenAPI spec (main branch only)
+  # ============================================================================
+  commit-spec:
+    name: Commit OpenAPI Spec
+    runs-on: ubuntu-latest
+    needs: generate-openapi
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.generate-openapi.outputs.spec-changed == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download generated spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mv openapi.generated.json openapi.json
+          git add openapi.json
+          git diff --staged --quiet || git commit -m "chore: update OpenAPI spec [skip ci]"
+          git push

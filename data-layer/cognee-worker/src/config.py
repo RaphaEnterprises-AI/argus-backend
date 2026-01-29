@@ -187,18 +187,12 @@ class WorkerConfig:
         default_factory=lambda: int(os.getenv("HEALTH_CHECK_PORT", "8080"))
     )
 
-    # Topics to consume
-    input_topics: list[str] = field(default_factory=lambda: [
-        "argus.codebase.ingested",
-        "argus.test.created",
-        "argus.test.executed",
-        "argus.test.failed",
-        "argus.healing.requested",
-        "argus.integration.github.pr",
-        "argus.integration.confluence",
-        "argus.integration.jira",
-        "argus.integration.sentry",
-    ])
+    # Topics to consume - can be overridden via KAFKA_INPUT_TOPICS env var (comma-separated)
+    # Default: core event topics only. Integration topics should be added when ready.
+    input_topics: list[str] = field(default_factory=lambda: os.getenv(
+        "KAFKA_INPUT_TOPICS",
+        "argus.codebase.ingested,argus.test.created,argus.test.executed,argus.test.failed,argus.healing.requested"
+    ).split(","))
 
     # Output topics
     output_topic_analyzed: str = "argus.codebase.analyzed"
