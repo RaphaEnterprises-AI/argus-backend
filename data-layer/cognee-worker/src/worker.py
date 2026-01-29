@@ -300,9 +300,10 @@ class CogneeKafkaWorker:
         field: str,
         default: Any = None,
     ) -> Any:
-        """Extract a field from event, checking payload first then root.
+        """Extract a field from event, checking data/payload first then root.
 
         Event structure can be either:
+        - ArgusEvent pattern: {"data": {"test_id": "x"}, "org_id": "y"}
         - Envelope pattern: {"payload": {"test_id": "x"}, "org_id": "y"}
         - Flat pattern: {"test_id": "x", "org_id": "y"}
 
@@ -314,9 +315,18 @@ class CogneeKafkaWorker:
         Returns:
             Field value or default
         """
+        # Check 'data' field first (ArgusEvent pattern from event gateway)
+        data = event.get("data", {})
+        if isinstance(data, dict) and field in data:
+            return data.get(field)
+
+        # Check 'payload' field (legacy envelope pattern)
         payload = event.get("payload", {})
-        # Check payload first (envelope pattern), then root (flat pattern)
-        return payload.get(field) or event.get(field, default)
+        if isinstance(payload, dict) and field in payload:
+            return payload.get(field)
+
+        # Check root level (flat pattern)
+        return event.get(field, default)
 
     def _safe_json_deserialize(self, v: bytes) -> dict:
         """Safely deserialize JSON, returning error dict on failure."""
