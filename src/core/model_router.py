@@ -51,23 +51,41 @@ class ModelProvider(str, Enum):
 
     RECOMMENDATION FOR STARTUPS:
     Use OPENROUTER as your single provider. Benefits:
-    - 300+ models via ONE API key
-    - No markup (just 5.5% platform fee)
+    - 400+ models via ONE API key
+    - No markup (just 5% platform fee)
     - Automatic failover
     - Gets latest models first (DeepSeek, Claude, etc.)
     - OpenAI-compatible API
 
     Other providers kept for enterprise/specific use cases.
     """
-    OPENROUTER = "openrouter"  # RECOMMENDED: Single API for all models
+    # Multi-model router (RECOMMENDED)
+    OPENROUTER = "openrouter"  # Single API for 400+ models
+
+    # Primary providers
     ANTHROPIC = "anthropic"    # Direct Claude (for Computer Use)
     OPENAI = "openai"          # Direct OpenAI
     GOOGLE = "google"          # Direct Gemini
-    GROQ = "groq"              # Ultra-fast Llama (if needed)
+
+    # Inference providers (fast/cheap)
+    GROQ = "groq"              # Ultra-fast Llama
     TOGETHER = "together"      # Open model hosting
-    VERTEX_AI = "vertex_ai"    # Claude via GCP (enterprise)
+    FIREWORKS = "fireworks"    # Fast inference
     CEREBRAS = "cerebras"      # Ultra-fast inference
+
+    # Specialized providers
     DEEPSEEK = "deepseek"      # DeepSeek direct API
+    MISTRAL = "mistral"        # Mistral AI
+    PERPLEXITY = "perplexity"  # AI with search
+    COHERE = "cohere"          # Enterprise RAG
+    XAI = "xai"                # Grok models
+
+    # Enterprise providers
+    VERTEX_AI = "vertex_ai"    # Claude via GCP
+    AZURE_OPENAI = "azure_openai"  # OpenAI via Azure
+    AWS_BEDROCK = "aws_bedrock"    # Claude via AWS
+
+    # Local inference
     LOCAL = "local"            # Ollama, vLLM, etc.
 
 

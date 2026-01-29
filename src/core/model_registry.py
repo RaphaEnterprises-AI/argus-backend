@@ -18,12 +18,31 @@ from enum import Enum
 
 class Provider(str, Enum):
     """AI Model providers."""
+    # Primary providers
     ANTHROPIC = "anthropic"
-    GOOGLE = "google"
     OPENAI = "openai"
+    GOOGLE = "google"
+
+    # Inference providers (fast/cheap)
     GROQ = "groq"
     TOGETHER = "together"
-    VERTEX_AI = "vertex_ai"  # Claude via Google Cloud
+    FIREWORKS = "fireworks"
+    CEREBRAS = "cerebras"
+
+    # Multi-model router (recommended - 400+ models)
+    OPENROUTER = "openrouter"
+
+    # Specialized providers
+    DEEPSEEK = "deepseek"
+    MISTRAL = "mistral"
+    PERPLEXITY = "perplexity"
+    COHERE = "cohere"
+    XAI = "xai"
+
+    # Enterprise providers
+    VERTEX_AI = "vertex_ai"      # Claude via Google Cloud
+    AZURE_OPENAI = "azure_openai"  # OpenAI via Azure
+    AWS_BEDROCK = "aws_bedrock"    # Claude/Llama via AWS
 
 
 class Capability(str, Enum):
