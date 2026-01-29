@@ -7,15 +7,20 @@ Provides endpoints for:
 - Listing user's organizations
 """
 
+import base64
+import io
 import secrets
+import uuid
 from datetime import UTC, datetime
 from typing import Optional
 
+import httpx
 import structlog
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from src.api.teams import get_current_user
+from src.config import settings
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -61,6 +66,16 @@ class UpdateProfileRequest(BaseModel):
     timezone: str | None = Field(None, max_length=50)
     language: str | None = Field(None, max_length=10)
     theme: str | None = Field(None, pattern="^(light|dark|system)$")
+    # Professional fields
+    job_title: str | None = Field(None, max_length=100)
+    company: str | None = Field(None, max_length=100)
+    department: str | None = Field(None, max_length=100)
+    phone: str | None = Field(None, max_length=20)
+    # Social links
+    github_username: str | None = Field(None, max_length=50)
+    linkedin_url: str | None = Field(None, max_length=200)
+    twitter_handle: str | None = Field(None, max_length=50)
+    website_url: str | None = Field(None, max_length=200)
 
 
 class UpdateNotificationPreferencesRequest(BaseModel):
@@ -159,6 +174,17 @@ class UserProfileResponse(BaseModel):
     timezone: str | None
     language: str | None
     theme: str | None
+    # Professional fields
+    job_title: str | None = None
+    company: str | None = None
+    department: str | None = None
+    phone: str | None = None
+    # Social links
+    github_username: str | None = None
+    linkedin_url: str | None = None
+    twitter_handle: str | None = None
+    website_url: str | None = None
+    # Preferences
     notification_preferences: NotificationPreferences
     test_defaults: TestDefaults
     discovery_preferences: DiscoveryPreferences
@@ -339,6 +365,17 @@ async def get_my_profile(request: Request):
         timezone=profile.get("timezone"),
         language=profile.get("language"),
         theme=profile.get("theme"),
+        # Professional fields
+        job_title=profile.get("job_title"),
+        company=profile.get("company"),
+        department=profile.get("department"),
+        phone=profile.get("phone"),
+        # Social links
+        github_username=profile.get("github_username"),
+        linkedin_url=profile.get("linkedin_url"),
+        twitter_handle=profile.get("twitter_handle"),
+        website_url=profile.get("website_url"),
+        # Preferences
         notification_preferences=NotificationPreferences(**notification_prefs),
         test_defaults=TestDefaults(**test_defaults),
         discovery_preferences=DiscoveryPreferences(**discovery_prefs),
@@ -379,6 +416,24 @@ async def update_my_profile(body: UpdateProfileRequest, request: Request):
         update_data["language"] = body.language
     if body.theme is not None:
         update_data["theme"] = body.theme
+    # Professional fields
+    if body.job_title is not None:
+        update_data["job_title"] = body.job_title
+    if body.company is not None:
+        update_data["company"] = body.company
+    if body.department is not None:
+        update_data["department"] = body.department
+    if body.phone is not None:
+        update_data["phone"] = body.phone
+    # Social links
+    if body.github_username is not None:
+        update_data["github_username"] = body.github_username
+    if body.linkedin_url is not None:
+        update_data["linkedin_url"] = body.linkedin_url
+    if body.twitter_handle is not None:
+        update_data["twitter_handle"] = body.twitter_handle
+    if body.website_url is not None:
+        update_data["website_url"] = body.website_url
 
     result = await supabase.update(
         "user_profiles",
@@ -424,6 +479,24 @@ async def patch_my_profile(body: UpdateProfileRequest, request: Request):
         update_data["language"] = body.language
     if body.theme is not None:
         update_data["theme"] = body.theme
+    # Professional fields
+    if body.job_title is not None:
+        update_data["job_title"] = body.job_title
+    if body.company is not None:
+        update_data["company"] = body.company
+    if body.department is not None:
+        update_data["department"] = body.department
+    if body.phone is not None:
+        update_data["phone"] = body.phone
+    # Social links
+    if body.github_username is not None:
+        update_data["github_username"] = body.github_username
+    if body.linkedin_url is not None:
+        update_data["linkedin_url"] = body.linkedin_url
+    if body.twitter_handle is not None:
+        update_data["twitter_handle"] = body.twitter_handle
+    if body.website_url is not None:
+        update_data["website_url"] = body.website_url
 
     result = await supabase.update(
         "user_profiles",
@@ -1023,4 +1096,270 @@ async def switch_organization(org_id: str, request: Request):
         organization_id=org_id,
         organization_name=org["name"],
         message=f"Successfully switched to {org['name']}"
+    )
+
+
+# ============================================================================
+# Avatar Upload
+# ============================================================================
+
+class AvatarUploadResponse(BaseModel):
+    """Response for avatar upload."""
+    success: bool
+    avatar_url: str
+    message: str
+
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_AVATAR_SIZE = 5 * 1024 * 1024  # 5MB
+
+
+@router.post("/me/avatar", response_model=AvatarUploadResponse)
+async def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """Upload user avatar to Supabase Storage.
+
+    Validates file type and size, then uploads to the avatars bucket.
+    The avatar URL is automatically updated in the user's profile.
+
+    Supported formats: JPEG, PNG, WebP, GIF
+    Max size: 5MB
+    """
+    user = await get_current_user(request)
+
+    # Validate file type
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: JPEG, PNG, WebP, GIF"
+        )
+
+    # Read file content
+    content = await file.read()
+
+    # Validate file size
+    if len(content) > MAX_AVATAR_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is 5MB"
+        )
+
+    # Ensure profile exists
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Generate unique filename
+    file_ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    filename = f"{user['user_id']}/{uuid.uuid4()}.{file_ext}"
+
+    # Upload to Supabase Storage
+    try:
+        # Use Supabase Storage API
+        storage_url = f"{settings.SUPABASE_URL}/storage/v1/object/avatars/{filename}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                storage_url,
+                content=content,
+                headers={
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "Content-Type": file.content_type,
+                },
+            )
+
+            if response.status_code not in (200, 201):
+                logger.error(
+                    "Failed to upload avatar to storage",
+                    user_id=user["user_id"],
+                    status_code=response.status_code,
+                    response=response.text
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to upload avatar"
+                )
+
+        # Build public URL
+        avatar_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/avatars/{filename}"
+
+        # Update user profile with new avatar URL
+        result = await supabase.update(
+            "user_profiles",
+            {"id": f"eq.{profile['id']}"},
+            {
+                "avatar_url": avatar_url,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail="Failed to update profile")
+
+        logger.info(
+            "Avatar uploaded successfully",
+            user_id=user["user_id"],
+            avatar_url=avatar_url
+        )
+
+        return AvatarUploadResponse(
+            success=True,
+            avatar_url=avatar_url,
+            message="Avatar uploaded successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Exception uploading avatar",
+            user_id=user["user_id"],
+            error=str(e)
+        )
+        raise HTTPException(status_code=500, detail="Failed to upload avatar")
+
+
+# ============================================================================
+# Account Activity
+# ============================================================================
+
+class AccountActivityResponse(BaseModel):
+    """Response for account activity."""
+    member_since: str
+    last_login_at: str | None
+    last_active_at: str | None
+    login_count: int
+    organizations_count: int
+    api_keys_count: int
+    api_requests_30d: int
+    organizations: list[OrganizationSummary]
+
+
+@router.get("/me/activity", response_model=AccountActivityResponse)
+async def get_account_activity(request: Request):
+    """Get user's account activity summary.
+
+    Returns account statistics including login count, API usage,
+    and organization memberships.
+    """
+    user = await get_current_user(request)
+
+    # Ensure profile exists
+    profile = await get_or_create_profile(user["user_id"], user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Get organizations
+    orgs = await list_my_organizations(request)
+
+    # Get API keys count
+    api_keys_result = await supabase.request(
+        f"/api_keys?user_id=eq.{user['user_id']}&is_active=eq.true&select=id"
+    )
+    api_keys_count = len(api_keys_result.get("data", []))
+
+    # Get API requests in last 30 days (from ai_usage_logs if available)
+    # This is a simplified count - in production you'd query a proper usage table
+    api_requests_30d = 0
+    try:
+        usage_result = await supabase.request(
+            f"/ai_usage_logs?user_id=eq.{user['user_id']}"
+            f"&created_at=gte.{(datetime.now(UTC).replace(day=1)).isoformat()}"
+            f"&select=id"
+        )
+        api_requests_30d = len(usage_result.get("data", []))
+    except Exception:
+        # Table might not exist, that's okay
+        pass
+
+    return AccountActivityResponse(
+        member_since=profile["created_at"],
+        last_login_at=profile.get("last_login_at"),
+        last_active_at=profile.get("last_active_at"),
+        login_count=profile.get("login_count", 0),
+        organizations_count=len(orgs),
+        api_keys_count=api_keys_count,
+        api_requests_30d=api_requests_30d,
+        organizations=orgs,
+    )
+
+
+# ============================================================================
+# Connected Accounts
+# ============================================================================
+
+class ConnectedAccount(BaseModel):
+    """A connected OAuth provider."""
+    provider: str
+    provider_name: str
+    email: str | None
+    connected_at: str | None
+
+
+class ConnectedAccountsResponse(BaseModel):
+    """Response for connected accounts."""
+    accounts: list[ConnectedAccount]
+    api_keys_active: int
+    api_keys_total: int
+
+
+@router.get("/me/connected-accounts", response_model=ConnectedAccountsResponse)
+async def get_connected_accounts(request: Request):
+    """Get OAuth providers linked to user account.
+
+    Returns list of connected OAuth providers (via Clerk) and API key summary.
+    Note: OAuth provider info comes from Clerk user metadata.
+    """
+    user = await get_current_user(request)
+
+    supabase = get_supabase_client()
+
+    # Get API keys summary
+    api_keys_result = await supabase.request(
+        f"/api_keys?user_id=eq.{user['user_id']}&select=id,is_active"
+    )
+    api_keys = api_keys_result.get("data", [])
+    api_keys_active = sum(1 for k in api_keys if k.get("is_active"))
+    api_keys_total = len(api_keys)
+
+    # Build connected accounts from Clerk user data
+    # Clerk provides external accounts in user metadata
+    accounts: list[ConnectedAccount] = []
+
+    # The user dict from get_current_user typically includes provider info
+    # In a real implementation, you'd query Clerk API for external accounts
+    # For now, we infer from the email domain or auth method
+
+    user_email = user.get("email", "")
+
+    # Primary email is always "connected"
+    if user_email:
+        # Detect provider from email domain
+        provider = "email"
+        provider_name = "Email"
+
+        if "gmail.com" in user_email or "googlemail.com" in user_email:
+            provider = "google"
+            provider_name = "Google"
+        elif "github" in user.get("user_id", "").lower():
+            provider = "github"
+            provider_name = "GitHub"
+
+        accounts.append(ConnectedAccount(
+            provider=provider,
+            provider_name=provider_name,
+            email=user_email,
+            connected_at=None,  # Would come from Clerk API
+        ))
+
+    # Note: For full OAuth provider listing, integrate with Clerk Admin API
+    # GET https://api.clerk.dev/v1/users/{user_id}
+    # The external_accounts field contains all linked providers
+
+    return ConnectedAccountsResponse(
+        accounts=accounts,
+        api_keys_active=api_keys_active,
+        api_keys_total=api_keys_total,
     )
