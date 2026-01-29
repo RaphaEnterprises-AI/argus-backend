@@ -1,5 +1,10 @@
 """
-Caching service using Cloudflare KV REST API and Valkey (Redis-compatible).
+Caching service using multiple backends with intelligent fallback.
+
+Cache Priority (fastest to slowest):
+1. Valkey (K8s internal) - 1-5ms, Redis protocol
+2. Upstash Redis (REST API) - 10-30ms, full Redis features, cost-effective
+3. Cloudflare KV (REST API) - 115ms+, expensive writes, last resort
 
 Provides caching decorators for:
 - Quality scores (TTL: 5 min)
@@ -7,9 +12,9 @@ Provides caching decorators for:
 - Healing patterns (TTL: 7 days)
 - Discovery patterns (TTL: 15 min) - via Valkey
 
-Uses:
-- Cloudflare KV via REST API for edge caching (Railway deployment)
-- Valkey for high-performance local/K8s caching (data layer)
+Cost comparison (1M reads + 100K writes/month):
+- Cloudflare KV: ~$500 (writes are $5/M!)
+- Upstash Redis: ~$2.20 (227x cheaper)
 """
 
 import hashlib
@@ -115,6 +120,178 @@ class CloudflareKVClient:
         if self._client:
             await self._client.aclose()
             self._client = None
+
+
+# =============================================================================
+# Upstash Redis Client (REST API - 227x cheaper than Cloudflare KV for writes)
+# =============================================================================
+
+
+class UpstashRedisClient:
+    """Upstash Redis REST API client.
+
+    Upstash Redis is the preferred fallback when Valkey (K8s) is unreachable:
+    - 10-30ms latency (vs 115ms+ for Cloudflare KV)
+    - Full Redis command support (SCAN, EXPIRE, atomic ops, etc.)
+    - $2/1M requests vs $5/1M writes for Cloudflare KV
+    - Real-time replication (vs 60s propagation for KV)
+
+    REST API format: GET/POST to {url}/{command}/{args}
+    Response format: {"result": <value>}
+    """
+
+    def __init__(self, rest_url: str, rest_token: str):
+        """Initialize Upstash Redis client.
+
+        Args:
+            rest_url: Upstash REST URL (e.g., https://xxx.upstash.io)
+            rest_token: Upstash REST API token
+        """
+        self.rest_url = rest_url.rstrip("/")
+        self.rest_token = rest_token
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.rest_token}",
+        }
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=10.0)
+        return self._client
+
+    async def _execute(self, *args: str) -> Any:
+        """Execute a Redis command via REST API.
+
+        Args:
+            *args: Redis command and arguments (e.g., "GET", "mykey")
+
+        Returns:
+            The result from the response
+        """
+        client = await self._get_client()
+        # Upstash REST API: POST with JSON array of command args
+        response = await client.post(
+            self.rest_url,
+            headers=self._get_headers(),
+            json=list(args),
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("result")
+        else:
+            logger.warning(f"Upstash error: {response.status_code} - {response.text}")
+            return None
+
+    async def get(self, key: str) -> str | None:
+        """Get a value from Upstash Redis."""
+        try:
+            return await self._execute("GET", key)
+        except Exception as e:
+            logger.warning(f"Upstash get exception: {e}")
+            return None
+
+    async def set(self, key: str, value: str, ex: int = 300) -> bool:
+        """Set a value in Upstash Redis with TTL."""
+        try:
+            result = await self._execute("SET", key, value, "EX", str(ex))
+            return result == "OK"
+        except Exception as e:
+            logger.warning(f"Upstash set exception: {e}")
+            return False
+
+    async def delete(self, key: str) -> bool:
+        """Delete a value from Upstash Redis."""
+        try:
+            result = await self._execute("DEL", key)
+            return result is not None and result > 0
+        except Exception as e:
+            logger.warning(f"Upstash delete exception: {e}")
+            return False
+
+    async def ping(self) -> bool:
+        """Check if Upstash Redis is reachable."""
+        try:
+            result = await self._execute("PING")
+            return result == "PONG"
+        except Exception:
+            return False
+
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Get multiple values from Upstash Redis."""
+        try:
+            result = await self._execute("MGET", *keys)
+            return result if result else [None] * len(keys)
+        except Exception as e:
+            logger.warning(f"Upstash mget exception: {e}")
+            return [None] * len(keys)
+
+    async def incr(self, key: str) -> int | None:
+        """Atomically increment a counter."""
+        try:
+            return await self._execute("INCR", key)
+        except Exception as e:
+            logger.warning(f"Upstash incr exception: {e}")
+            return None
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        """Set expiration on a key."""
+        try:
+            result = await self._execute("EXPIRE", key, str(seconds))
+            return result == 1
+        except Exception as e:
+            logger.warning(f"Upstash expire exception: {e}")
+            return False
+
+    async def close(self):
+        """Close the HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+
+# Global Upstash client (lazy initialized)
+_upstash_client: UpstashRedisClient | None = None
+
+
+def get_upstash_client() -> UpstashRedisClient | None:
+    """Get or create Upstash Redis client (lazy initialization)."""
+    global _upstash_client
+
+    if _upstash_client is not None:
+        return _upstash_client
+
+    settings = get_settings()
+
+    # Check for Upstash environment variables
+    upstash_url = getattr(settings, "upstash_redis_rest_url", None)
+    upstash_token = getattr(settings, "upstash_redis_rest_token", None)
+
+    if not upstash_url or not upstash_token:
+        # Try environment variables directly
+        import os
+        upstash_url = os.getenv("UPSTASH_REDIS_REST_URL")
+        upstash_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+
+    if not upstash_url or not upstash_token:
+        logger.debug("Upstash Redis not configured")
+        return None
+
+    try:
+        # Handle SecretStr if needed
+        if hasattr(upstash_token, "get_secret_value"):
+            upstash_token = upstash_token.get_secret_value()
+
+        _upstash_client = UpstashRedisClient(
+            rest_url=upstash_url,
+            rest_token=upstash_token,
+        )
+        logger.info("Upstash Redis client initialized")
+        return _upstash_client
+    except Exception as e:
+        logger.warning(f"Failed to initialize Upstash Redis client: {e}")
+        return None
 
 
 # Global KV client (lazy initialized)
@@ -838,13 +1015,63 @@ async def check_valkey_health() -> dict:
         }
 
 
+async def check_upstash_health() -> dict:
+    """Check if Upstash Redis is healthy."""
+    upstash = get_upstash_client()
+
+    if upstash is None:
+        return {
+            "healthy": False,
+            "reason": "Upstash Redis not configured",
+            "configured": False,
+        }
+
+    try:
+        healthy = await upstash.ping()
+        if healthy:
+            return {
+                "healthy": True,
+                "provider": "upstash_redis",
+                "configured": True,
+                "note": "Preferred fallback (227x cheaper than Cloudflare KV)",
+            }
+        else:
+            return {
+                "healthy": False,
+                "reason": "Ping failed",
+                "configured": True,
+            }
+    except Exception as e:
+        return {
+            "healthy": False,
+            "reason": str(e),
+            "configured": True,
+        }
+
+
 async def check_all_cache_health() -> dict:
     """Check health of all cache backends."""
-    kv_health = await check_cache_health()
     valkey_health = await check_valkey_health()
+    upstash_health = await check_upstash_health()
+    kv_health = await check_cache_health()
+
+    # Determine active backend (priority order)
+    active_backend = None
+    if valkey_health.get("healthy"):
+        active_backend = "valkey"
+    elif upstash_health.get("healthy"):
+        active_backend = "upstash_redis"
+    elif kv_health.get("healthy"):
+        active_backend = "cloudflare_kv"
 
     return {
-        "cloudflare_kv": kv_health,
         "valkey": valkey_health,
-        "any_healthy": kv_health.get("healthy", False) or valkey_health.get("healthy", False),
+        "upstash_redis": upstash_health,
+        "cloudflare_kv": kv_health,
+        "active_backend": active_backend,
+        "any_healthy": (
+            valkey_health.get("healthy", False) or
+            upstash_health.get("healthy", False) or
+            kv_health.get("healthy", False)
+        ),
     }

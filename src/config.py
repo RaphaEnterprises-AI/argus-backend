@@ -481,6 +481,21 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Upstash Redis Configuration (Preferred fallback - 227x cheaper than KV)
+    # ==========================================================================
+    # Upstash Redis is used when Valkey (K8s) is unreachable (e.g., from Railway)
+    # Much better than Cloudflare KV: 10-30ms latency, full Redis features, cheap
+    # Cost comparison (1M reads + 100K writes): KV=$500/mo, Upstash=$2.20/mo
+    upstash_redis_rest_url: str | None = Field(
+        None,
+        description="Upstash Redis REST URL (e.g., https://xxx.upstash.io)"
+    )
+    upstash_redis_rest_token: str | None = Field(
+        None,
+        description="Upstash Redis REST API token"
+    )
+
+    # ==========================================================================
     # Cognee Configuration (AI Memory)
     # ==========================================================================
     cognee_env: str = Field(

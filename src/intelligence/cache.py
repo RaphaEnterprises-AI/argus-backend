@@ -42,15 +42,17 @@ import structlog
 
 from src.services.cache import (
     CloudflareKVClient,
+    UpstashRedisClient,
     ValkeyClient,
     get_kv_client,
+    get_upstash_client,
     get_valkey_client,
 )
 
 logger = structlog.get_logger(__name__)
 
-# Cache client type that supports both Valkey and Cloudflare KV
-CacheClient = ValkeyClient | CloudflareKVClient
+# Cache client type that supports all backends
+CacheClient = ValkeyClient | UpstashRedisClient | CloudflareKVClient
 
 # Type variable for generic search function return type
 T = TypeVar("T")
@@ -142,33 +144,41 @@ class IntelligenceCache:
     def __init__(
         self,
         valkey_client: ValkeyClient | None = None,
+        upstash_client: UpstashRedisClient | None = None,
         kv_client: CloudflareKVClient | None = None,
         default_ttl: int = DEFAULT_TTL,
         key_prefix: str = "intel",
     ):
         """Initialize the intelligence cache.
 
+        Cache priority (fastest to slowest, cheapest for mixed workloads):
+        1. Valkey (K8s internal) - 1-5ms latency
+        2. Upstash Redis (REST) - 10-30ms latency, 227x cheaper than KV for writes
+        3. Cloudflare KV (REST) - 115ms+ latency, expensive writes ($5/1M)
+
         Args:
-            valkey_client: Optional ValkeyClient instance. If not provided,
-                uses the global client from get_valkey_client().
-            kv_client: Optional CloudflareKVClient for fallback when Valkey
-                is unreachable (e.g., Railway deployment can't reach K8s).
+            valkey_client: Optional ValkeyClient for K8s deployments.
+            upstash_client: Optional UpstashRedisClient for external deployments.
+            kv_client: Optional CloudflareKVClient as last-resort fallback.
             default_ttl: Default TTL in seconds for cache entries.
             key_prefix: Prefix for all cache keys.
         """
         self._valkey_client = valkey_client
+        self._upstash_client = upstash_client
         self._kv_client = kv_client
         self._default_ttl = default_ttl
         self._key_prefix = key_prefix
         self._log = logger.bind(component="intelligence_cache")
         self._valkey_healthy: bool | None = None  # Cache health status
+        self._upstash_healthy: bool | None = None  # Cache health status
 
     async def _get_client(self) -> CacheClient | None:
         """Get the best available cache client with automatic fallback.
 
-        Priority:
-        1. Valkey (K8s internal, fastest) - if healthy
-        2. Cloudflare KV (HTTP REST, works from Railway)
+        Priority (fastest/cheapest first):
+        1. Valkey (K8s internal) - 1-5ms latency
+        2. Upstash Redis (REST) - 10-30ms, 227x cheaper than KV for writes
+        3. Cloudflare KV (REST) - 115ms+, expensive ($5/1M writes), last resort
 
         Returns:
             Cache client or None if no cache is available.
@@ -188,20 +198,43 @@ class IntelligenceCache:
                     if healthy:
                         return self._valkey_client
                     else:
-                        self._log.warning("Valkey ping returned False, falling back to KV")
+                        self._log.warning("Valkey ping returned False, trying Upstash")
                 except Exception as e:
                     self._valkey_healthy = False
                     self._log.warning(
-                        "Valkey unreachable, falling back to Cloudflare KV",
+                        "Valkey unreachable, trying Upstash Redis",
                         error=str(e),
                     )
 
-        # Fallback to Cloudflare KV (works from external deployments like Railway)
+        # Try Upstash Redis second (10-30ms, much cheaper than Cloudflare KV)
+        if self._upstash_client is None:
+            self._upstash_client = get_upstash_client()
+
+        if self._upstash_client is not None:
+            if self._upstash_healthy is False:
+                self._log.debug("Skipping Upstash (previously unhealthy)")
+            else:
+                try:
+                    healthy = await self._upstash_client.ping()
+                    self._upstash_healthy = healthy
+                    if healthy:
+                        self._log.debug("Using Upstash Redis as cache backend")
+                        return self._upstash_client
+                    else:
+                        self._log.warning("Upstash ping returned False, trying Cloudflare KV")
+                except Exception as e:
+                    self._upstash_healthy = False
+                    self._log.warning(
+                        "Upstash unreachable, falling back to Cloudflare KV",
+                        error=str(e),
+                    )
+
+        # Fallback to Cloudflare KV (last resort - expensive and slow)
         if self._kv_client is None:
             self._kv_client = get_kv_client()
 
         if self._kv_client is not None:
-            self._log.debug("Using Cloudflare KV as cache backend")
+            self._log.debug("Using Cloudflare KV as cache backend (last resort)")
             return self._kv_client
 
         self._log.warning("No cache backend available")
@@ -210,6 +243,7 @@ class IntelligenceCache:
     def reset_health_cache(self) -> None:
         """Reset the cached health status to force re-check on next call."""
         self._valkey_healthy = None
+        self._upstash_healthy = None
 
     def _generate_cache_key(self, query: str, intent: str) -> str:
         """Generate a cache key from query and intent.
@@ -595,7 +629,7 @@ class IntelligenceCache:
         Returns:
             Health status dictionary with details about which backend is in use.
         """
-        # Check Valkey first
+        # Check Valkey first (K8s internal)
         valkey_healthy = False
         valkey_error = None
         if self._valkey_client is None:
@@ -607,7 +641,19 @@ class IntelligenceCache:
             except Exception as e:
                 valkey_error = str(e)
 
-        # Check Cloudflare KV
+        # Check Upstash Redis (preferred fallback)
+        upstash_healthy = False
+        upstash_error = None
+        if self._upstash_client is None:
+            self._upstash_client = get_upstash_client()
+
+        if self._upstash_client is not None:
+            try:
+                upstash_healthy = await self._upstash_client.ping()
+            except Exception as e:
+                upstash_error = str(e)
+
+        # Check Cloudflare KV (last resort)
         kv_healthy = False
         if self._kv_client is None:
             self._kv_client = get_kv_client()
@@ -625,7 +671,18 @@ class IntelligenceCache:
                 "healthy": True,
                 "component": "intelligence_cache",
                 "backend": "valkey",
+                "fallback_available": upstash_healthy or kv_healthy,
+                "upstash_available": upstash_healthy,
+                "kv_available": kv_healthy,
+            }
+        elif upstash_healthy:
+            return {
+                "healthy": True,
+                "component": "intelligence_cache",
+                "backend": "upstash_redis",
+                "valkey_error": valkey_error,
                 "fallback_available": kv_healthy,
+                "note": "Using Upstash Redis (Valkey unreachable)",
             }
         elif kv_healthy:
             return {
@@ -633,12 +690,13 @@ class IntelligenceCache:
                 "component": "intelligence_cache",
                 "backend": "cloudflare_kv",
                 "valkey_error": valkey_error,
-                "note": "Using Cloudflare KV fallback (Valkey unreachable)",
+                "upstash_error": upstash_error,
+                "note": "Using Cloudflare KV (last resort - consider configuring Upstash)",
             }
         else:
             return {
                 "healthy": False,
-                "reason": valkey_error or "No cache backend available",
+                "reason": valkey_error or upstash_error or "No cache backend available",
                 "component": "intelligence_cache",
             }
 
