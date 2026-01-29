@@ -75,11 +75,29 @@ class ProviderKeyInfo(BaseModel):
     created_at: str
 
 
+# All supported providers - matches PROVIDER_META in dashboard
+VALID_PROVIDERS = [
+    # Primary providers
+    "anthropic", "openai", "google",
+    # Inference providers
+    "groq", "together", "fireworks", "cerebras",
+    # Multi-model router (recommended)
+    "openrouter",
+    # Specialized providers
+    "deepseek", "mistral", "perplexity", "cohere", "xai",
+    # Enterprise providers
+    "azure_openai", "aws_bedrock", "google_vertex",
+]
+
+
 class AddProviderKeyRequest(BaseModel):
     """Request to add a provider API key."""
 
-    provider: str = Field(..., pattern="^(anthropic|openai|google|groq|together)$")
-    api_key: str = Field(..., min_length=10, max_length=500)
+    provider: str = Field(
+        ...,
+        pattern="^(anthropic|openai|google|groq|together|openrouter|deepseek|mistral|fireworks|perplexity|cohere|xai|cerebras|azure_openai|aws_bedrock|google_vertex)$"
+    )
+    api_key: str = Field(..., min_length=10, max_length=50000)  # Increased for service account JSON
     display_name: str | None = Field(None, max_length=100)
 
 
@@ -482,8 +500,8 @@ async def delete_provider_key(provider: str, request: Request):
     """Remove a provider API key."""
     user = await get_current_user(request)
 
-    if provider not in ["anthropic", "openai", "google", "groq", "together"]:
-        raise HTTPException(status_code=400, detail="Invalid provider")
+    if provider not in VALID_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Invalid provider: {provider}")
 
     supabase = get_supabase_client()
 
@@ -551,8 +569,8 @@ async def validate_provider_key(provider: str, request: Request):
     """Validate a stored provider key still works."""
     user = await get_current_user(request)
 
-    if provider not in ["anthropic", "openai", "google", "groq", "together"]:
-        raise HTTPException(status_code=400, detail="Invalid provider")
+    if provider not in VALID_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Invalid provider: {provider}")
 
     supabase = get_supabase_client()
 

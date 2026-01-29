@@ -43,6 +43,20 @@ class Provider(str, Enum):
     GOOGLE = "google"
     GROQ = "groq"
     TOGETHER = "together"
+    # Multi-model router (OpenAI-compatible, 400+ models)
+    OPENROUTER = "openrouter"
+    # Additional providers
+    DEEPSEEK = "deepseek"
+    MISTRAL = "mistral"
+    FIREWORKS = "fireworks"
+    PERPLEXITY = "perplexity"
+    COHERE = "cohere"
+    XAI = "xai"
+    CEREBRAS = "cerebras"
+    # Enterprise providers
+    AZURE_OPENAI = "azure_openai"
+    AWS_BEDROCK = "aws_bedrock"
+    GOOGLE_VERTEX = "google_vertex"
 
 
 @dataclass
@@ -80,13 +94,28 @@ class ProviderRouter:
 
     # Map model prefixes to providers
     MODEL_PROVIDER_MAP = {
+        # Direct provider models
         "claude": Provider.ANTHROPIC,
         "gpt": Provider.OPENAI,
         "o1": Provider.OPENAI,
+        "o3": Provider.OPENAI,
         "gemini": Provider.GOOGLE,
         "llama": Provider.GROQ,
-        "deepseek": Provider.TOGETHER,
+        "mixtral": Provider.GROQ,
+        "deepseek": Provider.DEEPSEEK,
+        "mistral": Provider.MISTRAL,
+        "codestral": Provider.MISTRAL,
+        "command": Provider.COHERE,
+        "grok": Provider.XAI,
+        "pplx": Provider.PERPLEXITY,
+        "sonar": Provider.PERPLEXITY,
     }
+
+    # OpenRouter model prefix patterns (e.g., "anthropic/claude-sonnet-4-5")
+    OPENROUTER_PREFIXES = [
+        "anthropic/", "openai/", "google/", "meta-llama/", "mistralai/",
+        "deepseek/", "cohere/", "x-ai/", "perplexity/", "qwen/", "nvidia/",
+    ]
 
     # Platform API key env var names
     PLATFORM_KEY_VARS = {
@@ -95,15 +124,32 @@ class ProviderRouter:
         Provider.GOOGLE: "GOOGLE_API_KEY",
         Provider.GROQ: "GROQ_API_KEY",
         Provider.TOGETHER: "TOGETHER_API_KEY",
+        Provider.OPENROUTER: "OPENROUTER_API_KEY",
+        Provider.DEEPSEEK: "DEEPSEEK_API_KEY",
+        Provider.MISTRAL: "MISTRAL_API_KEY",
+        Provider.FIREWORKS: "FIREWORKS_API_KEY",
+        Provider.PERPLEXITY: "PERPLEXITY_API_KEY",
+        Provider.COHERE: "COHERE_API_KEY",
+        Provider.XAI: "XAI_API_KEY",
+        Provider.CEREBRAS: "CEREBRAS_API_KEY",
+        Provider.AZURE_OPENAI: "AZURE_OPENAI_API_KEY",
     }
 
-    # API endpoints for key validation
+    # API endpoints for key validation (OpenAI-compatible use /models)
     VALIDATION_ENDPOINTS = {
         Provider.ANTHROPIC: "https://api.anthropic.com/v1/messages",
         Provider.OPENAI: "https://api.openai.com/v1/models",
         Provider.GOOGLE: "https://generativelanguage.googleapis.com/v1/models",
         Provider.GROQ: "https://api.groq.com/openai/v1/models",
         Provider.TOGETHER: "https://api.together.xyz/v1/models",
+        Provider.OPENROUTER: "https://openrouter.ai/api/v1/models",
+        Provider.DEEPSEEK: "https://api.deepseek.com/v1/models",
+        Provider.MISTRAL: "https://api.mistral.ai/v1/models",
+        Provider.FIREWORKS: "https://api.fireworks.ai/inference/v1/models",
+        Provider.PERPLEXITY: "https://api.perplexity.ai/chat/completions",
+        Provider.COHERE: "https://api.cohere.ai/v1/models",
+        Provider.XAI: "https://api.x.ai/v1/models",
+        Provider.CEREBRAS: "https://api.cerebras.ai/v1/models",
     }
 
     def __init__(self):
@@ -116,13 +162,19 @@ class ProviderRouter:
         """Determine which provider hosts a model.
 
         Args:
-            model: Model ID (e.g., "claude-sonnet-4-5")
+            model: Model ID (e.g., "claude-sonnet-4-5" or "anthropic/claude-sonnet-4-5")
 
         Returns:
             Provider enum value
         """
         model_lower = model.lower()
 
+        # Check if this is an OpenRouter-style model ID (provider/model format)
+        for prefix in self.OPENROUTER_PREFIXES:
+            if model_lower.startswith(prefix):
+                return Provider.OPENROUTER
+
+        # Check standard model prefixes
         for prefix, provider in self.MODEL_PROVIDER_MAP.items():
             if prefix in model_lower:
                 return provider
@@ -247,15 +299,16 @@ class ProviderRouter:
         """
         endpoint = self.VALIDATION_ENDPOINTS.get(provider)
         if not endpoint:
-            return True, None  # Can't validate, assume valid
+            # For providers without validation endpoints (enterprise), assume valid
+            logger.info(f"No validation endpoint for {provider.value}, assuming valid")
+            return True, None
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 headers = self._get_auth_headers(provider, api_key)
 
-                # For Anthropic, we need to make a minimal API call
+                # Anthropic requires a minimal messages request
                 if provider == Provider.ANTHROPIC:
-                    # Use a minimal messages request to validate
                     response = await client.post(
                         endpoint,
                         headers=headers,
@@ -265,8 +318,25 @@ class ProviderRouter:
                             "messages": [{"role": "user", "content": "Hi"}],
                         },
                     )
+                # Perplexity doesn't have /models, use chat completions
+                elif provider == Provider.PERPLEXITY:
+                    response = await client.post(
+                        endpoint,
+                        headers=headers,
+                        json={
+                            "model": "sonar",
+                            "messages": [{"role": "user", "content": "Hi"}],
+                            "max_tokens": 1,
+                        },
+                    )
+                # Cohere uses different endpoint structure
+                elif provider == Provider.COHERE:
+                    response = await client.get(
+                        "https://api.cohere.ai/v1/models",
+                        headers=headers,
+                    )
                 else:
-                    # Other providers have models list endpoint
+                    # Most providers have OpenAI-compatible /models endpoint
                     response = await client.get(endpoint, headers=headers)
 
                 if response.status_code == 200:
@@ -275,12 +345,22 @@ class ProviderRouter:
                     return False, "Invalid API key"
                 elif response.status_code == 403:
                     return False, "API key lacks required permissions"
+                elif response.status_code == 429:
+                    # Rate limited but key is valid
+                    return True, None
                 else:
-                    return False, f"Validation failed: {response.status_code}"
+                    error_detail = ""
+                    try:
+                        error_json = response.json()
+                        error_detail = error_json.get("error", {}).get("message", "")
+                    except Exception:
+                        pass
+                    return False, f"Validation failed: {response.status_code} {error_detail}"
 
         except httpx.TimeoutException:
-            return False, "Validation timed out"
+            return False, "Validation timed out - please try again"
         except Exception as e:
+            logger.warning(f"Key validation error for {provider.value}: {e}")
             return False, f"Validation error: {str(e)}"
 
     def _get_auth_headers(self, provider: Provider, api_key: str) -> dict[str, str]:
@@ -293,8 +373,18 @@ class ProviderRouter:
             }
         elif provider == Provider.GOOGLE:
             return {"x-goog-api-key": api_key}
+        elif provider == Provider.OPENROUTER:
+            # OpenRouter uses OpenAI-compatible auth with optional site headers
+            return {
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "https://argus.app",  # For OpenRouter analytics
+                "X-Title": "Argus E2E Testing",
+            }
+        elif provider == Provider.COHERE:
+            return {"Authorization": f"Bearer {api_key}"}
         else:
-            # OpenAI-compatible (OpenAI, Groq, Together)
+            # OpenAI-compatible providers (OpenAI, Groq, Together, DeepSeek,
+            # Mistral, Fireworks, Perplexity, xAI, Cerebras)
             return {"Authorization": f"Bearer {api_key}"}
 
     async def track_usage(

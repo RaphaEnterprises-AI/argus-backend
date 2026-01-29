@@ -205,12 +205,61 @@ PROVIDER_METADATA = {
         "key_url": "https://cloud.cerebras.ai/platform",
         "env_var": "CEREBRAS_API_KEY",
     },
+    "mistral": {
+        "name": "Mistral AI",
+        "description": "European AI efficiency with strong multilingual support",
+        "website": "https://mistral.ai",
+        "key_url": "https://console.mistral.ai/api-keys",
+        "env_var": "MISTRAL_API_KEY",
+    },
+    "fireworks": {
+        "name": "Fireworks AI",
+        "description": "Fast inference platform for open source models",
+        "website": "https://fireworks.ai",
+        "key_url": "https://fireworks.ai/account/api-keys",
+        "env_var": "FIREWORKS_API_KEY",
+    },
+    "perplexity": {
+        "name": "Perplexity",
+        "description": "AI with built-in web search for real-time information",
+        "website": "https://perplexity.ai",
+        "key_url": "https://perplexity.ai/settings/api",
+        "env_var": "PERPLEXITY_API_KEY",
+    },
+    "cohere": {
+        "name": "Cohere",
+        "description": "Enterprise NLP with RAG and embeddings specialization",
+        "website": "https://cohere.ai",
+        "key_url": "https://dashboard.cohere.ai/api-keys",
+        "env_var": "COHERE_API_KEY",
+    },
+    "xai": {
+        "name": "xAI",
+        "description": "Grok models with real-time X/Twitter data access",
+        "website": "https://x.ai",
+        "key_url": "https://console.x.ai",
+        "env_var": "XAI_API_KEY",
+    },
     "vertex_ai": {
         "name": "Vertex AI",
         "description": "Claude models via Google Cloud with enterprise features",
         "website": "https://cloud.google.com/vertex-ai",
         "key_url": "https://console.cloud.google.com/apis/credentials",
         "env_var": "GOOGLE_CLOUD_PROJECT",
+    },
+    "azure_openai": {
+        "name": "Azure OpenAI",
+        "description": "OpenAI models on Microsoft Azure with enterprise compliance",
+        "website": "https://azure.microsoft.com/products/ai-services/openai-service",
+        "key_url": "https://portal.azure.com",
+        "env_var": "AZURE_OPENAI_API_KEY",
+    },
+    "aws_bedrock": {
+        "name": "AWS Bedrock",
+        "description": "Claude and other models via AWS with enterprise integration",
+        "website": "https://aws.amazon.com/bedrock",
+        "key_url": "https://console.aws.amazon.com/bedrock",
+        "env_var": "AWS_ACCESS_KEY_ID",
     },
 }
 
@@ -677,4 +726,167 @@ async def get_model(request: Request, model_id: str):
     raise HTTPException(
         status_code=404,
         detail=f"Model '{model_id}' not found",
+    )
+
+
+# ============================================================================
+# OpenRouter Integration - Dynamic Model Fetching
+# ============================================================================
+
+# Cache for OpenRouter models (separate from main cache)
+_openrouter_cache: dict[str, Any] = {}
+_openrouter_cache_timestamp: datetime | None = None
+OPENROUTER_CACHE_TTL = 3600  # 1 hour - models don't change frequently
+
+
+class OpenRouterModel(BaseModel):
+    """OpenRouter model from their API."""
+
+    id: str
+    name: str
+    description: str | None = None
+    provider: str  # Original provider (e.g., "anthropic", "openai")
+    context_length: int
+    pricing: dict  # {"prompt": "0.001", "completion": "0.002"}
+    top_provider: dict | None = None
+    # Capabilities
+    supports_vision: bool = False
+    supports_tools: bool = False
+    supports_json_mode: bool = False
+
+
+class OpenRouterModelsResponse(BaseModel):
+    """Response from OpenRouter models endpoint."""
+
+    models: list[OpenRouterModel]
+    total: int
+    cached: bool = False
+    cache_age_seconds: int | None = None
+
+
+async def _fetch_openrouter_models() -> list[dict]:
+    """Fetch models from OpenRouter API."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Accept": "application/json"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+    except Exception as e:
+        logger.error("Failed to fetch OpenRouter models", error=str(e))
+        return []
+
+
+@router.get("/openrouter/models", response_model=OpenRouterModelsResponse)
+async def list_openrouter_models(
+    request: Request,
+    provider: str | None = Query(None, description="Filter by original provider (e.g., 'anthropic')"),
+    search: str | None = Query(None, description="Search by name or ID"),
+    supports_vision: bool | None = Query(None, description="Filter for vision support"),
+    supports_tools: bool | None = Query(None, description="Filter for tool use support"),
+    min_context: int | None = Query(None, description="Minimum context length"),
+    force_refresh: bool = Query(False, description="Force cache refresh"),
+):
+    """List all models available via OpenRouter.
+
+    OpenRouter provides access to 400+ models from all major providers
+    through a single API key. This endpoint fetches the current model
+    catalog from OpenRouter's API with caching.
+
+    Models include:
+    - Anthropic (Claude family)
+    - OpenAI (GPT-4, o1, etc.)
+    - Google (Gemini)
+    - Meta (Llama)
+    - Mistral, DeepSeek, Cohere, and many more
+
+    Returns pricing in USD per 1M tokens.
+    """
+    global _openrouter_cache, _openrouter_cache_timestamp
+
+    now = datetime.now(UTC)
+    cache_age = None
+
+    # Check cache
+    if (
+        not force_refresh
+        and _openrouter_cache_timestamp is not None
+        and (now - _openrouter_cache_timestamp).total_seconds() < OPENROUTER_CACHE_TTL
+        and "models" in _openrouter_cache
+    ):
+        raw_models = _openrouter_cache["models"]
+        cache_age = int((now - _openrouter_cache_timestamp).total_seconds())
+        cached = True
+    else:
+        raw_models = await _fetch_openrouter_models()
+        _openrouter_cache["models"] = raw_models
+        _openrouter_cache_timestamp = now
+        cached = False
+
+    # Parse and filter models
+    models: list[OpenRouterModel] = []
+    for m in raw_models:
+        try:
+            # Extract provider from model ID (e.g., "anthropic/claude-3-opus" -> "anthropic")
+            model_id = m.get("id", "")
+            original_provider = model_id.split("/")[0] if "/" in model_id else "unknown"
+
+            # Parse pricing (OpenRouter returns as string in USD per token)
+            pricing = m.get("pricing", {})
+            prompt_price = float(pricing.get("prompt", 0)) * 1_000_000  # Convert to per 1M
+            completion_price = float(pricing.get("completion", 0)) * 1_000_000
+
+            # Check capabilities from model architecture or name
+            architecture = m.get("architecture", {})
+            supports_vision = "vision" in model_id.lower() or architecture.get("modality") == "multimodal"
+            supports_tools = m.get("supported_generation_methods", []) != [] or "tools" in str(m).lower()
+
+            model = OpenRouterModel(
+                id=model_id,
+                name=m.get("name", model_id),
+                description=m.get("description"),
+                provider=original_provider,
+                context_length=m.get("context_length", 4096),
+                pricing={"prompt": prompt_price, "completion": completion_price},
+                top_provider=m.get("top_provider"),
+                supports_vision=supports_vision,
+                supports_tools=supports_tools,
+                supports_json_mode=True,  # Most models support this
+            )
+            models.append(model)
+        except Exception as e:
+            logger.warning("Failed to parse OpenRouter model", model=m.get("id"), error=str(e))
+            continue
+
+    # Apply filters
+    if provider:
+        provider_lower = provider.lower()
+        models = [m for m in models if m.provider.lower() == provider_lower]
+
+    if search:
+        search_lower = search.lower()
+        models = [m for m in models if search_lower in m.id.lower() or search_lower in m.name.lower()]
+
+    if supports_vision is not None:
+        models = [m for m in models if m.supports_vision == supports_vision]
+
+    if supports_tools is not None:
+        models = [m for m in models if m.supports_tools == supports_tools]
+
+    if min_context:
+        models = [m for m in models if m.context_length >= min_context]
+
+    # Sort by provider, then by name
+    models.sort(key=lambda m: (m.provider, m.name))
+
+    return OpenRouterModelsResponse(
+        models=models,
+        total=len(models),
+        cached=cached,
+        cache_age_seconds=cache_age,
     )
