@@ -174,6 +174,14 @@ class ModelInfo(BaseModel):
     capabilities: list[str]
     is_available: bool  # Based on user's configured keys
 
+    # Extended fields for UI
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    supports_vision: bool = False
+    supports_function_calling: bool = False
+    supports_streaming: bool = True
+    tier: str | None = None  # "free", "standard", "premium", "enterprise"
+
 
 class AvailableModelsResponse(BaseModel):
     """Available models grouped by provider."""
@@ -997,15 +1005,37 @@ async def get_available_models(request: Request):
                 cap_name = cap.value if hasattr(cap, "value") else str(cap)
                 capabilities.append(cap_name)
 
+            # Determine tier based on price
+            output_price = getattr(model, "output_price", 0.0)
+            if output_price >= 50:
+                tier = "premium"
+            elif output_price >= 10:
+                tier = "standard"
+            elif output_price > 0:
+                tier = "standard"
+            else:
+                tier = "free"
+
+            # Check for vision and tool use capabilities
+            supports_vision = "vision" in capabilities or "VISION" in capabilities
+            supports_function_calling = "tool_use" in capabilities or "TOOL_USE" in capabilities
+
             models.append(
                 ModelInfo(
                     model_id=model.model_id,
                     display_name=model.display_name,
                     provider=provider,
                     input_price=getattr(model, "input_price", 0.0),
-                    output_price=getattr(model, "output_price", 0.0),
+                    output_price=output_price,
                     capabilities=capabilities,
                     is_available=provider in available_providers,
+                    # Extended fields
+                    context_window=getattr(model, "context_window", None),
+                    max_output_tokens=getattr(model, "max_tokens", None),
+                    supports_vision=supports_vision,
+                    supports_function_calling=supports_function_calling,
+                    supports_streaming=getattr(model, "supports_streaming", True),
+                    tier=tier,
                 )
             )
         except Exception as e:
