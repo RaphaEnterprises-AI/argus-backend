@@ -38,6 +38,7 @@ from typing import Annotated, TypedDict
 
 import structlog
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
@@ -222,7 +223,7 @@ def create_initial_supervisor_state(
     )
 
 
-async def supervisor_node(state: SupervisorState, config: dict) -> dict:
+async def supervisor_node(state: SupervisorState, config: RunnableConfig) -> dict:
     """Supervisor node that routes to appropriate agents.
 
     Analyzes the current state and decides which specialized agent
