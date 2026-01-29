@@ -11,15 +11,18 @@ metadata:
     app.kubernetes.io/part-of: argus
     app.kubernetes.io/component: worker
 data:
-  # Kafka/Redpanda Configuration
-  # Use pod-specific DNS for headless service (redpanda-0 is the StatefulSet pod)
-  KAFKA_BOOTSTRAP_SERVERS: "redpanda-0.redpanda.argus-data.svc.cluster.local:9092"
+  # Kafka/Redpanda Cloud Configuration
+  # Using Redpanda Serverless (cloud) - same cluster as Railway backend
+  # IMPORTANT: Both Railway and Cognee worker must use the SAME Redpanda Cloud
+  # to ensure events flow properly from publisher to consumer
+  #
+  # The broker URL is injected via Secret to avoid hardcoding cluster-specific values
+  # Format: <cluster-id>.any.<region>.mpx.prd.cloud.redpanda.com:9092
   KAFKA_CONSUMER_GROUP: "argus-cognee-workers"
   KAFKA_AUTO_OFFSET_RESET: "earliest"
-  # SASL Configuration for Redpanda
-  KAFKA_SECURITY_PROTOCOL: "SASL_PLAINTEXT"
-  KAFKA_SASL_MECHANISM: "SCRAM-SHA-512"
-  KAFKA_SASL_USERNAME: "argus-service"
+  # SASL Configuration for Redpanda Cloud (uses SASL_SSL, not SASL_PLAINTEXT)
+  KAFKA_SECURITY_PROTOCOL: "SASL_SSL"
+  KAFKA_SASL_MECHANISM: "SCRAM-SHA-256"
 
   # FalkorDB Configuration
   FALKORDB_HOST: "falkordb-headless.argus-data.svc.cluster.local"
@@ -139,7 +142,17 @@ spec:
                 secretKeyRef:
                   name: valkey-auth
                   key: password
-            # Kafka/Redpanda SASL password (matches argus-service user in redpanda-superusers)
+            # Redpanda Cloud Configuration (all from secrets for security)
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: redpanda-brokers
+            - name: KAFKA_SASL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: argus-data-secrets
+                  key: redpanda-username
             - name: KAFKA_SASL_PASSWORD
               valueFrom:
                 secretKeyRef:

@@ -40,6 +40,7 @@ from src.api.collaboration import router as collaboration_router
 from src.api.correlations import router as correlations_router
 from src.api.data_layer_health import router as data_layer_health_router
 from src.api.discovery import router as discovery_router
+from src.api.events import router as events_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
 from src.api.github_webhooks import router as github_webhooks_router
@@ -428,6 +429,7 @@ app.include_router(sast_router)
 app.include_router(vcs_github_webhook_router)
 app.include_router(vcs_gitlab_webhook_router)
 app.include_router(models_router)
+app.include_router(events_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

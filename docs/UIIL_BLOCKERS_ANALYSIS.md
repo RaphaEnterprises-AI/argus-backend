@@ -2,22 +2,22 @@
 
 **Date:** 2026-01-29
 **Author:** Claude Opus 4.5 (AI Systems Architect)
-**Status:** CRITICAL - Production Blockers
+**Status:** ✅ FIXES IMPLEMENTED - Pending Deployment
 
 ---
 
 ## Executive Summary
 
-Two critical blockers are preventing the Unified Instant Intelligence Layer (UIIL) from achieving its target <100ms latency:
+Two critical blockers were preventing the Unified Instant Intelligence Layer (UIIL) from achieving its target <100ms latency:
 
-| Issue | Impact | Root Cause | Fix Complexity |
-|-------|--------|------------|----------------|
-| **Valkey Cache Unreachable** | All queries hit LLM (10-15s latency) | K8s internal service, Railway external | Medium |
-| **Cognee Not Learning** | No pattern matching, 0% cache efficiency | No events published + Kafka unreachable | High |
+| Issue | Impact | Root Cause | Fix Status |
+|-------|--------|------------|------------|
+| **Valkey Cache Unreachable** | All queries hit LLM (10-15s latency) | K8s internal service, Railway external | ✅ **FIXED** - Cloudflare KV fallback |
+| **Cognee Not Learning** | No pattern matching, 0% cache efficiency | **Broker mismatch**: K8s→self-hosted, Railway→Cloud | ✅ **FIXED** - Unified Redpanda Cloud |
 
 ---
 
-## Issue 1: Valkey Cache Not Accessible from Railway
+## Issue 1: Valkey Cache Not Accessible from Railway ✅ FIXED
 
 ### Root Cause Analysis
 
@@ -31,186 +31,222 @@ Two critical blockers are preventing the Unified Instant Intelligence Layer (UII
          │ ✅ HTTPS Works
          ▼
 ┌─────────────────────┐
-│  Cloudflare KV API  │  ◀── Already configured but NOT used by IntelligenceCache
+│  Cloudflare KV API  │  ◀── Now used as fallback by IntelligenceCache
 │   (REST over HTTP)  │
 └─────────────────────┘
 ```
 
-**Technical Details:**
-1. Valkey deployed as StatefulSet with `ClusterIP: None` (headless service)
-2. Network policies (`default-deny-ingress`) block external access
-3. Railway's `VALKEY_URL` points to internal K8s DNS: `valkey-headless.argus-data.svc.cluster.local`
-4. Railway cannot resolve K8s internal DNS or reach internal IPs
+### Fix Applied
 
-### Architectural Options
-
-| Option | Latency | Cost | Security | Complexity |
-|--------|---------|------|----------|------------|
-| **A. Use Cloudflare KV (existing)** | ~50ms | $0 (existing) | High | Low |
-| **B. Add Upstash Redis** | ~30ms | ~$10/mo | High | Low |
-| **C. Expose Valkey via LoadBalancer** | ~20ms | $10/mo | Medium | Medium |
-| **D. Deploy backend in K8s** | ~5ms | ~$50/mo | High | High |
-| **E. Cloudflare AI Gateway Cache** | ~5ms | $0 (existing) | High | Low |
-
-### Recommended Fix: Multi-Tier Cache with Cloudflare KV Fallback
-
-The code already has `CloudflareKVClient` implemented but `IntelligenceCache` only uses `ValkeyClient`.
-
-**Fix:** Update `IntelligenceCache` to use CloudflareKV as fallback:
+**File:** `src/intelligence/cache.py`
 
 ```python
-# Current (BROKEN):
-client = self._get_client()  # Returns ValkeyClient (unreachable from Railway)
+# BEFORE (BROKEN):
+client = self._get_client()  # Always returns ValkeyClient (unreachable)
 
-# Fixed (WORKING):
-client = self._get_client()  # Try Valkey first
-if client is None or not await client.ping():
-    client = get_kv_client()  # Fallback to Cloudflare KV
+# AFTER (FIXED):
+async def _get_client(self) -> CacheClient | None:
+    # Try Valkey first (K8s deployments)
+    if self._valkey_client is not None:
+        try:
+            if await self._valkey_client.ping():
+                return self._valkey_client
+        except Exception:
+            self._valkey_healthy = False
+
+    # Fallback to Cloudflare KV (Railway deployment)
+    return get_kv_client()
+```
+
+**Commit:** `fix(intelligence): add Cloudflare KV fallback when Valkey unreachable`
+
+---
+
+## Issue 2: Cognee Not Learning Patterns ✅ FIXED
+
+### Root Cause Analysis (UPDATED)
+
+The original analysis incorrectly assumed Railway couldn't reach Kafka. The **actual root cause** was a **broker mismatch**:
+
+```
+┌─────────────────────┐                      ┌─────────────────────────┐
+│   Railway Backend   │ ─── Publishes to ──▶ │   REDPANDA CLOUD        │
+│                     │                      │   (Serverless)          │
+│  Events: 0 consumed │                      │   ✅ Accessible         │
+└─────────────────────┘                      └─────────────────────────┘
+                                                        │
+                                                        │ ❌ DIFFERENT BROKER!
+                                                        │
+┌─────────────────────┐                      ┌─────────────────────────┐
+│   Cognee Worker     │ ◀── Consumes from ── │   SELF-HOSTED REDPANDA  │
+│   (K8s Consumer)    │                      │   (K8s StatefulSet)     │
+│  58 events consumed │                      │   redpanda-0.redpanda   │
+└─────────────────────┘                      └─────────────────────────┘
+```
+
+**Why Events Weren't Flowing:**
+
+1. Railway publishes to **Redpanda Cloud** (`*.cloud.redpanda.com:9092`)
+2. Cognee worker consumes from **self-hosted K8s Redpanda** (`redpanda-0.redpanda.argus-data.svc.cluster.local:9092`)
+3. These are **completely different brokers** - events never meet!
+
+**Evidence:**
+- 58 `codebase.ingested` events in K8s Redpanda (from K8s git webhooks)
+- 0 `test.executed` events (Railway publishes to Cloud, Cognee doesn't consume from there)
+
+### Fix Applied
+
+**File:** `data-layer/kubernetes/cognee-worker.yaml`
+
+```yaml
+# BEFORE (BROKEN - pointing to self-hosted):
+KAFKA_BOOTSTRAP_SERVERS: "redpanda-0.redpanda.argus-data.svc.cluster.local:9092"
+KAFKA_SECURITY_PROTOCOL: "SASL_PLAINTEXT"
+KAFKA_SASL_MECHANISM: "SCRAM-SHA-512"
+
+# AFTER (FIXED - pointing to Redpanda Cloud):
+KAFKA_SECURITY_PROTOCOL: "SASL_SSL"
+KAFKA_SASL_MECHANISM: "SCRAM-SHA-256"
+# KAFKA_BOOTSTRAP_SERVERS now from Secret (redpanda-brokers)
+# KAFKA_SASL_USERNAME now from Secret (redpanda-username)
+```
+
+**Required Secret Keys in `argus-data-secrets`:**
+- `redpanda-brokers`: `<cluster-id>.any.<region>.mpx.prd.cloud.redpanda.com:9092`
+- `redpanda-username`: `argus-service`
+- `redpanda-password`: `<your-password>`
+
+---
+
+## Additional Enhancement: HTTP Event Gateway
+
+As a **backup/redundancy** option, we also created an HTTP Event Gateway API:
+
+**Files Created:**
+- `src/api/events.py` - HTTP endpoints for event publishing
+- `src/services/http_event_client.py` - Client for external services
+
+This allows:
+- Publishing events via HTTP when direct Kafka isn't available
+- Auto-detection of best publisher (Kafka vs HTTP)
+- Graceful degradation to logging-only mode
+
+**Usage (optional):**
+```python
+from src.services.http_event_client import get_best_event_publisher
+
+publisher = await get_best_event_publisher()
+await publisher.emit_test_executed(
+    org_id="org-123",
+    test_id="test-456",
+    status="passed",
+    duration_ms=1500
+)
 ```
 
 ---
 
-## Issue 2: Cognee Not Learning Patterns
+## Deployment Steps
 
-### Root Cause Analysis
+### 1. Update K8s Secrets
 
-```
-┌─────────────────────┐     ❌ Kafka Unreachable    ┌─────────────────────┐
-│   Railway Backend   │ ─────────────────────────▶ │    Redpanda (K8s)   │
-│   Event Producer    │    65.20.67.126:31092      │   NodePort:31092    │
-│                     │    KafkaConnectionError    │   SASL Required     │
-└─────────────────────┘                            └─────────────────────┘
-                                                            │
-                                                            │ ✅ Works inside K8s
-                                                            ▼
-                                                   ┌─────────────────────┐
-                                                   │   Cognee Worker     │
-                                                   │  (K8s Consumer)     │
-                                                   │  58 events consumed │
-                                                   └─────────────────────┘
+Ensure `argus-data-secrets` has the Redpanda Cloud credentials:
+
+```bash
+kubectl create secret generic argus-data-secrets \
+  --namespace argus-data \
+  --from-literal=redpanda-brokers="<cluster>.any.<region>.mpx.prd.cloud.redpanda.com:9092" \
+  --from-literal=redpanda-username="argus-service" \
+  --from-literal=redpanda-password="<password>" \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-**Why Events Aren't Flowing:**
+### 2. Redeploy Cognee Worker
 
-1. **No tests have been executed** - The system hasn't run any tests that would generate `test.executed` or `test.failed` events
-2. **Railway can't reach Redpanda** - Even if tests ran, events can't be published due to network issues
-3. **Cognee has only codebase data** - 58 `codebase.ingested` events (from git webhooks via K8s) but 0 test events
-
-**Evidence from Kafka:**
-```
-Topic                     | Messages | Status
-------------------------- | -------- | ------
-argus.codebase.ingested   | 58       | ✅ Working (from K8s webhooks)
-argus.test.executed       | 0        | ❌ No events
-argus.test.failed         | 0        | ❌ No events
-argus.healing.requested   | 0        | ❌ No events
+```bash
+kubectl rollout restart deployment/cognee-worker -n argus-data
 ```
 
-### Why Railway Can't Connect to Redpanda
+### 3. Deploy Backend Update to Railway
 
-1. **NodePort exposure**: Redpanda is exposed via NodePort (31092) on worker node IP `65.20.67.126`
-2. **SASL authentication**: Required but configured correctly in Railway env
-3. **Possible issues**:
-   - Firewall blocking NodePort range (30000-32767) from external IPs
-   - Vultr VKE may not allow NodePort access from outside cluster
-   - SASL handshake timing out
+The cache fix is already committed. Push to trigger Railway deployment.
 
-### Recommended Fix: Hybrid Event Publishing
+### 4. Verify Event Flow
 
-**Option A: Use Redpanda Serverless (Cloud Kafka)**
-- Replace self-hosted Redpanda with Redpanda Cloud
-- HTTP REST API available (like Upstash for Kafka)
-- Cost: ~$0.05/GB data transfer
+```bash
+# Check Redpanda Cloud topics (use rpk CLI or Redpanda Console)
+rpk topic consume argus.test.executed --brokers <cloud-broker>
 
-**Option B: HTTP Gateway for Event Publishing**
-- Deploy HTTP-to-Kafka gateway inside K8s
-- Railway publishes via HTTP, gateway forwards to Kafka
-- Example: Kafka REST Proxy or custom FastAPI endpoint
-
-**Option C: Direct Supabase Write + K8s Worker**
-- Railway writes events to Supabase `event_queue` table
-- K8s worker polls table and publishes to Kafka
-- Adds latency but bypasses network issues
-
----
-
-## Implementation Plan
-
-### Phase 1: Fix Cache Layer (Immediate - 2 hours)
-
-1. **Update `src/intelligence/cache.py`**:
-   ```python
-   async def _get_cache_client(self):
-       # Try Valkey first (K8s deployments)
-       valkey = get_valkey_client()
-       if valkey is not None:
-           try:
-               if await valkey.ping():
-                   return valkey
-           except:
-               pass
-       # Fallback to Cloudflare KV (Railway deployment)
-       return get_kv_client()
-   ```
-
-2. **Add Upstash Redis REST support** (optional but recommended):
-   - Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to Railway
-   - Create `UpstashClient` class with HTTP REST interface
-   - Sub-10ms latency from Railway
-
-### Phase 2: Fix Event Publishing (4-6 hours)
-
-1. **Create HTTP Event Gateway** in K8s:
-   ```yaml
-   # New FastAPI service that receives HTTP events and publishes to Kafka
-   apiVersion: apps/v1
-   kind: Deployment
-   metadata:
-     name: event-gateway
-     namespace: argus-data
-   ```
-
-2. **Update Railway to use HTTP Gateway**:
-   ```python
-   # Instead of direct Kafka producer
-   await httpx.post(
-       f"{EVENT_GATEWAY_URL}/events/test.executed",
-       json=event_data
-   )
-   ```
-
-### Phase 3: Bootstrap Test Data (2 hours)
-
-1. **Run sample tests** through the system to generate events
-2. **Verify Cognee indexes** the test execution data
-3. **Test similar error search** with real data
+# Check Cognee worker logs
+kubectl logs -f deployment/cognee-worker -n argus-data
+```
 
 ---
 
 ## Verification Checklist
 
-### Cache Layer Fixed
-- [ ] `IntelligenceCache.get()` returns data from Cloudflare KV when Valkey unreachable
-- [ ] Cache hit latency < 100ms from Railway
-- [ ] Second identical query shows `cached: true`
+### Cache Layer Fixed ✅
+- [x] `IntelligenceCache._get_client()` is now async with fallback
+- [x] Returns Cloudflare KV when Valkey unreachable
+- [ ] **PENDING**: Deploy to Railway and verify cache hits
 
-### Event Publishing Fixed
-- [ ] Test execution generates `test.executed` event
-- [ ] Event appears in Redpanda topic
-- [ ] Cognee worker consumes and indexes event
-- [ ] Similar error search returns indexed patterns
+### Event Publishing Fixed ✅
+- [x] Cognee worker config updated to use Redpanda Cloud
+- [x] Credentials moved to K8s Secrets
+- [ ] **PENDING**: Update K8s secrets with Cloud credentials
+- [ ] **PENDING**: Redeploy Cognee worker
+- [ ] **PENDING**: Verify events flow end-to-end
 
 ### End-to-End UIIL Working
 - [ ] Healing suggestions latency < 2s (with cache)
 - [ ] Cache hit rate > 40% after warmup
 - [ ] LLM fallback rate < 30%
+- [ ] Test events appear in Cognee knowledge graph
+
+---
+
+## Architecture After Fix
+
+```
+┌─────────────────────┐                      ┌─────────────────────────┐
+│   Railway Backend   │                      │                         │
+│                     │ ─── Publishes to ──▶ │   REDPANDA CLOUD        │
+│  IntelligenceCache  │                      │   (Serverless)          │
+│  → Try Valkey       │                      │   ✅ Single Source      │
+│  → Fallback to KV   │                      │                         │
+└─────────────────────┘                      └─────────────────────────┘
+         │                                              │
+         │ ✅ HTTPS                                     │ ✅ SASL_SSL
+         ▼                                              ▼
+┌─────────────────────┐                      ┌─────────────────────────┐
+│  Cloudflare KV API  │                      │   Cognee Worker (K8s)   │
+│   (Cache Fallback)  │                      │   ✅ Same Broker        │
+└─────────────────────┘                      └─────────────────────────┘
+                                                        │
+                                                        │ Pattern Learning
+                                                        ▼
+                                             ┌─────────────────────────┐
+                                             │   Neo4j Aura           │
+                                             │   Knowledge Graph       │
+                                             └─────────────────────────┘
+```
+
+---
+
+## Lessons Learned
+
+1. **Always verify end-to-end connectivity**: The original assumption was "Kafka unreachable" but the real issue was "different Kafka clusters"
+
+2. **Use the same infrastructure for all services**: Having Railway use Cloud and K8s use self-hosted created a silent failure mode
+
+3. **Secrets-based configuration is safer**: Hardcoding internal K8s DNS names breaks when switching to cloud services
+
+4. **Fallback mechanisms are essential**: The Cloudflare KV fallback ensures caching works even when primary cache is unreachable
 
 ---
 
 ## References
 
-- [Upstash Redis](https://upstash.com) - Serverless Redis with HTTP REST API
-- [Railway Serverless Redis](https://railway.com/deploy/serverless-redis) - Upstash-compatible wrapper
-- [Cloudflare AI Gateway Caching](https://developers.cloudflare.com/ai-gateway/features/caching/) - LLM response caching
-- [Valkey Best Practices](https://www.percona.com/blog/valkey-redis-configuration-best-practices/) - Configuration guide
-- [Kafka REST Proxy](https://docs.confluent.io/platform/current/kafka-rest/index.html) - HTTP-to-Kafka bridge
+- [Redpanda Cloud Documentation](https://docs.redpanda.com/current/deploy/deployment-option/cloud/)
+- [Redpanda SASL Authentication](https://docs.redpanda.com/current/manage/security/authentication/)
+- [Cloudflare KV](https://developers.cloudflare.com/kv/) - Key-value storage with HTTP API
