@@ -179,6 +179,11 @@ redis:
 # =============================================================================
 # Configure R2 bucket in Cloudflare dashboard, then add credentials to secret
 # See: https://developers.cloudflare.com/r2/api/s3/api/
+#
+# IMPORTANT: If you see "Access Denied" errors, you need to:
+# 1. Create the bucket "langfuse-argus" in Cloudflare R2 dashboard
+# 2. Generate an API token with R2 write permissions
+# 3. Update the langfuse-r2-secret with correct credentials
 s3:
   deploy: false
   storageProvider: s3
