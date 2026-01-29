@@ -42,6 +42,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.config import get_settings
+from src.orchestrator.langfuse_integration import get_langfuse_handler, flush_langfuse, score_trace
 
 logger = structlog.get_logger()
 
@@ -770,11 +771,20 @@ class SupervisorOrchestrator:
         app_url: str,
         pr_number: int | None = None,
         changed_files: list[str] | None = None,
+        # Langfuse tracing options
+        langfuse_user_id: str | None = None,
+        langfuse_tags: list[str] | None = None,
+        langfuse_metadata: dict | None = None,
     ):
         self.codebase_path = codebase_path
         self.app_url = app_url
         self.pr_number = pr_number
         self.changed_files = changed_files or []
+
+        # Langfuse tracing configuration
+        self.langfuse_user_id = langfuse_user_id
+        self.langfuse_tags = langfuse_tags or []
+        self.langfuse_metadata = langfuse_metadata or {}
 
         # Create and compile graph
         from src.orchestrator.checkpointer import get_checkpointer
@@ -810,12 +820,55 @@ class SupervisorOrchestrator:
             changed_files=self.changed_files,
         )
 
-        config = {"configurable": {"thread_id": thread_id}}
+        # Create Langfuse callback handler for tracing
+        langfuse_handler = get_langfuse_handler(
+            user_id=self.langfuse_user_id,
+            session_id=thread_id,
+            trace_name="supervisor_orchestrator",
+            tags=["supervisor", "multi-agent", *self.langfuse_tags],
+            metadata={
+                "codebase_path": self.codebase_path,
+                "app_url": self.app_url,
+                "pr_number": self.pr_number,
+                **self.langfuse_metadata,
+            },
+        )
 
-        self.log.info("Starting supervised test run", thread_id=thread_id)
+        # Build config with Langfuse callbacks
+        config = {"configurable": {"thread_id": thread_id}}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+
+        self.log.info("Starting supervised test run", thread_id=thread_id, langfuse_enabled=langfuse_handler is not None)
 
         try:
             final_state = await self.app.ainvoke(initial_state, config)
+
+            # Add scores to trace for test results
+            if langfuse_handler:
+                passed = final_state.get("passed_count", 0)
+                failed = final_state.get("failed_count", 0)
+                total_tests = passed + failed
+                if total_tests > 0:
+                    pass_rate = passed / total_tests
+                    score_trace(
+                        trace_id=thread_id,
+                        name="test_pass_rate",
+                        value=pass_rate,
+                        comment=f"{passed}/{total_tests} tests passed",
+                    )
+                score_trace(
+                    trace_id=thread_id,
+                    name="total_cost",
+                    value=final_state.get("total_cost", 0),
+                    comment=f"Total LLM cost: ${final_state.get('total_cost', 0):.4f}",
+                )
+                score_trace(
+                    trace_id=thread_id,
+                    name="iterations",
+                    value=final_state.get("iteration", 0),
+                    comment=f"Supervisor iterations: {final_state.get('iteration', 0)}",
+                )
 
             self.log.info(
                 "Supervised test run completed",
@@ -830,6 +883,9 @@ class SupervisorOrchestrator:
         except Exception as e:
             self.log.error("Supervised test run failed", error=str(e))
             raise
+        finally:
+            # Ensure Langfuse events are flushed
+            flush_langfuse()
 
     async def get_state(self, thread_id: str) -> dict | None:
         """Get current state of a supervised run."""
@@ -852,12 +908,26 @@ class SupervisorOrchestrator:
 
     async def resume(self, thread_id: str) -> SupervisorState:
         """Resume a paused supervised run."""
+        # Create Langfuse handler for resumed execution
+        langfuse_handler = get_langfuse_handler(
+            user_id=self.langfuse_user_id,
+            session_id=thread_id,
+            trace_name="supervisor_orchestrator_resume",
+            tags=["supervisor", "resume", *self.langfuse_tags],
+            metadata=self.langfuse_metadata,
+        )
+
         config = {"configurable": {"thread_id": thread_id}}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
 
         self.log.info("Resuming supervised run", thread_id=thread_id)
 
-        final_state = await self.app.ainvoke(None, config)
-        return final_state
+        try:
+            final_state = await self.app.ainvoke(None, config)
+            return final_state
+        finally:
+            flush_langfuse()
 
     def get_summary(self, state: SupervisorState) -> dict:
         """Get a summary of the supervised test run."""

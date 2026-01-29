@@ -107,6 +107,15 @@ from .graph import (
     get_interrupt_nodes,
 )
 
+# Langfuse integration for LLM observability
+from .langfuse_integration import (
+    flush_langfuse,
+    get_langfuse_config,
+    get_langfuse_handler,
+    get_trace_url,
+    score_trace,
+)
+
 # MARP - Multi-Agent Reasoning Protocol for consensus (RAP-235)
 from .marp import (
     MARP,
@@ -312,4 +321,10 @@ __all__ = [
     "PipelineStrategy",
     "ResourceManager",
     "ParallelWorkflowResult",
+    # Langfuse Integration (LLM Observability)
+    "get_langfuse_handler",
+    "get_langfuse_config",
+    "flush_langfuse",
+    "score_trace",
+    "get_trace_url",
 ]

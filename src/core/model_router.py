@@ -610,11 +610,16 @@ class BaseModelClient(ABC):
 
 
 class AnthropicClient(BaseModelClient):
-    """Client for Anthropic models."""
+    """Client for Anthropic models with Langfuse instrumentation."""
 
     def __init__(self):
-        import anthropic
-        self.client = anthropic.AsyncAnthropic()
+        from .ai_client import get_async_anthropic_client
+
+        self.client = get_async_anthropic_client(
+            trace_name="model_router:anthropic",
+            tags=["model_router", "anthropic"],
+            metadata={"component": "ModelRouter"},
+        )
 
     async def complete(
         self,
@@ -691,11 +696,16 @@ class AnthropicClient(BaseModelClient):
 
 
 class OpenAIClient(BaseModelClient):
-    """Client for OpenAI models."""
+    """Client for OpenAI models with Langfuse instrumentation."""
 
     def __init__(self):
-        from openai import AsyncOpenAI
-        self.client = AsyncOpenAI()
+        from .ai_client import get_async_openai_client
+
+        self.client = get_async_openai_client(
+            trace_name="model_router:openai",
+            tags=["model_router", "openai"],
+            metadata={"component": "ModelRouter"},
+        )
 
     async def complete(
         self,
@@ -1119,11 +1129,19 @@ class GoogleClient(BaseModelClient):
 
 
 class GroqClient(BaseModelClient):
-    """Client for Groq (fast Llama inference)."""
+    """Client for Groq (fast Llama inference) with Langfuse instrumentation."""
 
     def __init__(self):
-        from groq import AsyncGroq
-        self.client = AsyncGroq()
+        from .ai_client import get_async_openai_client
+
+        # Groq uses OpenAI-compatible API
+        self.client = get_async_openai_client(
+            api_key=os.environ.get("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+            trace_name="model_router:groq",
+            tags=["model_router", "groq"],
+            metadata={"component": "ModelRouter"},
+        )
 
     async def complete(
         self,
@@ -1226,7 +1244,7 @@ class CerebrasClient(BaseModelClient):
 
 class DeepSeekClient(BaseModelClient):
     """
-    Client for DeepSeek direct API.
+    Client for DeepSeek direct API with Langfuse instrumentation.
 
     DeepSeek offers exceptional value:
     - V3.2: $0.14 input / $0.28 output (90% cheaper than Claude)
@@ -1240,12 +1258,16 @@ class DeepSeekClient(BaseModelClient):
 
     @property
     def client(self):
-        """Lazy load DeepSeek client (OpenAI-compatible)."""
+        """Lazy load DeepSeek client with Langfuse instrumentation."""
         if self._client is None:
-            from openai import AsyncOpenAI
-            self._client = AsyncOpenAI(
+            from .ai_client import get_async_openai_client
+
+            self._client = get_async_openai_client(
                 api_key=os.environ.get("DEEPSEEK_API_KEY"),
-                base_url="https://api.deepseek.com/v1"
+                base_url="https://api.deepseek.com/v1",
+                trace_name="model_router:deepseek",
+                tags=["model_router", "deepseek"],
+                metadata={"component": "ModelRouter"},
             )
         return self._client
 
@@ -1305,7 +1327,7 @@ class DeepSeekClient(BaseModelClient):
 
 class OpenRouterClient(BaseModelClient):
     """
-    Client for OpenRouter (model aggregator).
+    Client for OpenRouter (model aggregator) with Langfuse instrumentation.
 
     OpenRouter provides access to many models through a single API:
     - DeepSeek V3.2, R1
@@ -1322,6 +1344,7 @@ class OpenRouterClient(BaseModelClient):
 
     def __init__(self):
         self._client = None
+        self._langfuse = None
 
     @property
     def client(self):
@@ -1337,6 +1360,14 @@ class OpenRouterClient(BaseModelClient):
                 }
             )
         return self._client
+
+    @property
+    def langfuse(self):
+        """Lazy load Langfuse client."""
+        if self._langfuse is None:
+            from .ai_client import _get_langfuse
+            self._langfuse = _get_langfuse()
+        return self._langfuse
 
     async def complete(
         self,
@@ -1358,14 +1389,50 @@ class OpenRouterClient(BaseModelClient):
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
 
-        response = await self.client.chat.completions.create(**kwargs)
+        # Create Langfuse trace if available
+        generation = None
+        if self.langfuse:
+            trace = self.langfuse.trace(
+                name="model_router:openrouter",
+                tags=["model_router", "openrouter", f"model:{model_config.model_id}"],
+                metadata={"component": "ModelRouter"},
+            )
+            generation = trace.generation(
+                name="openrouter_completion",
+                model=model_config.model_id,
+                input=messages,
+                model_parameters={"max_tokens": max_tokens, "temperature": temperature},
+            )
 
-        return {
-            "content": response.choices[0].message.content or "",
-            "input_tokens": response.usage.prompt_tokens if response.usage else 0,
-            "output_tokens": response.usage.completion_tokens if response.usage else 0,
-            "model": model_config.model_id,
-        }
+        start_time = time.time()
+        try:
+            response = await self.client.chat.completions.create(**kwargs)
+
+            result = {
+                "content": response.choices[0].message.content or "",
+                "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "output_tokens": response.usage.completion_tokens if response.usage else 0,
+                "model": model_config.model_id,
+            }
+
+            # End Langfuse generation
+            if generation:
+                generation.end(
+                    output=result["content"],
+                    usage={
+                        "input": result["input_tokens"],
+                        "output": result["output_tokens"],
+                        "total": result["input_tokens"] + result["output_tokens"],
+                    },
+                    metadata={"latency_ms": (time.time() - start_time) * 1000},
+                )
+
+            return result
+
+        except Exception as e:
+            if generation:
+                generation.end(level="ERROR", status_message=str(e))
+            raise
 
     def _convert_tools(self, tools: list) -> list:
         """Convert Anthropic tool format to OpenAI format."""

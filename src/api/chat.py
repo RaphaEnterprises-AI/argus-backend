@@ -4,6 +4,13 @@ This module provides the chat API with support for:
 - User-configurable AI model selection (BYOK)
 - Multi-provider routing (Anthropic, OpenAI, Google, Groq, Together)
 - Token usage tracking for billing
+- Langfuse integration for LLM observability and cost tracking
+
+Langfuse Cost Tracking:
+- CallbackHandler automatically captures model name and token usage
+- Model name from user's AI Hub selection is passed to Langfuse
+- Langfuse matches model name to pricing definitions for cost calculation
+- Enable with LANGFUSE_ENABLED=true and provide credentials
 """
 
 import json
@@ -20,6 +27,10 @@ from pydantic import BaseModel
 from src.api.security.auth import UserContext, get_current_user
 from src.orchestrator.chat_graph import AIConfig, ChatState, create_chat_graph
 from src.orchestrator.checkpointer import get_checkpointer
+from src.orchestrator.langfuse_integration import (
+    flush_langfuse,
+    get_langfuse_handler,
+)
 from src.services.audit_logger import (
     AuditAction,
     AuditStatus,
@@ -176,12 +187,31 @@ async def send_message(
     # Build AI config from user preferences - use authenticated user_id
     ai_config = await _build_ai_config(request.ai_config, user.user_id)
 
+    # Get model info for Langfuse tracking
+    model_id = ai_config.get("model", "claude-sonnet-4-20250514") if ai_config else "claude-sonnet-4-20250514"
+    provider = ai_config.get("provider", "anthropic") if ai_config else "anthropic"
+
     # Create graph with checkpointer
     checkpointer = get_checkpointer()
     graph = create_chat_graph()
     app = graph.compile(checkpointer=checkpointer)
 
+    # Configure Langfuse tracing for cost tracking
     config = {"configurable": {"thread_id": thread_id}}
+    langfuse_handler = get_langfuse_handler(
+        user_id=user.user_id,
+        session_id=thread_id,
+        trace_name="chat_message",
+        tags=["chat", f"provider:{provider}", f"model:{model_id}"],
+        metadata={
+            "model": model_id,
+            "provider": provider,
+            "message_count": len(request.messages),
+            "app_url": request.app_url,
+        },
+    )
+    if langfuse_handler:
+        config["callbacks"] = [langfuse_handler]
 
     # Convert messages to LangChain format
     lc_messages = []
@@ -204,7 +234,11 @@ async def send_message(
     logger.info("Processing chat message", thread_id=thread_id, message_count=len(lc_messages))
 
     # Run the graph
-    final_state = await app.ainvoke(initial_state, config)
+    try:
+        final_state = await app.ainvoke(initial_state, config)
+    finally:
+        # Flush Langfuse to ensure cost tracking data is sent
+        flush_langfuse()
 
     # Get the last AI message
     messages = final_state.get("messages", [])
@@ -264,13 +298,35 @@ async def stream_message(
 
     async def generate_ai_sdk_stream():
         """Generate stream in Vercel AI SDK format (text streaming protocol)."""
+        langfuse_handler = None
         try:
+            # Get model info for logging and Langfuse
+            model_id = ai_config.get("model", "claude-sonnet-4-20250514") if ai_config else "claude-sonnet-4-20250514"
+            provider = ai_config.get("provider", "anthropic") if ai_config else "anthropic"
+            using_byok = bool(ai_config.get("api_key")) if ai_config else False
+
             # Create graph with checkpointer
             checkpointer = get_checkpointer()
             graph = create_chat_graph()
             app = graph.compile(checkpointer=checkpointer)
 
+            # Configure Langfuse tracing for cost tracking
             config = {"configurable": {"thread_id": thread_id}}
+            langfuse_handler = get_langfuse_handler(
+                user_id=user.user_id,
+                session_id=thread_id,
+                trace_name="chat_stream",
+                tags=["chat", "stream", f"provider:{provider}", f"model:{model_id}"],
+                metadata={
+                    "model": model_id,
+                    "provider": provider,
+                    "using_byok": using_byok,
+                    "message_count": len(request.messages),
+                    "app_url": request.app_url,
+                },
+            )
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
 
             # Convert messages
             lc_messages = []
@@ -289,17 +345,13 @@ async def stream_message(
                 "ai_config": ai_config,  # Pass AI config for model selection
             }
 
-            # Get model info for logging
-            model_id = ai_config.get("model", "claude-sonnet-4-20250514") if ai_config else "claude-sonnet-4-20250514"
-            provider = ai_config.get("provider", "anthropic") if ai_config else "anthropic"
-            using_byok = bool(ai_config.get("api_key")) if ai_config else False
-
             logger.info(
                 "Starting chat stream",
                 thread_id=thread_id,
                 model=model_id,
                 provider=provider,
                 using_byok=using_byok,
+                langfuse_enabled=langfuse_handler is not None,
             )
 
             # Log chat start to audit trail
@@ -463,6 +515,10 @@ async def stream_message(
             )
             # AI SDK error format: 3:"error message"\n (must be a string, not object)
             yield f'3:{json.dumps(str(e))}\n'
+
+        finally:
+            # Flush Langfuse to ensure cost tracking data is sent
+            flush_langfuse()
 
     return StreamingResponse(
         generate_ai_sdk_stream(),

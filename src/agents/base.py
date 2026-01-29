@@ -311,10 +311,15 @@ class BaseAgent(ABC):
 
     @property
     def client(self) -> anthropic.Anthropic:
-        """Lazy-initialize Anthropic client."""
+        """Lazy-initialize Anthropic client with Langfuse instrumentation."""
         if self._client is None:
-            self._client = anthropic.Anthropic(
-                api_key=self.settings.anthropic_api_key.get_secret_value()
+            from ..core.ai_client import get_anthropic_client
+
+            self._client = get_anthropic_client(
+                api_key=self.settings.anthropic_api_key.get_secret_value(),
+                trace_name=f"agent:{self.__class__.__name__}",
+                tags=[f"agent:{self.__class__.__name__.lower()}"],
+                metadata={"agent_class": self.__class__.__name__},
             )
         return self._client
 

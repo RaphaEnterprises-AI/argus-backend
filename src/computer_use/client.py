@@ -74,8 +74,14 @@ class ComputerUseClient:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.client = anthropic.Anthropic(
-            api_key=settings.anthropic_api_key.get_secret_value()
+        # Use centralized client with Langfuse instrumentation
+        from ..core.ai_client import get_anthropic_client
+
+        self.client = get_anthropic_client(
+            api_key=settings.anthropic_api_key.get_secret_value(),
+            trace_name="computer_use",
+            tags=["computer_use", "browser_automation"],
+            metadata={"component": "ComputerUseClient"},
         )
         self.model = settings.default_model.value
 

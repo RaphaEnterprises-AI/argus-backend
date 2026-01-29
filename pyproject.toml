@@ -81,6 +81,8 @@ dependencies = [
     # AI Memory & Knowledge Graphs
     "cognee[postgres,falkordb]>=0.1.0",  # ECL pipeline with pgvector + FalkorDB support
     "falkordb>=1.0.0",  # FalkorDB Python client for graph operations
+    # LLM Observability
+    "langfuse>=2.0.0,<3.0.0",  # LangGraph/LangChain tracing (v2 uses REST API)
 ]
 
 [project.optional-dependencies]

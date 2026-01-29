@@ -26,6 +26,7 @@ from langgraph.types import Command, Send, interrupt
 
 from ..config import Settings, get_settings
 from .checkpointer import get_checkpointer
+from .langfuse_integration import get_langfuse_handler, flush_langfuse, score_trace
 from .state import TestingState, TestType
 
 logger = structlog.get_logger()
@@ -834,12 +835,21 @@ class TestingOrchestrator:
         settings: Settings | None = None,
         pr_number: int | None = None,
         changed_files: list[str] | None = None,
+        # Langfuse tracing options
+        langfuse_user_id: str | None = None,
+        langfuse_tags: list[str] | None = None,
+        langfuse_metadata: dict | None = None,
     ):
         self.codebase_path = codebase_path
         self.app_url = app_url
         self.settings = settings or get_settings()
         self.pr_number = pr_number
         self.changed_files = changed_files or []
+
+        # Langfuse tracing configuration
+        self.langfuse_user_id = langfuse_user_id
+        self.langfuse_tags = langfuse_tags or []
+        self.langfuse_metadata = langfuse_metadata or {}
 
         # Create graph
         graph = create_testing_graph(self.settings)
@@ -882,13 +892,50 @@ class TestingOrchestrator:
             changed_files=self.changed_files,
         )
 
-        config = {"configurable": {"thread_id": thread_id or initial_state["run_id"]}}
+        run_id = thread_id or initial_state["run_id"]
 
-        self.log.info("Starting test run", run_id=initial_state["run_id"])
+        # Create Langfuse callback handler for tracing
+        langfuse_handler = get_langfuse_handler(
+            user_id=self.langfuse_user_id,
+            session_id=run_id,
+            trace_name="testing_orchestrator",
+            tags=["e2e-test", *self.langfuse_tags],
+            metadata={
+                "codebase_path": self.codebase_path,
+                "app_url": self.app_url,
+                "pr_number": self.pr_number,
+                **self.langfuse_metadata,
+            },
+        )
+
+        # Build config with Langfuse callbacks
+        config = {"configurable": {"thread_id": run_id}}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+
+        self.log.info("Starting test run", run_id=run_id, langfuse_enabled=langfuse_handler is not None)
 
         try:
-            # Run the graph
+            # Run the graph with Langfuse tracing
             final_state = await self.app.ainvoke(initial_state, config)
+
+            # Add scores to trace for test results
+            if langfuse_handler:
+                total_tests = final_state["passed_count"] + final_state["failed_count"]
+                if total_tests > 0:
+                    pass_rate = final_state["passed_count"] / total_tests
+                    score_trace(
+                        trace_id=run_id,
+                        name="test_pass_rate",
+                        value=pass_rate,
+                        comment=f"{final_state['passed_count']}/{total_tests} tests passed",
+                    )
+                score_trace(
+                    trace_id=run_id,
+                    name="total_cost",
+                    value=final_state["total_cost"],
+                    comment=f"Total LLM cost: ${final_state['total_cost']:.4f}",
+                )
 
             self.log.info(
                 "Test run completed",
@@ -903,6 +950,9 @@ class TestingOrchestrator:
         except Exception as e:
             self.log.error("Test run failed", error=str(e))
             raise
+        finally:
+            # Ensure Langfuse events are flushed
+            flush_langfuse()
 
     async def run_single_test(self, test_spec: dict, thread_id: str | None = None) -> dict:
         """Run a single test by ID or spec."""
@@ -917,13 +967,28 @@ class TestingOrchestrator:
         initial_state["test_plan"] = [test_spec]
         initial_state["next_agent"] = "execute_test"
 
-        config = {"configurable": {"thread_id": thread_id or initial_state["run_id"]}}
+        run_id = thread_id or initial_state["run_id"]
 
-        # Create a modified graph that starts at execute_test
-        # For now, use the full graph but with pre-populated state
-        final_state = await self.app.ainvoke(initial_state, config)
+        # Create Langfuse handler for single test tracing
+        langfuse_handler = get_langfuse_handler(
+            user_id=self.langfuse_user_id,
+            session_id=run_id,
+            trace_name="single_test_execution",
+            tags=["single-test", *self.langfuse_tags],
+            metadata={"test_spec": test_spec, **self.langfuse_metadata},
+        )
 
-        return final_state
+        config = {"configurable": {"thread_id": run_id}}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+
+        try:
+            # Create a modified graph that starts at execute_test
+            # For now, use the full graph but with pre-populated state
+            final_state = await self.app.ainvoke(initial_state, config)
+            return final_state
+        finally:
+            flush_langfuse()
 
     def get_run_summary(self, state: dict) -> dict:
         """Get a summary of the test run."""
@@ -955,7 +1020,18 @@ class TestingOrchestrator:
         Returns:
             Final state after execution completes (or hits another breakpoint)
         """
+        # Create Langfuse handler for resumed execution
+        langfuse_handler = get_langfuse_handler(
+            user_id=self.langfuse_user_id,
+            session_id=thread_id,
+            trace_name="testing_orchestrator_resume",
+            tags=["resume", *self.langfuse_tags],
+            metadata=self.langfuse_metadata,
+        )
+
         config = {"configurable": {"thread_id": thread_id}}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
 
         self.log.info("Resuming execution", thread_id=thread_id)
 

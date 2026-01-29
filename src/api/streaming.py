@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.orchestrator.checkpointer import get_checkpointer
 from src.orchestrator.graph import EnhancedTestingOrchestrator, create_enhanced_testing_graph
+from src.orchestrator.langfuse_integration import get_langfuse_handler, flush_langfuse
 from src.orchestrator.state import create_initial_state
 
 logger = structlog.get_logger()
@@ -68,13 +69,29 @@ async def stream_test_execution(request: StreamTestRequest):
             )
 
             thread_id = request.thread_id or initial_state["run_id"]
+
+            # Create Langfuse callback handler for tracing
+            langfuse_handler = get_langfuse_handler(
+                session_id=thread_id,
+                trace_name="streaming_test_execution",
+                tags=["streaming", "e2e-test"],
+                metadata={
+                    "codebase_path": request.codebase_path,
+                    "app_url": request.app_url,
+                    "pr_number": request.pr_number,
+                },
+            )
+
             config = {"configurable": {"thread_id": thread_id}}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
 
             logger.info(
                 "Starting streaming test execution",
                 thread_id=thread_id,
                 codebase_path=request.codebase_path,
                 app_url=request.app_url,
+                langfuse_enabled=langfuse_handler is not None,
             )
 
             # Emit start event
