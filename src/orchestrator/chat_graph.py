@@ -264,6 +264,9 @@ URL: {app_url or "Not specified - ask user for the URL to test"}
 | `listTests` | List tests with filtering | User wants to see available tests |
 | `getTestRuns` | Get test run history | User wants to see past runs |
 | `webSearch` | Search web for real-time info | User needs current docs, tutorials, or answers |
+| `exportTest` | Export test to different language/framework | User wants to export a test to Python, TypeScript, Java, etc. |
+| `listExportFormats` | List available export languages/frameworks | User asks what export formats are available |
+| `queryKnowledge` | Query test knowledge graph | User wants to explore relationships between tests, failures, code changes, selectors |
 
 ## Response Guidelines
 1. **Be specific**: Reference actual elements, selectors, and URLs
@@ -682,6 +685,75 @@ async def chat_node(state: ChatState, config) -> dict:
                     "limit": {"type": "integer", "description": "Maximum number of results (default: 5, max: 10)"},
                 },
                 "required": ["query"]
+            }
+        },
+        {
+            "name": "compareScreenshots",
+            "description": "Compare two screenshots for visual regression testing. Uses AI vision to detect layout, content, style, and structural differences between baseline and current screenshots. Returns match percentage and detailed difference analysis.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "baseline_url": {"type": "string", "description": "URL or path to the baseline (expected) screenshot"},
+                    "current_url": {"type": "string", "description": "URL or path to the current (actual) screenshot"},
+                    "context": {"type": "string", "description": "Optional context about what the page/component should show (helps AI understand expected state)"},
+                    "sensitivity": {"type": "string", "enum": ["low", "medium", "high"], "description": "Comparison sensitivity level (default: medium). Low = only major differences, High = all differences including subtle changes"},
+                    "ignore_regions": {"type": "array", "items": {"type": "string"}, "description": "Regions to ignore during comparison (e.g., ['header timestamp', 'ad banner'])"},
+                },
+                "required": ["baseline_url", "current_url"]
+            }
+        },
+        {
+            "name": "queryKnowledge",
+            "description": "Query the knowledge graph to explore relationships between tests, failures, code changes, selectors, and healing patterns. Use this to answer questions like 'what tests use this selector?', 'what failures are related to this test?', 'what code changes affected these tests?', or 'show me the healing patterns for this error'.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language query about test relationships (e.g., 'tests that failed recently', 'selectors that broke after commit abc123', 'healing patterns for timeout errors')"},
+                    "entity_type": {
+                        "type": "string",
+                        "enum": ["test", "failure", "selector", "code_change", "healing_pattern", "page", "project", "all"],
+                        "description": "Filter by entity type (default: all)"
+                    },
+                    "relationship_type": {
+                        "type": "string",
+                        "enum": ["uses", "broke", "affected", "caused", "modified", "fixes", "replaces", "similar_to", "all"],
+                        "description": "Filter by relationship type (default: all)"
+                    },
+                    "entity_id": {"type": "string", "description": "Specific entity ID to query neighborhood for (e.g., test UUID, commit SHA)"},
+                    "hops": {"type": "integer", "description": "Number of relationship hops to traverse (default: 2, max: 4)"},
+                    "limit": {"type": "integer", "description": "Maximum number of results (default: 20, max: 50)"},
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "exportTest",
+            "description": "Export a test to a different programming language and testing framework. Supports Python (Playwright, Selenium, pytest), TypeScript (Playwright, Puppeteer, Cypress), Java (Selenium, TestNG, JUnit), C# (Selenium, Playwright, NUnit), Ruby (Capybara, Selenium), and Go (Rod, Chromedp).",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "test_id": {"type": "string", "description": "ID of the test to export"},
+                    "language": {
+                        "type": "string",
+                        "enum": ["python", "typescript", "java", "csharp", "ruby", "go"],
+                        "description": "Target programming language"
+                    },
+                    "framework": {
+                        "type": "string",
+                        "description": "Target testing framework (e.g., 'playwright', 'selenium', 'cypress', 'junit')"
+                    },
+                    "include_comments": {"type": "boolean", "description": "Include explanatory comments in generated code (default: true)"},
+                    "base_url": {"type": "string", "description": "Base URL to use in the generated test"},
+                },
+                "required": ["test_id", "language", "framework"]
+            }
+        },
+        {
+            "name": "listExportFormats",
+            "description": "List all available export languages and their supported frameworks. Use this when the user asks what languages or frameworks are available for export.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
             }
         },
     ]
@@ -1428,6 +1500,556 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                             "error": f"Search failed: {str(search_error)}",
                             "query": query,
                             "suggestion": "Make sure the codebase has been indexed. Try running indexing first.",
+                        }
+
+                elif tool_name == "compareScreenshots":
+                    # Visual regression comparison using VisualAI
+                    from src.agents.visual_ai import VisualAI
+
+                    baseline_url = tool_args.get("baseline_url", "")
+                    current_url = tool_args.get("current_url", "")
+                    context = tool_args.get("context")
+                    sensitivity = tool_args.get("sensitivity", "medium")
+                    ignore_regions = tool_args.get("ignore_regions")
+
+                    if not baseline_url or not current_url:
+                        result = {
+                            "success": False,
+                            "_type": "visual_comparison",
+                            "error": "Both baseline_url and current_url are required",
+                        }
+                    else:
+                        try:
+                            import httpx
+                            import tempfile
+                            from pathlib import Path
+
+                            # Helper to download/resolve screenshot to local path
+                            async def resolve_screenshot(url_or_path: str) -> Path:
+                                if url_or_path.startswith(('http://', 'https://')):
+                                    # Download from URL
+                                    async with httpx.AsyncClient(timeout=30.0) as client:
+                                        response = await client.get(url_or_path)
+                                        response.raise_for_status()
+                                        suffix = '.png' if 'png' in url_or_path.lower() else '.jpg'
+                                        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+                                        tmp.write(response.content)
+                                        tmp.close()
+                                        return Path(tmp.name)
+                                else:
+                                    # Local path
+                                    return Path(url_or_path)
+
+                            # Resolve both screenshots
+                            baseline_path = await resolve_screenshot(baseline_url)
+                            current_path = await resolve_screenshot(current_url)
+
+                            # Create VisualAI instance and compare
+                            visual_ai = VisualAI(sensitivity=sensitivity)
+                            comparison_result = await visual_ai.compare(
+                                baseline=baseline_path,
+                                current=current_path,
+                                context=context,
+                                ignore_regions=ignore_regions,
+                            )
+
+                            # Clean up temp files if downloaded
+                            if baseline_url.startswith(('http://', 'https://')):
+                                baseline_path.unlink(missing_ok=True)
+                            if current_url.startswith(('http://', 'https://')):
+                                current_path.unlink(missing_ok=True)
+
+                            # Format result for frontend
+                            result = {
+                                "success": True,
+                                "_type": "visual_comparison",
+                                "baseline_url": baseline_url,
+                                "current_url": current_url,
+                                "match": comparison_result.match,
+                                "match_percentage": comparison_result.match_percentage,
+                                "has_regressions": comparison_result.has_regressions(),
+                                "summary": comparison_result.summary,
+                                "differences": [
+                                    {
+                                        "type": diff.type.value,
+                                        "severity": diff.severity.value,
+                                        "description": diff.description,
+                                        "location": diff.location,
+                                        "element": diff.element,
+                                        "expected": diff.expected,
+                                        "actual": diff.actual,
+                                        "is_regression": diff.is_regression,
+                                    }
+                                    for diff in comparison_result.differences
+                                ],
+                                "analysis_cost_usd": comparison_result.analysis_cost_usd,
+                                "timestamp": comparison_result.timestamp,
+                                "context": context,
+                                "sensitivity": sensitivity,
+                                "_actions": ["view_baseline", "view_current", "approve_changes", "create_issue"],
+                            }
+
+                            logger.info(
+                                "Visual comparison completed",
+                                match=comparison_result.match,
+                                match_percentage=comparison_result.match_percentage,
+                                differences=len(comparison_result.differences),
+                                has_regressions=comparison_result.has_regressions(),
+                            )
+
+                        except Exception as compare_error:
+                            logger.exception("Visual comparison failed", error=str(compare_error))
+                            result = {
+                                "success": False,
+                                "_type": "visual_comparison",
+                                "error": f"Comparison failed: {str(compare_error)}",
+                                "baseline_url": baseline_url,
+                                "current_url": current_url,
+                            }
+
+                elif tool_name == "exportTest":
+                    # Export test to different language/framework
+                    from src.api.export import (
+                        LANGUAGE_FRAMEWORKS,
+                        ExportRequest,
+                        TestSpecModel,
+                        TestStepModel,
+                        TestAssertionModel,
+                        _generate_code,
+                        _get_filename,
+                        _get_dependencies,
+                        _get_setup_instructions,
+                    )
+                    from src.services.supabase_client import get_supabase_client
+
+                    test_id = tool_args.get("test_id", "")
+                    language = tool_args.get("language", "python")
+                    framework = tool_args.get("framework", "playwright")
+                    include_comments = tool_args.get("include_comments", True)
+                    base_url = tool_args.get("base_url", state.get("app_url", ""))
+
+                    # Validate language and framework
+                    if language not in LANGUAGE_FRAMEWORKS:
+                        result = {
+                            "success": False,
+                            "_type": "test_export",
+                            "error": f"Unsupported language: {language}. Supported: {', '.join(LANGUAGE_FRAMEWORKS.keys())}",
+                        }
+                    elif framework not in LANGUAGE_FRAMEWORKS.get(language, []):
+                        result = {
+                            "success": False,
+                            "_type": "test_export",
+                            "error": f"Framework '{framework}' not supported for {language}. Supported: {', '.join(LANGUAGE_FRAMEWORKS.get(language, []))}",
+                        }
+                    else:
+                        try:
+                            # Fetch test from database
+                            supabase = get_supabase_client()
+                            test_result = await supabase.request(
+                                f"/tests?id=eq.{test_id}&select=*"
+                            )
+
+                            if test_result.get("error") or not test_result.get("data"):
+                                result = {
+                                    "success": False,
+                                    "_type": "test_export",
+                                    "error": f"Test not found: {test_id}",
+                                    "test_id": test_id,
+                                }
+                            else:
+                                test_data = test_result["data"][0]
+
+                                # Convert test data to TestSpecModel
+                                steps = [
+                                    TestStepModel(
+                                        action=step.get("action", ""),
+                                        target=step.get("selector") or step.get("target"),
+                                        value=step.get("value"),
+                                        timeout=step.get("timeout"),
+                                    )
+                                    for step in test_data.get("steps", [])
+                                ]
+
+                                assertions = []
+                                if test_data.get("assertions"):
+                                    assertions = [
+                                        TestAssertionModel(
+                                            type=a.get("type", ""),
+                                            target=a.get("selector") or a.get("target"),
+                                            expected=a.get("expected"),
+                                        )
+                                        for a in test_data.get("assertions", [])
+                                    ]
+
+                                test_spec = TestSpecModel(
+                                    id=test_id,
+                                    name=test_data.get("name", "Exported Test"),
+                                    description=test_data.get("description"),
+                                    steps=steps,
+                                    assertions=assertions if assertions else None,
+                                    metadata=test_data.get("metadata"),
+                                )
+
+                                # Create export request
+                                export_request = ExportRequest(
+                                    test=test_spec,
+                                    language=language,
+                                    framework=framework,
+                                    include_comments=include_comments,
+                                    base_url=base_url,
+                                )
+
+                                # Generate code
+                                code = _generate_code(export_request)
+                                test_name = test_spec.name.lower().replace(" ", "_").replace("-", "_")
+                                filename = _get_filename(test_name, language, framework)
+                                dependencies = _get_dependencies(language, framework)
+                                setup_instructions = _get_setup_instructions(language, framework)
+
+                                result = {
+                                    "success": True,
+                                    "_type": "test_export",
+                                    "test_id": test_id,
+                                    "test_name": test_data.get("name", ""),
+                                    "language": language,
+                                    "framework": framework,
+                                    "code": code,
+                                    "filename": filename,
+                                    "line_count": len(code.split("\n")),
+                                    "dependencies": dependencies,
+                                    "setup_instructions": setup_instructions,
+                                    "available_frameworks": LANGUAGE_FRAMEWORKS.get(language, []),
+                                    "_actions": ["copy_code", "download_file", "change_language", "change_framework"],
+                                }
+
+                                logger.info(
+                                    "Test exported via chat",
+                                    test_id=test_id,
+                                    language=language,
+                                    framework=framework,
+                                    lines=len(code.split("\n")),
+                                )
+
+                        except Exception as export_error:
+                            logger.exception("Test export failed", error=str(export_error))
+                            result = {
+                                "success": False,
+                                "_type": "test_export",
+                                "error": f"Export failed: {str(export_error)}",
+                                "test_id": test_id,
+                            }
+
+                elif tool_name == "listExportFormats":
+                    # List all available export languages and frameworks
+                    from src.api.export import LANGUAGE_FRAMEWORKS
+
+                    languages_info = [
+                        {
+                            "id": lang,
+                            "name": lang.capitalize() if lang != "csharp" else "C#",
+                            "frameworks": frameworks,
+                            "default_framework": frameworks[0] if frameworks else None,
+                        }
+                        for lang, frameworks in LANGUAGE_FRAMEWORKS.items()
+                    ]
+
+                    result = {
+                        "success": True,
+                        "_type": "export_formats",
+                        "languages": languages_info,
+                        "total_languages": len(LANGUAGE_FRAMEWORKS),
+                        "total_frameworks": sum(len(f) for f in LANGUAGE_FRAMEWORKS.values()),
+                        "_actions": ["select_language"],
+                    }
+
+                    logger.info("Listed export formats via chat", languages=len(LANGUAGE_FRAMEWORKS))
+
+                elif tool_name == "queryKnowledge":
+                    # Knowledge graph query using the GraphStore
+                    from src.knowledge_graph.graph_store import get_graph_store
+                    from src.knowledge_graph.schema import EdgeType, EntityType
+
+                    query = tool_args.get("query", "")
+                    entity_type = tool_args.get("entity_type", "all")
+                    relationship_type = tool_args.get("relationship_type", "all")
+                    entity_id = tool_args.get("entity_id")
+                    hops = min(tool_args.get("hops", 2), 4)  # Cap at 4 hops
+                    limit = min(tool_args.get("limit", 20), 50)  # Cap at 50
+
+                    try:
+                        graph = get_graph_store()
+
+                        # Determine query strategy based on parameters
+                        vertices = []
+                        edges = []
+                        query_description = ""
+
+                        if entity_id:
+                            # Query neighborhood of specific entity
+                            edge_filter = None
+                            if relationship_type and relationship_type != "all":
+                                edge_filter = [relationship_type.upper()]
+
+                            # Try to get the vertex ID from the entity_id
+                            # This depends on entity type - we'll try to infer it
+                            pool = await graph._get_pool()
+                            vertex_id = None
+
+                            # Try different entity mappings
+                            async with pool.acquire() as conn:
+                                # Check if it's a test ID
+                                try:
+                                    import uuid as uuid_mod
+                                    parsed_uuid = uuid_mod.UUID(entity_id)
+                                    row = await conn.fetchrow(
+                                        "SELECT vertex_id FROM graph_test_vertices WHERE test_id = $1",
+                                        parsed_uuid,
+                                    )
+                                    if row:
+                                        vertex_id = row["vertex_id"]
+                                        query_description = f"Neighborhood of Test {entity_id[:8]}..."
+                                except (ValueError, TypeError):
+                                    pass
+
+                                # Check if it's a commit SHA
+                                if not vertex_id and len(entity_id) >= 7:
+                                    project_id = state.get("project_id")
+                                    if project_id:
+                                        row = await conn.fetchrow(
+                                            """
+                                            SELECT vertex_id FROM graph_code_change_vertices
+                                            WHERE commit_sha LIKE $1
+                                            """,
+                                            f"{entity_id}%",
+                                        )
+                                        if row:
+                                            vertex_id = row["vertex_id"]
+                                            query_description = f"Impact of commit {entity_id[:7]}"
+
+                            if vertex_id:
+                                neighborhood = await graph.get_neighborhood(
+                                    vertex_id=vertex_id,
+                                    hops=hops,
+                                    edge_types=edge_filter,
+                                )
+                                vertices = neighborhood.get("vertices", [])
+                                edges = neighborhood.get("edges", [])
+                            else:
+                                query_description = f"Entity not found: {entity_id}"
+
+                        else:
+                            # Build Cypher query based on natural language
+                            # Use entity_type and relationship_type filters
+                            cypher = None
+
+                            # Map entity types to labels
+                            entity_label = "*"
+                            if entity_type and entity_type != "all":
+                                label_map = {
+                                    "test": "Test",
+                                    "failure": "Failure",
+                                    "selector": "Selector",
+                                    "code_change": "CodeChange",
+                                    "healing_pattern": "HealingPattern",
+                                    "page": "Page",
+                                    "project": "Project",
+                                }
+                                entity_label = label_map.get(entity_type.lower(), "*")
+
+                            # Map relationship types
+                            rel_pattern = "[r]"
+                            if relationship_type and relationship_type != "all":
+                                rel_type_map = {
+                                    "uses": "USES",
+                                    "broke": "BROKE",
+                                    "affected": "AFFECTED",
+                                    "caused": "CAUSED",
+                                    "modified": "MODIFIED",
+                                    "fixes": "FIXES",
+                                    "replaces": "REPLACES",
+                                    "similar_to": "SIMILAR_TO",
+                                }
+                                rel_label = rel_type_map.get(relationship_type.lower(), "")
+                                if rel_label:
+                                    rel_pattern = f"[r:{rel_label}]"
+
+                            # Build query based on common patterns in the natural language query
+                            query_lower = query.lower()
+
+                            if "failed" in query_lower or "failure" in query_lower:
+                                # Query for failures
+                                cypher = f"""
+                                    MATCH (f:Failure)-{rel_pattern}-(connected)
+                                    RETURN f AS entity, connected, type(r) AS relationship
+                                    LIMIT {limit}
+                                """
+                                query_description = "Test failures and related entities"
+
+                            elif "fragile" in query_lower or "broken" in query_lower:
+                                # Query for fragile selectors
+                                project_id = state.get("project_id")
+                                if project_id:
+                                    fragile_results = await graph.find_fragile_selectors(
+                                        project_id=project_id,
+                                        min_failures=2,
+                                        limit=limit,
+                                    )
+                                    # Convert to vertex format
+                                    vertices = [
+                                        {
+                                            "id": i,
+                                            "label": "Selector",
+                                            "properties": r,
+                                        }
+                                        for i, r in enumerate(fragile_results)
+                                    ]
+                                    query_description = "Fragile selectors (frequently breaking)"
+
+                            elif "healing" in query_lower or "fix" in query_lower:
+                                # Query for healing patterns
+                                cypher = f"""
+                                    MATCH (hp:HealingPattern)-{rel_pattern}-(connected)
+                                    RETURN hp AS entity, connected, type(r) AS relationship
+                                    LIMIT {limit}
+                                """
+                                query_description = "Healing patterns and fixes"
+
+                            elif "selector" in query_lower:
+                                # Query selectors
+                                cypher = f"""
+                                    MATCH (s:Selector)-{rel_pattern}-(connected)
+                                    RETURN s AS entity, connected, type(r) AS relationship
+                                    LIMIT {limit}
+                                """
+                                query_description = "Selectors and their relationships"
+
+                            elif "test" in query_lower:
+                                # Query tests
+                                cypher = f"""
+                                    MATCH (t:Test)-{rel_pattern}-(connected)
+                                    RETURN t AS entity, connected, type(r) AS relationship
+                                    LIMIT {limit}
+                                """
+                                query_description = "Tests and related entities"
+
+                            elif "commit" in query_lower or "change" in query_lower:
+                                # Query code changes
+                                cypher = f"""
+                                    MATCH (cc:CodeChange)-{rel_pattern}-(connected)
+                                    RETURN cc AS entity, connected, type(r) AS relationship
+                                    LIMIT {limit}
+                                """
+                                query_description = "Code changes and their impact"
+
+                            else:
+                                # Generic query - get overview of graph
+                                cypher = f"""
+                                    MATCH (n:{entity_label})-{rel_pattern}-(m)
+                                    RETURN n AS entity, m AS connected, type(r) AS relationship
+                                    LIMIT {limit}
+                                """
+                                query_description = f"Knowledge graph overview ({entity_type} entities)"
+
+                            # Execute the Cypher query if we built one
+                            if cypher and not vertices:
+                                try:
+                                    raw_results = await graph.query(cypher)
+
+                                    # Process results into vertices and edges
+                                    seen_vertices = {}
+                                    for row in raw_results:
+                                        # Add entity vertex
+                                        if "entity" in row and row["entity"]:
+                                            entity = row["entity"]
+                                            v_id = entity.get("id", hash(str(entity)))
+                                            if v_id not in seen_vertices:
+                                                seen_vertices[v_id] = {
+                                                    "id": v_id,
+                                                    "label": entity.get("label", "Unknown"),
+                                                    "properties": entity.get("properties", entity),
+                                                }
+
+                                        # Add connected vertex
+                                        if "connected" in row and row["connected"]:
+                                            connected = row["connected"]
+                                            c_id = connected.get("id", hash(str(connected)))
+                                            if c_id not in seen_vertices:
+                                                seen_vertices[c_id] = {
+                                                    "id": c_id,
+                                                    "label": connected.get("label", "Unknown"),
+                                                    "properties": connected.get("properties", connected),
+                                                }
+
+                                            # Add edge
+                                            if "relationship" in row:
+                                                edges.append({
+                                                    "type": row["relationship"],
+                                                    "from": entity.get("id") if "entity" in row and row["entity"] else None,
+                                                    "to": c_id,
+                                                })
+
+                                    vertices = list(seen_vertices.values())
+
+                                except Exception as cypher_error:
+                                    logger.warning("Cypher query failed, returning empty results", error=str(cypher_error))
+
+                        # Categorize vertices by type
+                        vertices_by_type = {}
+                        for v in vertices:
+                            label = v.get("label", "Unknown")
+                            if label not in vertices_by_type:
+                                vertices_by_type[label] = []
+                            vertices_by_type[label].append(v)
+
+                        # Categorize edges by type
+                        edges_by_type = {}
+                        for e in edges:
+                            rel_type = e.get("type", "Unknown")
+                            if rel_type not in edges_by_type:
+                                edges_by_type[rel_type] = []
+                            edges_by_type[rel_type].append(e)
+
+                        result = {
+                            "success": True,
+                            "_type": "knowledge_graph",
+                            "query": query,
+                            "query_description": query_description,
+                            "filters": {
+                                "entity_type": entity_type,
+                                "relationship_type": relationship_type,
+                                "entity_id": entity_id,
+                                "hops": hops,
+                            },
+                            "graph": {
+                                "vertices": vertices[:limit],
+                                "edges": edges,
+                                "total_vertices": len(vertices),
+                                "total_edges": len(edges),
+                            },
+                            "vertices_by_type": {
+                                k: len(v) for k, v in vertices_by_type.items()
+                            },
+                            "edges_by_type": {
+                                k: len(v) for k, v in edges_by_type.items()
+                            },
+                            "_actions": ["explore_entity", "expand_graph", "export_data", "run_query"],
+                        }
+
+                        logger.info(
+                            "Knowledge graph query completed",
+                            query=query[:50],
+                            vertices_count=len(vertices),
+                            edges_count=len(edges),
+                        )
+
+                    except Exception as graph_error:
+                        logger.exception("Knowledge graph query failed", error=str(graph_error))
+                        result = {
+                            "success": False,
+                            "_type": "knowledge_graph",
+                            "error": f"Query failed: {str(graph_error)}",
+                            "query": query,
+                            "suggestion": "Make sure the knowledge graph is initialized and contains data.",
                         }
 
                 else:
