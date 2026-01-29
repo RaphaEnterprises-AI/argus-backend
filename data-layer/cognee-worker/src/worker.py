@@ -191,10 +191,67 @@ class CogneeKafkaWorker:
         logger.info(f"Cognee graph database: {os.environ.get('GRAPH_DATABASE_PROVIDER')}")
         logger.info(f"Neo4j URI: {self.config.neo4j.uri[:30]}..." if self.config.neo4j.uri else "Neo4j URI not set")
 
+        # Initialize Langfuse tracing for LLM calls via LiteLLM
+        # Cognee uses LiteLLM under the hood, so we register Langfuse callbacks
+        await self._setup_langfuse_tracing()
+
         # Test Neo4j connection with retry for Aura cold starts
         await self._test_neo4j_connection()
 
         logger.info("Cognee configured with Neo4j Aura")
+
+    async def _setup_langfuse_tracing(self):
+        """Initialize Langfuse tracing for LLM observability.
+
+        Cognee uses LiteLLM for LLM calls. We register Langfuse as a callback
+        handler to trace all LLM calls, tokens, latency, and spans.
+
+        Environment variables required (set via K8s Secret):
+        - LANGFUSE_PUBLIC_KEY
+        - LANGFUSE_SECRET_KEY
+        - LANGFUSE_HOST
+        """
+        import os
+
+        langfuse_public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
+        langfuse_secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
+        langfuse_host = os.environ.get("LANGFUSE_HOST")
+        monitoring_tool = os.environ.get("MONITORING_TOOL", "").lower()
+
+        if monitoring_tool != "langfuse":
+            logger.info("Langfuse tracing disabled (MONITORING_TOOL != langfuse)")
+            return
+
+        if not langfuse_public_key or not langfuse_secret_key:
+            logger.warning(
+                "Langfuse tracing requested but credentials not set. "
+                "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY."
+            )
+            return
+
+        try:
+            import litellm
+            from litellm.integrations.langfuse import LangFuseLogger
+
+            # Initialize Langfuse logger
+            langfuse_logger = LangFuseLogger(
+                langfuse_public_key=langfuse_public_key,
+                langfuse_secret=langfuse_secret_key,
+                langfuse_host=langfuse_host,
+            )
+
+            # Register as success and failure callback
+            litellm.success_callback = ["langfuse"]
+            litellm.failure_callback = ["langfuse"]
+
+            logger.info(
+                f"Langfuse tracing initialized - host: {langfuse_host}, "
+                f"public_key: {langfuse_public_key[:20]}..."
+            )
+        except ImportError as e:
+            logger.warning(f"Langfuse tracing unavailable (missing dependency): {e}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Langfuse tracing: {e}")
 
     async def _test_neo4j_connection(self):
         """Test Neo4j Aura connection with retry logic for cold starts.
