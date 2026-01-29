@@ -236,6 +236,20 @@ class EventGateway:
                 "sasl_plain_username": self._sasl_username,
                 "sasl_plain_password": self._sasl_password,
             })
+
+            # Add SSL context for SASL_SSL or SSL protocols
+            if self._security_protocol in ("SASL_SSL", "SSL"):
+                import ssl
+                ssl_context = ssl.create_default_context()
+                # For Redpanda Cloud, use default CA certificates
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                producer_config["ssl_context"] = ssl_context
+                logger.info(
+                    "SSL context created for secure connection",
+                    protocol=self._security_protocol,
+                )
+
             logger.info(
                 "Event gateway configured with SASL authentication",
                 mechanism=self._sasl_mechanism,
