@@ -231,27 +231,26 @@ class CogneeKafkaWorker:
 
         try:
             import litellm
-            from litellm.integrations.langfuse import LangFuseLogger
 
-            # Initialize Langfuse logger
-            langfuse_logger = LangFuseLogger(
-                langfuse_public_key=langfuse_public_key,
-                langfuse_secret=langfuse_secret_key,
-                langfuse_host=langfuse_host,
-            )
-
-            # Register as success and failure callback
+            # LiteLLM automatically handles Langfuse integration when:
+            # 1. LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set
+            # 2. We register "langfuse" as a callback
+            # LiteLLM will use the env vars to connect to Langfuse
             litellm.success_callback = ["langfuse"]
             litellm.failure_callback = ["langfuse"]
 
+            # Enable verbose logging in debug mode
+            if os.environ.get("LANGFUSE_DEBUG", "").lower() == "true":
+                litellm.set_verbose = True
+
             logger.info(
-                f"Langfuse tracing initialized - host: {langfuse_host}, "
-                f"public_key: {langfuse_public_key[:20]}..."
+                f"Langfuse tracing enabled via LiteLLM callbacks - "
+                f"host: {langfuse_host}, public_key: {langfuse_public_key[:20]}..."
             )
         except ImportError as e:
-            logger.warning(f"Langfuse tracing unavailable (missing dependency): {e}")
+            logger.warning(f"Langfuse tracing unavailable (LiteLLM not found): {e}")
         except Exception as e:
-            logger.warning(f"Failed to initialize Langfuse tracing: {e}")
+            logger.warning(f"Failed to enable Langfuse tracing: {e}")
 
     async def _test_neo4j_connection(self):
         """Test Neo4j Aura connection with retry logic for cold starts.
