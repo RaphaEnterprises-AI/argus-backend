@@ -239,6 +239,19 @@ spec:
                   name: argus-data-secrets
                   key: langfuse-secret-key
                   optional: true
+            # Upstash Redis (fallback cache - 227x cheaper than Cloudflare KV)
+            - name: UPSTASH_REDIS_REST_URL
+              valueFrom:
+                secretKeyRef:
+                  name: upstash-redis-credentials
+                  key: UPSTASH_REDIS_REST_URL
+                  optional: true
+            - name: UPSTASH_REDIS_REST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: upstash-redis-credentials
+                  key: UPSTASH_REDIS_REST_TOKEN
+                  optional: true
           resources:
             requests:
               cpu: "100m"
