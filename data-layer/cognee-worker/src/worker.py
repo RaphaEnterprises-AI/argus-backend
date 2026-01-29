@@ -294,6 +294,30 @@ class CogneeKafkaWorker:
 
         return org_id, project_id
 
+    def _get_payload_field(
+        self,
+        event: dict[str, Any],
+        field: str,
+        default: Any = None,
+    ) -> Any:
+        """Extract a field from event, checking payload first then root.
+
+        Event structure can be either:
+        - Envelope pattern: {"payload": {"test_id": "x"}, "org_id": "y"}
+        - Flat pattern: {"test_id": "x", "org_id": "y"}
+
+        Args:
+            event: Event dictionary
+            field: Field name to extract
+            default: Default value if field not found
+
+        Returns:
+            Field value or default
+        """
+        payload = event.get("payload", {})
+        # Check payload first (envelope pattern), then root (flat pattern)
+        return payload.get(field) or event.get(field, default)
+
     def _safe_json_deserialize(self, v: bytes) -> dict:
         """Safely deserialize JSON, returning error dict on failure."""
         try:
@@ -504,35 +528,41 @@ class CogneeKafkaWorker:
 
         Adds test execution data to the knowledge graph for pattern learning
         with multi-tenant dataset isolation.
+
+        Event structure supports both envelope and flat patterns:
+        - Envelope: {"payload": {"test_id": "x", "status": "failed"}, "org_id": "y"}
+        - Flat: {"test_id": "x", "status": "failed", "org_id": "y"}
         """
         logger.info(f"Processing {topic}: {key}")
 
         # Extract tenant context
         org_id, project_id = self._extract_tenant_context(event)
 
-        test_id = event.get("test_id")
+        # Extract test data from payload (envelope) or root (flat)
+        test_id = self._get_payload_field(event, "test_id")
         test_type = topic.split(".")[-1]  # created, executed, or failed
 
         if not test_id:
-            raise ValueError("Missing test_id in test event")
+            raise ValueError("Missing test_id in test event (checked both payload and root)")
 
         # Generate tenant-scoped dataset name
         dataset_name = self._get_dataset_name(org_id, project_id, "tests")
 
-        logger.info(f"Processing test event for tenant org={org_id}, project={project_id}")
+        logger.info(f"Processing test event for tenant org={org_id}, project={project_id}, test={test_id}")
 
         # Build test execution knowledge with tenant context
+        # All fields are extracted using the envelope-aware helper
         test_knowledge = {
             "org_id": org_id,
             "project_id": project_id,
             "test_id": test_id,
             "event_type": test_type,
-            "test_name": event.get("test_name", ""),
-            "test_status": event.get("status", test_type),
-            "duration_ms": event.get("duration_ms"),
-            "error_message": event.get("error_message"),
-            "stack_trace": event.get("stack_trace"),
-            "screenshot_url": event.get("screenshot_url"),
+            "test_name": self._get_payload_field(event, "test_name", ""),
+            "test_status": self._get_payload_field(event, "status", test_type),
+            "duration_ms": self._get_payload_field(event, "duration_ms"),
+            "error_message": self._get_payload_field(event, "error_message"),
+            "stack_trace": self._get_payload_field(event, "stack_trace"),
+            "screenshot_url": self._get_payload_field(event, "screenshot_url"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -556,7 +586,7 @@ class CogneeKafkaWorker:
         event: dict[str, Any],
     ):
         """Analyze test failure patterns using Cognee search with tenant isolation."""
-        error_message = event.get("error_message", "")
+        error_message = self._get_payload_field(event, "error_message", "")
 
         if not error_message:
             return
@@ -587,8 +617,8 @@ class CogneeKafkaWorker:
                     "project_id": project_id,
                     "test_id": test_id,
                     "error_message": error_message,
-                    "error_type": event.get("error_type", "unknown"),
-                    "failed_selector": event.get("failed_selector"),
+                    "error_type": self._get_payload_field(event, "error_type", "unknown"),
+                    "failed_selector": self._get_payload_field(event, "failed_selector"),
                     "similar_failure_count": len(similar_failures),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
@@ -606,22 +636,28 @@ class CogneeKafkaWorker:
 
         Uses knowledge graph to suggest fixes for broken tests
         with multi-tenant dataset isolation.
+
+        Event structure supports both envelope and flat patterns:
+        - Envelope: {"payload": {"test_id": "x", "error_message": "y"}, "org_id": "z"}
+        - Flat: {"test_id": "x", "error_message": "y", "org_id": "z"}
         """
         logger.info(f"Processing healing.requested: {key}")
 
         # Extract tenant context
         org_id, project_id = self._extract_tenant_context(event)
 
-        test_id = event.get("test_id")
-        failure_id = event.get("failure_id", "")
-        error_type = event.get("error_type", "")
-        failed_selector = event.get("failed_selector", "")
+        # Extract healing data from payload (envelope) or root (flat)
+        test_id = self._get_payload_field(event, "test_id")
+        failure_id = self._get_payload_field(event, "failure_id", "")
+        error_type = self._get_payload_field(event, "error_type", "")
+        failed_selector = self._get_payload_field(event, "failed_selector", "")
 
         if not test_id:
-            raise ValueError("Missing test_id in healing.requested event")
+            raise ValueError("Missing test_id in healing.requested event (checked both payload and root)")
 
         # Build search query from failure context
-        failure_reason = event.get("error_message", "") or failed_selector or error_type
+        error_message = self._get_payload_field(event, "error_message", "")
+        failure_reason = error_message or failed_selector or error_type
 
         # Generate tenant-scoped dataset names
         codebase_dataset = self._get_dataset_name(org_id, project_id, "codebase")
@@ -666,7 +702,7 @@ class CogneeKafkaWorker:
             },
             "test_id": test_id,
             "failure_id": failure_id,
-            "healing_request_id": event.get("event_id", ""),
+            "healing_request_id": self._get_payload_field(event, "event_id", ""),
             "status": "healing_analyzed",
             "success": True,
             "strategy_used": "cognee_search",
