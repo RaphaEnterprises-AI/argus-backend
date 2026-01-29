@@ -327,6 +327,18 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+    # Allow connection to Langfuse in monitoring namespace for LLM tracing
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: langfuse
+              app: web
+      ports:
+        - protocol: TCP
+          port: 3000
     # Allow external HTTPS for:
     # - Supabase (BYOK key lookup)
     # - Cloudflare Key Vault (key decryption)

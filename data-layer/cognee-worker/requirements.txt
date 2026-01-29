@@ -45,4 +45,5 @@ openai>=1.12.0
 prometheus-client>=0.19.0
 
 # LLM observability - Langfuse for tracing LLM calls
-langfuse>=2.0.0
+# Using 2.x for REST API (3.x uses OTEL which requires S3 storage)
+langfuse>=2.0.0,<3.0.0
