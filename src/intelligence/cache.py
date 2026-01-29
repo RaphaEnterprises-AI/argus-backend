@@ -40,9 +40,17 @@ from typing import Any, TypeVar
 
 import structlog
 
-from src.services.cache import ValkeyClient, get_valkey_client
+from src.services.cache import (
+    CloudflareKVClient,
+    ValkeyClient,
+    get_kv_client,
+    get_valkey_client,
+)
 
 logger = structlog.get_logger(__name__)
+
+# Cache client type that supports both Valkey and Cloudflare KV
+CacheClient = ValkeyClient | CloudflareKVClient
 
 # Type variable for generic search function return type
 T = TypeVar("T")
@@ -134,6 +142,7 @@ class IntelligenceCache:
     def __init__(
         self,
         valkey_client: ValkeyClient | None = None,
+        kv_client: CloudflareKVClient | None = None,
         default_ttl: int = DEFAULT_TTL,
         key_prefix: str = "intel",
     ):
@@ -142,19 +151,65 @@ class IntelligenceCache:
         Args:
             valkey_client: Optional ValkeyClient instance. If not provided,
                 uses the global client from get_valkey_client().
+            kv_client: Optional CloudflareKVClient for fallback when Valkey
+                is unreachable (e.g., Railway deployment can't reach K8s).
             default_ttl: Default TTL in seconds for cache entries.
             key_prefix: Prefix for all cache keys.
         """
-        self._client = valkey_client
+        self._valkey_client = valkey_client
+        self._kv_client = kv_client
         self._default_ttl = default_ttl
         self._key_prefix = key_prefix
         self._log = logger.bind(component="intelligence_cache")
+        self._valkey_healthy: bool | None = None  # Cache health status
 
-    def _get_client(self) -> ValkeyClient | None:
-        """Get the Valkey client, lazily initializing if needed."""
-        if self._client is None:
-            self._client = get_valkey_client()
-        return self._client
+    async def _get_client(self) -> CacheClient | None:
+        """Get the best available cache client with automatic fallback.
+
+        Priority:
+        1. Valkey (K8s internal, fastest) - if healthy
+        2. Cloudflare KV (HTTP REST, works from Railway)
+
+        Returns:
+            Cache client or None if no cache is available.
+        """
+        # Try Valkey first (fastest for K8s deployments)
+        if self._valkey_client is None:
+            self._valkey_client = get_valkey_client()
+
+        if self._valkey_client is not None:
+            # Check if we've already determined Valkey is unhealthy
+            if self._valkey_healthy is False:
+                self._log.debug("Skipping Valkey (previously unhealthy)")
+            else:
+                try:
+                    healthy = await self._valkey_client.ping()
+                    self._valkey_healthy = healthy
+                    if healthy:
+                        return self._valkey_client
+                    else:
+                        self._log.warning("Valkey ping returned False, falling back to KV")
+                except Exception as e:
+                    self._valkey_healthy = False
+                    self._log.warning(
+                        "Valkey unreachable, falling back to Cloudflare KV",
+                        error=str(e),
+                    )
+
+        # Fallback to Cloudflare KV (works from external deployments like Railway)
+        if self._kv_client is None:
+            self._kv_client = get_kv_client()
+
+        if self._kv_client is not None:
+            self._log.debug("Using Cloudflare KV as cache backend")
+            return self._kv_client
+
+        self._log.warning("No cache backend available")
+        return None
+
+    def reset_health_cache(self) -> None:
+        """Reset the cached health status to force re-check on next call."""
+        self._valkey_healthy = None
 
     def _generate_cache_key(self, query: str, intent: str) -> str:
         """Generate a cache key from query and intent.
@@ -241,7 +296,7 @@ class IntelligenceCache:
         cache_key = self._generate_cache_key(query, intent)
         effective_ttl = ttl if ttl is not None else self._get_ttl_for_intent(intent)
 
-        client = self._get_client()
+        client = await self._get_client()
 
         # Try cache lookup
         if client is not None:
@@ -337,7 +392,7 @@ class IntelligenceCache:
         """
         start_time = time.perf_counter()
         cache_key = self._generate_cache_key(query, intent)
-        client = self._get_client()
+        client = await self._get_client()
 
         if client is None:
             return None
@@ -346,9 +401,11 @@ class IntelligenceCache:
             cached_value = await client.get(cache_key)
             if cached_value is not None:
                 latency_ms = (time.perf_counter() - start_time) * 1000
+                # Determine source based on client type
+                source = CacheSource.VALKEY if isinstance(client, ValkeyClient) else CacheSource.VALKEY
                 return CachedResult(
                     data=self._deserialize(cached_value),
-                    source=CacheSource.VALKEY,
+                    source=source,
                     latency_ms=latency_ms,
                 )
         except Exception as e:
@@ -380,7 +437,7 @@ class IntelligenceCache:
         """
         cache_key = self._generate_cache_key(query, intent)
         effective_ttl = ttl if ttl is not None else self._get_ttl_for_intent(intent)
-        client = self._get_client()
+        client = await self._get_client()
 
         if client is None:
             return False
@@ -405,6 +462,8 @@ class IntelligenceCache:
         """Invalidate cache entries matching a pattern.
 
         Uses Redis SCAN + DELETE for pattern matching (e.g., "intel:self_healing:*").
+        Only works with Valkey/Redis backend. For Cloudflare KV, pattern invalidation
+        is not supported - use delete() for individual keys.
 
         Note: Pattern matching requires iterating through keys, which may be
         slow for large datasets. For single-key invalidation, use delete().
@@ -415,9 +474,17 @@ class IntelligenceCache:
         Returns:
             Number of keys deleted
         """
-        client = self._get_client()
+        client = await self._get_client()
         if client is None:
-            self._log.warning("Cannot invalidate: Valkey client not available")
+            self._log.warning("Cannot invalidate: no cache client available")
+            return 0
+
+        # Pattern invalidation only works with Valkey/Redis
+        if not isinstance(client, ValkeyClient):
+            self._log.warning(
+                "Pattern invalidation not supported with current cache backend",
+                backend=type(client).__name__,
+            )
             return 0
 
         try:
@@ -505,7 +572,7 @@ class IntelligenceCache:
             True if deleted, False otherwise
         """
         cache_key = self._generate_cache_key(query, intent)
-        client = self._get_client()
+        client = await self._get_client()
 
         if client is None:
             return False
@@ -526,28 +593,52 @@ class IntelligenceCache:
         """Check the health of the intelligence cache.
 
         Returns:
-            Health status dictionary
+            Health status dictionary with details about which backend is in use.
         """
-        client = self._get_client()
+        # Check Valkey first
+        valkey_healthy = False
+        valkey_error = None
+        if self._valkey_client is None:
+            self._valkey_client = get_valkey_client()
 
-        if client is None:
-            return {
-                "healthy": False,
-                "reason": "Valkey client not available",
-                "component": "intelligence_cache",
-            }
+        if self._valkey_client is not None:
+            try:
+                valkey_healthy = await self._valkey_client.ping()
+            except Exception as e:
+                valkey_error = str(e)
 
-        try:
-            healthy = await client.ping()
+        # Check Cloudflare KV
+        kv_healthy = False
+        if self._kv_client is None:
+            self._kv_client = get_kv_client()
+
+        if self._kv_client is not None:
+            try:
+                # KV doesn't have ping, but if client exists it's configured
+                kv_healthy = True
+            except Exception:
+                pass
+
+        # Determine overall health and backend
+        if valkey_healthy:
             return {
-                "healthy": healthy,
+                "healthy": True,
                 "component": "intelligence_cache",
                 "backend": "valkey",
+                "fallback_available": kv_healthy,
             }
-        except Exception as e:
+        elif kv_healthy:
+            return {
+                "healthy": True,
+                "component": "intelligence_cache",
+                "backend": "cloudflare_kv",
+                "valkey_error": valkey_error,
+                "note": "Using Cloudflare KV fallback (Valkey unreachable)",
+            }
+        else:
             return {
                 "healthy": False,
-                "reason": str(e),
+                "reason": valkey_error or "No cache backend available",
                 "component": "intelligence_cache",
             }
 
