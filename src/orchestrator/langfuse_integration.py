@@ -74,9 +74,9 @@ def _check_langfuse_available() -> bool:
         _langfuse_available = False
         return False
 
-    # Try to import langfuse
+    # Try to import langfuse (v2.x uses langfuse.callback)
     try:
-        from langfuse.langchain import CallbackHandler
+        from langfuse.callback import CallbackHandler
         _CallbackHandler = CallbackHandler
         _langfuse_available = True
 
