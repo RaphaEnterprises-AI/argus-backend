@@ -26,7 +26,7 @@ data:
         {
           "gridPos": {"h": 2, "w": 24, "x": 0, "y": 0},
           "id": 100,
-          "options": {"content": "# 🧠 Unified Instant Intelligence Layer (UIIL)\nTarget: <100ms response time via 3-tier resolution: Cache (1-5ms) → Vector (15-50ms) → LLM (2-5s fallback)", "mode": "markdown"},
+          "options": {"content": "# 🧠 Unified Instant Intelligence Layer (UIIL)\nTarget: <100ms response time via 4-tier resolution: Valkey (1-5ms) → Upstash Redis (10-30ms) → Vector/Cognee (15-50ms) → LLM (2-5s fallback)\n\n**Cache Fallback Chain:** Valkey (K8s) → Upstash Redis (Edge, 227x cheaper than KV) → Cloudflare KV → Cognee Vector → LLM", "mode": "markdown"},
           "title": "",
           "type": "text"
         },
@@ -136,9 +136,10 @@ data:
           "id": 5,
           "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
-            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"cache\"}[5m])) by (le)) * 1000", "legendFormat": "Cache (Valkey)", "refId": "A"},
-            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"vector\"}[5m])) by (le)) * 1000", "legendFormat": "Vector (Cognee)", "refId": "B"},
-            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"llm\"}[5m])) by (le)) * 1000", "legendFormat": "LLM Fallback", "refId": "C"}
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"valkey\"}[5m])) by (le)) * 1000", "legendFormat": "Valkey (K8s)", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"upstash\"}[5m])) by (le)) * 1000", "legendFormat": "Upstash Redis (Edge)", "refId": "B"},
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"vector\"}[5m])) by (le)) * 1000", "legendFormat": "Vector (Cognee)", "refId": "C"},
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_query_duration_seconds_bucket{tier=\"llm\"}[5m])) by (le)) * 1000", "legendFormat": "LLM Fallback", "refId": "D"}
           ],
           "title": "Query Latency by Tier (P95)",
           "type": "timeseries"
@@ -158,9 +159,10 @@ data:
           "id": 6,
           "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
-            {"expr": "sum(rate(intelligence_queries_total{tier=\"cache\"}[5m])) by (tier)", "legendFormat": "Cache Hit", "refId": "A"},
-            {"expr": "sum(rate(intelligence_queries_total{tier=\"vector\"}[5m])) by (tier)", "legendFormat": "Vector Search", "refId": "B"},
-            {"expr": "sum(rate(intelligence_queries_total{tier=\"llm\"}[5m])) by (tier)", "legendFormat": "LLM Fallback", "refId": "C"}
+            {"expr": "sum(rate(intelligence_queries_total{tier=\"valkey\"}[5m])) by (tier)", "legendFormat": "Valkey (K8s)", "refId": "A"},
+            {"expr": "sum(rate(intelligence_queries_total{tier=\"upstash\"}[5m])) by (tier)", "legendFormat": "Upstash Redis", "refId": "B"},
+            {"expr": "sum(rate(intelligence_queries_total{tier=\"vector\"}[5m])) by (tier)", "legendFormat": "Vector Search", "refId": "C"},
+            {"expr": "sum(rate(intelligence_queries_total{tier=\"llm\"}[5m])) by (tier)", "legendFormat": "LLM Fallback", "refId": "D"}
           ],
           "title": "Query Resolution by Tier",
           "type": "timeseries"
@@ -294,6 +296,127 @@ data:
             {"expr": "sum(rate(cognee_events_processed_total{status=\"success\"}[5m])) by (event_type)", "legendFormat": "{{event_type}}", "refId": "A"}
           ],
           "title": "Integration Events Processed (Sentry, Jira, GitHub, Confluence)",
+          "type": "timeseries"
+        },
+        {
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 36},
+          "id": 200,
+          "options": {"content": "## 💾 Cache Backend Health\nFallback chain: Valkey (K8s, 1-5ms) → Upstash Redis (Edge, 10-30ms, 227x cheaper than KV) → Cloudflare KV (115ms+)", "mode": "markdown"},
+          "title": "",
+          "type": "text"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 38},
+          "id": 13,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "intelligence_cache_backend_healthy{backend=\"valkey\"}", "refId": "A"}],
+          "title": "Valkey (K8s)",
+          "description": "Primary cache - lowest latency when available",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 38},
+          "id": 14,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "intelligence_cache_backend_healthy{backend=\"upstash\"}", "refId": "A"}],
+          "title": "Upstash Redis (Edge)",
+          "description": "Fallback cache - 227x cheaper than Cloudflare KV",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [{"options": {"0": {"color": "red", "index": 0, "text": "DOWN"}, "1": {"color": "green", "index": 1, "text": "UP"}}, "type": "value"}],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 38},
+          "id": 15,
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "intelligence_cache_backend_healthy{backend=\"cloudflare_kv\"}", "refId": "A"}],
+          "title": "Cloudflare KV",
+          "description": "Last resort cache - higher latency",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 38},
+          "id": 16,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(intelligence_cache_fallback_total[5m])) * 60", "refId": "A"}],
+          "title": "Cache Fallbacks/min",
+          "description": "How often we fall back from Valkey to Upstash/KV",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "ms"
+            }
+          },
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 42},
+          "id": 17,
+          "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_cache_latency_seconds_bucket{backend=\"valkey\"}[5m])) by (le)) * 1000", "legendFormat": "Valkey P95", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_cache_latency_seconds_bucket{backend=\"upstash\"}[5m])) by (le)) * 1000", "legendFormat": "Upstash P95", "refId": "B"},
+            {"expr": "histogram_quantile(0.95, sum(rate(intelligence_cache_latency_seconds_bucket{backend=\"cloudflare_kv\"}[5m])) by (le)) * 1000", "legendFormat": "Cloudflare KV P95", "refId": "C"}
+          ],
+          "title": "Cache Backend Latency Comparison (P95)",
+          "description": "Target: Valkey <5ms, Upstash <30ms, KV <150ms",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 80, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 42},
+          "id": 18,
+          "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(rate(intelligence_cache_operations_total{backend=\"valkey\"}[5m])) by (operation)", "legendFormat": "Valkey {{operation}}", "refId": "A"},
+            {"expr": "sum(rate(intelligence_cache_operations_total{backend=\"upstash\"}[5m])) by (operation)", "legendFormat": "Upstash {{operation}}", "refId": "B"},
+            {"expr": "sum(rate(intelligence_cache_operations_total{backend=\"cloudflare_kv\"}[5m])) by (operation)", "legendFormat": "KV {{operation}}", "refId": "C"}
+          ],
+          "title": "Cache Operations by Backend",
           "type": "timeseries"
         }
       ],
