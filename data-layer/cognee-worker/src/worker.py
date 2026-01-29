@@ -131,6 +131,7 @@ class CogneeKafkaWorker:
         self.consumer: Optional[AIOKafkaConsumer] = None
         self.producer: Optional[AIOKafkaProducer] = None
         self.running = False
+        self.langfuse = None  # Initialized in _setup_langfuse_tracing()
         self._setup_logging()
 
         # Initialize handlers
@@ -201,15 +202,15 @@ class CogneeKafkaWorker:
         logger.info("Cognee configured with Neo4j Aura")
 
     async def _setup_langfuse_tracing(self):
-        """Initialize Langfuse tracing for LLM observability.
+        """Initialize Langfuse SDK for LLM observability.
 
-        Cognee uses LiteLLM for LLM calls. We register Langfuse as a callback
-        handler to trace all LLM calls, tokens, latency, and spans.
+        Uses the Langfuse Python SDK directly for manual instrumentation,
+        which is more reliable than LiteLLM callbacks and gives full control.
 
         Environment variables required (set via K8s Secret):
         - LANGFUSE_PUBLIC_KEY
         - LANGFUSE_SECRET_KEY
-        - LANGFUSE_HOST
+        - LANGFUSE_HOST (LANGFUSE_BASE_URL)
         """
         import os
 
@@ -220,6 +221,7 @@ class CogneeKafkaWorker:
 
         if monitoring_tool != "langfuse":
             logger.info("Langfuse tracing disabled (MONITORING_TOOL != langfuse)")
+            self.langfuse = None
             return
 
         if not langfuse_public_key or not langfuse_secret_key:
@@ -227,30 +229,63 @@ class CogneeKafkaWorker:
                 "Langfuse tracing requested but credentials not set. "
                 "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY."
             )
+            self.langfuse = None
             return
 
         try:
-            import litellm
+            from langfuse import Langfuse
 
-            # LiteLLM automatically handles Langfuse integration when:
-            # 1. LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set
-            # 2. We register "langfuse" as a callback
-            # LiteLLM will use the env vars to connect to Langfuse
-            litellm.success_callback = ["langfuse"]
-            litellm.failure_callback = ["langfuse"]
-
-            # Enable verbose logging in debug mode
-            if os.environ.get("LANGFUSE_DEBUG", "").lower() == "true":
-                litellm.set_verbose = True
+            # Initialize Langfuse SDK client directly
+            self.langfuse = Langfuse(
+                public_key=langfuse_public_key,
+                secret_key=langfuse_secret_key,
+                host=langfuse_host,
+            )
 
             logger.info(
-                f"Langfuse tracing enabled via LiteLLM callbacks - "
+                f"Langfuse SDK initialized - "
                 f"host: {langfuse_host}, public_key: {langfuse_public_key[:20]}..."
             )
         except ImportError as e:
-            logger.warning(f"Langfuse tracing unavailable (LiteLLM not found): {e}")
+            logger.warning(f"Langfuse SDK not available: {e}")
+            self.langfuse = None
         except Exception as e:
-            logger.warning(f"Failed to enable Langfuse tracing: {e}")
+            logger.warning(f"Failed to initialize Langfuse SDK: {e}")
+            self.langfuse = None
+
+    def _create_trace(self, name: str, metadata: dict = None):
+        """Create a Langfuse trace for observability.
+
+        Args:
+            name: Name of the trace (e.g., "process_test_failed")
+            metadata: Optional metadata to attach to the trace
+
+        Returns:
+            Langfuse trace object or None if Langfuse is not available
+        """
+        if not self.langfuse:
+            return None
+
+        try:
+            return self.langfuse.trace(
+                name=name,
+                metadata=metadata or {},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create Langfuse trace: {e}")
+            return None
+
+    def _flush_langfuse(self):
+        """Flush pending Langfuse events.
+
+        Should be called periodically or before shutdown to ensure
+        all traces are sent to the Langfuse server.
+        """
+        if self.langfuse:
+            try:
+                self.langfuse.flush()
+            except Exception as e:
+                logger.warning(f"Failed to flush Langfuse: {e}")
 
     async def _test_neo4j_connection(self):
         """Test Neo4j Aura connection with retry logic for cold starts.
@@ -611,38 +646,70 @@ class CogneeKafkaWorker:
         if not test_id:
             raise ValueError("Missing test_id in test event (checked both payload and root)")
 
-        # Generate tenant-scoped dataset name
-        dataset_name = self._get_dataset_name(org_id, project_id, "tests")
-
-        logger.info(f"Processing test event for tenant org={org_id}, project={project_id}, test={test_id}")
-
-        # Build test execution knowledge with tenant context
-        # All fields are extracted using the envelope-aware helper
-        test_knowledge = {
-            "org_id": org_id,
-            "project_id": project_id,
-            "test_id": test_id,
-            "event_type": test_type,
-            "test_name": self._get_payload_field(event, "test_name", ""),
-            "test_status": self._get_payload_field(event, "status", test_type),
-            "duration_ms": self._get_payload_field(event, "duration_ms"),
-            "error_message": self._get_payload_field(event, "error_message"),
-            "stack_trace": self._get_payload_field(event, "stack_trace"),
-            "screenshot_url": self._get_payload_field(event, "screenshot_url"),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        # Add to Cognee for pattern learning
-        await cognee.add(
-            json.dumps(test_knowledge),
-            dataset_name=dataset_name,
+        # Create Langfuse trace for observability
+        trace = self._create_trace(
+            name=f"process_test_{test_type}",
+            metadata={
+                "org_id": org_id,
+                "project_id": project_id,
+                "test_id": test_id,
+                "topic": topic,
+            },
         )
 
-        # For failed tests, also analyze failure patterns
-        if test_type == "failed":
-            await self._analyze_failure_pattern(org_id, project_id, test_id, event)
+        try:
+            # Generate tenant-scoped dataset name
+            dataset_name = self._get_dataset_name(org_id, project_id, "tests")
 
-        logger.info(f"Processed test event {test_type} for test {test_id} (org={org_id})")
+            logger.info(f"Processing test event for tenant org={org_id}, project={project_id}, test={test_id}")
+
+            # Build test execution knowledge with tenant context
+            # All fields are extracted using the envelope-aware helper
+            test_knowledge = {
+                "org_id": org_id,
+                "project_id": project_id,
+                "test_id": test_id,
+                "event_type": test_type,
+                "test_name": self._get_payload_field(event, "test_name", ""),
+                "test_status": self._get_payload_field(event, "status", test_type),
+                "duration_ms": self._get_payload_field(event, "duration_ms"),
+                "error_message": self._get_payload_field(event, "error_message"),
+                "stack_trace": self._get_payload_field(event, "stack_trace"),
+                "screenshot_url": self._get_payload_field(event, "screenshot_url"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+            # Add span for Cognee ingestion
+            if trace:
+                span = trace.span(name="cognee_add", input={"dataset": dataset_name})
+
+            # Add to Cognee for pattern learning
+            await cognee.add(
+                json.dumps(test_knowledge),
+                dataset_name=dataset_name,
+            )
+
+            if trace:
+                span.end(output={"status": "success"})
+
+            # For failed tests, also analyze failure patterns
+            if test_type == "failed":
+                await self._analyze_failure_pattern(org_id, project_id, test_id, event, trace)
+
+            logger.info(f"Processed test event {test_type} for test {test_id} (org={org_id})")
+
+            # Update trace with success
+            if trace:
+                trace.update(output={"status": "success", "test_type": test_type})
+
+        except Exception as e:
+            # Update trace with error
+            if trace:
+                trace.update(output={"status": "error", "error": str(e)})
+            raise
+        finally:
+            # Flush Langfuse to ensure traces are sent
+            self._flush_langfuse()
 
     async def _analyze_failure_pattern(
         self,
@@ -650,6 +717,7 @@ class CogneeKafkaWorker:
         project_id: str,
         test_id: str,
         event: dict[str, Any],
+        trace=None,
     ):
         """Analyze test failure patterns using Cognee search with tenant isolation."""
         error_message = self._get_payload_field(event, "error_message", "")
@@ -664,9 +732,23 @@ class CogneeKafkaWorker:
         # Search for similar failures in the knowledge graph
         # Cognee 0.5+ search API: cognee.search(query_text) - positional argument
         try:
+            # Add span for similarity search
+            if trace:
+                search_span = trace.span(
+                    name="cognee_search_similar_failures",
+                    input={"error_message": error_message[:200]},  # Truncate for readability
+                )
+
             search_start = time.time()
             similar_failures = await cognee.search(error_message)
-            COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
+            search_duration = time.time() - search_start
+            COGNEE_SEARCH_DURATION.observe(search_duration)
+
+            if trace:
+                search_span.end(output={
+                    "similar_count": len(similar_failures) if similar_failures else 0,
+                    "duration_ms": int(search_duration * 1000),
+                })
 
             if similar_failures:
                 logger.info(
@@ -685,13 +767,23 @@ class CogneeKafkaWorker:
                     "similar_failure_count": len(similar_failures),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
+
+                # Add span for storing failure pattern
+                if trace:
+                    store_span = trace.span(name="cognee_store_failure_pattern")
+
                 await cognee.add(
                     json.dumps(failure_pattern),
                     dataset_name=failures_dataset,
                 )
 
+                if trace:
+                    store_span.end(output={"status": "success"})
+
         except Exception as e:
             logger.warning(f"Error analyzing failure pattern: {e}")
+            if trace:
+                trace.span(name="failure_pattern_error").end(output={"error": str(e)})
 
     async def _process_healing_requested(self, key: str, event: dict[str, Any]):
         """
