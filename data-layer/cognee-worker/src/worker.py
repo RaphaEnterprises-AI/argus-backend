@@ -606,13 +606,10 @@ class CogneeKafkaWorker:
         failures_dataset = self._get_dataset_name(org_id, project_id, "failures")
 
         # Search for similar failures in the knowledge graph
+        # Cognee 0.5+ search API: cognee.search(query_text) - positional argument
         try:
             search_start = time.time()
-            similar_failures = await cognee.search(
-                query=error_message,
-                dataset_name=tests_dataset,
-                top_k=5,
-            )
+            similar_failures = await cognee.search(error_message)
             COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
 
             if similar_failures:
@@ -677,14 +674,11 @@ class CogneeKafkaWorker:
         logger.info(f"Searching for healing context (org={org_id}, project={project_id})")
 
         # Search knowledge graph for relevant code context
+        # Cognee 0.5+ search API: cognee.search(query_text) - positional argument
         code_context = []
         try:
             search_start = time.time()
-            code_context = await cognee.search(
-                query=failure_reason,
-                dataset_name=codebase_dataset,
-                top_k=10,
-            )
+            code_context = await cognee.search(failure_reason)
             COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
         except Exception as e:
             logger.warning(f"Error searching codebase: {e}")
@@ -693,11 +687,7 @@ class CogneeKafkaWorker:
         similar_failures = []
         try:
             search_start = time.time()
-            similar_failures = await cognee.search(
-                query=failure_reason,
-                dataset_name=failures_dataset,
-                top_k=5,
-            )
+            similar_failures = await cognee.search(failure_reason)
             COGNEE_SEARCH_DURATION.observe(time.time() - search_start)
         except Exception as e:
             logger.warning(f"Error searching failures: {e}")
