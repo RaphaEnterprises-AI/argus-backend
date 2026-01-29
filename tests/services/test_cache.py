@@ -1,7 +1,8 @@
-"""Tests for the Cache service using Cloudflare KV.
+"""Tests for the Cache service.
 
 This module tests:
 - CloudflareKVClient operations (get, set, delete)
+- UpstashRedisClient operations (get, set, delete, ping, mget)
 - Cache key generation
 - Cache decorators (cache_quality_score, cache_llm_response, cache_healing_pattern)
 - Direct cache operations (get_cached, set_cached, delete_cached)
@@ -237,6 +238,321 @@ class TestCloudflareKVClient:
         await kv_client.close()
 
         assert kv_client._client is None
+
+
+class TestUpstashRedisClient:
+    """Tests for UpstashRedisClient class."""
+
+    @pytest.fixture
+    def upstash_client(self):
+        """Create an UpstashRedisClient instance."""
+        from src.services.cache import UpstashRedisClient
+        return UpstashRedisClient(
+            rest_url="https://test.upstash.io",
+            rest_token="test-token",
+        )
+
+    def test_client_initialization(self, mock_env_vars):
+        """Test UpstashRedisClient initialization."""
+        from src.services.cache import UpstashRedisClient
+
+        client = UpstashRedisClient(
+            rest_url="https://test.upstash.io/",
+            rest_token="test-token-123",
+        )
+
+        assert client.rest_url == "https://test.upstash.io"  # trailing slash stripped
+        assert client.rest_token == "test-token-123"
+        assert client._client is None
+
+    def test_get_headers(self, mock_env_vars, upstash_client):
+        """Test that _get_headers returns correct headers."""
+        headers = upstash_client._get_headers()
+        assert headers["Authorization"] == "Bearer test-token"
+
+    @pytest.mark.asyncio
+    async def test_get_client_creates_client(self, mock_env_vars, upstash_client):
+        """Test that _get_client creates a new client."""
+        assert upstash_client._client is None
+
+        client = await upstash_client._get_client()
+
+        assert client is not None
+        assert upstash_client._client is client
+        await upstash_client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_success(self, mock_env_vars, upstash_client):
+        """Test successful get operation."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": "test-value"}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.get("test-key")
+
+        assert result == "test-value"
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"] == ["GET", "test-key"]
+
+    @pytest.mark.asyncio
+    async def test_get_not_found(self, mock_env_vars, upstash_client):
+        """Test get operation when key not found."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": None}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.get("nonexistent-key")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_error_status(self, mock_env_vars, upstash_client):
+        """Test get operation with error status."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.get("test-key")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_exception(self, mock_env_vars, upstash_client):
+        """Test get operation with exception."""
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = Exception("Network error")
+        upstash_client._client = mock_client
+
+        result = await upstash_client.get("test-key")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_set_success(self, mock_env_vars, upstash_client):
+        """Test successful set operation."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": "OK"}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.set("test-key", "test-value", ex=600)
+
+        assert result is True
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"] == ["SET", "test-key", "test-value", "EX", "600"]
+
+    @pytest.mark.asyncio
+    async def test_set_failure(self, mock_env_vars, upstash_client):
+        """Test set operation failure."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Error"
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.set("test-key", "test-value")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_exception(self, mock_env_vars, upstash_client):
+        """Test set operation with exception."""
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = Exception("Network error")
+        upstash_client._client = mock_client
+
+        result = await upstash_client.set("test-key", "test-value")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_delete_success(self, mock_env_vars, upstash_client):
+        """Test successful delete operation."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": 1}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.delete("test-key")
+
+        assert result is True
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"] == ["DEL", "test-key"]
+
+    @pytest.mark.asyncio
+    async def test_delete_not_found(self, mock_env_vars, upstash_client):
+        """Test delete operation when key not found."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": 0}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.delete("nonexistent-key")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_ping_success(self, mock_env_vars, upstash_client):
+        """Test successful ping operation."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": "PONG"}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.ping()
+
+        assert result is True
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"] == ["PING"]
+
+    @pytest.mark.asyncio
+    async def test_ping_failure(self, mock_env_vars, upstash_client):
+        """Test ping operation failure."""
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = Exception("Connection refused")
+        upstash_client._client = mock_client
+
+        result = await upstash_client.ping()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_mget_success(self, mock_env_vars, upstash_client):
+        """Test successful mget operation."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": ["value1", "value2", None]}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        upstash_client._client = mock_client
+
+        result = await upstash_client.mget(["key1", "key2", "key3"])
+
+        assert result == ["value1", "value2", None]
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"] == ["MGET", "key1", "key2", "key3"]
+
+    @pytest.mark.asyncio
+    async def test_mget_exception(self, mock_env_vars, upstash_client):
+        """Test mget operation with exception."""
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = Exception("Network error")
+        upstash_client._client = mock_client
+
+        result = await upstash_client.mget(["key1", "key2"])
+
+        assert result == [None, None]
+
+    @pytest.mark.asyncio
+    async def test_close(self, mock_env_vars, upstash_client):
+        """Test closing the client."""
+        mock_client = AsyncMock()
+        upstash_client._client = mock_client
+
+        await upstash_client.close()
+
+        mock_client.aclose.assert_called_once()
+        assert upstash_client._client is None
+
+    @pytest.mark.asyncio
+    async def test_close_when_no_client(self, mock_env_vars, upstash_client):
+        """Test close when no client exists."""
+        assert upstash_client._client is None
+
+        # Should not raise
+        await upstash_client.close()
+
+        assert upstash_client._client is None
+
+
+class TestGetUpstashClient:
+    """Tests for get_upstash_client function."""
+
+    def test_get_upstash_client_returns_none_when_not_configured(self, mock_env_vars):
+        """Test that get_upstash_client returns None when not configured."""
+        import src.services.cache as cache_module
+
+        # Reset global state
+        cache_module._upstash_client = None
+
+        mock_settings = MagicMock()
+        mock_settings.upstash_redis_rest_url = None
+        mock_settings.upstash_redis_rest_token = None
+
+        with patch("src.services.cache.get_settings", return_value=mock_settings):
+            with patch.dict("os.environ", {}, clear=True):
+                result = cache_module.get_upstash_client()
+
+        assert result is None
+
+    def test_get_upstash_client_creates_client(self, mock_env_vars):
+        """Test that get_upstash_client creates a client when configured."""
+        import src.services.cache as cache_module
+
+        # Reset global state
+        cache_module._upstash_client = None
+
+        mock_settings = MagicMock()
+        mock_settings.upstash_redis_rest_url = "https://test.upstash.io"
+        mock_settings.upstash_redis_rest_token = "test-token"
+
+        with patch("src.services.cache.get_settings", return_value=mock_settings):
+            result = cache_module.get_upstash_client()
+
+        assert result is not None
+        assert result.rest_url == "https://test.upstash.io"
+        assert result.rest_token == "test-token"
+
+        # Cleanup
+        cache_module._upstash_client = None
+
+    def test_get_upstash_client_returns_singleton(self, mock_env_vars):
+        """Test that get_upstash_client returns the same instance."""
+        import src.services.cache as cache_module
+
+        # Reset global state
+        cache_module._upstash_client = None
+
+        mock_settings = MagicMock()
+        mock_settings.upstash_redis_rest_url = "https://test.upstash.io"
+        mock_settings.upstash_redis_rest_token = "test-token"
+
+        with patch("src.services.cache.get_settings", return_value=mock_settings):
+            result1 = cache_module.get_upstash_client()
+            result2 = cache_module.get_upstash_client()
+
+        assert result1 is result2
+
+        # Cleanup
+        cache_module._upstash_client = None
 
 
 class TestGetKVClient:
