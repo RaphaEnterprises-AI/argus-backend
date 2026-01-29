@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import signal
+import ssl
 import sys
 import time
 from datetime import datetime, timezone
@@ -302,11 +303,22 @@ class CogneeKafkaWorker:
             # Return a marker dict so we can skip this message gracefully
             return {"__deserialize_error__": True, "raw": v.decode("utf-8", errors="replace")}
 
+    def _create_ssl_context(self) -> ssl.SSLContext | None:
+        """Create SSL context for SASL_SSL connections (e.g., Redpanda Cloud)."""
+        if self.config.kafka.security_protocol in ("SSL", "SASL_SSL"):
+            ssl_context = ssl.create_default_context()
+            # Use system CA certificates for Redpanda Cloud
+            return ssl_context
+        return None
+
     async def _create_consumer(self) -> AIOKafkaConsumer:
         """Create and configure Kafka consumer with SASL auth."""
         logger.info(f"Creating consumer for: {self.config.kafka.bootstrap_servers}")
         logger.info(f"Security: {self.config.kafka.security_protocol}, SASL: {self.config.kafka.sasl_mechanism}")
         logger.info(f"User: {self.config.kafka.sasl_username}")
+
+        # Create SSL context for SASL_SSL (required for Redpanda Cloud)
+        ssl_context = self._create_ssl_context()
 
         consumer = AIOKafkaConsumer(
             *self.config.input_topics,
@@ -318,6 +330,7 @@ class CogneeKafkaWorker:
             sasl_mechanism=self.config.kafka.sasl_mechanism,
             sasl_plain_username=self.config.kafka.sasl_username,
             sasl_plain_password=self.config.kafka.sasl_password,
+            ssl_context=ssl_context,
             value_deserializer=self._safe_json_deserialize,
             key_deserializer=lambda k: k.decode("utf-8") if k else None,
             request_timeout_ms=60000,
@@ -331,12 +344,16 @@ class CogneeKafkaWorker:
 
     async def _create_producer(self) -> AIOKafkaProducer:
         """Create and configure Kafka producer with SASL auth."""
+        # Create SSL context for SASL_SSL (required for Redpanda Cloud)
+        ssl_context = self._create_ssl_context()
+
         producer = AIOKafkaProducer(
             bootstrap_servers=self.config.kafka.bootstrap_servers,
             security_protocol=self.config.kafka.security_protocol,
             sasl_mechanism=self.config.kafka.sasl_mechanism,
             sasl_plain_username=self.config.kafka.sasl_username,
             sasl_plain_password=self.config.kafka.sasl_password,
+            ssl_context=ssl_context,
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
             key_serializer=lambda k: k.encode("utf-8") if k else None,
             request_timeout_ms=60000,
