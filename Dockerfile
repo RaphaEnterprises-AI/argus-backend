@@ -59,7 +59,8 @@ RUN pip install --upgrade pip && \
     "aiokafka>=0.10.0" \
     "redis>=5.0.0" \
     "prometheus-client>=0.21.0" \
-    "langfuse>=2.0.0,<3.0.0"
+    "langfuse>=2.0.0,<3.0.0" \
+    "langchain>=0.3.0"
 
 # Copy application code
 COPY src/ /app/src/
