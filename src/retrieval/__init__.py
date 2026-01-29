@@ -26,6 +26,14 @@ Performance Benefits:
 - More robust to query phrasing variations
 """
 
+from .codebase_retriever import (
+    CodebaseRetriever,
+    CodeSearchResult,
+    SearchSource,
+    get_codebase_retriever,
+    init_codebase_retriever,
+    reset_codebase_retriever,
+)
 from .cross_encoder import CrossEncoderReranker
 from .hybrid_retriever import (
     HybridRetriever,
@@ -37,6 +45,7 @@ from .hybrid_retriever import (
 )
 
 __all__ = [
+    # Failure pattern retriever
     "HybridRetriever",
     "RetrievalResult",
     "RetrievalSource",
@@ -44,4 +53,11 @@ __all__ = [
     "get_hybrid_retriever",
     "init_hybrid_retriever",
     "reset_hybrid_retriever",
+    # Codebase retriever
+    "CodebaseRetriever",
+    "CodeSearchResult",
+    "SearchSource",
+    "get_codebase_retriever",
+    "init_codebase_retriever",
+    "reset_codebase_retriever",
 ]

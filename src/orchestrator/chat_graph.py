@@ -263,6 +263,7 @@ URL: {app_url or "Not specified - ask user for the URL to test"}
 | `getInfraStatus` | Get browser pool status and costs | User asks about infrastructure |
 | `listTests` | List tests with filtering | User wants to see available tests |
 | `getTestRuns` | Get test run history | User wants to see past runs |
+| `webSearch` | Search web for real-time info | User needs current docs, tutorials, or answers |
 
 ## Response Guidelines
 1. **Be specific**: Reference actual elements, selectors, and URLs
@@ -653,6 +654,34 @@ async def chat_node(state: ChatState, config) -> dict:
                     "limit": {"type": "integer", "description": "Maximum number of runs to return (default: 10)"},
                 },
                 "required": []
+            }
+        },
+        {
+            "name": "webSearch",
+            "description": "Search the web for real-time information using Perplexity AI. Use this when users need current information, documentation, tutorials, or answers to questions requiring up-to-date knowledge.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query or question to look up"},
+                    "recency_filter": {"type": "string", "enum": ["hour", "day", "week", "month"], "description": "Filter results by recency (optional)"},
+                    "domain_filter": {"type": "array", "items": {"type": "string"}, "description": "Restrict search to specific domains (optional)"},
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "searchCodebase",
+            "description": "Search the codebase for relevant code using semantic search. Finds functions, classes, and code snippets that match your query. Use this when users want to find code, understand how something works, or locate specific functionality.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language description of what code to find (e.g., 'login form validation', 'API authentication middleware')"},
+                    "project_id": {"type": "string", "description": "Project ID to search within"},
+                    "file_types": {"type": "array", "items": {"type": "string"}, "description": "Filter by file extensions (e.g., ['py', 'ts', 'js'])"},
+                    "path_filter": {"type": "string", "description": "Filter by path pattern (e.g., 'src/api/' or 'tests/')"},
+                    "limit": {"type": "integer", "description": "Maximum number of results (default: 5, max: 10)"},
+                },
+                "required": ["query"]
             }
         },
     ]
@@ -1256,6 +1285,150 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                         "period": period,
                         "_actions": ["view_run", "compare_runs", "generate_report"],
                     }
+
+                elif tool_name == "webSearch":
+                    # Web search using Perplexity AI provider
+                    import os
+
+                    from src.core.providers.perplexity_provider import PerplexityProvider
+
+                    query = tool_args.get("query", "")
+                    recency_filter = tool_args.get("recency_filter")
+                    domain_filter = tool_args.get("domain_filter")
+
+                    # Get Perplexity API key from environment
+                    perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
+
+                    if not perplexity_api_key:
+                        result = {
+                            "success": False,
+                            "_type": "web_search",
+                            "error": "Perplexity API key not configured. Please set PERPLEXITY_API_KEY environment variable.",
+                            "query": query,
+                        }
+                    else:
+                        try:
+                            provider = PerplexityProvider(api_key=perplexity_api_key)
+
+                            # Build search kwargs
+                            search_kwargs = {}
+                            if recency_filter:
+                                search_kwargs["search_recency_filter"] = recency_filter
+                            if domain_filter:
+                                search_kwargs["search_domain_filter"] = domain_filter
+
+                            # Execute search
+                            search_response = await provider.search(
+                                query=query,
+                                **search_kwargs
+                            )
+
+                            # Format citations as results
+                            search_results = []
+                            for citation in search_response.citations:
+                                search_results.append({
+                                    "title": citation.title or citation.url,
+                                    "url": citation.url,
+                                    "snippet": citation.snippet or "",
+                                    "index": citation.index,
+                                })
+
+                            result = {
+                                "success": True,
+                                "_type": "web_search",
+                                "query": query,
+                                "answer": search_response.content,
+                                "results": search_results,
+                                "citations_count": len(search_results),
+                                "model": search_response.model,
+                                "search_context": search_response.search_context,
+                                "_actions": ["copy_answer", "open_sources"],
+                            }
+
+                            # Close the provider client
+                            await provider.close()
+
+                            logger.info(
+                                "Web search completed",
+                                query=query[:50],
+                                citations=len(search_results),
+                            )
+
+                        except Exception as search_error:
+                            logger.exception("Web search failed", error=str(search_error))
+                            result = {
+                                "success": False,
+                                "_type": "web_search",
+                                "error": f"Search failed: {str(search_error)}",
+                                "query": query,
+                            }
+
+                elif tool_name == "searchCodebase":
+                    # Semantic codebase search using the CodebaseRetriever
+                    from src.retrieval.codebase_retriever import get_codebase_retriever
+
+                    query = tool_args.get("query", "")
+                    project_id = tool_args.get("project_id", state.get("project_id", "default"))
+                    file_types = tool_args.get("file_types")
+                    path_filter = tool_args.get("path_filter")
+                    limit = min(tool_args.get("limit", 5), 10)  # Cap at 10
+
+                    try:
+                        retriever = get_codebase_retriever()
+                        search_results = await retriever.search(
+                            query=query,
+                            project_id=project_id,
+                            limit=limit,
+                            file_types=file_types,
+                            path_filter=path_filter,
+                        )
+
+                        # Format results for the frontend
+                        formatted_results = []
+                        for r in search_results:
+                            formatted_results.append({
+                                "file_path": r.file_path,
+                                "language": r.language,
+                                "chunk_type": r.chunk_type,
+                                "name": r.name,
+                                "full_name": r.full_name,
+                                "start_line": r.start_line,
+                                "end_line": r.end_line,
+                                "snippet": r.snippet,
+                                "score": round(r.score, 3),
+                                "highlights": r.highlights,
+                            })
+
+                        result = {
+                            "success": True,
+                            "_type": "code_search",
+                            "query": query,
+                            "project_id": project_id,
+                            "results": formatted_results,
+                            "total_results": len(formatted_results),
+                            "search_filters": {
+                                "file_types": file_types,
+                                "path_filter": path_filter,
+                            },
+                            "_actions": ["open_file", "copy_code", "search_again"],
+                        }
+
+                        logger.info(
+                            "Codebase search completed",
+                            query=query[:50],
+                            results_count=len(formatted_results),
+                            project_id=project_id,
+                        )
+
+                    except Exception as search_error:
+                        logger.exception("Codebase search failed", error=str(search_error))
+                        result = {
+                            "success": False,
+                            "_type": "code_search",
+                            "error": f"Search failed: {str(search_error)}",
+                            "query": query,
+                            "suggestion": "Make sure the codebase has been indexed. Try running indexing first.",
+                        }
 
                 else:
                     result = {"error": f"Unknown tool: {tool_name}"}
