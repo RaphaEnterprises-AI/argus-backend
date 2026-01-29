@@ -109,14 +109,22 @@ class ModelListResponse(BaseModel):
 
 
 class ProviderResponse(BaseModel):
-    """Provider information for API response."""
+    """Provider information for API response - matches frontend ProviderInfo interface."""
 
     id: str
     name: str
+    display_name: str  # Same as name for display purposes
     description: str
+    status: str = "unknown"  # 'operational' | 'degraded' | 'outage' | 'maintenance' | 'unknown'
+    is_enabled: bool = True
+    requires_api_key: bool = True
+    supports_byok: bool = True
+    models_count: int
     website: str
     key_url: str
-    models_count: int
+    documentation_url: str | None = None  # Alias for key_url
+    base_url: str | None = None
+    icon_url: str | None = None
     has_platform_key: bool
     has_user_key: bool = False  # Populated when user context available
     env_var_name: str
@@ -625,15 +633,43 @@ async def list_providers(request: Request):
 
     providers: list[ProviderResponse] = []
 
+    # Known model counts for providers (approximate)
+    # This helps when models aren't in our registry yet
+    KNOWN_MODEL_COUNTS = {
+        "openrouter": 400,  # OpenRouter has 400+ models
+        "anthropic": 5,
+        "openai": 10,
+        "google": 8,
+        "groq": 6,
+        "together": 50,
+        "deepseek": 4,
+        "mistral": 6,
+        "cohere": 5,
+        "fireworks": 30,
+        "perplexity": 4,
+        "xai": 2,
+        "cerebras": 4,
+    }
+
     for provider_id, meta in PROVIDER_METADATA.items():
+        # Use actual count if available, otherwise use known defaults
+        actual_count = provider_model_counts.get(provider_id, 0)
+        model_count = actual_count if actual_count > 0 else KNOWN_MODEL_COUNTS.get(provider_id, 0)
+
         providers.append(
             ProviderResponse(
                 id=provider_id,
                 name=meta["name"],
+                display_name=meta["name"],
                 description=meta["description"],
+                status="operational",  # Default to operational
+                is_enabled=True,
+                requires_api_key=True,
+                supports_byok=True,
+                models_count=model_count,
                 website=meta["website"],
                 key_url=meta["key_url"],
-                models_count=provider_model_counts.get(provider_id, 0),
+                documentation_url=meta["key_url"],
                 has_platform_key=_check_platform_key(provider_id),
                 env_var_name=meta["env_var"],
             )
