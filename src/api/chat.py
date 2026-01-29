@@ -16,13 +16,13 @@ Langfuse Cost Tracking:
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.api.security.auth import UserContext, get_current_user
 from src.orchestrator.chat_graph import AIConfig, ChatState, create_chat_graph
@@ -43,9 +43,18 @@ router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 
 
 class ChatMessage(BaseModel):
-    """A chat message."""
-    role: str
+    """A chat message with validated role and content."""
+    role: Literal["user", "assistant", "system"]
     content: str
+
+    @field_validator("content")
+    @classmethod
+    def content_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("content cannot be empty")
+        if len(v) > 100000:  # 100KB limit
+            raise ValueError("content exceeds maximum length of 100000 characters")
+        return v
 
 
 class AIConfigRequest(BaseModel):
@@ -62,6 +71,13 @@ class ChatRequest(BaseModel):
     app_url: str | None = None
     ai_config: AIConfigRequest | None = None  # User's AI model selection
     user_id: str | None = None  # User ID for BYOK key lookup (from auth)
+
+    @field_validator("messages")
+    @classmethod
+    def messages_not_empty(cls, v: list[ChatMessage]) -> list[ChatMessage]:
+        if not v:
+            raise ValueError("messages array cannot be empty")
+        return v
 
 
 class ChatResponse(BaseModel):
