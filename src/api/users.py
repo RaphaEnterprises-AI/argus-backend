@@ -20,7 +20,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from src.api.teams import get_current_user
-from src.config import settings
+from src.config import get_settings
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -1157,15 +1157,22 @@ async def upload_avatar(
 
     # Upload to Supabase Storage
     try:
+        settings = get_settings()
+        supabase_url = settings.supabase_url
+        service_key = settings.supabase_service_key.get_secret_value() if settings.supabase_service_key else None
+
+        if not supabase_url or not service_key:
+            raise HTTPException(status_code=500, detail="Supabase storage not configured")
+
         # Use Supabase Storage API
-        storage_url = f"{settings.SUPABASE_URL}/storage/v1/object/avatars/{filename}"
+        storage_url = f"{supabase_url}/storage/v1/object/avatars/{filename}"
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 storage_url,
                 content=content,
                 headers={
-                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "Authorization": f"Bearer {service_key}",
                     "Content-Type": file.content_type,
                 },
             )
@@ -1183,7 +1190,7 @@ async def upload_avatar(
                 )
 
         # Build public URL
-        avatar_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/avatars/{filename}"
+        avatar_url = f"{supabase_url}/storage/v1/object/public/avatars/{filename}"
 
         # Update user profile with new avatar URL
         result = await supabase.update(
