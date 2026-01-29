@@ -141,7 +141,7 @@ grafana:
     storageClassName: vultr-block-storage-hdd
     size: 40Gi
 
-  # Sidecar for dashboard/datasource provisioning
+  # Sidecar for dashboard provisioning only
   sidecar:
     dashboards:
       enabled: true
@@ -151,14 +151,30 @@ grafana:
       # Explicitly set env var for k8s-sidecar
       env:
         SKIP_TLS_VERIFY: "true"
+    # Disable sidecar for datasources - we use explicit config below
     datasources:
-      enabled: true
-      skipTlsVerify: true
-      env:
-        SKIP_TLS_VERIFY: "true"
+      enabled: false
 
-  # Note: Datasources are auto-provisioned by the sidecar with correct UIDs
-  # The chart creates a datasource ConfigMap with uid: prometheus automatically
+  # Explicit datasource configuration with the UID our dashboards expect
+  # This is the ONLY datasource definition - no sidecar, no chart defaults
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      # Delete any existing datasources not in this file
+      deleteDatasources:
+        - name: Prometheus
+          orgId: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://monitoring-prometheus.monitoring:9090
+          access: proxy
+          isDefault: true
+          editable: false
+          jsonData:
+            httpMethod: POST
+            timeInterval: 30s
 
   # Grafana.ini settings
   grafana.ini:
