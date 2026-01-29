@@ -44,6 +44,8 @@ data:
   # Note: Cognee 0.5.1 supports: neo4j, kuzu, kuzu-remote, neptune, neptune_analytics
   # Using Neo4j Aura (managed cloud graph database)
   GRAPH_DATABASE_PROVIDER: "neo4j"
+  # Disable backend access control to avoid kuzu handler conflict with neo4j
+  ENABLE_BACKEND_ACCESS_CONTROL: "false"
 
   # Cognee Storage Paths - IMPORTANT: Must be writable directories
   # These override the default .venv/.cognee_* locations
