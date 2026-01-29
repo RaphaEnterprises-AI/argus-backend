@@ -5,21 +5,20 @@ Provides endpoints for:
 - Connecting/disconnecting integrations (Slack, GitHub, observability platforms)
 - Testing connections before saving
 - Triggering data syncs
+- Listing available platforms from the plugin registry
 
-Supported platforms:
-- slack: Slack notifications
-- github: GitHub PR comments and checks
-- datadog: Datadog RUM + APM
-- sentry: Sentry error tracking
-- new_relic: New Relic APM + Browser
-- fullstory: FullStory session replay
-- posthog: PostHog analytics
+The API now uses a plugin-based architecture where integrations are discovered
+dynamically from the PluginRegistry. This allows for easy addition of new
+integrations without modifying this file.
+
+For backwards compatibility, legacy platforms without plugins still use the
+hardcoded test_*_connection functions until they are migrated to plugins.
 """
 
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 import structlog
@@ -28,6 +27,14 @@ from pydantic import BaseModel, Field
 
 from src.api.context import get_current_organization_id
 from src.api.teams import get_current_user, log_audit, verify_org_access
+from src.integrations.base import (
+    ConnectionTestResult,
+    IntegrationCategory,
+    IntegrationCredentials,
+    IntegrationMetadata,
+    SyncResult,
+)
+from src.integrations.registry import PluginRegistry, get_registry
 from src.services.key_encryption import decrypt_api_key, encrypt_api_key
 from src.services.supabase_client import get_supabase_client
 
@@ -36,11 +43,16 @@ router = APIRouter(prefix="/api/v1/integrations", tags=["Integrations"])
 
 
 # ============================================================================
-# Enums
+# Enums (Legacy - kept for backwards compatibility)
 # ============================================================================
 
 class Platform(str, Enum):
-    """Supported integration platforms."""
+    """Supported integration platforms.
+
+    Note: This enum is kept for backwards compatibility.
+    New platforms should be added as plugins in src/integrations/plugins/
+    and will be automatically discovered by the PluginRegistry.
+    """
     SLACK = "slack"
     GITHUB = "github"
     JIRA = "jira"
@@ -59,13 +71,39 @@ class Platform(str, Enum):
 
 
 class PlatformType(str, Enum):
-    """Platform categories."""
+    """Platform categories.
+
+    Note: Maps to IntegrationCategory from the plugin system.
+    """
     NOTIFICATION = "notification"
     CI_CD = "ci_cd"
     DEPLOYMENT = "deployment"
     ISSUE_TRACKER = "issue_tracker"
     OBSERVABILITY = "observability"
     ANALYTICS = "analytics"
+
+
+# ============================================================================
+# Category Mapping (Plugin System <-> Legacy)
+# ============================================================================
+
+# Map IntegrationCategory to legacy PlatformType
+CATEGORY_TO_PLATFORM_TYPE: dict[IntegrationCategory, PlatformType] = {
+    IntegrationCategory.CHAT: PlatformType.NOTIFICATION,
+    IntegrationCategory.SOURCE_CODE: PlatformType.CI_CD,
+    IntegrationCategory.CICD: PlatformType.CI_CD,
+    IntegrationCategory.ISSUE_TRACKING: PlatformType.ISSUE_TRACKER,
+    IntegrationCategory.DEPLOYMENT: PlatformType.DEPLOYMENT,
+    IntegrationCategory.OBSERVABILITY: PlatformType.OBSERVABILITY,
+    IntegrationCategory.INCIDENT_MANAGEMENT: PlatformType.OBSERVABILITY,
+    IntegrationCategory.SESSION_REPLAY: PlatformType.ANALYTICS,
+    IntegrationCategory.ANALYTICS: PlatformType.ANALYTICS,
+    IntegrationCategory.FEATURE_FLAGS: PlatformType.ANALYTICS,
+    IntegrationCategory.TESTING: PlatformType.CI_CD,
+    IntegrationCategory.WEBHOOKS: PlatformType.NOTIFICATION,
+    IntegrationCategory.AI_AGENTS: PlatformType.CI_CD,
+    IntegrationCategory.DATABASE: PlatformType.CI_CD,
+}
 
 
 # Platform metadata
@@ -346,6 +384,208 @@ def validate_credentials(platform: Platform, credentials: dict[str, str]) -> lis
     return missing
 
 
+# ============================================================================
+# Plugin System Integration Helpers
+# ============================================================================
+
+def dict_to_integration_credentials(credentials: dict[str, str]) -> IntegrationCredentials:
+    """Convert a flat credentials dict to IntegrationCredentials.
+
+    Maps common field names to the structured IntegrationCredentials dataclass.
+    Unmapped fields go into the 'extra' dict.
+    """
+    # Known field mappings
+    known_fields = {
+        "api_key": "api_key",
+        "api_secret": "api_secret",
+        "access_token": "access_token",
+        "token": "access_token",  # Alias for access_token
+        "auth_token": "access_token",  # Alias for access_token
+        "refresh_token": "refresh_token",
+        "client_id": "client_id",
+        "client_secret": "client_secret",
+        "instance_url": "instance_url",
+        "api_base": "instance_url",  # Alias
+        "org_slug": "org_slug",
+        "organization": "org_slug",  # Alias
+        "project_slug": "project_slug",
+        "project": "project_slug",  # Alias
+        "workspace_id": "workspace_id",
+        "team_id": "team_id",
+        "site": "site",
+        "username": "username",
+        "password": "password",
+        "email": "email",
+        "webhook_url": "webhook_url",
+        "webhook_secret": "webhook_secret",
+        "app_key": "api_secret",  # Datadog app_key maps to api_secret
+        "secret_key": "api_secret",  # Amplitude secret_key maps to api_secret
+        "bot_token": "access_token",  # Slack bot token
+    }
+
+    mapped = {}
+    extra = {}
+
+    for key, value in credentials.items():
+        if key in known_fields:
+            field_name = known_fields[key]
+            if field_name not in mapped:  # Don't overwrite if already set
+                mapped[field_name] = value
+        else:
+            extra[key] = value
+
+    return IntegrationCredentials(**mapped, extra=extra)
+
+
+def is_platform_in_registry(platform: str) -> bool:
+    """Check if a platform has a registered plugin."""
+    registry = get_registry()
+    return registry.has_plugin(platform)
+
+
+async def test_platform_connection_via_registry(
+    platform: str,
+    credentials: dict[str, str],
+) -> tuple[bool, str, dict]:
+    """Test a platform connection using the plugin registry.
+
+    Returns:
+        Tuple of (success, message, details)
+    """
+    registry = get_registry()
+
+    if not registry.has_plugin(platform):
+        return False, f"No plugin found for platform: {platform}", {}
+
+    creds = dict_to_integration_credentials(credentials)
+
+    try:
+        result: ConnectionTestResult = await registry.test_connection(platform, creds)
+        return (
+            result.success,
+            result.message,
+            {
+                "latency_ms": result.latency_ms,
+                "api_version": result.api_version,
+                "permissions": result.permissions,
+                "account_info": result.account_info,
+            } if result.success else {"error_code": result.error_code, "error_details": result.error_details},
+        )
+    except ValueError as e:
+        return False, str(e), {}
+    except Exception as e:
+        logger.error("Plugin connection test failed", platform=platform, error=str(e))
+        return False, f"Connection test failed: {str(e)}", {}
+
+
+async def sync_platform_data_via_registry(
+    platform: str,
+    credentials: dict[str, str],
+    resources: Optional[list[str]] = None,
+    since: Optional[datetime] = None,
+    limit: int = 100,
+) -> SyncResult:
+    """Sync data from a platform using the plugin registry.
+
+    Returns:
+        SyncResult from the plugin
+    """
+    registry = get_registry()
+
+    if not registry.has_plugin(platform):
+        return SyncResult(success=False, message=f"No plugin found for platform: {platform}")
+
+    creds = dict_to_integration_credentials(credentials)
+
+    try:
+        return await registry.sync_data(
+            platform,
+            creds,
+            resources=resources,
+            since=since,
+            limit=limit,
+        )
+    except ValueError as e:
+        return SyncResult(success=False, message=str(e))
+    except Exception as e:
+        logger.error("Plugin sync failed", platform=platform, error=str(e))
+        return SyncResult(success=False, message=f"Sync failed: {str(e)}")
+
+
+def metadata_to_platform_info(metadata: IntegrationMetadata) -> dict:
+    """Convert plugin IntegrationMetadata to legacy PLATFORM_INFO format."""
+    platform_type = CATEGORY_TO_PLATFORM_TYPE.get(
+        metadata.category,
+        PlatformType.OBSERVABILITY,
+    )
+
+    return {
+        "type": platform_type,
+        "name": metadata.name,
+        "description": metadata.description,
+        "required_fields": [f.name for f in metadata.required_fields],
+        "optional_fields": [f.name for f in metadata.optional_fields],
+        "docs_url": metadata.docs_url,
+        "auth_type": metadata.auth_type.value,
+        "features": metadata.features,
+    }
+
+
+def get_all_available_platforms() -> list[dict]:
+    """Get all available platforms from both PLATFORM_INFO and PluginRegistry.
+
+    Returns a deduplicated list combining legacy platforms with registered plugins.
+    """
+    platforms = []
+    seen_slugs = set()
+
+    # First add all registered plugins (they take precedence)
+    registry = get_registry()
+    for metadata in registry.list_plugins():
+        platform_type = CATEGORY_TO_PLATFORM_TYPE.get(
+            metadata.category,
+            PlatformType.OBSERVABILITY,
+        )
+        platforms.append({
+            "platform": metadata.slug,
+            "type": platform_type.value,
+            "name": metadata.name,
+            "description": metadata.description,
+            "docs_url": metadata.docs_url,
+            "category": metadata.category.value,
+            "auth_type": metadata.auth_type.value,
+            "features": metadata.features,
+            "supports_sync": metadata.supports_sync,
+            "supports_webhooks": metadata.supports_webhooks,
+            "source": "plugin",
+        })
+        seen_slugs.add(metadata.slug)
+
+    # Then add legacy platforms that don't have plugins yet
+    for p, info in PLATFORM_INFO.items():
+        if p.value not in seen_slugs:
+            platforms.append({
+                "platform": p.value,
+                "type": info["type"].value,
+                "name": info["name"],
+                "description": info["description"],
+                "docs_url": info["docs_url"],
+                "category": info["type"].value,  # Approximation
+                "auth_type": info["auth_type"],
+                "features": info.get("features", []),
+                "supports_sync": True,  # Assume true for legacy
+                "supports_webhooks": False,  # Unknown for legacy
+                "source": "legacy",
+            })
+            seen_slugs.add(p.value)
+
+    return platforms
+
+
+# ============================================================================
+# Legacy Test Connection Functions (kept for backwards compatibility)
+# ============================================================================
+
 async def test_slack_connection(credentials: dict[str, str]) -> tuple[bool, str, dict]:
     """Test Slack webhook or bot connection."""
     webhook_url = credentials.get("webhook_url")
@@ -617,10 +857,37 @@ async def test_fullstory_connection(credentials: dict[str, str]) -> tuple[bool, 
 
 
 async def test_platform_connection(
-    platform: Platform,
+    platform: Platform | str,
     credentials: dict[str, str],
 ) -> tuple[bool, str, dict]:
-    """Test connection for a specific platform."""
+    """Test connection for a specific platform.
+
+    This function first checks if the platform has a registered plugin
+    in the PluginRegistry. If so, it uses the plugin's test_connection method.
+    Otherwise, it falls back to legacy test functions for backwards compatibility.
+
+    Args:
+        platform: The platform identifier (Platform enum or string)
+        credentials: Platform-specific credentials
+
+    Returns:
+        Tuple of (success, message, details)
+    """
+    # Normalize platform to string
+    platform_slug = platform.value if isinstance(platform, Platform) else platform
+
+    # First, try the plugin registry
+    if is_platform_in_registry(platform_slug):
+        return await test_platform_connection_via_registry(platform_slug, credentials)
+
+    # Fall back to legacy test functions
+    if isinstance(platform, str):
+        try:
+            platform = Platform(platform)
+        except ValueError:
+            # Unknown platform and no plugin - return error
+            return False, f"Unknown platform: {platform_slug}. No plugin registered.", {}
+
     if platform == Platform.SLACK:
         return await test_slack_connection(credentials)
     elif platform == Platform.GITHUB:
@@ -648,15 +915,34 @@ async def test_platform_connection(
 
 
 def format_integration_response(integration: dict) -> IntegrationResponse:
-    """Convert database record to response model."""
+    """Convert database record to response model.
+
+    Checks both the plugin registry and legacy PLATFORM_INFO for metadata.
+    """
     platform = integration.get("type") or integration.get("platform", "unknown")
-    platform_info = PLATFORM_INFO.get(Platform(platform) if platform in [p.value for p in Platform] else None, {})
+
+    # First check plugin registry
+    registry = get_registry()
+    plugin_metadata = registry.get_metadata(platform)
+
+    if plugin_metadata:
+        # Use plugin metadata
+        platform_type = CATEGORY_TO_PLATFORM_TYPE.get(
+            plugin_metadata.category,
+            PlatformType.OBSERVABILITY,
+        ).value
+        platform_name = plugin_metadata.name
+    else:
+        # Fall back to legacy PLATFORM_INFO
+        platform_info = PLATFORM_INFO.get(Platform(platform) if platform in [p.value for p in Platform] else None, {})
+        platform_type = platform_info.get("type", PlatformType.OBSERVABILITY).value if platform_info else "unknown"
+        platform_name = platform_info.get("name", platform) if platform_info else platform
 
     return IntegrationResponse(
         id=integration["id"],
         platform=platform,
-        platform_type=platform_info.get("type", PlatformType.OBSERVABILITY).value if platform_info else "unknown",
-        name=integration.get("name", platform_info.get("name", platform) if platform_info else platform),
+        platform_type=platform_type,
+        name=integration.get("name", platform_name),
         is_connected=integration.get("status") == "connected" or integration.get("is_connected", False),
         project_id=integration.get("project_id"),
         last_sync_at=integration.get("last_sync_at"),
@@ -671,8 +957,139 @@ def format_integration_response(integration: dict) -> IntegrationResponse:
 
 
 # ============================================================================
+# Response Models for Platforms Endpoint
+# ============================================================================
+
+class PlatformInfoResponse(BaseModel):
+    """Detailed information about a platform."""
+    platform: str
+    name: str
+    description: str
+    type: str
+    category: str
+    auth_type: str
+    docs_url: Optional[str] = None
+    features: list[str] = []
+    supports_sync: bool = True
+    supports_webhooks: bool = False
+    source: str  # "plugin" or "legacy"
+
+
+class PlatformsListResponse(BaseModel):
+    """Response for listing available platforms."""
+    platforms: list[PlatformInfoResponse]
+    total: int
+    categories: list[str]
+
+
+# ============================================================================
 # Endpoints
 # ============================================================================
+
+@router.get("/platforms", response_model=PlatformsListResponse)
+async def list_available_platforms(
+    request: Request,
+    category: Optional[str] = None,
+):
+    """
+    List all available integration platforms.
+
+    Returns platforms from both the plugin registry (new plugins) and
+    legacy PLATFORM_INFO (backwards compatibility).
+
+    Parameters:
+    - category: Optional filter by category (e.g., "observability", "chat")
+    """
+    await get_current_user(request)
+
+    all_platforms = get_all_available_platforms()
+
+    # Filter by category if provided
+    if category:
+        all_platforms = [p for p in all_platforms if p.get("category") == category]
+
+    # Extract unique categories
+    categories = sorted(set(p.get("category", "unknown") for p in all_platforms))
+
+    # Convert to response model
+    platforms = [PlatformInfoResponse(**p) for p in all_platforms]
+
+    logger.info(
+        "Listed available platforms",
+        total=len(platforms),
+        filter_category=category,
+    )
+
+    return PlatformsListResponse(
+        platforms=platforms,
+        total=len(platforms),
+        categories=categories,
+    )
+
+
+@router.get("/platforms/{platform}", response_model=PlatformInfoResponse)
+async def get_platform_info(
+    platform: str,
+    request: Request,
+):
+    """
+    Get detailed information about a specific platform.
+
+    Returns platform metadata from either the plugin registry or legacy PLATFORM_INFO.
+    """
+    await get_current_user(request)
+
+    # Check plugin registry first
+    registry = get_registry()
+    plugin_metadata = registry.get_metadata(platform)
+
+    if plugin_metadata:
+        platform_type = CATEGORY_TO_PLATFORM_TYPE.get(
+            plugin_metadata.category,
+            PlatformType.OBSERVABILITY,
+        )
+        return PlatformInfoResponse(
+            platform=plugin_metadata.slug,
+            name=plugin_metadata.name,
+            description=plugin_metadata.description,
+            type=platform_type.value,
+            category=plugin_metadata.category.value,
+            auth_type=plugin_metadata.auth_type.value,
+            docs_url=plugin_metadata.docs_url,
+            features=plugin_metadata.features,
+            supports_sync=plugin_metadata.supports_sync,
+            supports_webhooks=plugin_metadata.supports_webhooks,
+            source="plugin",
+        )
+
+    # Check legacy PLATFORM_INFO
+    try:
+        platform_enum = Platform(platform)
+        info = PLATFORM_INFO.get(platform_enum)
+        if info:
+            return PlatformInfoResponse(
+                platform=platform_enum.value,
+                name=info["name"],
+                description=info["description"],
+                type=info["type"].value,
+                category=info["type"].value,  # Approximation
+                auth_type=info["auth_type"],
+                docs_url=info["docs_url"],
+                features=info.get("features", []),
+                supports_sync=True,
+                supports_webhooks=False,
+                source="legacy",
+            )
+    except ValueError:
+        pass
+
+    # Platform not found
+    valid_platforms = list(registry.list_slugs()) + [p.value for p in Platform]
+    raise HTTPException(
+        status_code=404,
+        detail=f"Platform not found: {platform}. Valid platforms: {sorted(set(valid_platforms))}",
+    )
+
 
 @router.get("", response_model=IntegrationListResponse)
 async def list_integrations(
@@ -717,22 +1134,14 @@ async def list_integrations(
         for integration in result["data"]:
             integrations.append(format_integration_response(integration))
 
-    # Build available platforms list
-    available_platforms = [
-        {
-            "platform": p.value,
-            "type": info["type"].value,
-            "name": info["name"],
-            "description": info["description"],
-            "docs_url": info["docs_url"],
-        }
-        for p, info in PLATFORM_INFO.items()
-    ]
+    # Build available platforms list from both plugins and legacy
+    available_platforms = get_all_available_platforms()
 
     logger.info(
         "Listed integrations",
         user_id=user["user_id"],
         count=len(integrations),
+        available_platforms_count=len(available_platforms),
     )
 
     return IntegrationListResponse(
@@ -753,29 +1162,53 @@ async def connect_integration(
 
     Credentials are encrypted before storage using AES-256-GCM.
     The integration is validated before being saved.
+
+    Supports both plugin-based platforms (discovered from PluginRegistry)
+    and legacy platforms defined in PLATFORM_INFO.
     """
-    # Validate platform
-    try:
-        platform_enum = Platform(platform)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown platform: {platform}. Valid platforms: {[p.value for p in Platform]}",
-        )
+    # Check if platform exists in registry or legacy
+    registry = get_registry()
+    plugin_metadata = registry.get_metadata(platform)
+
+    # Validate platform - check both plugin registry and legacy enum
+    platform_enum: Optional[Platform] = None
+    if not plugin_metadata:
+        try:
+            platform_enum = Platform(platform)
+        except ValueError:
+            # Get list of all valid platforms
+            valid_platforms = list(registry.list_slugs()) + [p.value for p in Platform]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown platform: {platform}. Valid platforms: {sorted(set(valid_platforms))}",
+            )
 
     user = await get_current_user(request)
     org_id = await get_current_organization_id(request)
 
     # Validate required credentials
-    missing = validate_credentials(platform_enum, body.credentials)
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing required credentials: {', '.join(missing)}",
-        )
+    if plugin_metadata:
+        # Use plugin's credential validation
+        creds = dict_to_integration_credentials(body.credentials)
+        plugin = registry.get_plugin(platform)
+        if plugin:
+            is_valid, missing = plugin.validate_credentials(creds)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing required credentials: {', '.join(missing)}",
+                )
+    elif platform_enum:
+        # Use legacy validation
+        missing = validate_credentials(platform_enum, body.credentials)
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required credentials: {', '.join(missing)}",
+            )
 
-    # Test connection before saving
-    success, message, details = await test_platform_connection(platform_enum, body.credentials)
+    # Test connection before saving (works with both plugins and legacy)
+    success, message, details = await test_platform_connection(platform, body.credentials)
     if not success:
         raise HTTPException(
             status_code=400,
@@ -844,12 +1277,19 @@ async def connect_integration(
         integration_id = str(uuid.uuid4())
         encrypted_creds = encrypt_credentials(body.credentials)
 
-        platform_info = PLATFORM_INFO[platform_enum]
+        # Get platform name from plugin or legacy
+        if plugin_metadata:
+            platform_name = plugin_metadata.name
+        elif platform_enum:
+            platform_info = PLATFORM_INFO[platform_enum]
+            platform_name = platform_info["name"]
+        else:
+            platform_name = platform.title()
 
         integration_data = {
             "id": integration_id,
             "type": platform,
-            "name": body.name or platform_info["name"],
+            "name": body.name or platform_name,
             "project_id": body.project_id,
             "credentials": encrypted_creds,
             "settings": body.settings or {},
@@ -889,7 +1329,7 @@ async def connect_integration(
                 action="integration.connect",
                 resource_type="integration",
                 resource_id=integration_id,
-                description=f"Connected {platform_info['name']} integration",
+                description=f"Connected {platform_name} integration",
                 metadata={"platform": platform, "project_id": body.project_id},
                 request=request,
             )
@@ -981,34 +1421,52 @@ async def test_connection(
     Test a connection before saving credentials.
 
     This validates the credentials against the platform's API without
-    storing them.
+    storing them. Supports both plugin-based and legacy platforms.
     """
     await get_current_user(request)
 
-    # Validate platform
-    try:
-        platform_enum = Platform(platform)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown platform: {platform}",
-        )
+    # Check if platform exists in registry or legacy
+    registry = get_registry()
+    plugin_metadata = registry.get_metadata(platform)
+    platform_enum: Optional[Platform] = None
+
+    if not plugin_metadata:
+        try:
+            platform_enum = Platform(platform)
+        except ValueError:
+            valid_platforms = list(registry.list_slugs()) + [p.value for p in Platform]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown platform: {platform}. Valid platforms: {sorted(set(valid_platforms))}",
+            )
 
     # Validate required credentials are present
-    missing = validate_credentials(platform_enum, body.credentials)
-    if missing:
-        return TestConnectionResponse(
-            success=False,
-            message=f"Missing required credentials: {', '.join(missing)}",
-        )
+    if plugin_metadata:
+        creds = dict_to_integration_credentials(body.credentials)
+        plugin = registry.get_plugin(platform)
+        if plugin:
+            is_valid, missing = plugin.validate_credentials(creds)
+            if not is_valid:
+                return TestConnectionResponse(
+                    success=False,
+                    message=f"Missing required credentials: {', '.join(missing)}",
+                )
+    elif platform_enum:
+        missing = validate_credentials(platform_enum, body.credentials)
+        if missing:
+            return TestConnectionResponse(
+                success=False,
+                message=f"Missing required credentials: {', '.join(missing)}",
+            )
 
-    # Test the connection
-    success, message, details = await test_platform_connection(platform_enum, body.credentials)
+    # Test the connection (works with both plugins and legacy)
+    success, message, details = await test_platform_connection(platform, body.credentials)
 
     logger.info(
         "Tested integration connection",
         platform=platform,
         success=success,
+        source="plugin" if plugin_metadata else "legacy",
     )
 
     return TestConnectionResponse(
@@ -1081,195 +1539,227 @@ async def trigger_sync(
     data_points_synced = 0
 
     try:
-        platform_enum = Platform(platform)
-
-        if platform_enum == Platform.SLACK:
-            # Slack doesn't need syncing - it's push-based
-            data_points_synced = 0
-
-        elif platform_enum == Platform.GITHUB:
-            # GitHub sync would fetch recent PRs/issues
-            # For now, just validate connection works
-            success, _, _ = await test_github_connection(credentials)
-            if success:
-                data_points_synced = 0  # Would be actual PR count
-
-        elif platform_enum in [Platform.DATADOG, Platform.SENTRY, Platform.NEW_RELIC]:
-            # Import from observability hub
-            from src.integrations.observability_hub import (
-                DatadogProvider,
-                NewRelicProvider,
-                SentryProvider,
+        # First, try using the plugin registry
+        registry = get_registry()
+        if registry.has_plugin(platform):
+            # Use plugin-based sync
+            sync_result = await sync_platform_data_via_registry(
+                platform,
+                credentials,
+                limit=100,
             )
+            if sync_result.success:
+                data_points_synced = sync_result.data_points_synced
 
-            if platform_enum == Platform.DATADOG:
-                provider = DatadogProvider(
-                    api_key=credentials.get("api_key", ""),
-                    app_key=credentials.get("app_key", ""),
-                    site=credentials.get("site", "datadoghq.com"),
+                # Store synced data in SDLC events if project_id exists
+                project_id_for_events = integration.get("project_id")
+                if project_id_for_events and sync_result.data:
+                    # Store the raw synced data for downstream processing
+                    for resource_type, items in sync_result.data.items():
+                        for item in items if isinstance(items, list) else [items]:
+                            if isinstance(item, dict):
+                                await supabase.insert("sdlc_events", {
+                                    "project_id": project_id_for_events,
+                                    "source_platform": platform,
+                                    "event_type": resource_type,
+                                    "external_id": item.get("id", str(uuid.uuid4())),
+                                    "title": item.get("title", item.get("name", f"{platform} {resource_type}")),
+                                    "metadata": item,
+                                })
+            else:
+                # Sync failed via plugin - raise to trigger error handling
+                raise Exception(sync_result.message)
+        else:
+            # Fall back to legacy sync logic
+            platform_enum = Platform(platform)
+
+            if platform_enum == Platform.SLACK:
+                # Slack doesn't need syncing - it's push-based
+                data_points_synced = 0
+
+            elif platform_enum == Platform.GITHUB:
+                # GitHub sync would fetch recent PRs/issues
+                # For now, just validate connection works
+                success, _, _ = await test_github_connection(credentials)
+                if success:
+                    data_points_synced = 0  # Would be actual PR count
+
+            elif platform_enum in [Platform.DATADOG, Platform.SENTRY, Platform.NEW_RELIC]:
+                # Import from observability hub
+                from src.integrations.observability_hub import (
+                    DatadogProvider,
+                    NewRelicProvider,
+                    SentryProvider,
                 )
-                errors = await provider.get_errors(limit=100)
-                data_points_synced = len(errors)
-                await provider.close()
 
-            elif platform_enum == Platform.SENTRY:
-                provider = SentryProvider(
-                    auth_token=credentials.get("auth_token", ""),
-                    organization=credentials.get("organization", ""),
-                    project=credentials.get("project", ""),
+                if platform_enum == Platform.DATADOG:
+                    provider = DatadogProvider(
+                        api_key=credentials.get("api_key", ""),
+                        app_key=credentials.get("app_key", ""),
+                        site=credentials.get("site", "datadoghq.com"),
+                    )
+                    errors = await provider.get_errors(limit=100)
+                    data_points_synced = len(errors)
+                    await provider.close()
+
+                elif platform_enum == Platform.SENTRY:
+                    provider = SentryProvider(
+                        auth_token=credentials.get("auth_token", ""),
+                        organization=credentials.get("organization", ""),
+                        project=credentials.get("project", ""),
+                    )
+                    errors = await provider.get_errors(limit=100)
+                    data_points_synced = len(errors)
+                    await provider.close()
+
+                elif platform_enum == Platform.NEW_RELIC:
+                    provider = NewRelicProvider(
+                        api_key=credentials.get("api_key", ""),
+                        account_id=credentials.get("account_id", ""),
+                    )
+                    errors = await provider.get_errors(limit=100)
+                    data_points_synced = len(errors)
+                    await provider.close()
+
+            elif platform_enum == Platform.PAGERDUTY:
+                # Sync PagerDuty incidents
+                from src.integrations.pagerduty_integration import PagerDutyIntegration
+
+                pd = PagerDutyIntegration(
+                    api_token=credentials.get("api_token", ""),
+                    default_since_days=30,
                 )
-                errors = await provider.get_errors(limit=100)
-                data_points_synced = len(errors)
-                await provider.close()
+                incidents = await pd.get_incidents(limit=100)
+                data_points_synced = len(incidents)
 
-            elif platform_enum == Platform.NEW_RELIC:
-                provider = NewRelicProvider(
-                    api_key=credentials.get("api_key", ""),
-                    account_id=credentials.get("account_id", ""),
-                )
-                errors = await provider.get_errors(limit=100)
-                data_points_synced = len(errors)
-                await provider.close()
-
-        elif platform_enum == Platform.PAGERDUTY:
-            # Sync PagerDuty incidents
-            from src.integrations.pagerduty_integration import PagerDutyIntegration
-
-            pd = PagerDutyIntegration(
-                api_token=credentials.get("api_token", ""),
-                default_since_days=30,
-            )
-            incidents = await pd.get_incidents(limit=100)
-            data_points_synced = len(incidents)
-
-            # Store incidents as SDLC events
-            project_id_for_events = integration.get("project_id")
-            if project_id_for_events:
-                for incident in incidents:
-                    await supabase.insert("sdlc_events", {
-                        "project_id": project_id_for_events,
-                        "source_platform": "pagerduty",
-                        "event_type": "incident",
-                        "external_id": incident.incident_id,
-                        "external_key": str(incident.incident_number),
-                        "external_url": incident.html_url,
-                        "title": incident.title,
-                        "description": incident.description,
-                        "status": incident.status.value,
-                        "priority": incident.priority,
-                        "incident_id": incident.incident_id,
-                        "occurred_at": incident.created_at.isoformat() if incident.created_at else None,
-                        "metadata": {
-                            "service_id": incident.service_id,
-                            "service_name": incident.service_name,
-                            "urgency": incident.urgency.value,
-                            "duration_seconds": incident.duration_seconds,
-                            "time_to_acknowledge_seconds": incident.time_to_acknowledge_seconds,
-                        },
-                    })
-            await pd.close()
-
-        elif platform_enum == Platform.LAUNCHDARKLY:
-            # Sync LaunchDarkly flags
-            from src.integrations.launchdarkly_integration import LaunchDarklyIntegration
-
-            ld = LaunchDarklyIntegration(
-                api_token=credentials.get("api_token"),
-                project_key=credentials.get("project_key", "default"),
-            )
-            environment = credentials.get("default_environment", "production")
-            flags = await ld.get_flags(environment=environment, limit=100)
-            data_points_synced = len(flags)
-
-            # Store flags as SDLC events
-            project_id_for_events = integration.get("project_id")
-            if project_id_for_events:
-                for flag in flags:
-                    await supabase.insert("sdlc_events", {
-                        "project_id": project_id_for_events,
-                        "source_platform": "launchdarkly",
-                        "event_type": "flag_change" if flag.on else "flag_disabled",
-                        "external_id": flag.key,
-                        "external_key": flag.key,
-                        "title": flag.name,
-                        "description": flag.description,
-                        "status": "on" if flag.on else "off",
-                        "flag_key": flag.key,
-                        "occurred_at": flag.created_at.isoformat() if flag.created_at else None,
-                        "metadata": {
-                            "kind": flag.kind,
-                            "environment": flag.environment,
-                            "rollout_percentage": flag.rollout_percentage,
-                            "variations": flag.variations,
-                            "tags": flag.tags,
-                        },
-                    })
-            await ld.close()
-
-        elif platform_enum == Platform.AMPLITUDE:
-            # Sync Amplitude top events for test prioritization
-            from src.integrations.amplitude_integration import AmplitudeIntegration
-
-            amp = AmplitudeIntegration(
-                api_key=credentials.get("api_key", ""),
-                secret_key=credentials.get("secret_key", ""),
-            )
-            events = await amp.get_top_events(limit=50, days=30)
-            data_points_synced = len(events)
-
-            # Store as SDLC events for correlation
-            project_id_for_events = integration.get("project_id")
-            if project_id_for_events:
-                for event in events:
-                    await supabase.insert("sdlc_events", {
-                        "project_id": project_id_for_events,
-                        "source_platform": "amplitude",
-                        "event_type": "user_event",
-                        "external_id": event.event_type,
-                        "external_key": event.event_type,
-                        "title": event.event_type,
-                        "description": f"Top event with {event.unique_users} unique users",
-                        "metadata": {
-                            "total_count": event.total_count,
-                            "unique_users": event.unique_users,
-                            "avg_per_user": event.avg_per_user,
-                        },
-                    })
-            await amp.close()
-
-        elif platform_enum == Platform.FULLSTORY:
-            # Sync FullStory sessions
-            from src.integrations.observability_hub import FullStoryProvider
-
-            fs = FullStoryProvider(api_key=credentials.get("api_key", ""))
-            sessions = await fs.get_recent_sessions(limit=100)
-            data_points_synced = len(sessions)
-
-            # Store sessions as SDLC events
-            project_id_for_events = integration.get("project_id")
-            if project_id_for_events:
-                for session in sessions:
-                    # Only store sessions with frustration signals
-                    if session.frustration_signals:
+                # Store incidents as SDLC events
+                project_id_for_events = integration.get("project_id")
+                if project_id_for_events:
+                    for incident in incidents:
                         await supabase.insert("sdlc_events", {
                             "project_id": project_id_for_events,
-                            "source_platform": "fullstory",
-                            "event_type": "frustration_signal",
-                            "external_id": session.session_id,
-                            "external_url": session.replay_url,
-                            "title": f"Frustration signals in session {session.session_id[:8]}",
-                            "description": f"Session with {len(session.frustration_signals)} frustration signals",
-                            "session_id": session.session_id,
-                            "occurred_at": session.started_at.isoformat() if session.started_at else None,
+                            "source_platform": "pagerduty",
+                            "event_type": "incident",
+                            "external_id": incident.incident_id,
+                            "external_key": str(incident.incident_number),
+                            "external_url": incident.html_url,
+                            "title": incident.title,
+                            "description": incident.description,
+                            "status": incident.status.value,
+                            "priority": incident.priority,
+                            "incident_id": incident.incident_id,
+                            "occurred_at": incident.created_at.isoformat() if incident.created_at else None,
                             "metadata": {
-                                "user_id": session.user_id,
-                                "duration_ms": session.duration_ms,
-                                "page_views": session.page_views,
-                                "frustration_count": len(session.frustration_signals),
-                                "device": session.device,
+                                "service_id": incident.service_id,
+                                "service_name": incident.service_name,
+                                "urgency": incident.urgency.value,
+                                "duration_seconds": incident.duration_seconds,
+                                "time_to_acknowledge_seconds": incident.time_to_acknowledge_seconds,
                             },
                         })
-            await fs.close()
+                await pd.close()
+
+            elif platform_enum == Platform.LAUNCHDARKLY:
+                # Sync LaunchDarkly flags
+                from src.integrations.launchdarkly_integration import LaunchDarklyIntegration
+
+                ld = LaunchDarklyIntegration(
+                    api_token=credentials.get("api_token"),
+                    project_key=credentials.get("project_key", "default"),
+                )
+                environment = credentials.get("default_environment", "production")
+                flags = await ld.get_flags(environment=environment, limit=100)
+                data_points_synced = len(flags)
+
+                # Store flags as SDLC events
+                project_id_for_events = integration.get("project_id")
+                if project_id_for_events:
+                    for flag in flags:
+                        await supabase.insert("sdlc_events", {
+                            "project_id": project_id_for_events,
+                            "source_platform": "launchdarkly",
+                            "event_type": "flag_change" if flag.on else "flag_disabled",
+                            "external_id": flag.key,
+                            "external_key": flag.key,
+                            "title": flag.name,
+                            "description": flag.description,
+                            "status": "on" if flag.on else "off",
+                            "flag_key": flag.key,
+                            "occurred_at": flag.created_at.isoformat() if flag.created_at else None,
+                            "metadata": {
+                                "kind": flag.kind,
+                                "environment": flag.environment,
+                                "rollout_percentage": flag.rollout_percentage,
+                                "variations": flag.variations,
+                                "tags": flag.tags,
+                            },
+                        })
+                await ld.close()
+
+            elif platform_enum == Platform.AMPLITUDE:
+                # Sync Amplitude top events for test prioritization
+                from src.integrations.amplitude_integration import AmplitudeIntegration
+
+                amp = AmplitudeIntegration(
+                    api_key=credentials.get("api_key", ""),
+                    secret_key=credentials.get("secret_key", ""),
+                )
+                events = await amp.get_top_events(limit=50, days=30)
+                data_points_synced = len(events)
+
+                # Store as SDLC events for correlation
+                project_id_for_events = integration.get("project_id")
+                if project_id_for_events:
+                    for event in events:
+                        await supabase.insert("sdlc_events", {
+                            "project_id": project_id_for_events,
+                            "source_platform": "amplitude",
+                            "event_type": "user_event",
+                            "external_id": event.event_type,
+                            "external_key": event.event_type,
+                            "title": event.event_type,
+                            "description": f"Top event with {event.unique_users} unique users",
+                            "metadata": {
+                                "total_count": event.total_count,
+                                "unique_users": event.unique_users,
+                                "avg_per_user": event.avg_per_user,
+                            },
+                        })
+                await amp.close()
+
+            elif platform_enum == Platform.FULLSTORY:
+                # Sync FullStory sessions
+                from src.integrations.observability_hub import FullStoryProvider
+
+                fs = FullStoryProvider(api_key=credentials.get("api_key", ""))
+                sessions = await fs.get_recent_sessions(limit=100)
+                data_points_synced = len(sessions)
+
+                # Store sessions as SDLC events
+                project_id_for_events = integration.get("project_id")
+                if project_id_for_events:
+                    for session in sessions:
+                        # Only store sessions with frustration signals
+                        if session.frustration_signals:
+                            await supabase.insert("sdlc_events", {
+                                "project_id": project_id_for_events,
+                                "source_platform": "fullstory",
+                                "event_type": "frustration_signal",
+                                "external_id": session.session_id,
+                                "external_url": session.replay_url,
+                                "title": f"Frustration signals in session {session.session_id[:8]}",
+                                "description": f"Session with {len(session.frustration_signals)} frustration signals",
+                                "session_id": session.session_id,
+                                "occurred_at": session.started_at.isoformat() if session.started_at else None,
+                                "metadata": {
+                                    "user_id": session.user_id,
+                                    "duration_ms": session.duration_ms,
+                                    "page_views": session.page_views,
+                                    "frustration_count": len(session.frustration_signals),
+                                    "device": session.device,
+                                },
+                            })
+                await fs.close()
 
         # Update sync status to completed
         await supabase.update(
