@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
+from uuid import uuid4
 
 import anthropic
 import structlog
@@ -530,7 +531,7 @@ Prioritize:
             flows = []
             for f in data.get("flows", []):
                 flows.append(DiscoveredFlow(
-                    id=f.get("id", f"flow-{len(flows)}"),
+                    id=f.get("id") or str(uuid4()),  # Use proper UUID for RAP-292 compliance
                     name=f.get("name", ""),
                     description=f.get("description", ""),
                     start_url=f.get("start_url", "/"),

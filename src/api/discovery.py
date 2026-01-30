@@ -2051,7 +2051,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
                 # Process discovered flows
                 for i, flow in enumerate(flows_result):
-                    flow_id = f"flow-{session_id[:8]}-{i}"
+                    flow_id = str(uuid4())  # Use proper UUID for RAP-292 compliance
                     flow_data = {
                         "id": flow_id,
                         "session_id": session_id,
@@ -2217,7 +2217,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
                         # Process discovered flows
                         for i, flow in enumerate(flows_result):
-                            flow_id = f"flow-{session_id[:8]}-{i}"
+                            flow_id = str(uuid4())  # Use proper UUID for RAP-292 compliance
                             flow_data = {
                                 "id": flow_id,
                                 "session_id": session_id,
@@ -2323,7 +2323,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
 
                 # Store discovered flows from local discovery
                 for i, flow in enumerate(result.flows_discovered):
-                    flow_id = f"flow-{session_id[:8]}-{i}"
+                    flow_id = str(uuid4())  # Use proper UUID for RAP-292 compliance
                     flow_data = {
                         "id": flow_id,
                         "session_id": session_id,
