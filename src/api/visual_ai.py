@@ -26,6 +26,7 @@ from src.agents.visual_ai import (
     VisualAI,
 )
 from src.config import get_settings
+from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -1029,7 +1030,7 @@ Respond with JSON:
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_api_model_id("claude-sonnet-4-5"),
             max_tokens=2000,
             messages=[
                 {
@@ -1603,7 +1604,7 @@ Respond in JSON:
 """
 
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=get_api_model_id("claude-sonnet-4-5"),
             max_tokens=1500,
             messages=[{"role": "user", "content": prompt}]
         )

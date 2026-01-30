@@ -41,6 +41,8 @@ from typing import Any, Callable, TypeVar
 
 import structlog
 
+from src.core.model_registry import get_api_model_id, get_default_api_model_id
+
 logger = structlog.get_logger(__name__)
 
 # Type variable for generic decorator
@@ -143,7 +145,7 @@ def get_anthropic_client(
     Example:
         client = get_anthropic_client(user_id="org-123", tags=["test-run"])
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model="{get_default_api_model_id()}",
             messages=[{"role": "user", "content": "Hello"}],
         )
         # Automatically traced to Langfuse!
@@ -431,7 +433,7 @@ def get_langchain_llm(
     Example:
         llm, handler = get_langchain_llm(
             provider="anthropic",
-            model="claude-sonnet-4-5-20250514",
+            model="{get_default_api_model_id()}",
             user_id="org-123",
         )
 
@@ -455,7 +457,7 @@ def get_langchain_llm(
         from langchain_anthropic import ChatAnthropic
 
         llm = ChatAnthropic(
-            model=model or "claude-sonnet-4-5-20250514",
+            model=model or get_default_api_model_id(),
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
             **kwargs,
         )

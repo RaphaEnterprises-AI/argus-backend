@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
+from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -578,7 +579,7 @@ Respond in JSON format:
 """
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=get_api_model_id("claude-haiku-4-5"),
             max_tokens=1500,
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}],

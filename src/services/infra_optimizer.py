@@ -18,6 +18,7 @@ from enum import Enum
 import anthropic
 import structlog
 
+from src.core.model_registry import get_api_model_id, get_default_api_model_id
 from src.services.prometheus_collector import (
     InfrastructureSnapshot,
     PrometheusCollector,
@@ -133,18 +134,18 @@ class AIInfraOptimizer:
         self,
         prometheus_collector: PrometheusCollector | None = None,
         anthropic_client: anthropic.Anthropic | None = None,
-        model: str = "claude-sonnet-4-5-20241022",
+        model: str | None = None,
     ):
         """Initialize the optimizer.
 
         Args:
             prometheus_collector: Collector for metrics. Created if not provided.
             anthropic_client: Anthropic client. Created if not provided.
-            model: Claude model to use for analysis.
+            model: Claude model to use for analysis. Uses default from registry if not provided.
         """
         self.prometheus = prometheus_collector or create_prometheus_collector()
         self.client = anthropic_client or anthropic.Anthropic()
-        self.model = model
+        self.model = model or get_default_api_model_id()
         self._supabase = None
 
     @property
@@ -908,7 +909,7 @@ Return ONLY the JSON array, no other text."""
 # Factory function
 def create_infra_optimizer(
     prometheus_url: str | None = None,
-    model: str = "claude-sonnet-4-5-20241022",
+    model: str | None = None,
 ) -> AIInfraOptimizer:
     """Create an InfraOptimizer instance.
 

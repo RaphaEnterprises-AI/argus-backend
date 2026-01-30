@@ -26,6 +26,7 @@ from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.api.tests import get_project_org_id
 from src.config import get_settings
+from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -434,7 +435,7 @@ class AITestGenerator:
             )
 
             response = client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=get_api_model_id("claude-sonnet-4-5"),
                 max_tokens=4096,
                 temperature=0.2,
                 system="""You are an expert API test engineer. Generate comprehensive test cases for API endpoints.

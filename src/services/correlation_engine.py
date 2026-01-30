@@ -18,6 +18,7 @@ from typing import Any
 import structlog
 
 from src.config import get_settings
+from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -801,7 +802,7 @@ Respond with a JSON array of insights:
 Return ONLY valid JSON, no markdown or explanations."""
 
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=get_api_model_id("claude-haiku-4-5"),
                 max_tokens=2000,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],

@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.config import get_settings
+from src.core.model_registry import get_api_model_id
 from src.knowledge import CogneeError, CogneeSearchError, CogneeStorageError, get_cognee_client
 from src.services.cache import cache_quality_score
 from src.services.supabase_client import get_supabase_client
@@ -140,7 +141,7 @@ async def generate_test_from_error(event: dict) -> dict:
     )
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=get_api_model_id("claude-haiku-4-5"),
         max_tokens=2000,
         temperature=0.3,
         messages=[

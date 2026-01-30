@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
+from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
@@ -334,13 +335,22 @@ async def _save_ai_insight(
     return saved.get("id")
 
 
-def _call_claude(prompt: str, model: str = "claude-haiku-4-5-20251001", max_tokens: int = 4000) -> str | None:
-    """Call Claude API with the given prompt."""
+def _call_claude(prompt: str, model: str | None = None, max_tokens: int = 4000) -> str | None:
+    """Call Claude API with the given prompt.
+
+    Args:
+        prompt: The prompt to send to Claude
+        model: Model key (e.g., 'claude-haiku-4-5') or full ID. Uses fast model from registry if not provided.
+        max_tokens: Maximum tokens in response
+    """
     settings = get_settings()
 
     if not settings.anthropic_api_key:
         logger.warning("Anthropic API key not configured")
         return None
+
+    # Use fast model from registry if not specified
+    resolved_model = get_api_model_id(model) if model else get_api_model_id("claude-haiku-4-5")
 
     try:
         import anthropic
@@ -350,7 +360,7 @@ def _call_claude(prompt: str, model: str = "claude-haiku-4-5-20251001", max_toke
         )
 
         response = client.messages.create(
-            model=model,
+            model=resolved_model,
             max_tokens=max_tokens,
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}],
@@ -840,7 +850,7 @@ Return ONLY valid JSON:
 }}
 ```"""
 
-    response = _call_claude(prompt, model="claude-sonnet-4-5-20241022", max_tokens=3000)
+    response = _call_claude(prompt, model="claude-sonnet-4-5", max_tokens=3000)
 
     if not response:
         return None

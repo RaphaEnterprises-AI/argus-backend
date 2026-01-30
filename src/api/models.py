@@ -911,6 +911,155 @@ async def _fetch_openrouter_models() -> list[dict]:
         return []
 
 
+# ============================================================================
+# Anthropic Integration - Dynamic Model Fetching
+# ============================================================================
+
+_anthropic_cache: dict[str, Any] = {}
+_anthropic_cache_timestamp: datetime | None = None
+ANTHROPIC_CACHE_TTL = 3600  # 1 hour
+
+
+class AnthropicModelInfo(BaseModel):
+    """Anthropic model from their API."""
+
+    id: str
+    display_name: str
+    created_at: str | None = None
+    # Capabilities inferred from model ID
+    supports_vision: bool = True
+    supports_tools: bool = True
+    supports_computer_use: bool = False
+    max_tokens: int = 8192
+    context_window: int = 200000
+
+
+class AnthropicModelsResponse(BaseModel):
+    """Response for Anthropic models endpoint."""
+
+    models: list[AnthropicModelInfo]
+    total: int
+    cached: bool = False
+    cache_age_seconds: int | None = None
+
+
+async def _fetch_anthropic_models() -> list[dict]:
+    """Fetch models from Anthropic API.
+
+    API: GET https://api.anthropic.com/v1/models
+    Docs: https://docs.anthropic.com/en/api/models
+    """
+    import httpx
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY not set, cannot fetch Anthropic models")
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                "https://api.anthropic.com/v1/models",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                params={"limit": 100},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+    except Exception as e:
+        logger.error("Failed to fetch Anthropic models", error=str(e))
+        return []
+
+
+@router.get("/anthropic/models", response_model=AnthropicModelsResponse)
+async def list_anthropic_models(
+    request: Request,
+    search: str | None = Query(None, description="Search by model ID or name"),
+    supports_computer_use: bool | None = Query(None, description="Filter for computer use"),
+    force_refresh: bool = Query(False, description="Force cache refresh"),
+):
+    """List all models available via Anthropic API.
+
+    This endpoint fetches the current model catalog directly from
+    Anthropic's API, ensuring you always have the latest models
+    with their correct version IDs.
+
+    Returns:
+        - Model IDs with full version (e.g., claude-sonnet-4-5-20250514)
+        - Creation dates
+        - Capabilities (vision, tools, computer use)
+
+    Note: Requires ANTHROPIC_API_KEY environment variable.
+    """
+    global _anthropic_cache, _anthropic_cache_timestamp
+
+    now = datetime.now(UTC)
+    cache_age = None
+
+    # Check cache
+    if (
+        not force_refresh
+        and _anthropic_cache_timestamp is not None
+        and (now - _anthropic_cache_timestamp).total_seconds() < ANTHROPIC_CACHE_TTL
+        and "models" in _anthropic_cache
+    ):
+        raw_models = _anthropic_cache["models"]
+        cache_age = int((now - _anthropic_cache_timestamp).total_seconds())
+        cached = True
+    else:
+        raw_models = await _fetch_anthropic_models()
+        _anthropic_cache["models"] = raw_models
+        _anthropic_cache_timestamp = now
+        cached = False
+
+    # Parse models
+    models: list[AnthropicModelInfo] = []
+    for m in raw_models:
+        try:
+            model_id = m.get("id", "")
+            display_name = m.get("display_name", model_id)
+
+            # Infer capabilities from model ID
+            is_claude_4 = "claude-4" in model_id or "claude-sonnet-4" in model_id or "claude-opus-4" in model_id or "claude-haiku-4" in model_id
+            is_sonnet_or_opus = "sonnet" in model_id or "opus" in model_id
+
+            model = AnthropicModelInfo(
+                id=model_id,
+                display_name=display_name,
+                created_at=m.get("created_at"),
+                supports_vision=True,  # All Claude 3+ support vision
+                supports_tools=True,   # All Claude 3+ support tools
+                supports_computer_use=is_sonnet_or_opus,  # Only Sonnet/Opus
+                max_tokens=8192 if is_claude_4 else 4096,
+                context_window=200000 if is_claude_4 else 100000,
+            )
+            models.append(model)
+        except Exception as e:
+            logger.warning("Failed to parse Anthropic model", model=m.get("id"), error=str(e))
+            continue
+
+    # Apply filters
+    if search:
+        search_lower = search.lower()
+        models = [m for m in models if search_lower in m.id.lower() or search_lower in m.display_name.lower()]
+
+    if supports_computer_use is not None:
+        models = [m for m in models if m.supports_computer_use == supports_computer_use]
+
+    # Sort by creation date (newest first)
+    models.sort(key=lambda m: m.created_at or "", reverse=True)
+
+    return AnthropicModelsResponse(
+        models=models,
+        total=len(models),
+        cached=cached,
+        cache_age_seconds=cache_age,
+    )
+
+
 @router.get("/openrouter/models", response_model=OpenRouterModelsResponse)
 async def list_openrouter_models(
     request: Request,
@@ -1018,4 +1167,184 @@ async def list_openrouter_models(
         total=len(models),
         cached=cached,
         cache_age_seconds=cache_age,
+    )
+
+
+# ============================================================================
+# Combined Model Discovery - Unified API for all providers
+# ============================================================================
+
+
+class DiscoveredModelInfo(BaseModel):
+    """Model information from dynamic discovery."""
+
+    id: str  # Full API model ID (e.g., "claude-sonnet-4-5-20250514")
+    short_id: str  # Short key (e.g., "claude-sonnet-4-5")
+    display_name: str
+    provider: str
+    source: str  # "anthropic", "openrouter", or "registry"
+    # Pricing
+    input_price: float | None = None
+    output_price: float | None = None
+    # Capabilities
+    supports_vision: bool = False
+    supports_tools: bool = False
+    supports_computer_use: bool = False
+    # Limits
+    context_window: int = 128000
+    max_tokens: int = 4096
+    # Metadata
+    created_at: str | None = None
+
+
+class DiscoverModelsResponse(BaseModel):
+    """Response for combined model discovery."""
+
+    models: list[DiscoveredModelInfo]
+    total: int
+    providers: dict[str, int]  # Provider name -> model count
+    sources: dict[str, int]  # Source -> model count
+    last_updated: str
+
+
+@router.get("/discover/models", response_model=DiscoverModelsResponse)
+async def discover_all_models(
+    request: Request,
+    provider: str | None = Query(None, description="Filter by provider"),
+    source: str | None = Query(None, description="Filter by source (anthropic, openrouter, registry)"),
+    supports_computer_use: bool | None = Query(None, description="Filter for computer use"),
+    force_refresh: bool = Query(False, description="Force cache refresh"),
+):
+    """Discover all available models from provider APIs.
+
+    This endpoint dynamically fetches models from:
+    1. **Anthropic API** - Claude models with exact version IDs
+    2. **OpenRouter API** - 400+ models from all providers
+    3. **Static Registry** - Fallback models
+
+    Use this endpoint to:
+    - Get the latest available models without code changes
+    - Find the correct model ID for API calls
+    - Check pricing and capabilities
+
+    The response is cached for 1 hour but can be force-refreshed.
+    """
+    all_models: list[DiscoveredModelInfo] = []
+    seen_ids: set[str] = set()
+    now = datetime.now(UTC)
+
+    # 1. Fetch from Anthropic API (primary source for Claude models)
+    anthropic_models = await _fetch_anthropic_models() if force_refresh or not _anthropic_cache.get("models") else _anthropic_cache.get("models", [])
+    for m in anthropic_models or []:
+        model_id = m.get("id", "")
+        if model_id in seen_ids:
+            continue
+        seen_ids.add(model_id)
+
+        # Extract short ID (remove date suffix)
+        short_id = model_id.rsplit("-", 1)[0] if model_id.count("-") >= 4 else model_id
+
+        is_sonnet_or_opus = "sonnet" in model_id or "opus" in model_id
+
+        all_models.append(DiscoveredModelInfo(
+            id=model_id,
+            short_id=short_id,
+            display_name=m.get("display_name", model_id),
+            provider="anthropic",
+            source="anthropic",
+            supports_vision=True,
+            supports_tools=True,
+            supports_computer_use=is_sonnet_or_opus,
+            context_window=200000,
+            max_tokens=8192,
+            created_at=m.get("created_at"),
+        ))
+
+    # 2. Fetch from OpenRouter API (for all other providers)
+    openrouter_models = await _fetch_openrouter_models() if force_refresh or not _openrouter_cache.get("models") else _openrouter_cache.get("models", [])
+    for m in openrouter_models or []:
+        model_id = m.get("id", "")
+        # Skip if we already have this from Anthropic
+        if model_id in seen_ids or any(model_id in s for s in seen_ids):
+            continue
+        seen_ids.add(model_id)
+
+        # Extract provider and short ID
+        original_provider = model_id.split("/")[0] if "/" in model_id else "unknown"
+        short_id = model_id.split("/")[-1] if "/" in model_id else model_id
+
+        # Parse pricing
+        pricing = m.get("pricing", {})
+        input_price = float(pricing.get("prompt", 0)) * 1_000_000
+        output_price = float(pricing.get("completion", 0)) * 1_000_000
+
+        all_models.append(DiscoveredModelInfo(
+            id=model_id,
+            short_id=short_id,
+            display_name=m.get("name", model_id),
+            provider=original_provider,
+            source="openrouter",
+            input_price=input_price,
+            output_price=output_price,
+            supports_vision="vision" in model_id.lower() or m.get("architecture", {}).get("modality") == "multimodal",
+            supports_tools=True,
+            supports_computer_use="claude" in model_id.lower() and ("sonnet" in model_id.lower() or "opus" in model_id.lower()),
+            context_window=m.get("context_length", 128000),
+            max_tokens=m.get("top_provider", {}).get("max_completion_tokens", 4096),
+        ))
+
+    # 3. Add registry models as fallback
+    try:
+        registry = get_model_registry()
+        for model in registry.list_all_models():
+            if model.model_id in seen_ids:
+                continue
+            seen_ids.add(model.model_id)
+
+            all_models.append(DiscoveredModelInfo(
+                id=model.model_id,
+                short_id=model.model_id,
+                display_name=model.display_name,
+                provider=model.provider.value if hasattr(model.provider, "value") else str(model.provider),
+                source="registry",
+                input_price=model.input_price,
+                output_price=model.output_price,
+                supports_vision=Capability.VISION in model.capabilities,
+                supports_tools=Capability.TOOL_USE in model.capabilities,
+                supports_computer_use=Capability.COMPUTER_USE in model.capabilities,
+                context_window=model.context_window,
+                max_tokens=model.max_tokens,
+            ))
+    except Exception as e:
+        logger.warning("Failed to load registry models", error=str(e))
+
+    # Apply filters
+    if provider:
+        provider_lower = provider.lower()
+        all_models = [m for m in all_models if m.provider.lower() == provider_lower]
+
+    if source:
+        source_lower = source.lower()
+        all_models = [m for m in all_models if m.source.lower() == source_lower]
+
+    if supports_computer_use is not None:
+        all_models = [m for m in all_models if m.supports_computer_use == supports_computer_use]
+
+    # Calculate statistics
+    provider_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    for m in all_models:
+        provider_counts[m.provider] = provider_counts.get(m.provider, 0) + 1
+        source_counts[m.source] = source_counts.get(m.source, 0) + 1
+
+    # Sort: Anthropic first, then by provider and name
+    provider_order = {"anthropic": 0, "openai": 1, "google": 2}
+    all_models.sort(key=lambda m: (provider_order.get(m.provider, 99), m.provider, m.display_name))
+
+    return DiscoverModelsResponse(
+        models=all_models,
+        total=len(all_models),
+        providers=provider_counts,
+        sources=source_counts,
+        last_updated=now.isoformat(),
     )
