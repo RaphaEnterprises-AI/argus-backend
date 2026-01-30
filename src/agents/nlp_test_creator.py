@@ -6,6 +6,7 @@ No coding required - just describe what you want to test.
 
 import json
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 import anthropic
 import structlog
@@ -273,7 +274,7 @@ ACTION EXAMPLES:
             ]
 
             test = GeneratedTest(
-                id=data.get("id", f"test-{hash(description) % 10000}"),
+                id=data.get("id") or str(uuid4()),  # Use proper UUID for RAP-292 compliance
                 name=data.get("name", "Generated Test"),
                 description=data.get("description", description),
                 original_prompt=description,

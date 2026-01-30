@@ -1303,7 +1303,7 @@ async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest | N
     flow = await get_flow_or_404(flow_id)
 
     # Build test specification
-    test_id = f"test-{uuid4().hex[:12]}"
+    test_id = str(uuid4())  # Use proper UUID for RAP-292 compliance
     test_name = f"Test: {flow.get('name', 'Unnamed Flow')}"
 
     steps = []
@@ -1896,7 +1896,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 # Process discovered pages from Selenium Grid
                 for i, page in enumerate(selenium_result.pages):
                     page_data = {
-                        "id": f"page-{session_id[:8]}-{i}",
+                        "id": str(uuid4()),  # Use proper UUID for RAP-292 compliance
                         "url": page.url,
                         "title": page.title,
                         "description": f"Page with {len(page.elements)} elements",
@@ -1995,7 +1995,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
             # Process discovered pages
             for i, page in enumerate(pages_discovered):
                 page_data = {
-                    "id": f"page-{session_id[:8]}-{i}",
+                    "id": str(uuid4()),  # Use proper UUID for RAP-292 compliance
                     "url": page.get("url", ""),
                     "title": page.get("title", ""),
                     "description": page.get("description"),
@@ -2162,7 +2162,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     # Process discovered pages from BrowserPool
                     for i, page in enumerate(pool_result.pages):
                         page_data = {
-                            "id": f"page-{session_id[:8]}-{i}",
+                            "id": str(uuid4()),  # Use proper UUID for RAP-292 compliance
                             "url": page.url,
                             "title": page.title,
                             "description": page.description,
@@ -2294,7 +2294,7 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                 # Store discovered pages from local discovery
                 for i, page in enumerate(result.pages_discovered):
                     page_data = {
-                        "id": f"page-{session_id[:8]}-{i}",
+                        "id": str(uuid4()),  # Use proper UUID for RAP-292 compliance
                         "url": page.url,
                         "title": page.title,
                         "description": page.description,

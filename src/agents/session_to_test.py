@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from uuid import uuid4
 
 from anthropic import Anthropic
 
@@ -242,7 +243,7 @@ class SessionToTestConverter:
             )
 
         test = GeneratedTest(
-            id=f"session-{session.session_id[:8]}",
+            id=str(uuid4()),  # Use proper UUID for RAP-292 compliance
             name=analysis.get("journey_name", f"User Journey {session.session_id[:8]}"),
             description=analysis.get("user_intent", ""),
             source_session_ids=[session.session_id],

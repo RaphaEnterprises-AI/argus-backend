@@ -348,7 +348,7 @@ async def convert_recording(request: Request, body: ConvertRequest):
 
         # Build test specification
         test_spec = {
-            "id": f"test-{uuid4().hex[:12]}",
+            "id": str(uuid4()),  # Use proper UUID for RAP-292 compliance
             "name": test_name,
             "description": "Auto-generated from browser recording",
             "source": "rrweb_recording",

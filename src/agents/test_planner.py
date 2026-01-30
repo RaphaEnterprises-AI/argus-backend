@@ -9,6 +9,7 @@ This agent generates comprehensive test specifications including:
 
 import json
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 from .base import AgentCapability, AgentResult, BaseAgent
 from .code_analyzer import TestableSurface
@@ -357,7 +358,7 @@ Output must be valid JSON."""
             )
 
         return TestSpec(
-            id=data.get("id", f"test-{len(steps)}"),
+            id=data.get("id") or str(uuid4()),  # Use proper UUID for RAP-292 compliance
             name=data.get("name", "Unnamed Test"),
             type=data.get("type", "ui"),
             priority=data.get("priority", "medium"),
