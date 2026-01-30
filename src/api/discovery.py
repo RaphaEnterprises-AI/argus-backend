@@ -485,11 +485,176 @@ async def get_session_or_404(session_id: str) -> dict:
 
 
 async def get_flow_or_404(flow_id: str) -> dict:
-    """Get a flow or raise 404."""
+    """Get a flow from database or in-memory cache, or raise 404.
+
+    First checks in-memory cache for active flows.
+    Falls back to database for persisted flows.
+    """
+    # First check in-memory cache (for active sessions)
     flow = _discovered_flows.get(flow_id)
-    if not flow:
-        raise HTTPException(status_code=404, detail="Flow not found")
-    return flow
+    if flow:
+        return flow
+
+    # Fall back to database
+    try:
+        supabase = get_raw_supabase_client()
+        if supabase:
+            result = supabase.table("discovered_flows").select("*").eq("id", flow_id).single().execute()
+            if result.data:
+                db_flow = result.data
+                # Convert DB format to internal format
+                flow_data = {
+                    "id": db_flow["id"],
+                    "session_id": db_flow.get("discovery_session_id", ""),
+                    "name": db_flow.get("name", ""),
+                    "description": db_flow.get("description", ""),
+                    "category": db_flow.get("flow_type", "navigation"),
+                    "flow_type": db_flow.get("flow_type", "navigation"),
+                    "priority": db_flow.get("priority", "medium"),
+                    "start_url": db_flow.get("entry_points", [{}])[0].get("url", "") if db_flow.get("entry_points") else "",
+                    "steps": db_flow.get("steps", []),
+                    "pages_involved": db_flow.get("page_ids", []),
+                    "complexity_score": float(db_flow.get("complexity_score", 0)) if db_flow.get("complexity_score") else None,
+                    "validated": db_flow.get("validated", False),
+                    "validation_result": db_flow.get("validation_result"),
+                    "test_generated": bool(db_flow.get("auto_generated_test")),
+                    "created_at": db_flow.get("created_at", ""),
+                    "updated_at": db_flow.get("updated_at"),
+                    "_from_db": True,  # Mark as loaded from database
+                }
+                # Cache in memory for subsequent accesses
+                _discovered_flows[flow_id] = flow_data
+                return flow_data
+    except Exception as e:
+        logger.warning("Failed to load flow from database", flow_id=flow_id, error=str(e))
+
+    raise HTTPException(status_code=404, detail="Flow not found")
+
+
+async def _persist_flow_to_db(flow_data: dict, session_id: str) -> bool:
+    """Persist a single flow to the discovered_flows database table.
+
+    Args:
+        flow_data: The flow dict to persist
+        session_id: The discovery session ID
+
+    Returns:
+        True if persistence succeeded, False otherwise
+    """
+    try:
+        supabase = get_raw_supabase_client()
+        if not supabase:
+            logger.warning("No Supabase client available for flow persistence")
+            return False
+
+        # Map category values to valid flow_type enum values
+        flow_type_map = {
+            "authentication": "authentication",
+            "auth": "authentication",
+            "login": "authentication",
+            "registration": "registration",
+            "signup": "registration",
+            "checkout": "checkout",
+            "payment": "checkout",
+            "search": "search",
+            "crud": "crud",
+            "navigation": "navigation",
+            "nav": "navigation",
+            "form_submission": "form_submission",
+            "form": "form_submission",
+            "user_journey": "navigation",
+            "custom": "custom",
+        }
+
+        category = flow_data.get("category", "navigation").lower()
+        flow_type = flow_type_map.get(category, "custom")
+
+        flow_record = {
+            "id": flow_data["id"],  # Use the provided UUID
+            "discovery_session_id": session_id,
+            "name": flow_data.get("name", "Unnamed Flow"),
+            "description": flow_data.get("description", ""),
+            "flow_type": flow_type,
+            "category": flow_data.get("category"),
+            "steps": flow_data.get("steps", []),
+            "entry_points": [{"url": flow_data.get("start_url", "")}] if flow_data.get("start_url") else [],
+            "validated": flow_data.get("validated", False),
+            "complexity_score": flow_data.get("complexity_score"),
+            "business_value_score": flow_data.get("business_value_score"),
+            "confidence_score": flow_data.get("confidence_score"),
+        }
+
+        supabase.table("discovered_flows").upsert(flow_record).execute()
+        flow_data["_persisted"] = True
+        logger.debug("Persisted flow to database", flow_id=flow_data["id"], session_id=session_id)
+        return True
+
+    except Exception as e:
+        logger.warning("Failed to persist flow to database", flow_id=flow_data.get("id"), error=str(e))
+        return False
+
+
+async def _update_flow_in_db(flow_id: str, updates: dict) -> bool:
+    """Update a flow in the discovered_flows database table.
+
+    Args:
+        flow_id: The flow UUID to update
+        updates: Dict of fields to update
+
+    Returns:
+        True if update succeeded, False otherwise
+    """
+    try:
+        supabase = get_raw_supabase_client()
+        if not supabase:
+            logger.warning("No Supabase client available for flow update")
+            return False
+
+        # Map internal field names to DB column names
+        db_updates = {}
+        if "name" in updates:
+            db_updates["name"] = updates["name"]
+        if "description" in updates:
+            db_updates["description"] = updates["description"]
+        if "steps" in updates:
+            db_updates["steps"] = updates["steps"]
+        if "category" in updates:
+            db_updates["category"] = updates["category"]
+            # Also update flow_type if category changes
+            flow_type_map = {
+                "authentication": "authentication",
+                "auth": "authentication",
+                "login": "authentication",
+                "registration": "registration",
+                "signup": "registration",
+                "checkout": "checkout",
+                "payment": "checkout",
+                "search": "search",
+                "crud": "crud",
+                "navigation": "navigation",
+                "nav": "navigation",
+                "form_submission": "form_submission",
+                "form": "form_submission",
+                "user_journey": "navigation",
+                "custom": "custom",
+            }
+            db_updates["flow_type"] = flow_type_map.get(updates["category"].lower(), "custom")
+        if "validated" in updates:
+            db_updates["validated"] = updates["validated"]
+        if "validation_result" in updates:
+            db_updates["validation_result"] = updates["validation_result"]
+        if "updated_at" in updates:
+            db_updates["updated_at"] = updates["updated_at"]
+
+        if db_updates:
+            supabase.table("discovered_flows").update(db_updates).eq("id", flow_id).execute()
+            logger.debug("Updated flow in database", flow_id=flow_id, fields=list(db_updates.keys()))
+
+        return True
+
+    except Exception as e:
+        logger.warning("Failed to update flow in database", flow_id=flow_id, error=str(e))
+        return False
 
 
 def build_session_response(session: dict) -> DiscoverySessionResponse:
@@ -1198,24 +1363,37 @@ async def update_flow(flow_id: str, request: UpdateFlowRequest):
     Update a discovered flow.
 
     Use this to edit flow details before test generation.
+    Persists changes to database.
     """
     # RAP-292: UUID Validation
     validate_uuid(flow_id, "flow_id")
     flow = await get_flow_or_404(flow_id)
 
+    # Track updates for database persistence
+    db_updates = {}
+
     # Update fields
     if request.name is not None:
         flow["name"] = request.name
+        db_updates["name"] = request.name
     if request.description is not None:
         flow["description"] = request.description
+        db_updates["description"] = request.description
     if request.priority is not None:
         flow["priority"] = request.priority
+        # Note: priority is not a DB column, stored in metadata
     if request.steps is not None:
         flow["steps"] = request.steps
+        db_updates["steps"] = request.steps
     if request.category is not None:
         flow["category"] = request.category
+        db_updates["category"] = request.category
 
     flow["updated_at"] = datetime.now(UTC).isoformat()
+    db_updates["updated_at"] = flow["updated_at"]
+
+    # Persist updates to database
+    await _update_flow_in_db(flow_id, db_updates)
 
     logger.info("Flow updated", flow_id=flow_id)
 
@@ -1245,6 +1423,7 @@ async def validate_flow(flow_id: str, request: FlowValidationRequest):
     Validate a flow by executing it.
 
     Runs the flow steps against the application to verify they work correctly.
+    Persists validation results to database.
     """
     # RAP-292: UUID Validation
     validate_uuid(flow_id, "flow_id")
@@ -1276,6 +1455,13 @@ async def validate_flow(flow_id: str, request: FlowValidationRequest):
     flow["validated"] = True
     flow["validation_result"] = validation_result
     flow["updated_at"] = datetime.now(UTC).isoformat()
+
+    # Persist validation results to database
+    await _update_flow_in_db(flow_id, {
+        "validated": True,
+        "validation_result": validation_result,
+        "updated_at": flow["updated_at"],
+    })
 
     logger.info("Flow validated", flow_id=flow_id, success=validation_result["success"])
 
@@ -1512,7 +1698,10 @@ async def compare_discoveries(
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a discovery session and all associated data."""
+    """Delete a discovery session and all associated data.
+
+    Deletes from database (flows are deleted via CASCADE) and clears in-memory cache.
+    """
     # RAP-292: UUID Validation
     validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
@@ -1523,7 +1712,19 @@ async def delete_session(session_id: str):
             detail="Cannot delete a running session. Cancel it first."
         )
 
-    # Delete associated flows
+    # Count flows for response (before deletion)
+    flows_count = len(session.get("flows", []))
+
+    # Delete from database - CASCADE will delete associated flows and pages
+    try:
+        supabase = get_raw_supabase_client()
+        if supabase:
+            supabase.table("discovery_sessions").delete().eq("id", session_id).execute()
+            logger.debug("Deleted session from database", session_id=session_id)
+    except Exception as e:
+        logger.warning("Failed to delete session from database", session_id=session_id, error=str(e))
+
+    # Clear in-memory cache for flows associated with this session
     flow_ids_to_delete = [
         fid for fid, f in _discovered_flows.items()
         if f.get("session_id") == session_id
@@ -1531,15 +1732,16 @@ async def delete_session(session_id: str):
     for fid in flow_ids_to_delete:
         del _discovered_flows[fid]
 
-    # Delete session
-    del _discovery_sessions[session_id]
+    # Clear in-memory cache for session
+    if session_id in _discovery_sessions:
+        del _discovery_sessions[session_id]
 
-    logger.info("Discovery session deleted", session_id=session_id)
+    logger.info("Discovery session deleted", session_id=session_id, flows_deleted=flows_count)
 
     return {
         "success": True,
         "message": f"Session {session_id} deleted successfully",
-        "flows_deleted": len(flow_ids_to_delete),
+        "flows_deleted": flows_count,
     }
 
 
@@ -2069,6 +2271,9 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     session["flows"].append(flow_data)
                     _discovered_flows[flow_id] = flow_data
 
+                    # Persist flow to database immediately
+                    await _persist_flow_to_db(flow_data, session_id)
+
                     # Emit flow discovered event
                     if events_queue:
                         await events_queue.put({
@@ -2235,6 +2440,9 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                             session["flows"].append(flow_data)
                             _discovered_flows[flow_id] = flow_data
 
+                            # Persist flow to database immediately
+                            await _persist_flow_to_db(flow_data, session_id)
+
                             # Emit flow discovered event
                             if events_queue:
                                 await events_queue.put({
@@ -2340,6 +2548,9 @@ async def run_discovery_session(session_id: str, resume: bool = False) -> None:
                     }
                     session["flows"].append(flow_data)
                     _discovered_flows[flow_id] = flow_data
+
+                    # Persist flow to database immediately
+                    await _persist_flow_to_db(flow_data, session_id)
 
                     # Emit flow discovered event
                     if events_queue:
