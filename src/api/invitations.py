@@ -15,6 +15,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 
+from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.email_service import get_email_service
 from src.services.supabase_client import get_supabase_client
@@ -97,6 +98,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
     Creates a new invitation with a secure token that expires in 7 days.
     The invitation email should be sent separately (e.g., via email service).
     """
+    validate_uuid(org_id, "org_id")
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -198,6 +200,7 @@ async def list_pending_invitations(org_id: str, request: Request):
 
     Returns invitations with status 'pending' that haven't expired.
     """
+    validate_uuid(org_id, "org_id")
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -241,6 +244,8 @@ async def revoke_invitation(org_id: str, invite_id: str, request: Request):
 
     Sets the invitation status to 'revoked', preventing it from being accepted.
     """
+    validate_uuid(org_id, "org_id")
+    validate_uuid(invite_id, "invite_id")
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 

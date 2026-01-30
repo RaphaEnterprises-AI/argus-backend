@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.api.context import get_current_organization_id
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
@@ -567,6 +568,9 @@ async def list_reports(
     Returns:
         Paginated list of reports
     """
+    # RAP-292: UUID Validation
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -669,6 +673,10 @@ async def create_report(
 
     Requires membership in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+    validate_uuid_optional(body.test_run_id, "test_run_id")
+
     user = await get_current_user(request)
 
     # Verify access to the project
@@ -774,6 +782,9 @@ async def get_report(report_id: str, request: Request):
 
     Requires membership in the report's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(report_id, "report_id")
+
     user = await get_current_user(request)
     report = await verify_report_access(report_id, user["user_id"], user.get("email"), request)
 
@@ -815,6 +826,9 @@ async def update_report(report_id: str, body: UpdateReportRequest, request: Requ
 
     Requires membership in the report's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(report_id, "report_id")
+
     user = await get_current_user(request)
     report = await verify_report_access(report_id, user["user_id"], user.get("email"), request)
 
@@ -858,6 +872,9 @@ async def delete_report(report_id: str, request: Request):
 
     Requires membership in the report's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(report_id, "report_id")
+
     user = await get_current_user(request)
     report = await verify_report_access(report_id, user["user_id"], user.get("email"), request)
 
@@ -906,6 +923,9 @@ async def download_report(
     Returns:
         Report file as streaming response
     """
+    # RAP-292: UUID Validation
+    validate_uuid(report_id, "report_id")
+
     user = await get_current_user(request)
     report = await verify_report_access(report_id, user["user_id"], user.get("email"), request)
 
@@ -998,6 +1018,9 @@ async def list_project_reports(
 
     Convenience endpoint that's equivalent to GET /reports?project_id={project_id}
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     return await list_reports(
         request=request,
         project_id=project_id,
@@ -1019,6 +1042,9 @@ async def generate_test_run_report(
 
     Convenience endpoint to quickly generate a report from a test run.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(test_run_id, "test_run_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 

@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.intelligence import QueryIntent, QueryRouter, get_query_router
 from src.services.supabase_client import get_supabase_client
@@ -193,6 +194,10 @@ class RootCauseResponse(BaseModel):
 @router.get("/organizations/{org_id}/config", response_model=HealingConfigResponse)
 async def get_healing_config(org_id: str, request: Request, project_id: str | None = None):
     """Get healing configuration for organization (optionally project-specific)."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -231,6 +236,10 @@ async def update_healing_config(
     org_id: str, body: HealingConfigRequest, request: Request, project_id: str | None = None
 ):
     """Update healing configuration."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -333,6 +342,10 @@ async def list_healing_patterns(
     offset: int = 0,
 ):
     """List learned healing patterns."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -378,6 +391,10 @@ async def list_healing_patterns(
 @router.delete("/organizations/{org_id}/patterns/{pattern_id}")
 async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request):
     """Delete a healing pattern."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid(pattern_id, "pattern_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -421,6 +438,10 @@ async def get_healing_stats(
     project_id: str | None = None,
 ):
     """Get healing statistics for the organization."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -525,6 +546,10 @@ async def get_pending_approvals(
     project_id: str | None = None,
 ):
     """Get healing suggestions pending approval."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     _, _ = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -540,6 +565,10 @@ async def get_pending_approvals(
 @router.post("/organizations/{org_id}/approve/{pattern_id}")
 async def approve_healing(org_id: str, pattern_id: str, request: Request):
     """Approve a healing suggestion."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid(pattern_id, "pattern_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -573,6 +602,10 @@ async def approve_healing(org_id: str, pattern_id: str, request: Request):
 @router.post("/organizations/{org_id}/reject/{pattern_id}")
 async def reject_healing(org_id: str, pattern_id: str, request: Request):
     """Reject a healing suggestion."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid(pattern_id, "pattern_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -624,6 +657,10 @@ async def get_healing_suggestions(
 
     Target latency: 50-100ms for cached/vector queries.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     start_time = time.perf_counter()
 
     user = await get_current_user(request)
@@ -711,6 +748,10 @@ async def analyze_root_cause(
 
     Target latency: 50-100ms for cached/vector queries.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     start_time = time.perf_counter()
 
     user = await get_current_user(request)
@@ -793,6 +834,10 @@ async def find_similar_errors(
 
     Target latency: 50-100ms for cached/vector queries.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(project_id, "project_id")
+
     start_time = time.perf_counter()
 
     user = await get_current_user(request)

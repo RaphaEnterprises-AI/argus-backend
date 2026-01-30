@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
@@ -234,6 +235,7 @@ async def get_timeline(
     This enables viewing the full picture of what happened across
     Jira, GitHub, Sentry, and other connected platforms.
     """
+    validate_uuid_optional(project_id, "project_id")
     supabase = get_supabase_client()
 
     try:
@@ -305,6 +307,7 @@ async def get_event(
     user: UserContext = Depends(get_current_user),
 ):
     """Get a single SDLC event by ID with full details."""
+    validate_uuid(event_id, "event_id")
     supabase = get_supabase_client()
 
     try:
@@ -426,6 +429,7 @@ async def get_root_cause(
     Returns the chain of events that led to this outcome, helping
     answer "Why did this error/incident happen?"
     """
+    validate_uuid(event_id, "event_id")
     supabase = get_supabase_client()
 
     try:
@@ -583,6 +587,7 @@ async def get_insights(
     Returns insights about patterns, risks, and opportunities discovered
     by analyzing the unified SDLC timeline.
     """
+    validate_uuid_optional(project_id, "project_id")
     supabase = get_supabase_client()
 
     try:
@@ -636,6 +641,7 @@ async def acknowledge_insight(
 
     Acknowledging indicates the user has seen and is aware of the insight.
     """
+    validate_uuid(insight_id, "insight_id")
     supabase = get_supabase_client()
 
     try:
@@ -678,6 +684,7 @@ async def resolve_insight(
 
     Resolving indicates the issue identified by the insight has been addressed.
     """
+    validate_uuid(insight_id, "insight_id")
     supabase = get_supabase_client()
 
     try:
@@ -722,6 +729,7 @@ async def dismiss_insight(
 
     Dismissing indicates the insight is not actionable or relevant to the team.
     """
+    validate_uuid(insight_id, "insight_id")
     supabase = get_supabase_client()
 
     try:
@@ -795,6 +803,7 @@ async def generate_insights(
     The AI analysis uses Claude to identify patterns that may not be
     obvious from simple rule-based detection.
     """
+    validate_uuid(project_id, "project_id")
     from src.services.correlation_engine import get_correlation_engine
 
     settings = get_settings()
@@ -920,6 +929,7 @@ async def get_commit_impact_analysis(
     /impact/{commit_sha} endpoint by using the correlation engine's
     algorithms.
     """
+    validate_uuid(project_id, "project_id")
     from src.services.correlation_engine import get_correlation_engine
 
     engine = get_correlation_engine()
@@ -971,6 +981,7 @@ async def natural_language_query(
     - "What deployments happened in the last week?"
     - "Find errors related to the payment component"
     """
+    validate_uuid_optional(project_id, "project_id")
     settings = get_settings()
     supabase = get_supabase_client()
 
@@ -1146,6 +1157,7 @@ async def get_events_by_pr(
     user: UserContext = Depends(get_current_user),
 ):
     """Get all events related to a specific pull request number."""
+    validate_uuid_optional(project_id, "project_id")
     supabase = get_supabase_client()
 
     try:
@@ -1212,6 +1224,7 @@ async def get_events_by_deploy(
     user: UserContext = Depends(get_current_user),
 ):
     """Get all events related to a specific deployment."""
+    validate_uuid(deploy_id, "deploy_id")
     supabase = get_supabase_client()
 
     try:
@@ -1253,6 +1266,7 @@ async def get_correlation_stats(
 
     Provides an overview of SDLC events, correlations, and insights.
     """
+    validate_uuid_optional(project_id, "project_id")
     supabase = get_supabase_client()
 
     try:

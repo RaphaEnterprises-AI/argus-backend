@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.services.supabase_client import get_supabase_client
@@ -286,6 +287,9 @@ async def list_tests(
     Returns:
         Paginated list of tests
     """
+    # RAP-292: UUID Validation
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -388,6 +392,9 @@ async def create_test(body: CreateTestRequest, request: Request):
 
     Requires membership in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+
     user = await get_current_user(request)
 
     # Verify access to the project
@@ -475,6 +482,9 @@ async def get_test(test_id: str, request: Request):
 
     Requires membership in the test's project organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
     test = await verify_test_access(test_id, user["user_id"], user.get("email"), request)
 
@@ -505,6 +515,9 @@ async def update_test(test_id: str, body: UpdateTestRequest, request: Request):
     Both methods support partial updates since all fields are optional.
     Requires membership in the test's project organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
     test = await verify_test_access(test_id, user["user_id"], user.get("email"), request)
 
@@ -558,6 +571,9 @@ async def delete_test(test_id: str, request: Request):
 
     Requires membership in the test's project organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
     test = await verify_test_access(test_id, user["user_id"], user.get("email"), request)
 
@@ -622,6 +638,10 @@ async def bulk_delete_tests(body: BulkDeleteRequest, request: Request):
     - Single DELETE query for all accessible tests
     - Single batch INSERT for audit logs
     """
+    # RAP-292: UUID Validation
+    for test_id in body.test_ids:
+        validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -711,6 +731,10 @@ async def bulk_update_tests(body: BulkUpdateRequest, request: Request):
     - Single UPDATE query when no tag modifications (or per-test for tags)
     - Single batch INSERT for audit logs
     """
+    # RAP-292: UUID Validation
+    for test_id in body.test_ids:
+        validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 

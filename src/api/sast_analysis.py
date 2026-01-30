@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from src.api.context import get_current_organization_id
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, verify_org_access
 from src.services.supabase_client import get_supabase_client
 
@@ -696,6 +697,9 @@ async def analyze_endpoint(
     using Semgrep. Returns findings with severity levels and a normalized
     security risk score.
     """
+    # Validate UUID format
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -806,6 +810,9 @@ async def scan_pr(
     Fetches the list of changed files from the PR and runs SAST
     analysis on them.
     """
+    # Validate UUID format
+    validate_uuid(project_id, "project_id")
+
     import httpx
 
     user = await get_current_user(request)

@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user
 from src.integrations.slack import (
     FailureDetails,
@@ -1233,6 +1234,8 @@ async def list_channels(
     """
     List notification channels with optional filtering.
     """
+    validate_uuid_optional(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
     channels = await _list_channels_from_db(
         organization_id=organization_id,
         project_id=project_id,
@@ -1249,6 +1252,7 @@ async def get_channel(channel_id: str):
     """
     Get a notification channel by ID.
     """
+    validate_uuid(channel_id, "channel_id")
     channel = await _get_channel_from_db(channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1261,6 +1265,7 @@ async def update_channel(channel_id: str, body: ChannelUpdateRequest):
     """
     Update a notification channel.
     """
+    validate_uuid(channel_id, "channel_id")
     channel = await _get_channel_from_db(channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1281,6 +1286,7 @@ async def delete_channel(channel_id: str):
     """
     Delete a notification channel.
     """
+    validate_uuid(channel_id, "channel_id")
     channel = await _get_channel_from_db(channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1297,6 +1303,7 @@ async def test_channel(channel_id: str):
     """
     Send a test notification to verify a channel is working.
     """
+    validate_uuid(channel_id, "channel_id")
     channel = await _get_channel_from_db(channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1396,6 +1403,7 @@ async def list_rules(
     """
     List notification rules with optional filtering.
     """
+    validate_uuid_optional(channel_id, "channel_id")
     rules = await _list_rules_from_db(channel_id=channel_id, event_type=event_type, limit=limit)
     return [RuleResponse(**r) for r in rules]
 
@@ -1405,6 +1413,7 @@ async def get_rule(rule_id: str):
     """
     Get a notification rule by ID.
     """
+    validate_uuid(rule_id, "rule_id")
     rule = await _get_rule_from_db(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -1417,6 +1426,7 @@ async def update_rule(rule_id: str, body: RuleCreateRequest):
     """
     Update a notification rule.
     """
+    validate_uuid(rule_id, "rule_id")
     rule = await _get_rule_from_db(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -1437,6 +1447,7 @@ async def delete_rule(rule_id: str):
     """
     Delete a notification rule.
     """
+    validate_uuid(rule_id, "rule_id")
     rule = await _get_rule_from_db(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -1463,6 +1474,7 @@ async def list_notification_logs(
 
     Use this to monitor notification delivery status and troubleshoot failures.
     """
+    validate_uuid_optional(channel_id, "channel_id")
     logs = await _list_notification_logs(channel_id=channel_id, status=status, limit=limit)
     return [NotificationLogResponse(**log) for log in logs]
 
@@ -1568,6 +1580,7 @@ async def mark_notification_as_read(notification_id: str, request: Request):
 
     The notification must belong to the authenticated user.
     """
+    validate_uuid(notification_id, "notification_id")
     user = await get_current_user(request)
     user_id = user["user_id"]
 

@@ -22,6 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field, HttpUrl
 
 from src.agents.api_tester import APITesterAgent
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.api.tests import get_project_org_id
@@ -785,6 +786,9 @@ async def discover_api_endpoints(body: DiscoverEndpointsRequest, request: Reques
 
     Parses the spec and stores discovered endpoints in the database for test generation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+
     logger.info("Discovering API endpoints", openapi_url=body.openapi_url, project_id=body.project_id)
 
     # Get current user and verify project access
@@ -946,6 +950,12 @@ async def generate_api_tests(body: GenerateTestsRequest, request: Request):
     Creates intelligent test cases covering happy paths, error cases, edge cases,
     and optionally security tests.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+    if body.endpoint_ids:
+        for endpoint_id in body.endpoint_ids:
+            validate_uuid(endpoint_id, "endpoint_id")
+
     logger.info("Generating API tests", project_id=body.project_id, endpoint_ids=body.endpoint_ids)
 
     start_time = time.time()
@@ -1082,6 +1092,12 @@ async def run_api_tests(body: RunTestsRequest, request: Request):
     Runs the specified tests (or all active tests) against the provided base URL
     and stores results in the database.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+    if body.test_ids:
+        for test_id in body.test_ids:
+            validate_uuid(test_id, "test_id")
+
     logger.info(
         "Running API tests",
         project_id=body.project_id,
@@ -1296,6 +1312,9 @@ async def list_api_test_cases(
     offset: int = 0,
 ):
     """List API test cases for a project."""
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     await verify_project_access(project_id, user["user_id"], user.get("email"), request)
 
@@ -1356,6 +1375,10 @@ async def list_api_test_results(
     offset: int = 0,
 ):
     """Get historical API test results for a project."""
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+    validate_uuid_optional(test_case_id, "test_case_id")
+
     user = await get_current_user(request)
     await verify_project_access(project_id, user["user_id"], user.get("email"), request)
 
@@ -1405,6 +1428,10 @@ async def list_api_test_results(
 @router.post("/test-cases", response_model=APITestCaseResponse)
 async def create_api_test_case(body: CreateTestCaseRequest, request: Request):
     """Create a new API test case."""
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+    validate_uuid_optional(body.endpoint_id, "endpoint_id")
+
     user = await get_current_user(request)
     await verify_project_access(body.project_id, user["user_id"], user.get("email"), request)
 
@@ -1488,6 +1515,9 @@ async def create_api_test_case(body: CreateTestCaseRequest, request: Request):
 @router.patch("/test-cases/{test_id}", response_model=APITestCaseResponse)
 async def update_api_test_case(test_id: str, body: UpdateTestCaseRequest, request: Request):
     """Update an API test case."""
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
 
     supabase = get_supabase_client()
@@ -1590,6 +1620,9 @@ async def update_api_test_case(test_id: str, body: UpdateTestCaseRequest, reques
 @router.delete("/test-cases/{test_id}")
 async def delete_api_test_case(test_id: str, request: Request):
     """Delete an API test case."""
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+
     user = await get_current_user(request)
 
     supabase = get_supabase_client()
@@ -1636,6 +1669,9 @@ async def list_api_endpoints(
     offset: int = 0,
 ):
     """List discovered API endpoints for a project."""
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     await verify_project_access(project_id, user["user_id"], user.get("email"), request)
 

@@ -18,6 +18,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid
 from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
@@ -888,6 +889,9 @@ async def cluster_failures(
     Groups test failures by their underlying root cause using Claude's
     semantic understanding, rather than simple keyword matching.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+
     start_time = datetime.now(UTC)
 
     try:
@@ -942,6 +946,9 @@ async def find_coverage_gaps(
     Identifies high-risk areas of the application that lack adequate
     test coverage, using Claude to assess risk and suggest tests.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+
     try:
         # Gather data for analysis
         tests = await _get_tests_for_project(body.project_id)
@@ -998,6 +1005,9 @@ async def resolve_insight(
     Uses Claude to analyze the insight and generate a detailed
     resolution plan including steps, code changes, and prevention measures.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(insight_id, "insight_id")
+
     try:
         # Get the insight
         insight = await _get_insight_by_id(insight_id)
@@ -1047,6 +1057,9 @@ async def generate_insights(
     Analyzes test results, coverage, and patterns to generate
     actionable insights using Claude.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(body.project_id, "project_id")
+
     start_time = datetime.now(UTC)
 
     try:
@@ -1163,6 +1176,9 @@ async def list_insights(
     user: UserContext = Depends(get_current_user),
 ):
     """List AI insights for a project."""
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -1222,6 +1238,9 @@ async def mark_insight_resolved(
     user: UserContext = Depends(get_current_user),
 ):
     """Mark an insight as resolved."""
+    # RAP-292: UUID Validation
+    validate_uuid(insight_id, "insight_id")
+
     supabase = get_supabase_client()
 
     try:

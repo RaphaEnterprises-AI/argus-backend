@@ -23,6 +23,7 @@ import structlog
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.integrations.supabase import get_supabase
 from src.parameterized.data_sources import (
     CSVDataSource,
@@ -1140,6 +1141,7 @@ async def get_test(test_id: str):
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1161,6 +1163,7 @@ async def update_test(test_id: str, request: TestUpdateRequest):
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1188,6 +1191,7 @@ async def delete_test(test_id: str):
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1216,6 +1220,7 @@ async def create_parameter_set(test_id: str, request: ParameterSetCreateRequest)
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1262,6 +1267,7 @@ async def list_parameter_sets(test_id: str):
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1280,6 +1286,7 @@ async def delete_all_parameter_sets(test_id: str):
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1305,6 +1312,7 @@ async def list_execution_results(
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
@@ -1327,6 +1335,7 @@ async def execute_test(test_id: str, dry_run: bool = Query(False, description="P
     Raises:
         HTTPException: If test not found
     """
+    validate_uuid(test_id, "test_id")
     test = await _get_test_from_db(test_id)
     if not test:
         raise HTTPException(status_code=404, detail=f"Test {test_id} not found")

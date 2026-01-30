@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.api.context import get_current_organization_id
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.integrations.base import (
     ConnectionTestResult,
@@ -1102,6 +1103,9 @@ async def list_integrations(
 
     Optionally filter by project_id or platform.
     """
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     org_id = await get_current_organization_id(request)
 
@@ -1166,6 +1170,9 @@ async def connect_integration(
     Supports both plugin-based platforms (discovered from PluginRegistry)
     and legacy platforms defined in PLATFORM_INFO.
     """
+    # Validate UUID parameters
+    validate_uuid_optional(body.project_id, "project_id")
+
     # Check if platform exists in registry or legacy
     registry = get_registry()
     plugin_metadata = registry.get_metadata(platform)
@@ -1363,6 +1370,9 @@ async def disconnect_integration(
     This removes the stored credentials but keeps the integration record
     for audit purposes.
     """
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     org_id = await get_current_organization_id(request)
 
@@ -1500,6 +1510,9 @@ async def trigger_sync(
 
     This fetches the latest data from the connected platform.
     """
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
 
     supabase = get_supabase_client()
@@ -1837,6 +1850,9 @@ async def get_integration(
     """
     Get details for a specific integration.
     """
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
 
     supabase = get_supabase_client()
@@ -1864,6 +1880,9 @@ async def delete_integration(
 
     This removes all stored data including credentials and sync history.
     """
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user = await get_current_user(request)
     org_id = await get_current_organization_id(request)
 

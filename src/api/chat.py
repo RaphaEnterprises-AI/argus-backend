@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel, field_validator
 
+from src.api.middleware.tenant import validate_uuid
 from src.api.security.auth import UserContext, get_current_user
 from src.core.model_registry import get_api_model_id, get_default_api_model_id
 from src.orchestrator.chat_graph import AIConfig, ChatState, create_chat_graph
@@ -639,6 +640,9 @@ async def get_chat_history(thread_id: str):
     - Assistant messages (AIMessage) with tool_calls if present
     - Tool results (ToolMessage) with full content including _artifact_refs
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     checkpointer = get_checkpointer()
     graph = create_chat_graph()
     app = graph.compile(checkpointer=checkpointer)
@@ -687,6 +691,9 @@ async def delete_chat_history(thread_id: str):
 
     Note: MemorySaver doesn't support deletion. Use PostgresSaver for full support.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     # For production, implement with PostgresSaver
     logger.info("Delete chat history requested", thread_id=thread_id)
     return {
@@ -703,6 +710,9 @@ async def cancel_chat(thread_id: str):
     This updates the state to stop execution by setting should_continue to False.
     The chat graph will check this flag and stop processing.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     checkpointer = get_checkpointer()
     graph = create_chat_graph()
     app = graph.compile(checkpointer=checkpointer)

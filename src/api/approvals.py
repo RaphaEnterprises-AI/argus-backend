@@ -18,6 +18,7 @@ import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid
 from src.config import get_settings
 from src.orchestrator.checkpointer import CheckpointManager, get_checkpointer
 from src.orchestrator.graph import create_testing_graph, get_interrupt_nodes
@@ -200,6 +201,9 @@ async def get_pending_approval(thread_id: str):
     Returns detailed information about what action is pending
     and the current state of the execution.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     app = await _get_compiled_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -251,6 +255,9 @@ async def approve_action(request: ApprovalRequest):
     State modifications can be applied before resuming (e.g., modifying
     the healing queue to only heal specific tests).
     """
+    # RAP-292: UUID Validation
+    validate_uuid(request.thread_id, "thread_id")
+
     app = await _get_compiled_graph()
     config = {"configurable": {"thread_id": request.thread_id}}
 
@@ -340,6 +347,9 @@ async def resume_execution(thread_id: str, request: ResumeRequest | None = None)
     Use this for non-approval breakpoints or when you've already
     modified the state and just want to continue.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     app = await _get_compiled_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -393,6 +403,9 @@ async def get_thread_state(thread_id: str):
     Returns the current execution state, useful for debugging
     or building approval UIs.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     app = await _get_compiled_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -452,6 +465,9 @@ async def update_thread_state(thread_id: str, modifications: StateModification):
     - Modifying the test plan
     - Setting custom values
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     app = await _get_compiled_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -515,6 +531,9 @@ async def abort_execution(thread_id: str, reason: str | None = None):
     Sets the error state and completes the run without executing
     the pending action.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(thread_id, "thread_id")
+
     app = await _get_compiled_graph()
     config = {"configurable": {"thread_id": thread_id}}
 

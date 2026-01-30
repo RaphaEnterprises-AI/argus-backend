@@ -12,6 +12,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, verify_org_access
 from src.services.supabase_client import get_supabase_client
 
@@ -82,6 +83,10 @@ async def get_audit_logs(
     search: str | None = None,
 ):
     """Get audit logs for an organization with filtering."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid_optional(user_id, "user_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -176,6 +181,9 @@ async def get_audit_logs(
 @router.get("/organizations/{org_id}/summary", response_model=AuditSummary)
 async def get_audit_summary(org_id: str, request: Request):
     """Get audit log summary statistics for the organization."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -312,6 +320,9 @@ async def export_audit_logs(
     end_date: str | None = None,
 ):
     """Export audit logs for compliance (JSON or CSV)."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
@@ -412,6 +423,9 @@ async def export_audit_logs(
 @router.get("/organizations/{org_id}/actions")
 async def get_available_actions(org_id: str, request: Request):
     """Get list of all available audit actions for filtering."""
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+
     user = await get_current_user(request)
     _, _ = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 

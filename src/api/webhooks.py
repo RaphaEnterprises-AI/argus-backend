@@ -22,6 +22,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.knowledge import CogneeError, CogneeStorageError, get_cognee_client
 from src.services.supabase_client import get_supabase_client
 
@@ -363,6 +364,10 @@ async def handle_sentry_webhook(
 
     SECURITY: organization_id is required to ensure data is stored in the correct tenant.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -548,6 +553,10 @@ async def handle_datadog_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -675,6 +684,10 @@ async def handle_fullstory_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -789,6 +802,10 @@ async def handle_logrocket_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -900,6 +917,10 @@ async def handle_newrelic_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -1015,6 +1036,10 @@ async def handle_bugsnag_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -1192,6 +1217,10 @@ async def handle_github_actions_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -1480,6 +1509,10 @@ async def upload_coverage_report(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(report.organization_id, "organization_id")
+    validate_uuid_optional(report.project_id, "project_id")
+
     str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -1578,6 +1611,10 @@ async def handle_rollbar_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -1731,6 +1768,10 @@ async def handle_gitlab_ci_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -1884,6 +1925,10 @@ async def handle_circleci_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -2159,6 +2204,10 @@ async def upload_test_results(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(results.organization_id, "organization_id")
+    validate_uuid_optional(results.project_id, "project_id")
+
     str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -2312,6 +2361,10 @@ async def handle_vercel_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -2690,6 +2743,10 @@ async def handle_jira_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -2881,6 +2938,10 @@ async def handle_pagerduty_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 
@@ -3086,6 +3147,10 @@ async def handle_launchdarkly_webhook(
 
     SECURITY: organization_id is required for multi-tenant data isolation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(organization_id, "organization_id")
+    validate_uuid_optional(project_id, "project_id")
+
     webhook_id = str(uuid.uuid4())
     supabase = get_supabase_client()
 

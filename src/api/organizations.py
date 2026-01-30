@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
 
@@ -85,6 +86,27 @@ class OrganizationListResponse(BaseModel):
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+def validate_uuid_if_not_clerk(value: str, field_name: str = "id") -> None:
+    """Validate UUID format only if value doesn't look like a Clerk ID.
+
+    Clerk IDs start with prefixes like 'org_' or 'user_'.
+    If the value looks like a UUID (doesn't start with known Clerk prefixes),
+    validate it as a proper UUID format.
+
+    Args:
+        value: The string to potentially validate as UUID
+        field_name: Name of the field for error messages
+
+    Raises:
+        HTTPException: 400 if value looks like a UUID but is invalid
+    """
+    # Skip validation for Clerk-format IDs
+    if value.startswith(("org_", "user_")):
+        return
+    # Validate as UUID
+    validate_uuid(value, field_name)
+
 
 def generate_slug(name: str) -> str:
     """Generate a URL-friendly slug from organization name.
@@ -319,6 +341,7 @@ async def list_organizations(request: Request):
 @router.get("/{org_id}", response_model=OrganizationResponse)
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
+    validate_uuid_if_not_clerk(org_id, "org_id")
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -355,6 +378,7 @@ async def get_organization(org_id: str, request: Request):
 @router.put("/{org_id}", response_model=OrganizationResponse)
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
+    validate_uuid_if_not_clerk(org_id, "org_id")
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -410,6 +434,7 @@ async def delete_organization(org_id: str, request: Request):
 
     This permanently deletes the organization and all associated data.
     """
+    validate_uuid_if_not_clerk(org_id, "org_id")
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
@@ -453,6 +478,8 @@ async def transfer_ownership(org_id: str, body: TransferOwnershipRequest, reques
     The new owner must already be a member of the organization.
     The current owner will be demoted to admin.
     """
+    validate_uuid_if_not_clerk(org_id, "org_id")
+    validate_uuid_if_not_clerk(body.new_owner_user_id, "new_owner_user_id")
     user = await get_current_user(request)
     current_member, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 

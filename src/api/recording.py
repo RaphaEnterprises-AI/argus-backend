@@ -8,6 +8,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user
 
 logger = structlog.get_logger()
@@ -252,6 +253,9 @@ async def upload_recording(request: Request, body: RecordingUploadRequest):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Validate UUID parameters
+    validate_uuid_optional(body.project_id, "project_id")
+
     try:
         recording_id = str(uuid4())
 
@@ -315,6 +319,9 @@ async def convert_recording(request: Request, body: ConvertRequest):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Validate UUID parameters
+    validate_uuid(body.recording_id, "recording_id")
 
     try:
         # Get recording
@@ -402,6 +409,9 @@ async def get_replay_data(request: Request, recording_id: str):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Validate UUID parameters
+    validate_uuid(recording_id, "recording_id")
+
     try:
         recording = _recordings.get(recording_id)
         if not recording:
@@ -447,6 +457,9 @@ async def generate_recorder_snippet(request: Request, body: RecorderSnippetReque
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Validate UUID parameters
+    validate_uuid_optional(body.project_id, "project_id")
 
     try:
         upload_url = body.upload_url or "/api/v1/recording/upload"
@@ -583,6 +596,9 @@ async def get_recordings(
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user_org = user.get("organization_id")
     current_user = user.get("user_id")
 
@@ -639,6 +655,9 @@ async def list_recordings(
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Validate UUID parameters
+    validate_uuid_optional(project_id, "project_id")
+
     user_org = user.get("organization_id")
     current_user = user.get("user_id")
 
@@ -688,6 +707,9 @@ async def delete_recording(request: Request, recording_id: str):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Validate UUID parameters
+    validate_uuid(recording_id, "recording_id")
 
     if recording_id not in _recordings:
         raise HTTPException(status_code=404, detail="Recording not found")

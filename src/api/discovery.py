@@ -30,6 +30,7 @@ from src.browser.selenium_grid_client import (
 )
 from src.discovery.engine import DiscoveryEngine, create_discovery_engine
 from src.discovery.repository import DiscoveryRepository
+from src.api.middleware.tenant import validate_uuid
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 from src.services.crawlee_client import get_crawlee_client
 from src.services.supabase_client import get_raw_supabase_client, get_supabase_client
@@ -847,6 +848,8 @@ async def start_discovery(
 @router.get("/sessions/{session_id}", response_model=DiscoverySessionResponse)
 async def get_session(session_id: str):
     """Get discovery session details."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
     return build_session_response(session)
 
@@ -865,6 +868,8 @@ async def stream_discovery(session_id: str):
     - error: Error occurred
     - complete: Discovery finished
     """
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
 
     async def event_generator() -> AsyncGenerator[dict, None]:
@@ -957,6 +962,8 @@ async def stream_discovery(session_id: str):
 @router.post("/sessions/{session_id}/pause")
 async def pause_discovery(session_id: str):
     """Pause a running discovery session."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
 
     if session["status"] != SessionStatus.RUNNING.value:
@@ -993,6 +1000,8 @@ async def pause_discovery(session_id: str):
 @router.post("/sessions/{session_id}/resume")
 async def resume_discovery(session_id: str, background_tasks: BackgroundTasks):
     """Resume a paused discovery session."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
 
     if session["status"] != SessionStatus.PAUSED.value:
@@ -1031,6 +1040,8 @@ async def resume_discovery(session_id: str, background_tasks: BackgroundTasks):
 @router.post("/sessions/{session_id}/cancel")
 async def cancel_discovery(session_id: str):
     """Cancel a running or paused discovery session."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
 
     if session["status"] in [SessionStatus.COMPLETED.value, SessionStatus.CANCELLED.value, SessionStatus.FAILED.value]:
@@ -1080,6 +1091,8 @@ async def get_discovered_pages(
     offset: int = 0,
 ):
     """Get pages discovered in a session."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
     pages = session.get("pages", [])
 
@@ -1114,6 +1127,9 @@ async def get_discovered_pages(
 @router.get("/sessions/{session_id}/pages/{page_id}")
 async def get_page_details(session_id: str, page_id: str):
     """Get detailed information about a discovered page."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
+    validate_uuid(page_id, "page_id")
     session = await get_session_or_404(session_id)
     pages = session.get("pages", [])
 
@@ -1140,6 +1156,8 @@ async def get_discovered_flows(
     validated: bool | None = None,
 ):
     """Get flows discovered in a session."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
     flows = session.get("flows", [])
 
@@ -1181,6 +1199,8 @@ async def update_flow(flow_id: str, request: UpdateFlowRequest):
 
     Use this to edit flow details before test generation.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(flow_id, "flow_id")
     flow = await get_flow_or_404(flow_id)
 
     # Update fields
@@ -1226,6 +1246,8 @@ async def validate_flow(flow_id: str, request: FlowValidationRequest):
 
     Runs the flow steps against the application to verify they work correctly.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(flow_id, "flow_id")
     flow = await get_flow_or_404(flow_id)
 
     # Get session to get app URL
@@ -1272,6 +1294,8 @@ async def generate_test_from_flow(flow_id: str, request: GenerateTestRequest | N
     Creates an executable test specification based on the flow steps.
     Request body is optional - all fields have defaults.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(flow_id, "flow_id")
     # Use defaults if no request body provided
     if request is None:
         request = GenerateTestRequest()
@@ -1350,6 +1374,8 @@ async def get_discovery_history(
     offset: int = 0,
 ):
     """Get discovery history for a project."""
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
     # Filter sessions by project
     sessions = [
         s for s in _discovery_sessions.values()
@@ -1406,6 +1432,10 @@ async def compare_discoveries(
 
     Useful for tracking changes between deployments or over time.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+    validate_uuid(session_id_1, "session_id_1")
+    validate_uuid(session_id_2, "session_id_2")
     session1 = await get_session_or_404(session_id_1)
     session2 = await get_session_or_404(session_id_2)
 
@@ -1483,6 +1513,8 @@ async def compare_discoveries(
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Delete a discovery session and all associated data."""
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     session = await get_session_or_404(session_id)
 
     if session["status"] in [SessionStatus.RUNNING.value, SessionStatus.PENDING.value]:
@@ -2417,6 +2449,8 @@ async def get_session_patterns(
     Returns patterns that were discovered or matched during the session.
     This enables tracing which patterns came from which exploration.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     from src.discovery.pattern_service import get_pattern_service
 
     try:
@@ -2510,6 +2544,8 @@ async def extract_patterns_from_session(
     This enables cross-project learning by storing patterns that can be
     matched against future discoveries.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
     from src.discovery.pattern_service import get_pattern_service
 
     session = _discovery_sessions.get(session_id)
@@ -2752,6 +2788,9 @@ async def create_visual_baselines(
     Each discovered page becomes a visual baseline that can be monitored
     for regressions. This provides proactive visual monitoring coverage.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
+    validate_uuid(project_id, "project_id")
     from src.discovery.feature_mesh import get_feature_mesh
 
     try:
@@ -2801,6 +2840,9 @@ async def share_selectors(
     When discovery finds elements, it identifies multiple ways to select them.
     These alternatives are invaluable for self-healing when primary selectors break.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(session_id, "session_id")
+    validate_uuid(project_id, "project_id")
     from src.discovery.feature_mesh import get_feature_mesh
 
     try:
@@ -2889,6 +2931,8 @@ async def get_selector_alternatives(
 
     Returns alternatives ordered by confidence and historical success rate.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
     supabase = get_supabase_client()
 
     try:

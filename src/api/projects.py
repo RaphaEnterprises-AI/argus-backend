@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from src.api.context import get_current_organization_id, require_organization_id
+from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
 
@@ -193,6 +194,9 @@ async def list_organization_projects(
 
     Requires membership in the organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -245,6 +249,9 @@ async def create_organization_project(
 
     Requires admin or owner role in the organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -397,6 +404,9 @@ async def get_project(project_id: str, request: Request):
 
     Requires membership in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
@@ -430,6 +440,9 @@ async def update_project(project_id: str, body: UpdateProjectRequest, request: R
     Both methods support partial updates since all fields are optional.
     Requires admin or owner role in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 
@@ -487,6 +500,9 @@ async def delete_project(project_id: str, request: Request):
     Requires owner role in the project's organization.
     This permanently deletes the project and all associated data.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     project = await verify_project_access(project_id, user["user_id"], user.get("email"), request=request)
 

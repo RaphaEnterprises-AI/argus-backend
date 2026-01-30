@@ -14,10 +14,42 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/teams", tags=["Team Management"])
+
+
+def validate_org_id(org_id: str) -> str:
+    """Validate organization ID - accepts both UUID and Clerk formats.
+
+    RAP-292: UUID Validation for org_id parameters. This function handles
+    the special case where org_id can be either a standard UUID or a Clerk
+    organization ID (format: org_xxxxx).
+
+    Args:
+        org_id: The organization ID to validate
+
+    Returns:
+        The validated org_id string
+
+    Raises:
+        HTTPException: 400 if org_id is invalid
+    """
+    if not org_id:
+        raise HTTPException(status_code=400, detail="Invalid org_id: value cannot be empty")
+
+    # Clerk org IDs start with "org_"
+    if org_id.startswith("org_"):
+        # Basic validation for Clerk format
+        if not re.match(r'^org_[a-zA-Z0-9]+$', org_id):
+            raise HTTPException(status_code=400, detail="Invalid Clerk organization ID format")
+        return org_id
+
+    # Otherwise, validate as UUID
+    validate_uuid(org_id, "org_id")
+    return org_id
 
 
 # ============================================================================
@@ -507,6 +539,9 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
 @router.get("/organizations/{org_id}", response_model=OrganizationResponse)
 async def get_organization(org_id: str, request: Request):
     """Get organization details."""
+    # RAP-292: UUID Validation
+    validate_org_id(org_id)
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -542,6 +577,9 @@ async def get_organization(org_id: str, request: Request):
 @router.patch("/organizations/{org_id}", response_model=OrganizationResponse)
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
     """Update organization settings (admin/owner only)."""
+    # RAP-292: UUID Validation
+    validate_org_id(org_id)
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -586,6 +624,9 @@ async def update_organization(org_id: str, body: UpdateOrganizationRequest, requ
 @router.get("/organizations/{org_id}/members", response_model=list[MemberResponse])
 async def list_members(org_id: str, request: Request):
     """List all members of an organization."""
+    # RAP-292: UUID Validation
+    validate_org_id(org_id)
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], user_email=user.get("email"), request=request)
 
@@ -616,6 +657,9 @@ async def list_members(org_id: str, request: Request):
 @router.post("/organizations/{org_id}/members/invite", response_model=MemberResponse)
 async def invite_member(org_id: str, body: InviteMemberRequest, request: Request):
     """Invite a new member to the organization (admin/owner only)."""
+    # RAP-292: UUID Validation
+    validate_org_id(org_id)
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 
@@ -692,6 +736,10 @@ async def update_member_role(
     request: Request
 ):
     """Update a member's role (owner only)."""
+    # RAP-292: UUID Validation
+    validate_org_id(org_id)
+    validate_uuid(member_id, "member_id")
+
     user = await get_current_user(request)
     _, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner"], user.get("email"), request=request)
 
@@ -741,6 +789,10 @@ async def update_member_role(
 @router.delete("/organizations/{org_id}/members/{member_id}")
 async def remove_member(org_id: str, member_id: str, request: Request):
     """Remove a member from the organization (admin/owner only)."""
+    # RAP-292: UUID Validation
+    validate_org_id(org_id)
+    validate_uuid(member_id, "member_id")
+
     user = await get_current_user(request)
     current_member, supabase_org_id = await verify_org_access(org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
 

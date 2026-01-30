@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
 from src.knowledge import CogneeError, CogneeSearchError, CogneeStorageError, get_cognee_client
@@ -202,6 +203,10 @@ async def generate_test(request: TestGenerationRequest):
     Uses Claude AI to analyze the error and generate a comprehensive E2E test
     that validates the fix is in place.
     """
+    # Validate UUID parameters
+    validate_uuid(request.production_event_id, "production_event_id")
+    validate_uuid(request.project_id, "project_id")
+
     supabase = get_supabase_client()
 
     # Get the production event
@@ -343,6 +348,9 @@ async def batch_generate_tests(request: BatchGenerationRequest):
 
     Processes events sequentially to avoid API rate limits.
     """
+    # Validate UUID parameters
+    validate_uuid(request.project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -452,6 +460,9 @@ async def update_generated_test(request: TestUpdateRequest):
     """
     Approve, reject, or modify a generated test.
     """
+    # Validate UUID parameters
+    validate_uuid(request.test_id, "test_id")
+
     supabase = get_supabase_client()
 
     status_map = {
@@ -515,6 +526,9 @@ async def calculate_risk_scores(request: RiskScoreRequest):
     Risk is calculated based on error frequency, severity, test coverage,
     user impact, and recency of errors.
     """
+    # Validate UUID parameters
+    validate_uuid(request.project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -679,6 +693,9 @@ async def get_production_events(
     offset: int = Query(0, description="Offset for pagination"),
 ):
     """Get production events with optional filtering."""
+    # Validate UUID parameters
+    validate_uuid(project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -715,6 +732,9 @@ async def get_quality_stats(
     project_id: str = Query(..., description="Project ID"),
 ):
     """Get quality intelligence statistics for a project."""
+    # Validate UUID parameters
+    validate_uuid(project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -770,6 +790,9 @@ async def get_risk_scores(
     limit: int = Query(20, le=100, description="Max results"),
 ):
     """Get risk scores for a project."""
+    # Validate UUID parameters
+    validate_uuid(project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -804,6 +827,9 @@ async def get_generated_tests(
     limit: int = Query(50, le=100, description="Max results"),
 ):
     """Get generated tests for a project."""
+    # Validate UUID parameters
+    validate_uuid(project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
@@ -877,6 +903,9 @@ async def get_quality_score(
     project_id: str = Query(..., description="Project ID"),
 ):
     """Get overall quality score for a project (cached for 5 minutes)."""
+    # Validate UUID parameters
+    validate_uuid(project_id, "project_id")
+
     return await _calculate_quality_score(project_id)
 
 
@@ -896,6 +925,9 @@ async def find_similar_errors(
 
     Uses Cognee's knowledge layer for semantic similarity matching.
     """
+    # Validate UUID parameters (optional)
+    validate_uuid_optional(project_id, "project_id")
+
     try:
         cognee = get_cognee_client(
             org_id="default",
@@ -950,6 +982,9 @@ async def backfill_cognee_index(
     Call this endpoint to index historical errors for semantic search.
     Run multiple times with different offsets to index all events.
     """
+    # Validate UUID parameters (optional)
+    validate_uuid_optional(project_id, "project_id")
+
     supabase = get_supabase_client()
 
     try:
