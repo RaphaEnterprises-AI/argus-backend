@@ -1,4 +1,4 @@
-"""Azure OpenAI Provider implementation (RAP-206).
+"""Azure OpenAI Provider implementation (RAP-206, RAP-300).
 
 This module provides integration with Azure OpenAI Service for enterprise deployments.
 
@@ -14,15 +14,44 @@ Key Differences from Direct OpenAI:
 - API versioning is explicit (e.g., 2024-08-01-preview)
 - Pricing may differ slightly based on region
 
-Configuration:
+Configuration (API Key Authentication):
     Set environment variables:
     - AZURE_OPENAI_API_KEY: Your Azure OpenAI API key
     - AZURE_OPENAI_ENDPOINT: Your Azure resource endpoint URL
+    - AZURE_OPENAI_API_VERSION: API version (optional, defaults to 2024-08-01-preview)
 
-Example:
+Configuration (Azure AD / Managed Identity):
+    For air-gap/enterprise deployments, you can use Azure AD authentication
+    instead of API keys. This enables managed identity for VMs, AKS, etc.
+
+    Set environment variables:
+    - AZURE_OPENAI_ENDPOINT: Your Azure resource endpoint URL
+    - AZURE_OPENAI_USE_AZURE_AD: Set to "true" to enable Azure AD auth
+    - AZURE_CLIENT_ID: (Optional) Client ID for service principal or user-assigned identity
+    - AZURE_TENANT_ID: (Optional) Azure tenant ID for service principal
+    - AZURE_CLIENT_SECRET: (Optional) Client secret for service principal auth
+
+    For managed identity (VM, AKS, Container Apps), no additional credentials needed -
+    the DefaultAzureCredential will automatically use the managed identity.
+
+Deployment Name Mapping:
+    Azure uses deployment names rather than model IDs. You can configure
+    a mapping from logical model names to your deployment names:
+
+    Set environment variable:
+    - AZURE_OPENAI_DEPLOYMENT_MAP: JSON string mapping model IDs to deployment names
+      Example: {"gpt-4o": "my-gpt4o-deployment", "gpt-4o-mini": "my-mini-deployment"}
+
+Example (API Key):
     provider = AzureOpenAIProvider(
         api_key="abc123...",
         endpoint="https://my-openai.openai.azure.com/",
+    )
+
+Example (Azure AD / Managed Identity):
+    provider = AzureOpenAIProvider(
+        endpoint="https://my-openai.openai.azure.com/",
+        use_azure_ad=True,
     )
 
     # List deployments
@@ -35,6 +64,7 @@ Example:
     )
 """
 
+import json
 import os
 import time
 from typing import Any
@@ -51,7 +81,9 @@ from src.core.providers.base import (
     ModelInfo,
     ModelNotFoundError,
     ModelTier,
+    ProviderCapability,
     ProviderError,
+    QuotaExceededError,
     RateLimitError,
     ToolCall,
     mask_api_key,
@@ -61,7 +93,18 @@ from src.core.providers.base import (
 logger = structlog.get_logger()
 
 # Default API version - use the latest stable version
+# See: https://learn.microsoft.com/en-us/azure/ai-services/openai/reference
 DEFAULT_API_VERSION = "2024-08-01-preview"
+
+# Azure-specific rate limit headers
+AZURE_RATE_LIMIT_HEADERS = {
+    "remaining_requests": "x-ratelimit-remaining-requests",
+    "remaining_tokens": "x-ratelimit-remaining-tokens",
+    "reset_requests": "x-ratelimit-reset-requests",
+    "reset_tokens": "x-ratelimit-reset-tokens",
+    "retry_after": "retry-after",
+    "retry_after_ms": "retry-after-ms",
+}
 
 # Mapping of Azure deployment model versions to pricing and capabilities
 # Note: Actual pricing depends on your Azure contract
@@ -167,8 +210,16 @@ class AzureOpenAIProvider(BaseProvider):
     Features:
     - Enterprise security (VNet, Private Link, Managed Identity)
     - Regional deployment for data residency
-    - Microsoft ecosystem integration
+    - Microsoft ecosystem integration (Azure AD, RBAC)
     - Azure SLA and support
+    - Air-gap deployment support with Azure AD/Managed Identity
+
+    Authentication Methods:
+    1. API Key (default): Set AZURE_OPENAI_API_KEY
+    2. Azure AD / Managed Identity: Set use_azure_ad=True
+       - Automatically uses DefaultAzureCredential
+       - Supports VM managed identity, AKS pod identity, etc.
+       - No credentials stored in environment variables
 
     Attributes:
         provider_id: "azure_openai"
@@ -183,7 +234,7 @@ class AzureOpenAIProvider(BaseProvider):
     key_url = "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub"
     description = (
         "Access OpenAI models through Microsoft Azure with enterprise security, "
-        "regional data residency, and Azure integration."
+        "regional data residency, and Azure integration. Supports Azure AD/Managed Identity."
     )
 
     # Capability flags
@@ -197,30 +248,103 @@ class AzureOpenAIProvider(BaseProvider):
         self,
         api_key: str | None = None,
         endpoint: str | None = None,
-        api_version: str = DEFAULT_API_VERSION,
+        api_version: str | None = None,
         default_deployment: str | None = None,
+        use_azure_ad: bool | None = None,
+        deployment_map: dict[str, str] | None = None,
     ):
         """Initialize the Azure OpenAI provider.
 
         Args:
             api_key: Azure OpenAI API key. If None, reads from AZURE_OPENAI_API_KEY env var.
+                    Not required if use_azure_ad is True.
             endpoint: Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com/).
                      If None, reads from AZURE_OPENAI_ENDPOINT env var.
-            api_version: Azure OpenAI API version (default: 2024-08-01-preview)
-            default_deployment: Default deployment name to use when model is not specified
+            api_version: Azure OpenAI API version. If None, reads from
+                        AZURE_OPENAI_API_VERSION env var or uses default.
+            default_deployment: Default deployment name to use when model is not specified.
+            use_azure_ad: If True, use Azure AD authentication (managed identity).
+                         If None, reads from AZURE_OPENAI_USE_AZURE_AD env var.
+                         Enables air-gap deployments without API keys.
+            deployment_map: Dictionary mapping model IDs to deployment names.
+                           If None, reads from AZURE_OPENAI_DEPLOYMENT_MAP env var (JSON).
+                           Example: {"gpt-4o": "my-gpt4o-deployment"}
         """
-        super().__init__(api_key=api_key or os.environ.get("AZURE_OPENAI_API_KEY"))
+        # Determine if we're using Azure AD auth
+        if use_azure_ad is None:
+            use_azure_ad = os.environ.get("AZURE_OPENAI_USE_AZURE_AD", "").lower() in (
+                "true", "1", "yes"
+            )
+        self.use_azure_ad = use_azure_ad
+
+        # API key is optional when using Azure AD
+        resolved_api_key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+        super().__init__(api_key=resolved_api_key)
+
         self.endpoint = (
             endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT") or ""
         ).rstrip("/")
-        self.api_version = api_version
+
+        # API version with fallback
+        self.api_version = (
+            api_version
+            or os.environ.get("AZURE_OPENAI_API_VERSION")
+            or DEFAULT_API_VERSION
+        )
+
         self.default_deployment = default_deployment
         self._client = None
-        self._deployment_model_map: dict[str, str] = {}
+        self._azure_credential = None
+
+        # Deployment name mapping: model_id -> deployment_name
+        # Allows users to configure their deployment names without code changes
+        self._deployment_model_map: dict[str, str] = {}  # deployment_name -> model_id
+        self._model_deployment_map: dict[str, str] = {}  # model_id -> deployment_name
+
+        # Load deployment map from argument or environment
+        if deployment_map:
+            self._model_deployment_map = deployment_map
+        else:
+            deployment_map_str = os.environ.get("AZURE_OPENAI_DEPLOYMENT_MAP", "")
+            if deployment_map_str:
+                try:
+                    self._model_deployment_map = json.loads(deployment_map_str)
+                    logger.info(
+                        "Loaded Azure deployment map from environment",
+                        mappings=len(self._model_deployment_map),
+                    )
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        "Invalid AZURE_OPENAI_DEPLOYMENT_MAP JSON, ignoring",
+                        error=str(e),
+                    )
+
+        # Rate limit tracking
+        self._rate_limit_info: dict[str, Any] = {
+            "remaining_requests": None,
+            "remaining_tokens": None,
+            "reset_requests_at": None,
+            "reset_tokens_at": None,
+        }
+
+        logger.info(
+            "Azure OpenAI provider initialized",
+            endpoint=self.endpoint[:50] + "..." if len(self.endpoint) > 50 else self.endpoint,
+            api_version=self.api_version,
+            use_azure_ad=self.use_azure_ad,
+            has_deployment_map=bool(self._model_deployment_map),
+        )
 
     @property
     def client(self):
-        """Lazy-load the OpenAI client configured for Azure."""
+        """Lazy-load the OpenAI client configured for Azure.
+
+        Supports two authentication methods:
+        1. API Key (default): Uses AZURE_OPENAI_API_KEY
+        2. Azure AD / Managed Identity: Uses DefaultAzureCredential
+
+        For Azure AD, the client automatically handles token refresh.
+        """
         if self._client is None:
             try:
                 from openai import AsyncAzureOpenAI
@@ -230,25 +354,158 @@ class AzureOpenAIProvider(BaseProvider):
                     "Install with: pip install openai"
                 )
 
-            if not self.api_key:
-                raise AuthenticationError(
-                    "Azure OpenAI API key not configured. "
-                    "Set AZURE_OPENAI_API_KEY environment variable or pass api_key parameter."
-                )
-
             if not self.endpoint:
                 raise AuthenticationError(
                     "Azure OpenAI endpoint not configured. "
                     "Set AZURE_OPENAI_ENDPOINT environment variable or pass endpoint parameter."
                 )
 
-            self._client = AsyncAzureOpenAI(
-                api_key=self.api_key,
-                api_version=self.api_version,
-                azure_endpoint=self.endpoint,
-            )
+            if self.use_azure_ad:
+                # Use Azure AD authentication (managed identity, service principal, etc.)
+                azure_ad_token_provider = self._get_azure_ad_token_provider()
+
+                self._client = AsyncAzureOpenAI(
+                    azure_ad_token_provider=azure_ad_token_provider,
+                    api_version=self.api_version,
+                    azure_endpoint=self.endpoint,
+                )
+
+                logger.info(
+                    "Azure OpenAI client initialized with Azure AD authentication",
+                    endpoint=self.endpoint[:30] + "...",
+                )
+            else:
+                # Use API key authentication
+                if not self.api_key:
+                    raise AuthenticationError(
+                        "Azure OpenAI API key not configured. "
+                        "Set AZURE_OPENAI_API_KEY environment variable, pass api_key parameter, "
+                        "or enable Azure AD authentication with use_azure_ad=True."
+                    )
+
+                self._client = AsyncAzureOpenAI(
+                    api_key=self.api_key,
+                    api_version=self.api_version,
+                    azure_endpoint=self.endpoint,
+                )
+
+                logger.info(
+                    "Azure OpenAI client initialized with API key authentication",
+                    endpoint=self.endpoint[:30] + "...",
+                )
 
         return self._client
+
+    def _get_azure_ad_token_provider(self):
+        """Get an Azure AD token provider for authentication.
+
+        Uses DefaultAzureCredential which supports:
+        - Environment credentials (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
+        - Managed Identity (VM, AKS, Container Apps, App Service)
+        - Azure CLI credentials (for local development)
+        - Visual Studio Code credentials
+        - Interactive browser authentication
+
+        Returns:
+            Callable that returns an Azure AD token for the OpenAI resource.
+
+        Raises:
+            AuthenticationError: If Azure Identity SDK is not installed.
+        """
+        try:
+            from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
+        except ImportError:
+            raise AuthenticationError(
+                "azure-identity package is required for Azure AD authentication. "
+                "Install with: pip install azure-identity"
+            )
+
+        # Cache the credential to reuse across requests
+        if self._azure_credential is None:
+            self._azure_credential = DefaultAzureCredential()
+
+        # The scope for Azure OpenAI cognitive services
+        # This is the standard scope for all Azure Cognitive Services
+        cognitive_services_scope = "https://cognitiveservices.azure.com/.default"
+
+        return get_bearer_token_provider(
+            self._azure_credential,
+            cognitive_services_scope,
+        )
+
+    def resolve_deployment_name(self, model_or_deployment: str) -> str:
+        """Resolve a model ID or deployment name to the actual deployment name.
+
+        This allows users to use logical model names (e.g., "gpt-4o") and have them
+        mapped to their specific deployment names via AZURE_OPENAI_DEPLOYMENT_MAP.
+
+        Args:
+            model_or_deployment: Either a model ID (e.g., "gpt-4o") or deployment name.
+
+        Returns:
+            The deployment name to use for API calls.
+        """
+        # Check if it's a model ID that maps to a deployment
+        if model_or_deployment in self._model_deployment_map:
+            deployment = self._model_deployment_map[model_or_deployment]
+            logger.debug(
+                "Resolved model to deployment",
+                model=model_or_deployment,
+                deployment=deployment,
+            )
+            return deployment
+
+        # Otherwise, assume it's already a deployment name
+        return model_or_deployment
+
+    def get_rate_limit_info(self) -> dict[str, Any]:
+        """Get current rate limit information.
+
+        Returns:
+            Dictionary with rate limit details:
+            - remaining_requests: Remaining requests in current window
+            - remaining_tokens: Remaining tokens in current window
+            - reset_requests_at: When request limit resets
+            - reset_tokens_at: When token limit resets
+        """
+        return self._rate_limit_info.copy()
+
+    def _update_rate_limits_from_response(self, response_headers: dict[str, str]) -> None:
+        """Update rate limit tracking from response headers.
+
+        Azure OpenAI returns rate limit information in response headers.
+        This is useful for implementing client-side throttling.
+        """
+        if AZURE_RATE_LIMIT_HEADERS["remaining_requests"] in response_headers:
+            try:
+                self._rate_limit_info["remaining_requests"] = int(
+                    response_headers[AZURE_RATE_LIMIT_HEADERS["remaining_requests"]]
+                )
+            except ValueError:
+                pass
+
+        if AZURE_RATE_LIMIT_HEADERS["remaining_tokens"] in response_headers:
+            try:
+                self._rate_limit_info["remaining_tokens"] = int(
+                    response_headers[AZURE_RATE_LIMIT_HEADERS["remaining_tokens"]]
+                )
+            except ValueError:
+                pass
+
+    def get_capabilities(self) -> list[ProviderCapability]:
+        """Get the capabilities supported by this provider.
+
+        Returns:
+            List of ProviderCapability enum values
+        """
+        return [
+            ProviderCapability.CHAT,
+            ProviderCapability.STREAMING,
+            ProviderCapability.TOOLS,
+            ProviderCapability.VISION,
+            ProviderCapability.EMBEDDINGS,
+            ProviderCapability.JSON_MODE,
+        ]
 
     async def chat(
         self,
@@ -265,20 +522,21 @@ class AzureOpenAIProvider(BaseProvider):
 
         Args:
             messages: List of chat messages
-            model: Deployment name (not the underlying model name)
+            model: Deployment name or model ID (will be resolved via deployment_map)
             temperature: Sampling temperature (0.0-2.0)
             max_tokens: Maximum tokens to generate
             tools: Tool definitions for function calling
             tool_choice: Tool choice strategy
             stop_sequences: Sequences that stop generation
-            **kwargs: Additional Azure-specific parameters
+            **kwargs: Additional Azure-specific parameters (e.g., response_format)
 
         Returns:
             ChatResponse with generated content
 
         Raises:
             AuthenticationError: If API key or endpoint is invalid
-            RateLimitError: If rate limit exceeded
+            RateLimitError: If rate limit exceeded (with retry_after if available)
+            QuotaExceededError: If quota is exhausted
             ModelNotFoundError: If deployment doesn't exist
             ContentFilterError: If content blocked by Azure's filters
         """
@@ -288,11 +546,14 @@ class AzureOpenAIProvider(BaseProvider):
         validated_temp = validate_temperature(temperature)
 
         # Use default deployment if model not specified
-        deployment_name = model or self.default_deployment
-        if not deployment_name:
+        model_or_deployment = model or self.default_deployment
+        if not model_or_deployment:
             raise ModelNotFoundError(
                 "No deployment specified. Pass model parameter or set default_deployment."
             )
+
+        # Resolve model ID to deployment name if mapping exists
+        deployment_name = self.resolve_deployment_name(model_or_deployment)
 
         # Convert ChatMessage objects to dicts
         formatted_messages = []
@@ -590,6 +851,13 @@ class AzureOpenAIProvider(BaseProvider):
     def _handle_error(self, error: Exception) -> None:
         """Convert OpenAI/Azure errors to provider errors.
 
+        Handles Azure-specific error codes and rate limit headers:
+        - 401: Authentication failed (invalid API key or Azure AD token)
+        - 403: Authorization failed (RBAC permission denied)
+        - 404: Deployment not found
+        - 429: Rate limit exceeded (with retry-after support)
+        - 400: Bad request (content filter, context length, etc.)
+
         Args:
             error: Original exception
 
@@ -610,20 +878,53 @@ class AzureOpenAIProvider(BaseProvider):
         error_str = str(error)
 
         if isinstance(error, OpenAIAuthError):
-            raise AuthenticationError(
-                f"Azure OpenAI authentication failed: {error_str}"
-            )
+            # Distinguish between API key and Azure AD auth failures
+            if self.use_azure_ad:
+                raise AuthenticationError(
+                    f"Azure AD authentication failed: {error_str}. "
+                    "Ensure the managed identity or service principal has the "
+                    "'Cognitive Services OpenAI User' role on the Azure OpenAI resource."
+                )
+            else:
+                raise AuthenticationError(
+                    f"Azure OpenAI API key authentication failed: {error_str}"
+                )
 
         if isinstance(error, OpenAIRateLimit):
-            # Try to extract retry-after from error
+            # Extract retry-after from Azure-specific headers
             retry_after = None
-            if hasattr(error, "response"):
-                retry_after = error.response.headers.get("retry-after")
-                if retry_after:
+            if hasattr(error, "response") and error.response is not None:
+                headers = error.response.headers
+
+                # Try multiple header names (Azure uses different ones)
+                retry_after_str = (
+                    headers.get(AZURE_RATE_LIMIT_HEADERS["retry_after_ms"])
+                    or headers.get(AZURE_RATE_LIMIT_HEADERS["retry_after"])
+                    or headers.get("retry-after")
+                )
+
+                if retry_after_str:
                     try:
-                        retry_after = float(retry_after)
+                        retry_after = float(retry_after_str)
+                        # Convert milliseconds to seconds if it looks like ms
+                        if retry_after > 1000:
+                            retry_after = retry_after / 1000
                     except ValueError:
                         retry_after = None
+
+                # Log rate limit details for monitoring
+                remaining_requests = headers.get(
+                    AZURE_RATE_LIMIT_HEADERS["remaining_requests"]
+                )
+                remaining_tokens = headers.get(
+                    AZURE_RATE_LIMIT_HEADERS["remaining_tokens"]
+                )
+                logger.warning(
+                    "Azure OpenAI rate limit exceeded",
+                    retry_after=retry_after,
+                    remaining_requests=remaining_requests,
+                    remaining_tokens=remaining_tokens,
+                )
 
             raise RateLimitError(
                 f"Azure OpenAI rate limit exceeded: {error_str}",
@@ -633,26 +934,58 @@ class AzureOpenAIProvider(BaseProvider):
         if isinstance(error, APIStatusError):
             status_code = error.status_code
 
+            if status_code == 403:
+                # Authorization failure (RBAC)
+                raise AuthenticationError(
+                    f"Azure OpenAI authorization failed: {error_str}. "
+                    "Ensure the identity has the correct RBAC role "
+                    "(e.g., 'Cognitive Services OpenAI User')."
+                )
+
             if status_code == 404:
                 raise ModelNotFoundError(
-                    f"Azure OpenAI deployment not found: {error_str}"
+                    f"Azure OpenAI deployment not found: {error_str}. "
+                    "Check that the deployment exists and the name is correct."
+                )
+
+            if status_code == 429:
+                # Quota exceeded (different from rate limit)
+                # Azure returns 429 for both rate limits and quota exhaustion
+                if "quota" in error_str.lower():
+                    raise QuotaExceededError(
+                        f"Azure OpenAI quota exceeded: {error_str}. "
+                        "Request a quota increase in the Azure Portal."
+                    )
+                # Otherwise treat as rate limit
+                raise RateLimitError(
+                    f"Azure OpenAI rate limit exceeded: {error_str}",
+                    retry_after=60.0,  # Default to 60 seconds
                 )
 
             if status_code == 400:
                 # Check for specific error types
-                if "content_filter" in error_str.lower():
+                error_lower = error_str.lower()
+
+                if "content_filter" in error_lower or "contentfilter" in error_lower:
                     raise ContentFilterError(
                         f"Content blocked by Azure OpenAI content filter: {error_str}"
                     )
-                if "context_length" in error_str.lower() or "maximum" in error_str.lower():
+
+                if "context_length" in error_lower or "maximum" in error_lower:
                     raise ContextLengthError(
                         f"Input exceeds Azure deployment context window: {error_str}"
+                    )
+
+                if "deployment" in error_lower:
+                    raise ModelNotFoundError(
+                        f"Azure OpenAI deployment error: {error_str}"
                     )
 
         if isinstance(error, APIConnectionError):
             raise ProviderError(
                 f"Failed to connect to Azure OpenAI: {error_str}. "
-                f"Check your endpoint URL: {self.endpoint}"
+                f"Check your endpoint URL: {self.endpoint}. "
+                "Ensure the resource is accessible from your network (VNet/Private Link)."
             )
 
         # Re-raise as generic provider error
@@ -694,15 +1027,82 @@ class AzureOpenAIProvider(BaseProvider):
         except Exception as e:
             self._handle_error(e)
 
+    async def close(self) -> None:
+        """Close the provider and clean up resources.
+
+        Should be called when done using the provider, especially when using
+        Azure AD authentication to properly close the credential client.
+        """
+        if self._azure_credential is not None:
+            try:
+                await self._azure_credential.close()
+            except Exception as e:
+                logger.warning(f"Error closing Azure credential: {e}")
+            self._azure_credential = None
+
+        self._client = None
+
+    async def __aenter__(self) -> "AzureOpenAIProvider":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        await self.close()
+
     def __repr__(self) -> str:
         """String representation with masked API key for security."""
         endpoint_display = (
             self.endpoint[:30] + "..." if len(self.endpoint) > 30 else self.endpoint
         )
+        auth_type = "Azure AD" if self.use_azure_ad else f"API Key ({mask_api_key(self.api_key)})"
         return (
             f"<AzureOpenAIProvider("
             f"endpoint='{endpoint_display}', "
-            f"api_key={mask_api_key(self.api_key)}, "
+            f"auth={auth_type}, "
             f"api_version='{self.api_version}'"
             f")>"
         )
+
+
+# Factory function for creating Azure OpenAI provider
+def get_azure_openai_provider(
+    api_key: str | None = None,
+    endpoint: str | None = None,
+    api_version: str | None = None,
+    use_azure_ad: bool | None = None,
+    deployment_map: dict[str, str] | None = None,
+) -> AzureOpenAIProvider:
+    """Factory function to create an Azure OpenAI provider.
+
+    This is the recommended way to create an Azure OpenAI provider instance.
+    It handles environment variable loading and configuration.
+
+    Args:
+        api_key: API key (optional if using Azure AD)
+        endpoint: Azure OpenAI endpoint URL
+        api_version: API version (optional, uses default)
+        use_azure_ad: Enable Azure AD authentication
+        deployment_map: Model ID to deployment name mapping
+
+    Returns:
+        Configured AzureOpenAIProvider instance
+
+    Example (API Key):
+        provider = get_azure_openai_provider()
+
+    Example (Azure AD):
+        provider = get_azure_openai_provider(use_azure_ad=True)
+
+    Example (With deployment map):
+        provider = get_azure_openai_provider(
+            deployment_map={"gpt-4o": "my-gpt4o", "gpt-4o-mini": "my-mini"}
+        )
+    """
+    return AzureOpenAIProvider(
+        api_key=api_key,
+        endpoint=endpoint,
+        api_version=api_version,
+        use_azure_ad=use_azure_ad,
+        deployment_map=deployment_map,
+    )

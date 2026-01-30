@@ -798,6 +798,110 @@ MODELS = {
         supports_computer_use=False,
         latency_ms=400,
     ),
+
+    # =============================================================================
+    # AZURE OPENAI (RAP-300: Enterprise Azure Deployments)
+    # =============================================================================
+    # For enterprise deployments within Azure ecosystem.
+    # Benefits: Azure AD/Managed Identity auth, VNet/Private Link,
+    # regional data residency, unified Azure billing, HIPAA/GDPR compliance.
+    #
+    # Note: Model IDs here are logical names that should map to your Azure deployments.
+    # Configure AZURE_OPENAI_DEPLOYMENT_MAP to map these to your deployment names.
+    # Example: {"azure-gpt-4o": "my-gpt4o-deployment"}
+    #
+    # Configure via:
+    # - AZURE_OPENAI_ENDPOINT (required)
+    # - AZURE_OPENAI_API_KEY or AZURE_OPENAI_USE_AZURE_AD=true
+    # - AZURE_OPENAI_DEPLOYMENT_MAP (optional JSON mapping)
+
+    # GPT-4o models on Azure
+    "azure-gpt-4o": ModelConfig(
+        provider=ModelProvider.AZURE_OPENAI,
+        model_id="gpt-4o",  # Map to your deployment via AZURE_OPENAI_DEPLOYMENT_MAP
+        input_cost_per_1m=2.50,
+        output_cost_per_1m=10.00,
+        max_tokens=16384,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=800,
+    ),
+
+    "azure-gpt-4o-mini": ModelConfig(
+        provider=ModelProvider.AZURE_OPENAI,
+        model_id="gpt-4o-mini",  # Map to your deployment via AZURE_OPENAI_DEPLOYMENT_MAP
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=0.60,
+        max_tokens=16384,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=400,
+    ),
+
+    # GPT-4 Turbo on Azure
+    "azure-gpt-4-turbo": ModelConfig(
+        provider=ModelProvider.AZURE_OPENAI,
+        model_id="gpt-4-turbo",  # Map to your deployment
+        input_cost_per_1m=10.00,
+        output_cost_per_1m=30.00,
+        max_tokens=4096,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=1000,
+    ),
+
+    # o1 reasoning models on Azure
+    "azure-o1": ModelConfig(
+        provider=ModelProvider.AZURE_OPENAI,
+        model_id="o1",  # Map to your deployment
+        input_cost_per_1m=15.00,
+        output_cost_per_1m=60.00,
+        max_tokens=100000,
+        context_window=200000,
+        supports_vision=True,
+        supports_tools=False,
+        supports_json_mode=False,
+        supports_thinking=True,
+        latency_ms=5000,
+    ),
+
+    "azure-o1-mini": ModelConfig(
+        provider=ModelProvider.AZURE_OPENAI,
+        model_id="o1-mini",  # Map to your deployment
+        input_cost_per_1m=3.00,
+        output_cost_per_1m=12.00,
+        max_tokens=65536,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=False,
+        supports_json_mode=False,
+        supports_thinking=True,
+        latency_ms=3000,
+    ),
+
+    # GPT-3.5 Turbo on Azure (cost-effective for simple tasks)
+    "azure-gpt-35-turbo": ModelConfig(
+        provider=ModelProvider.AZURE_OPENAI,
+        model_id="gpt-35-turbo",  # Note: Azure uses gpt-35-turbo, not gpt-3.5-turbo
+        input_cost_per_1m=0.50,
+        output_cost_per_1m=1.50,
+        max_tokens=4096,
+        context_window=16385,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=300,
+    ),
 }
 
 
@@ -2029,6 +2133,221 @@ class OllamaClient(BaseModelClient):
         return await self.complete(messages, model_config, max_tokens)
 
 
+class AzureOpenAIClient(BaseModelClient):
+    """
+    Client for Azure OpenAI Service (RAP-300: Enterprise Azure Deployments).
+
+    Enables OpenAI models via Azure with enterprise security, managed identity,
+    and air-gap deployment support.
+
+    Benefits:
+        - Enterprise security (VNet, Private Link)
+        - Azure AD/Managed Identity authentication
+        - Data residency compliance (GDPR, HIPAA)
+        - Unified Azure billing
+        - Regional deployments
+
+    Authentication:
+        1. API Key: Set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT
+        2. Azure AD: Set AZURE_OPENAI_USE_AZURE_AD=true (uses DefaultAzureCredential)
+
+    Deployment Mapping:
+        Set AZURE_OPENAI_DEPLOYMENT_MAP to map model IDs to deployment names:
+        {"gpt-4o": "my-gpt4o-deployment", "gpt-4o-mini": "my-mini-deployment"}
+    """
+
+    def __init__(
+        self,
+        endpoint: str | None = None,
+        use_azure_ad: bool | None = None,
+        deployment_map: dict[str, str] | None = None,
+    ):
+        """Initialize Azure OpenAI client.
+
+        Args:
+            endpoint: Azure OpenAI endpoint URL (defaults to AZURE_OPENAI_ENDPOINT env var)
+            use_azure_ad: Enable Azure AD authentication (defaults to AZURE_OPENAI_USE_AZURE_AD env var)
+            deployment_map: Model ID to deployment name mapping
+        """
+        self._provider = None
+        self._endpoint = endpoint
+        self._use_azure_ad = use_azure_ad
+        self._deployment_map = deployment_map
+        self._initialized = False
+        self._langfuse = None
+
+    @property
+    def provider(self):
+        """Lazy load Azure OpenAI provider."""
+        if self._provider is None:
+            from src.core.providers.azure_provider import AzureOpenAIProvider
+
+            self._provider = AzureOpenAIProvider(
+                endpoint=self._endpoint,
+                use_azure_ad=self._use_azure_ad,
+                deployment_map=self._deployment_map,
+            )
+        return self._provider
+
+    @property
+    def langfuse(self):
+        """Lazy load Langfuse client for observability."""
+        if self._langfuse is None:
+            from .ai_client import _get_langfuse
+            self._langfuse = _get_langfuse()
+        return self._langfuse
+
+    async def _ensure_initialized(self):
+        """Ensure the client is initialized and credentials are valid."""
+        if not self._initialized:
+            try:
+                health = await self.provider.health_check()
+                if health.get("status") != "healthy":
+                    logger.warning(
+                        "Azure OpenAI health check warning",
+                        status=health.get("status"),
+                        endpoint=self._endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT", "")[:30],
+                        authenticated=health.get("authenticated"),
+                    )
+                else:
+                    logger.info(
+                        "Azure OpenAI client initialized",
+                        endpoint=self._endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT", "")[:30],
+                        use_azure_ad=self._use_azure_ad,
+                    )
+            except Exception as e:
+                logger.error(f"Azure OpenAI initialization error: {e}")
+            self._initialized = True
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: list | None = None,
+    ) -> dict:
+        """Generate a completion using Azure OpenAI.
+
+        Args:
+            messages: List of chat messages
+            model_config: Model configuration (model_id is deployment name or mapped model)
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            json_mode: Enable JSON output mode
+            tools: Optional tools for function calling
+
+        Returns:
+            dict with content, tokens, and model info
+        """
+        await self._ensure_initialized()
+
+        from src.core.providers.base import ChatMessage
+
+        # Convert dict messages to ChatMessage objects
+        chat_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            chat_messages.append(ChatMessage(role=role, content=content))
+
+        # Build kwargs
+        kwargs = {}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        # Create Langfuse trace if available
+        generation = None
+        if self.langfuse:
+            trace = self.langfuse.trace(
+                name="model_router:azure_openai",
+                tags=["model_router", "azure_openai", f"model:{model_config.model_id}"],
+                metadata={"component": "ModelRouter", "use_azure_ad": self._use_azure_ad},
+            )
+            generation = trace.generation(
+                name="azure_openai_completion",
+                model=model_config.model_id,
+                input=messages,
+                model_parameters={"max_tokens": max_tokens, "temperature": temperature},
+            )
+
+        start_time = time.time()
+        try:
+            response = await self.provider.chat(
+                messages=chat_messages,
+                model=model_config.model_id,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tools=tools,
+                **kwargs,
+            )
+
+            result = {
+                "content": response.content,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+                "model": response.model,
+            }
+
+            # End Langfuse generation
+            if generation:
+                generation.end(
+                    output=result["content"],
+                    usage={
+                        "input": result["input_tokens"],
+                        "output": result["output_tokens"],
+                        "total": result["input_tokens"] + result["output_tokens"],
+                    },
+                    metadata={"latency_ms": (time.time() - start_time) * 1000},
+                )
+
+            return result
+
+        except Exception as e:
+            if generation:
+                generation.end(level="ERROR", status_message=str(e))
+            raise
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """Generate a completion with images using Azure OpenAI.
+
+        Azure OpenAI supports vision through GPT-4o and GPT-4 Turbo deployments.
+        Images are passed as base64-encoded data URLs.
+        """
+        import base64
+
+        # Add images to messages (OpenAI format)
+        image_content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{base64.b64encode(img).decode()}"
+                }
+            }
+            for img in images
+        ]
+
+        enhanced_messages = messages.copy()
+        if enhanced_messages and enhanced_messages[-1]["role"] == "user":
+            content = enhanced_messages[-1]["content"]
+            if isinstance(content, str):
+                enhanced_messages[-1]["content"] = [
+                    {"type": "text", "text": content},
+                    *image_content
+                ]
+            else:
+                enhanced_messages[-1]["content"].extend(image_content)
+
+        return await self.complete(enhanced_messages, model_config, max_tokens)
+
+
 class BedrockClient(BaseModelClient):
     """
     Client for AWS Bedrock foundation models.
@@ -2400,6 +2719,20 @@ class ModelRouter:
                     region=os.environ.get("AWS_BEDROCK_REGION"),
                     max_retries=int(os.environ.get("AWS_BEDROCK_MAX_RETRIES", "3")),
                     retry_delay=float(os.environ.get("AWS_BEDROCK_RETRY_DELAY", "1.0")),
+                )
+
+            # Azure OpenAI - Enterprise Azure deployments (RAP-300)
+            elif provider == ModelProvider.AZURE_OPENAI:
+                use_azure_ad = os.environ.get("AZURE_OPENAI_USE_AZURE_AD", "").lower() in ("true", "1", "yes")
+                logger.info(
+                    "Using Azure OpenAI for enterprise inference",
+                    provider=provider.value,
+                    endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", "")[:30] + "...",
+                    use_azure_ad=use_azure_ad,
+                )
+                self._clients[provider] = AzureOpenAIClient(
+                    endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
+                    use_azure_ad=use_azure_ad,
                 )
 
             # Less common providers - fallback to OpenRouter if not configured

@@ -95,9 +95,45 @@ class Settings(BaseSettings):
     cohere_api_key: SecretStr | None = Field(None, description="Cohere API key (enterprise NLP)")
     xai_api_key: SecretStr | None = Field(None, description="xAI API key (Grok models)")
 
-    # Cloud platform providers
-    azure_openai_api_key: SecretStr | None = Field(None, description="Azure OpenAI API key")
-    azure_openai_endpoint: str | None = Field(None, description="Azure OpenAI endpoint URL")
+    # ==========================================================================
+    # Azure OpenAI Configuration (RAP-300: Enterprise Azure Deployments)
+    # ==========================================================================
+    # Benefits: Azure AD/Managed Identity auth, VNet/Private Link integration,
+    # regional data residency (GDPR, HIPAA compliance), unified Azure billing.
+    #
+    # Authentication options:
+    # 1. API Key: Set azure_openai_api_key
+    # 2. Azure AD / Managed Identity: Set azure_openai_use_azure_ad=True
+    #    - Automatically uses DefaultAzureCredential (supports VM MI, AKS, etc.)
+    #
+    # Deployment mapping:
+    # Set azure_openai_deployment_map to map model IDs to your deployment names
+    # Example: {"gpt-4o": "my-gpt4o-deployment", "gpt-4o-mini": "my-mini"}
+
+    azure_openai_api_key: SecretStr | None = Field(
+        None,
+        description="Azure OpenAI API key (not required if using Azure AD auth)"
+    )
+    azure_openai_endpoint: str | None = Field(
+        None,
+        description="Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com/)"
+    )
+    azure_openai_api_version: str = Field(
+        "2024-08-01-preview",
+        description="Azure OpenAI API version"
+    )
+    azure_openai_use_azure_ad: bool = Field(
+        False,
+        description="Use Azure AD / Managed Identity authentication instead of API key"
+    )
+    azure_openai_deployment_map: str | None = Field(
+        None,
+        description="JSON string mapping model IDs to deployment names. Example: {\"gpt-4o\": \"my-gpt4o-deployment\"}"
+    )
+    azure_openai_default_deployment: str | None = Field(
+        None,
+        description="Default deployment name to use when model is not specified"
+    )
 
     # ==========================================================================
     # AWS Bedrock Configuration (RAP-301: Enterprise AWS Deployments)
