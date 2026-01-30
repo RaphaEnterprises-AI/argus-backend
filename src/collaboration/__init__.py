@@ -1,4 +1,17 @@
-"""Team collaboration features."""
+"""Team collaboration features.
+
+This module provides real-time collaboration capabilities including:
+- User presence tracking (who is online and what they're viewing)
+- CRDT-based collaborative editing for test specifications
+- Cursor position tracking for live editing
+- Comments and @mentions on tests
+
+Persistence Strategy:
+- Sessions and CRDT documents: Persisted to database (critical state)
+- Comments: Persisted to database (user content)
+- Presence: In-memory with optional database persistence (ephemeral but useful for analytics)
+- Cursor positions: In-memory only (highly ephemeral, recreated on reconnect)
+"""
 
 from .crdt import (
     CRDTDocument,
@@ -20,6 +33,7 @@ from .models import (
     SelectionRange,
     UserPresence,
 )
+from .persistence import CollaborationPersistence, get_collaboration_persistence
 from .presence import PresenceManager
 from .realtime import (
     RealtimeConfig,
@@ -78,4 +92,7 @@ __all__ = [
     "RealtimeSession",
     "RealtimeManager",
     "create_realtime_manager",
+    # Persistence
+    "CollaborationPersistence",
+    "get_collaboration_persistence",
 ]

@@ -1,4 +1,16 @@
-"""Cursor position tracking and rendering for real-time collaboration."""
+"""Cursor position tracking and rendering for real-time collaboration.
+
+Cursor positions are intentionally kept in-memory only (not persisted) because:
+1. Cursor data is highly ephemeral (changes every 50ms during active editing)
+2. Cursor positions are only meaningful during an active session
+3. Persisting cursor data would create excessive database load
+4. On reconnect, clients should request fresh cursor state from the server
+
+The in-memory storage is appropriate here since cursor positions are:
+- Recreated when users reconnect
+- Cleaned up when users disconnect
+- Not meaningful across server restarts
+"""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field

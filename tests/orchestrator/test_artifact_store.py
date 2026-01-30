@@ -79,13 +79,13 @@ class TestArtifactStoreInit:
     """Tests for ArtifactStore initialization."""
 
     def test_init_default_backend(self, mock_env_vars):
-        """Test ArtifactStore initializes with default memory backend."""
+        """Test ArtifactStore initializes with default memory backend in dev."""
         from src.orchestrator.artifact_store import ArtifactStore
 
         store = ArtifactStore()
 
         assert store.backend == "memory"
-        assert store._memory_store == {}
+        assert store._memory_cache.item_count == 0
 
     def test_init_memory_backend(self, mock_env_vars):
         """Test ArtifactStore initializes with memory backend."""
@@ -164,8 +164,9 @@ class TestArtifactStoreStore:
 
         ref = store.store(content="test_data", artifact_type="html")
 
-        assert ref["artifact_id"] in store._memory_store
-        assert store._memory_store[ref["artifact_id"]].content == "test_data"
+        artifact = store._memory_cache.get(ref["artifact_id"])
+        assert artifact is not None
+        assert artifact.content == "test_data"
 
     def test_store_supabase_backend_fallback(self, mock_env_vars):
         """Test store with supabase backend falls back to memory."""
@@ -175,19 +176,21 @@ class TestArtifactStoreStore:
 
         ref = store.store(content="test_data", artifact_type="json")
 
-        # Should fall back to memory store (TODO in implementation)
-        assert ref["artifact_id"] in store._memory_store
+        # Should fall back to memory cache (TODO in implementation)
+        artifact = store._memory_cache.get(ref["artifact_id"])
+        assert artifact is not None
 
     def test_store_s3_backend_fallback(self, mock_env_vars):
-        """Test store with s3 backend falls back to memory."""
+        """Test store with s3/r2 backend falls back to memory when R2 unavailable."""
         from src.orchestrator.artifact_store import ArtifactStore
 
         store = ArtifactStore(backend="s3")
 
         ref = store.store(content="test_data", artifact_type="json")
 
-        # Should fall back to memory store (TODO in implementation)
-        assert ref["artifact_id"] in store._memory_store
+        # Should fall back to memory cache when R2 is not configured
+        artifact = store._memory_cache.get(ref["artifact_id"])
+        assert artifact is not None
 
 
 class TestArtifactStoreStoreScreenshot:
@@ -453,11 +456,13 @@ class TestArtifactStoreGet:
             type="screenshot",
             content="data",
         )
-        store._memory_store["test_artifact"] = artifact
+        store._memory_cache.put(artifact)
 
         result = store.get("test_artifact")
 
-        assert result == artifact
+        assert result is not None
+        assert result.id == artifact.id
+        assert result.content == artifact.content
 
     def test_get_not_found(self, mock_env_vars):
         """Test get returns None when not found."""
@@ -548,7 +553,7 @@ class TestArtifactStoreCleanup:
         store.cleanup_old(max_age_hours=24)
 
         # Currently does nothing (TODO)
-        assert len(store._memory_store) == 2
+        assert store._memory_cache.item_count == 2
 
 
 class TestGlobalArtifactStore:
@@ -579,6 +584,170 @@ class TestGlobalArtifactStore:
         store2 = get_artifact_store()
 
         assert store1 is store2
+
+
+class TestLRUArtifactCache:
+    """Tests for LRUArtifactCache functionality."""
+
+    def test_lru_eviction_by_item_limit(self, mock_env_vars):
+        """Test LRU eviction when item limit is reached."""
+        from src.orchestrator.artifact_store import Artifact, LRUArtifactCache
+
+        cache = LRUArtifactCache(max_size_mb=100, max_items=3)
+
+        # Add 4 items (exceeds limit of 3)
+        for i in range(4):
+            artifact = Artifact(id=f"item_{i}", type="test", content="x" * 100)
+            cache.put(artifact)
+
+        # Should have evicted oldest item
+        assert cache.item_count == 3
+        assert cache.get("item_0") is None  # Oldest evicted
+        assert cache.get("item_3") is not None  # Newest kept
+
+    def test_lru_eviction_by_size_limit(self, mock_env_vars):
+        """Test LRU eviction when size limit is reached."""
+        from src.orchestrator.artifact_store import Artifact, LRUArtifactCache
+
+        # 1MB limit
+        cache = LRUArtifactCache(max_size_mb=1, max_items=1000)
+
+        # Add items that exceed 1MB total
+        for i in range(15):
+            # Each item is ~100KB
+            artifact = Artifact(id=f"item_{i}", type="test", content="x" * 100000)
+            cache.put(artifact)
+
+        # Should have evicted to stay under 1MB
+        assert cache.current_size_mb <= 1.0
+        assert cache._eviction_count > 0
+
+    def test_lru_access_updates_order(self, mock_env_vars):
+        """Test that accessing an item moves it to most recently used."""
+        from src.orchestrator.artifact_store import Artifact, LRUArtifactCache
+
+        cache = LRUArtifactCache(max_size_mb=100, max_items=3)
+
+        # Add 3 items
+        for i in range(3):
+            artifact = Artifact(id=f"item_{i}", type="test", content="data")
+            cache.put(artifact)
+
+        # Access the oldest item (item_0), making it most recently used
+        cache.get("item_0")
+
+        # Add a new item (should evict item_1, not item_0)
+        cache.put(Artifact(id="item_new", type="test", content="data"))
+
+        assert cache.get("item_0") is not None  # Should still exist (was accessed)
+        assert cache.get("item_1") is None  # Should be evicted
+        assert cache.get("item_2") is not None
+        assert cache.get("item_new") is not None
+
+    def test_cache_stats(self, mock_env_vars):
+        """Test cache statistics are accurate."""
+        from src.orchestrator.artifact_store import Artifact, LRUArtifactCache
+
+        cache = LRUArtifactCache(max_size_mb=10, max_items=100)
+
+        # Add some items
+        for i in range(5):
+            artifact = Artifact(id=f"item_{i}", type="test", content="x" * 10000)
+            cache.put(artifact)
+
+        stats = cache.stats()
+
+        assert stats["item_count"] == 5
+        assert stats["max_items"] == 100
+        assert stats["max_size_mb"] == 10.0
+        assert stats["current_size_mb"] > 0
+        assert stats["utilization_percent"] > 0
+
+    def test_cache_clear(self, mock_env_vars):
+        """Test cache clear removes all items."""
+        from src.orchestrator.artifact_store import Artifact, LRUArtifactCache
+
+        cache = LRUArtifactCache(max_size_mb=10, max_items=100)
+
+        # Add items
+        for i in range(5):
+            cache.put(Artifact(id=f"item_{i}", type="test", content="data"))
+
+        assert cache.item_count == 5
+
+        cache.clear()
+
+        assert cache.item_count == 0
+        assert cache.current_size_mb == 0
+
+
+class TestArtifactStoreSafeguards:
+    """Tests for artifact store production safeguards."""
+
+    def test_memory_backend_warns_in_production(self, mock_env_vars, monkeypatch, capsys):
+        """Test that memory backend logs warning in production."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        import importlib
+
+        import src.orchestrator.artifact_store as module
+        importlib.reload(module)
+
+        store = module.ArtifactStore(backend="memory")
+
+        assert store.backend == "memory"
+
+        # Structlog logs to stdout, check captured output
+        captured = capsys.readouterr()
+        assert "MEMORY BACKEND IN PRODUCTION" in captured.out
+
+        # Clean up
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        importlib.reload(module)
+
+    def test_auto_backend_selects_r2_in_production(self, mock_env_vars, monkeypatch):
+        """Test that auto backend selects r2 in production."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        import importlib
+
+        import src.orchestrator.artifact_store as module
+        importlib.reload(module)
+
+        store = module.ArtifactStore(backend="auto")
+
+        assert store.backend == "r2"
+
+        # Clean up
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        importlib.reload(module)
+
+    def test_auto_backend_selects_memory_in_development(self, mock_env_vars, monkeypatch):
+        """Test that auto backend selects memory in development."""
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+
+        import importlib
+
+        import src.orchestrator.artifact_store as module
+        importlib.reload(module)
+
+        store = module.ArtifactStore(backend="auto")
+
+        assert store.backend == "memory"
+
+    def test_get_stats_returns_cache_stats(self, mock_env_vars):
+        """Test get_stats returns cache statistics for memory backend."""
+        from src.orchestrator.artifact_store import ArtifactStore
+
+        store = ArtifactStore(backend="memory")
+        store.store("test_data", "screenshot")
+
+        stats = store.get_stats()
+
+        assert "item_count" in stats
+        assert stats["item_count"] == 1
+        assert "utilization_percent" in stats
 
 
 class TestArtifactStoreIntegration:

@@ -6,6 +6,7 @@ in the Argus testing system. It enables:
 - Discovery of agents by capability
 - Health monitoring via heartbeats
 - Automatic cleanup of unhealthy agents
+- Persistent storage in Supabase for server restarts
 
 RAP-228: Create Agent Registry for A2A communication.
 
@@ -31,15 +32,20 @@ Example usage:
     ```
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
+
+if TYPE_CHECKING:
+    from src.services.supabase_client import SupabaseClient
 
 logger = structlog.get_logger(__name__)
 
@@ -169,6 +175,7 @@ class AgentRegistry:
     - Capability-based agent discovery
     - Health monitoring via heartbeats
     - Automatic cleanup of unhealthy agents
+    - Persistent storage in Supabase (with in-memory cache for performance)
 
     The registry is thread-safe and supports both sync and async operations.
 
@@ -176,19 +183,267 @@ class AgentRegistry:
         - HEARTBEAT_TIMEOUT_SECONDS: Time before an agent is marked unhealthy (default: 60)
         - CLEANUP_INTERVAL_SECONDS: Interval for background cleanup task (default: 30)
         - AUTO_REMOVE_UNHEALTHY_AFTER: Remove agents after this many seconds unhealthy (default: 300)
+        - DB_SYNC_INTERVAL_SECONDS: Interval for syncing in-memory cache with DB (default: 60)
     """
 
     # Configuration
     HEARTBEAT_TIMEOUT_SECONDS: int = 60
     CLEANUP_INTERVAL_SECONDS: int = 30
     AUTO_REMOVE_UNHEALTHY_AFTER: int = 300  # 5 minutes
+    DB_SYNC_INTERVAL_SECONDS: int = 60  # Sync with DB every minute
 
     def __init__(self) -> None:
         """Initialize the agent registry."""
         self._agents: dict[str, AgentInfo] = {}
         self._lock = threading.RLock()
         self._cleanup_task: asyncio.Task | None = None
+        self._db_sync_task: asyncio.Task | None = None
+        self._supabase: SupabaseClient | None = None
+        self._db_loaded: bool = False
         self._log = logger.bind(component="agent_registry")
+
+    def _get_supabase(self) -> SupabaseClient | None:
+        """Get Supabase client lazily."""
+        if self._supabase is None:
+            try:
+                from src.services.supabase_client import get_supabase_client
+                self._supabase = get_supabase_client()
+                if not self._supabase.is_configured:
+                    self._log.warning("Supabase not configured, running in memory-only mode")
+                    return None
+            except Exception as e:
+                self._log.warning("Failed to get Supabase client", error=str(e))
+                return None
+        return self._supabase if self._supabase.is_configured else None
+
+    async def _persist_agent(self, agent: AgentInfo) -> bool:
+        """Persist agent registration to database.
+
+        Args:
+            agent: The agent info to persist
+
+        Returns:
+            True if persisted successfully, False otherwise
+        """
+        supabase = self._get_supabase()
+        if not supabase:
+            return False
+
+        try:
+            # Upsert the agent (insert or update on conflict)
+            result = await supabase.request(
+                "/agent_registrations",
+                method="POST",
+                body={
+                    "agent_id": agent.agent_id,
+                    "agent_type": agent.agent_type,
+                    "capabilities": [cap.value for cap in agent.capabilities],
+                    "status": agent.status,
+                    "last_heartbeat": agent.last_heartbeat.isoformat(),
+                    "metadata": agent.metadata,
+                    "created_at": agent.registered_at.isoformat(),
+                },
+                headers={"Prefer": "resolution=merge-duplicates"},
+            )
+
+            if result.get("error"):
+                self._log.error(
+                    "Failed to persist agent to database",
+                    agent_id=agent.agent_id,
+                    error=result["error"],
+                )
+                return False
+
+            self._log.debug("Agent persisted to database", agent_id=agent.agent_id)
+            return True
+
+        except Exception as e:
+            self._log.error(
+                "Exception persisting agent to database",
+                agent_id=agent.agent_id,
+                error=str(e),
+            )
+            return False
+
+    async def _delete_agent_from_db(self, agent_id: str) -> bool:
+        """Delete agent registration from database.
+
+        Args:
+            agent_id: The agent ID to delete
+
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        supabase = self._get_supabase()
+        if not supabase:
+            return False
+
+        try:
+            result = await supabase.request(
+                f"/agent_registrations?agent_id=eq.{agent_id}",
+                method="DELETE",
+            )
+
+            if result.get("error"):
+                self._log.error(
+                    "Failed to delete agent from database",
+                    agent_id=agent_id,
+                    error=result["error"],
+                )
+                return False
+
+            self._log.debug("Agent deleted from database", agent_id=agent_id)
+            return True
+
+        except Exception as e:
+            self._log.error(
+                "Exception deleting agent from database",
+                agent_id=agent_id,
+                error=str(e),
+            )
+            return False
+
+    async def _update_heartbeat_in_db(self, agent_id: str, heartbeat: datetime, status: str) -> bool:
+        """Update agent heartbeat in database.
+
+        Args:
+            agent_id: The agent ID to update
+            heartbeat: The new heartbeat timestamp
+            status: The new status
+
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        supabase = self._get_supabase()
+        if not supabase:
+            return False
+
+        try:
+            result = await supabase.request(
+                f"/agent_registrations?agent_id=eq.{agent_id}",
+                method="PATCH",
+                body={
+                    "last_heartbeat": heartbeat.isoformat(),
+                    "status": status,
+                },
+            )
+
+            if result.get("error"):
+                self._log.error(
+                    "Failed to update heartbeat in database",
+                    agent_id=agent_id,
+                    error=result["error"],
+                )
+                return False
+
+            return True
+
+        except Exception as e:
+            self._log.error(
+                "Exception updating heartbeat in database",
+                agent_id=agent_id,
+                error=str(e),
+            )
+            return False
+
+    async def load_from_database(self) -> int:
+        """Load agent registrations from database into memory cache.
+
+        This should be called during application startup to restore
+        agent state from the previous session.
+
+        Returns:
+            Number of agents loaded from database
+        """
+        supabase = self._get_supabase()
+        if not supabase:
+            self._log.info("Supabase not available, skipping database load")
+            self._db_loaded = True
+            return 0
+
+        try:
+            result = await supabase.request(
+                "/agent_registrations?select=*",
+                method="GET",
+            )
+
+            if result.get("error"):
+                self._log.error(
+                    "Failed to load agents from database",
+                    error=result["error"],
+                )
+                self._db_loaded = True
+                return 0
+
+            agents_data = result.get("data", [])
+            if not agents_data:
+                self._log.info("No agents found in database")
+                self._db_loaded = True
+                return 0
+
+            loaded_count = 0
+            with self._lock:
+                for agent_data in agents_data:
+                    try:
+                        # Parse capabilities from JSON array
+                        capabilities = []
+                        for cap_str in agent_data.get("capabilities", []):
+                            try:
+                                capabilities.append(Capability(cap_str))
+                            except ValueError:
+                                self._log.warning(
+                                    "Unknown capability in database",
+                                    capability=cap_str,
+                                    agent_id=agent_data.get("agent_id"),
+                                )
+
+                        # Parse timestamps
+                        last_heartbeat_str = agent_data.get("last_heartbeat")
+                        last_heartbeat = (
+                            datetime.fromisoformat(last_heartbeat_str.replace("Z", "+00:00"))
+                            if last_heartbeat_str
+                            else datetime.now(UTC)
+                        )
+
+                        created_at_str = agent_data.get("created_at")
+                        registered_at = (
+                            datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                            if created_at_str
+                            else datetime.now(UTC)
+                        )
+
+                        agent_info = AgentInfo(
+                            agent_id=agent_data["agent_id"],
+                            agent_type=agent_data["agent_type"],
+                            capabilities=capabilities,
+                            status=agent_data.get("status", "unknown"),
+                            last_heartbeat=last_heartbeat,
+                            metadata=agent_data.get("metadata", {}),
+                            registered_at=registered_at,
+                        )
+
+                        self._agents[agent_info.agent_id] = agent_info
+                        loaded_count += 1
+
+                    except Exception as e:
+                        self._log.error(
+                            "Failed to parse agent from database",
+                            agent_data=agent_data,
+                            error=str(e),
+                        )
+
+            self._log.info(
+                "Agents loaded from database",
+                count=loaded_count,
+                total_in_db=len(agents_data),
+            )
+            self._db_loaded = True
+            return loaded_count
+
+        except Exception as e:
+            self._log.error("Exception loading agents from database", error=str(e))
+            self._db_loaded = True
+            return 0
 
     def register(
         self,
@@ -198,6 +453,10 @@ class AgentRegistry:
         agent_id: str | None = None,
     ) -> str:
         """Register a new agent with the registry.
+
+        This method updates the in-memory cache synchronously and schedules
+        an async task to persist to the database. For async persistence,
+        use `register_async()` instead.
 
         Args:
             agent_type: Type/class of the agent (e.g., "code_analyzer")
@@ -257,10 +516,57 @@ class AgentRegistry:
                 capabilities=[cap.value for cap in normalized_capabilities],
             )
 
+            # Schedule async persistence (fire and forget)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._persist_agent(agent_info))
+            except RuntimeError:
+                # No event loop running, persistence will happen on next sync
+                self._log.debug(
+                    "No event loop, agent will be persisted on next sync",
+                    agent_id=agent_id,
+                )
+
             return agent_id
+
+    async def register_async(
+        self,
+        agent_type: str,
+        capabilities: list[Capability] | list[str],
+        metadata: dict[str, Any] | None = None,
+        agent_id: str | None = None,
+    ) -> str:
+        """Register a new agent with the registry (async version with guaranteed persistence).
+
+        This method updates the in-memory cache and persists to the database
+        before returning. Use this when you need to ensure the agent is
+        persisted before continuing.
+
+        Args:
+            agent_type: Type/class of the agent (e.g., "code_analyzer")
+            capabilities: List of capabilities this agent provides
+            metadata: Optional metadata about the agent
+            agent_id: Optional specific agent ID (auto-generated if not provided)
+
+        Returns:
+            The agent ID (generated or provided)
+        """
+        # First register in memory
+        registered_id = self.register(agent_type, capabilities, metadata, agent_id)
+
+        # Then persist to database
+        agent_info = self._agents.get(registered_id)
+        if agent_info:
+            await self._persist_agent(agent_info)
+
+        return registered_id
 
     def unregister(self, agent_id: str) -> bool:
         """Remove an agent from the registry.
+
+        This method removes from the in-memory cache synchronously and schedules
+        an async task to delete from the database. For async deletion,
+        use `unregister_async()` instead.
 
         Args:
             agent_id: The ID of the agent to remove
@@ -276,6 +582,18 @@ class AgentRegistry:
                     agent_id=agent_id,
                     agent_type=agent_info.agent_type,
                 )
+
+                # Schedule async deletion (fire and forget)
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._delete_agent_from_db(agent_id))
+                except RuntimeError:
+                    # No event loop running, deletion will happen on next sync
+                    self._log.debug(
+                        "No event loop, agent will be deleted from DB on next sync",
+                        agent_id=agent_id,
+                    )
+
                 return True
             else:
                 self._log.warning(
@@ -283,6 +601,37 @@ class AgentRegistry:
                     agent_id=agent_id,
                 )
                 return False
+
+    async def unregister_async(self, agent_id: str) -> bool:
+        """Remove an agent from the registry (async version with guaranteed DB deletion).
+
+        This method removes from the in-memory cache and deletes from the database
+        before returning.
+
+        Args:
+            agent_id: The ID of the agent to remove
+
+        Returns:
+            True if the agent was removed, False if not found
+        """
+        with self._lock:
+            if agent_id in self._agents:
+                agent_info = self._agents.pop(agent_id)
+                self._log.info(
+                    "Agent unregistered",
+                    agent_id=agent_id,
+                    agent_type=agent_info.agent_type,
+                )
+            else:
+                self._log.warning(
+                    "Attempted to unregister unknown agent",
+                    agent_id=agent_id,
+                )
+                return False
+
+        # Delete from database
+        await self._delete_agent_from_db(agent_id)
+        return True
 
     def discover(self, capability: Capability | str) -> list[AgentInfo]:
         """Find agents that have a specific capability.
@@ -400,6 +749,51 @@ class AgentRegistry:
         still alive and functioning. Agents that don't send heartbeats
         will be marked as unhealthy after HEARTBEAT_TIMEOUT_SECONDS.
 
+        This method updates the in-memory cache synchronously and schedules
+        an async task to update the database.
+
+        Args:
+            agent_id: The ID of the agent
+
+        Returns:
+            True if the heartbeat was recorded, False if agent not found
+        """
+        with self._lock:
+            if agent_id not in self._agents:
+                self._log.warning(
+                    "Heartbeat from unknown agent",
+                    agent_id=agent_id,
+                )
+                return False
+
+            agent = self._agents[agent_id]
+            agent.last_heartbeat = datetime.now(UTC)
+
+            # Mark as healthy if it was unhealthy
+            old_status = agent.status
+            if agent.status == "unhealthy":
+                agent.status = "healthy"
+                self._log.info(
+                    "Agent recovered",
+                    agent_id=agent_id,
+                    agent_type=agent.agent_type,
+                )
+
+            # Schedule async DB update (fire and forget)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    self._update_heartbeat_in_db(agent_id, agent.last_heartbeat, agent.status)
+                )
+            except RuntimeError:
+                # No event loop running, update will happen on next sync
+                pass
+
+            return True
+
+    async def update_heartbeat_async(self, agent_id: str) -> bool:
+        """Update the heartbeat timestamp for an agent (async version with guaranteed DB update).
+
         Args:
             agent_id: The ID of the agent
 
@@ -426,7 +820,12 @@ class AgentRegistry:
                     agent_type=agent.agent_type,
                 )
 
-            return True
+            heartbeat = agent.last_heartbeat
+            status = agent.status
+
+        # Update in database (outside lock)
+        await self._update_heartbeat_in_db(agent_id, heartbeat, status)
+        return True
 
     def update_status(
         self,
@@ -530,6 +929,7 @@ class AgentRegistry:
         This method:
         1. Marks agents as unhealthy if their heartbeat has timed out
         2. Optionally removes agents that have been unhealthy too long
+        3. Schedules async DB updates for status changes
 
         Returns:
             Dict with health check results
@@ -540,6 +940,7 @@ class AgentRegistry:
 
         marked_unhealthy = []
         removed = []
+        status_updates: list[tuple[str, datetime, str]] = []
 
         with self._lock:
             for agent_id, agent in list(self._agents.items()):
@@ -548,6 +949,7 @@ class AgentRegistry:
                     if agent.status == "healthy":
                         agent.status = "unhealthy"
                         marked_unhealthy.append(agent_id)
+                        status_updates.append((agent_id, agent.last_heartbeat, "unhealthy"))
                         self._log.warning(
                             "Agent marked unhealthy (heartbeat timeout)",
                             agent_id=agent_id,
@@ -565,6 +967,17 @@ class AgentRegistry:
                             agent_type=agent.agent_type,
                         )
 
+        # Schedule async DB updates (fire and forget)
+        try:
+            loop = asyncio.get_running_loop()
+            for agent_id, heartbeat, status in status_updates:
+                loop.create_task(self._update_heartbeat_in_db(agent_id, heartbeat, status))
+            for agent_id in removed:
+                loop.create_task(self._delete_agent_from_db(agent_id))
+        except RuntimeError:
+            # No event loop running, updates will happen on next sync
+            pass
+
         return {
             "total_agents": len(self._agents),
             "healthy_count": len(self.get_healthy_agents()),
@@ -578,7 +991,13 @@ class AgentRegistry:
 
         This task periodically checks agent health and removes stale agents.
         Should be called during application startup.
+
+        Also loads agents from the database if not already loaded.
         """
+        # Load from database if not already loaded
+        if not self._db_loaded:
+            await self.load_from_database()
+
         if self._cleanup_task is not None and not self._cleanup_task.done():
             self._log.warning("Health monitor already running")
             return
@@ -657,7 +1076,10 @@ class AgentRegistry:
             }
 
     def clear(self) -> int:
-        """Remove all agents from the registry.
+        """Remove all agents from the in-memory registry.
+
+        Note: This only clears the in-memory cache. Use `clear_async()` to
+        also clear the database.
 
         Returns:
             Number of agents removed
@@ -665,8 +1087,54 @@ class AgentRegistry:
         with self._lock:
             count = len(self._agents)
             self._agents.clear()
-            self._log.info("Registry cleared", removed_count=count)
+            self._log.info("Registry cleared (in-memory only)", removed_count=count)
             return count
+
+    async def clear_async(self, clear_database: bool = True) -> int:
+        """Remove all agents from the registry and optionally the database.
+
+        Args:
+            clear_database: If True, also delete all agents from the database
+
+        Returns:
+            Number of agents removed from memory
+        """
+        with self._lock:
+            count = len(self._agents)
+            agent_ids = list(self._agents.keys())
+            self._agents.clear()
+
+        if clear_database:
+            supabase = self._get_supabase()
+            if supabase:
+                try:
+                    # Delete all agent registrations
+                    result = await supabase.request(
+                        "/agent_registrations",
+                        method="DELETE",
+                        headers={"Prefer": "return=minimal"},
+                    )
+                    if result.get("error"):
+                        self._log.error(
+                            "Failed to clear agents from database",
+                            error=result["error"],
+                        )
+                    else:
+                        self._log.info(
+                            "Registry cleared (including database)",
+                            removed_count=count,
+                        )
+                except Exception as e:
+                    self._log.error(
+                        "Exception clearing agents from database",
+                        error=str(e),
+                    )
+            else:
+                self._log.info("Registry cleared (in-memory only, no DB)", removed_count=count)
+        else:
+            self._log.info("Registry cleared (in-memory only)", removed_count=count)
+
+        return count
 
 
 # =========================================================================
@@ -722,14 +1190,17 @@ def reset_agent_registry() -> None:
 
 async def init_agent_registry(
     start_health_monitor: bool = True,
+    load_from_db: bool = True,
 ) -> AgentRegistry:
     """Initialize the agent registry with optional health monitoring.
 
     This should be called during application startup to ensure the registry
-    is ready and the health monitor is running.
+    is ready, agents are loaded from the database, and the health monitor
+    is running.
 
     Args:
         start_health_monitor: Whether to start the background health monitor
+        load_from_db: Whether to load agents from the database on startup
 
     Returns:
         The initialized AgentRegistry instance
@@ -744,12 +1215,22 @@ async def init_agent_registry(
     """
     registry = get_agent_registry()
 
+    # Load agents from database (restores state from previous session)
+    if load_from_db:
+        loaded_count = await registry.load_from_database()
+        logger.info(
+            "Agents loaded from database",
+            count=loaded_count,
+        )
+
     if start_health_monitor:
         await registry.start_health_monitor()
 
     logger.info(
         "Agent registry initialized",
         health_monitor=start_health_monitor,
+        db_loaded=load_from_db,
+        agent_count=len(registry.get_all_agents()),
     )
 
     return registry
@@ -833,6 +1314,18 @@ def heartbeat(agent_id: str) -> bool:
         True if recorded, False if agent not found
     """
     return get_agent_registry().update_heartbeat(agent_id)
+
+
+async def heartbeat_async(agent_id: str) -> bool:
+    """Convenience function to send a heartbeat with guaranteed DB persistence.
+
+    Args:
+        agent_id: The ID of the agent
+
+    Returns:
+        True if recorded, False if agent not found
+    """
+    return await get_agent_registry().update_heartbeat_async(agent_id)
 
 
 # =========================================================================

@@ -1,6 +1,8 @@
 """Real-time collaboration manager using Supabase Realtime.
 
 Coordinates presence, cursors, CRDT edits, and comments across users.
+Uses write-through caching for persistence - in-memory for real-time
+performance with async database persistence for durability.
 """
 
 import asyncio
@@ -8,6 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import uuid4
+
+import structlog
 
 from .crdt import CRDTOperation, TestSpecCRDT, VectorClock
 from .cursors import CursorTracker
@@ -20,7 +24,10 @@ from .models import (
     SelectionRange,
     UserPresence,
 )
+from .persistence import CollaborationPersistence, get_collaboration_persistence
 from .presence import PresenceManager
+
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -43,6 +50,10 @@ class RealtimeConfig:
     # Limits
     max_concurrent_editors: int = 10
     max_pending_operations: int = 100
+
+    # Persistence
+    enable_persistence: bool = True
+    organization_id: str | None = None
 
 
 @dataclass
@@ -75,6 +86,7 @@ class RealtimeManager:
         """
         self.config = config or RealtimeConfig()
         self._presence = PresenceManager(broadcast_fn=self._broadcast)
+        # In-memory caches for real-time performance
         self._cursor_trackers: dict[str, CursorTracker] = {}  # test_id -> tracker
         self._crdt_docs: dict[str, TestSpecCRDT] = {}  # test_id -> CRDT
         self._sessions: dict[str, RealtimeSession] = {}  # session_id -> session
@@ -84,10 +96,24 @@ class RealtimeManager:
         self._buffer_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
+        # Database persistence layer (write-through cache)
+        self._persistence: CollaborationPersistence | None = None
+        if self.config.enable_persistence:
+            self._persistence = get_collaboration_persistence(
+                organization_id=self.config.organization_id
+            )
+
     async def start(self) -> None:
         """Start the real-time manager."""
         await self._presence.start()
         self._buffer_task = asyncio.create_task(self._flush_operations_loop())
+
+        # Start persistence layer
+        if self._persistence:
+            await self._persistence.start()
+
+        # Restore state from database on startup
+        await self._restore_state_from_db()
 
     async def stop(self) -> None:
         """Stop the real-time manager."""
@@ -98,6 +124,10 @@ class RealtimeManager:
                 await self._buffer_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop persistence layer (flushes pending writes)
+        if self._persistence:
+            await self._persistence.stop()
 
     def add_broadcast_handler(
         self,
@@ -157,6 +187,16 @@ class RealtimeManager:
             )
             self._sessions[session.id] = session
 
+            # Persist session to database
+            if self._persistence:
+                await self._persistence.save_session(
+                    session_id=session.id,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    test_id=test_id,
+                    status="active",
+                )
+
             # Join presence
             presence = await self._presence.user_join(
                 user_id=user_id,
@@ -166,6 +206,10 @@ class RealtimeManager:
                 test_id=test_id,
                 avatar_url=avatar_url,
             )
+
+            # Persist presence to database (optional, for analytics)
+            if self._persistence:
+                await self._persistence.save_presence(presence)
 
             # Set up cursor tracker if editing a test
             if test_id:
@@ -193,12 +237,24 @@ class RealtimeManager:
             if not session:
                 return
 
+            # Delete session from database
+            if self._persistence:
+                await self._persistence.delete_session(session_id)
+
             # Leave presence
             await self._presence.user_leave(
                 user_id=session.user_id,
                 workspace_id=session.workspace_id,
                 test_id=session.test_id,
             )
+
+            # Delete presence from database
+            if self._persistence:
+                await self._persistence.delete_presence(
+                    user_id=session.user_id,
+                    workspace_id=session.workspace_id,
+                    test_id=session.test_id,
+                )
 
             # Remove from cursor tracker
             if session.test_id and session.test_id in self._cursor_trackers:
@@ -379,21 +435,42 @@ class RealtimeManager:
     ) -> TestSpecCRDT:
         """Load a test specification for collaborative editing.
 
+        First checks in-memory cache, then database, then creates new.
+
         Args:
             test_id: Test identifier.
-            test_spec: Initial test specification.
+            test_spec: Initial test specification (used if not found).
             node_id: Optional node ID for CRDT (default: server).
 
         Returns:
             The CRDT document.
         """
         async with self._lock:
-            if test_id not in self._crdt_docs:
-                self._crdt_docs[test_id] = TestSpecCRDT(
-                    node_id=node_id or "server",
-                    test_spec=test_spec,
-                )
-            return self._crdt_docs[test_id]
+            # Check in-memory cache first
+            if test_id in self._crdt_docs:
+                return self._crdt_docs[test_id]
+
+            # Try to load from database
+            if self._persistence:
+                crdt = await self._persistence.load_crdt_document(test_id)
+                if crdt:
+                    self._crdt_docs[test_id] = crdt
+                    logger.info("Loaded CRDT document from database", test_id=test_id)
+                    return crdt
+
+            # Create new CRDT document
+            crdt = TestSpecCRDT(
+                node_id=node_id or "server",
+                test_spec=test_spec,
+            )
+            self._crdt_docs[test_id] = crdt
+
+            # Persist new document
+            if self._persistence:
+                await self._persistence.save_crdt_document(test_id, crdt)
+                logger.info("Created new CRDT document", test_id=test_id)
+
+            return crdt
 
     async def apply_edit(
         self,
@@ -424,6 +501,22 @@ class RealtimeManager:
             if applied:
                 # Buffer operation for broadcast
                 self._operation_buffer.append(operation)
+
+                # Persist CRDT document state
+                if self._persistence:
+                    await self._persistence.save_crdt_document(
+                        test_id=test_id,
+                        crdt=crdt,
+                        modified_by=session.user_id,
+                    )
+                    # Also save the operation for history
+                    doc_id = await self._persistence.get_document_id(test_id)
+                    if doc_id:
+                        await self._persistence.save_crdt_operation(
+                            document_id=doc_id,
+                            operation=operation,
+                            user_id=session.user_id,
+                        )
 
                 # Broadcast edit event
                 self._broadcast(BroadcastMessage(
@@ -519,6 +612,10 @@ class RealtimeManager:
                 self._comments[test_id] = []
             self._comments[test_id].append(comment)
 
+        # Persist comment to database
+        if self._persistence:
+            await self._persistence.save_comment(comment)
+
         # Broadcast comment event
         self._broadcast(BroadcastMessage(
             channel=f"test:{test_id}",
@@ -554,6 +651,13 @@ class RealtimeManager:
                         comment.resolved_by = session.user_id
                         comment.resolved_at = datetime.now(UTC)
 
+                        # Persist resolution to database
+                        if self._persistence:
+                            await self._persistence.update_comment_resolved(
+                                comment_id=comment_id,
+                                resolved_by=session.user_id,
+                            )
+
                         # Broadcast resolve event
                         self._broadcast(BroadcastMessage(
                             channel=f"test:{test_id}",
@@ -566,13 +670,15 @@ class RealtimeManager:
                         return True
         return False
 
-    def get_comments(
+    async def get_comments(
         self,
         test_id: str,
         step_index: int | None = None,
         include_resolved: bool = False,
     ) -> list[CollaborativeComment]:
         """Get comments for a test.
+
+        First checks in-memory cache, then loads from database.
 
         Args:
             test_id: Test identifier.
@@ -582,8 +688,21 @@ class RealtimeManager:
         Returns:
             List of comments.
         """
-        comments = self._comments.get(test_id, [])
+        # Check in-memory cache
+        comments = self._comments.get(test_id)
 
+        # Load from database if not in memory
+        if comments is None and self._persistence:
+            comments = await self._persistence.load_comments(
+                test_id=test_id,
+                include_resolved=include_resolved,
+            )
+            # Cache the loaded comments
+            self._comments[test_id] = comments
+        elif comments is None:
+            comments = []
+
+        # Apply filters
         if step_index is not None:
             comments = [c for c in comments if c.step_index == step_index]
 
@@ -616,6 +735,7 @@ class RealtimeManager:
 
         crdt = self._crdt_docs.get(test_id)
         tracker = self._cursor_trackers.get(test_id)
+        comments = await self.get_comments(test_id)
 
         return {
             "test_id": test_id,
@@ -623,7 +743,7 @@ class RealtimeManager:
             "vector_clock": crdt._crdt.vector_clock.to_dict() if crdt else {},
             "presence": [p.to_dict() for p in self._presence.get_test_presence(test_id)],
             "cursors": tracker.get_full_state() if tracker else {"cursors": []},
-            "comments": [c.to_dict() for c in self.get_comments(test_id)],
+            "comments": [c.to_dict() for c in comments],
         }
 
     # =========================================================================
@@ -672,6 +792,42 @@ class RealtimeManager:
                         by_test[t_id] = []
                     by_test[t_id].append(op)
                     break
+
+    async def _restore_state_from_db(self) -> None:
+        """Restore collaboration state from database on startup.
+
+        This restores active sessions and any CRDT documents that were
+        being edited when the server last shut down.
+        """
+        if not self._persistence:
+            return
+
+        try:
+            # Load active sessions
+            sessions = await self._persistence.load_active_sessions()
+            for session_data in sessions:
+                session = RealtimeSession(
+                    id=session_data.get("session_id", str(uuid4())),
+                    user_id=session_data.get("user_id", ""),
+                    workspace_id=session_data.get("workspace_id", ""),
+                    test_id=session_data.get("test_id"),
+                    connected_at=datetime.fromisoformat(session_data["connected_at"])
+                    if session_data.get("connected_at")
+                    else datetime.now(UTC),
+                    last_sync=datetime.fromisoformat(session_data["last_activity"])
+                    if session_data.get("last_activity")
+                    else datetime.now(UTC),
+                )
+                self._sessions[session.id] = session
+                logger.debug("Restored session from database", session_id=session.id)
+
+            logger.info(
+                "Restored collaboration state from database",
+                session_count=len(sessions),
+            )
+
+        except Exception as e:
+            logger.error("Failed to restore state from database", error=str(e))
 
 
 # Convenience function for creating manager

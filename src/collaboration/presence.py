@@ -1,9 +1,16 @@
-"""User presence tracking for real-time collaboration."""
+"""User presence tracking for real-time collaboration.
+
+Uses in-memory storage for real-time performance with optional
+database persistence for analytics and audit purposes.
+"""
 
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+import structlog
 
 from .models import (
     BroadcastMessage,
@@ -14,6 +21,11 @@ from .models import (
     SelectionRange,
     UserPresence,
 )
+
+if TYPE_CHECKING:
+    from .persistence import CollaborationPersistence
+
+logger = structlog.get_logger()
 
 
 class PresenceManager:
@@ -36,12 +48,15 @@ class PresenceManager:
     def __init__(
         self,
         broadcast_fn: Callable[[BroadcastMessage], None] | None = None,
+        persistence: "CollaborationPersistence | None" = None,
     ):
         """Initialize presence manager.
 
         Args:
             broadcast_fn: Optional callback for broadcasting presence updates.
+            persistence: Optional persistence layer for database storage.
         """
+        # In-memory maps for real-time performance
         # Map of workspace_id -> {user_id -> UserPresence}
         self._presence_by_workspace: dict[str, dict[str, UserPresence]] = {}
         # Map of test_id -> {user_id -> UserPresence} for fine-grained tracking
@@ -52,6 +67,8 @@ class PresenceManager:
         self._cleanup_task: asyncio.Task | None = None
         # Lock for thread-safe operations
         self._lock = asyncio.Lock()
+        # Optional database persistence (for analytics/audit)
+        self._persistence = persistence
 
     async def start(self) -> None:
         """Start the presence manager background tasks."""

@@ -28,6 +28,7 @@ from .models import (
 from .sync_manager import (
     SyncConfig,
     SyncManager,
+    SyncPersistence,
     create_sync_manager,
 )
 
@@ -57,5 +58,6 @@ __all__ = [
     # Sync manager
     "SyncConfig",
     "SyncManager",
+    "SyncPersistence",
     "create_sync_manager",
 ]
