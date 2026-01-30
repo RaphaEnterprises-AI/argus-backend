@@ -85,6 +85,7 @@ from src.api.streaming import router as streaming_router
 from src.api.sync import router as sync_router
 from src.api.teams import router as teams_router
 from src.api.tests import router as tests_router
+from src.api.test_runs import router as test_runs_router
 from src.api.time_travel import router as time_travel_router
 from src.api.users import router as users_router
 from src.api.visual_ai import router as visual_ai_router
@@ -419,6 +420,7 @@ app.include_router(monitoring_proxy_router)
 app.include_router(incident_correlator_router)
 app.include_router(insights_router)
 app.include_router(tests_router)
+app.include_router(test_runs_router)
 app.include_router(reports_router)
 app.include_router(integrations_router)
 app.include_router(integrations_ai_router)
