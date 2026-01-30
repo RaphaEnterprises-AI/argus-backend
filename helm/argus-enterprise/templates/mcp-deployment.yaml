@@ -1,0 +1,90 @@
+{{- if .Values.mcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argus.fullname" . }}-mcp
+  labels:
+    {{- include "argus.mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mcp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "argus.mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "argus.mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- include "argus.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "argus.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mcp
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag }}"
+          imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            # Brain API
+            - name: ARGUS_BRAIN_URL
+              value: "http://{{ include "argus.fullname" . }}-brain:{{ .Values.brain.service.port }}"
+
+            # Redis
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: redis-password
+            - name: REDIS_URL
+              value: {{ include "argus.redis.url" . | quote }}
+
+            # MinIO / Storage
+            - name: STORAGE_PROVIDER
+              value: {{ .Values.mcp.env.STORAGE_PROVIDER | quote }}
+            - name: MINIO_ENDPOINT
+              value: {{ include "argus.minio.endpoint" . | quote }}
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: minio-secret-key
+            - name: MINIO_BUCKET
+              value: "argus-artifacts"
+            - name: MINIO_SECURE
+              value: "false"
+
+            # General
+            - name: LOG_LEVEL
+              value: {{ .Values.mcp.env.LOG_LEVEL | quote }}
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

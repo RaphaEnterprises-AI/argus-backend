@@ -1,0 +1,59 @@
+apiVersion: v2
+name: argus-enterprise
+description: |
+  Argus E2E Testing Agent - Enterprise Helm Chart for Self-Hosted Deployments.
+
+  This chart deploys the complete Argus stack for air-gap and enterprise environments:
+  - Argus Brain (FastAPI backend with LangGraph orchestration)
+  - Argus MCP Server (Model Context Protocol for AI IDEs)
+  - PostgreSQL with pgvector (vector embeddings)
+  - Redis/Valkey (caching and sessions)
+  - MinIO (S3-compatible object storage)
+  - Selenium Grid (browser automation)
+
+type: application
+version: 1.0.0
+appVersion: "3.0.0"
+
+keywords:
+  - argus
+  - e2e-testing
+  - ai-testing
+  - mcp
+  - self-hosted
+  - enterprise
+
+home: https://heyargus.ai
+sources:
+  - https://github.com/raphaenterprises-ai/argus-e2e-testing-agent
+
+maintainers:
+  - name: Argus Team
+    email: support@heyargus.ai
+
+# Dependencies - optional components
+dependencies:
+  # PostgreSQL with pgvector extension
+  - name: postgresql
+    version: "15.x.x"
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+    condition: postgresql.enabled
+    alias: postgresql
+
+  # Redis (or Valkey)
+  - name: redis
+    version: "19.x.x"
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+    condition: redis.enabled
+    alias: redis
+
+  # MinIO for object storage
+  - name: minio
+    version: "14.x.x"
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+    condition: minio.enabled
+    alias: minio
+
+annotations:
+  category: AI/ML
+  licenses: MIT

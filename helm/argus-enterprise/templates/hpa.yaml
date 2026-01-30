@@ -1,0 +1,28 @@
+{{- if and .Values.brain.enabled .Values.brain.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "argus.fullname" . }}-brain
+  labels:
+    {{- include "argus.brain.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "argus.fullname" . }}-brain
+  minReplicas: {{ .Values.brain.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.brain.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.brain.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.brain.autoscaling.targetMemoryUtilizationPercentage }}
+{{- end }}

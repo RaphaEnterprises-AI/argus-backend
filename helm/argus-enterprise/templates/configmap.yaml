@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "argus.fullname" . }}-config
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+data:
+  # Environment
+  ENVIRONMENT: {{ .Values.global.environment | quote }}
+
+  # Service URLs (for inter-service communication)
+  BRAIN_URL: "http://{{ include "argus.fullname" . }}-brain:{{ .Values.brain.service.port }}"
+  MCP_URL: "http://{{ include "argus.fullname" . }}-mcp:{{ .Values.mcp.service.port }}"
+
+  {{- if .Values.seleniumGrid.enabled }}
+  SELENIUM_GRID_URL: "http://{{ include "argus.fullname" . }}-selenium-hub:{{ .Values.seleniumGrid.hub.service.port }}"
+  {{- end }}
+
+  # Storage
+  STORAGE_PROVIDER: {{ .Values.brain.env.STORAGE_PROVIDER | quote }}
+  MINIO_ENDPOINT: {{ include "argus.minio.endpoint" . | quote }}
+  MINIO_BUCKET: "argus-artifacts"
+  MINIO_SECURE: "false"
+
+  # LLM Configuration
+  LLM_PROVIDER: {{ .Values.brain.env.LLM_PROVIDER | quote }}
+  {{- if .Values.ollama.enabled }}
+  OLLAMA_HOST: "http://{{ include "argus.fullname" . }}-ollama:11434"
+  {{- end }}
+
+  # Logging
+  LOG_LEVEL: {{ .Values.brain.env.LOG_LEVEL | quote }}

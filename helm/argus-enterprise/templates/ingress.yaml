@@ -1,0 +1,48 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "argus.fullname" . }}
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.hosts.brain }}
+        - {{ .Values.ingress.hosts.mcp }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    # Brain API
+    - host: {{ .Values.ingress.hosts.brain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "argus.fullname" . }}-brain
+                port:
+                  number: {{ .Values.brain.service.port }}
+    # MCP Server
+    {{- if .Values.mcp.enabled }}
+    - host: {{ .Values.ingress.hosts.mcp }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "argus.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.service.port }}
+    {{- end }}
+{{- end }}

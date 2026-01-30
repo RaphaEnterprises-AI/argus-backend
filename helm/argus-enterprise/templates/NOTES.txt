@@ -1,0 +1,123 @@
+
+=============================================================================
+   Argus Enterprise - E2E Testing Agent
+   https://heyargus.ai
+=============================================================================
+
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+=============================================================================
+SERVICES DEPLOYED
+=============================================================================
+
+{{- if .Values.brain.enabled }}
+1. Argus Brain (API)
+   - Internal URL: http://{{ include "argus.fullname" . }}-brain:{{ .Values.brain.service.port }}
+   - Health Check: http://{{ include "argus.fullname" . }}-brain:{{ .Values.brain.service.port }}/health
+{{- end }}
+
+{{- if .Values.mcp.enabled }}
+2. Argus MCP Server
+   - Internal URL: http://{{ include "argus.fullname" . }}-mcp:{{ .Values.mcp.service.port }}
+   - SSE Endpoint: http://{{ include "argus.fullname" . }}-mcp:{{ .Values.mcp.service.port }}/sse
+{{- end }}
+
+{{- if .Values.seleniumGrid.enabled }}
+3. Selenium Grid
+   - Hub URL: http://{{ include "argus.fullname" . }}-selenium-hub:4444
+   - Console: http://{{ include "argus.fullname" . }}-selenium-hub:4444/ui
+{{- end }}
+
+{{- if .Values.ollama.enabled }}
+4. Ollama (Local LLM)
+   - Internal URL: http://{{ include "argus.fullname" . }}-ollama:11434
+   - Models: {{ join ", " .Values.ollama.models }}
+{{- end }}
+
+=============================================================================
+ACCESSING THE SERVICES
+=============================================================================
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is enabled. Access the services at:
+  - Brain API: https://{{ .Values.ingress.hosts.brain }}
+  - MCP Server: https://{{ .Values.ingress.hosts.mcp }}
+
+{{- else }}
+
+To access the services locally, use port-forwarding:
+
+# Brain API
+kubectl port-forward svc/{{ include "argus.fullname" . }}-brain 8000:{{ .Values.brain.service.port }} -n {{ .Release.Namespace }}
+
+# MCP Server (for AI IDEs)
+kubectl port-forward svc/{{ include "argus.fullname" . }}-mcp 3000:{{ .Values.mcp.service.port }} -n {{ .Release.Namespace }}
+
+# Selenium Grid Console
+{{- if .Values.seleniumGrid.enabled }}
+kubectl port-forward svc/{{ include "argus.fullname" . }}-selenium-hub 4444:4444 -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- end }}
+
+=============================================================================
+CONNECTING AI ASSISTANTS
+=============================================================================
+
+To connect Claude Code, Cursor, or other MCP-compatible IDEs:
+
+1. Get the MCP endpoint:
+   {{- if .Values.ingress.enabled }}
+   MCP_URL="https://{{ .Values.ingress.hosts.mcp }}/sse"
+   {{- else }}
+   # With port-forward active:
+   MCP_URL="http://localhost:3000/sse"
+   {{- end }}
+
+2. Add to your MCP configuration:
+   {
+     "mcpServers": {
+       "argus": {
+         "command": "curl",
+         "args": ["-N", "$MCP_URL"]
+       }
+     }
+   }
+
+=============================================================================
+SECRETS
+=============================================================================
+
+Secrets are stored in: {{ include "argus.fullname" . }}-secrets
+
+To update API keys:
+  kubectl create secret generic {{ include "argus.fullname" . }}-secrets \
+    --from-literal=anthropic-api-key=sk-ant-xxx \
+    --from-literal=postgresql-password=xxx \
+    --from-literal=redis-password=xxx \
+    --from-literal=minio-access-key=xxx \
+    --from-literal=minio-secret-key=xxx \
+    -n {{ .Release.Namespace }} \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+=============================================================================
+HEALTH CHECK
+=============================================================================
+
+Check the status of all pods:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Check Brain API health:
+  kubectl exec -it deploy/{{ include "argus.fullname" . }}-brain -n {{ .Release.Namespace }} -- curl localhost:8000/health
+
+=============================================================================
+DOCUMENTATION
+=============================================================================
+
+Full documentation: https://docs.heyargus.ai/self-hosted
+Support: support@heyargus.ai
+

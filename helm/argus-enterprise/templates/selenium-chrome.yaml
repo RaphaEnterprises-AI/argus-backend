@@ -1,0 +1,57 @@
+{{- if and .Values.seleniumGrid.enabled .Values.seleniumGrid.chrome.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argus.fullname" . }}-selenium-chrome
+  labels:
+    {{- include "argus.selenium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: chrome
+spec:
+  replicas: {{ .Values.seleniumGrid.chrome.replicas }}
+  selector:
+    matchLabels:
+      {{- include "argus.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: selenium-chrome
+  template:
+    metadata:
+      labels:
+        {{- include "argus.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: selenium-chrome
+    spec:
+      containers:
+        - name: chrome
+          image: "{{ .Values.seleniumGrid.chrome.image.repository }}:{{ .Values.seleniumGrid.chrome.image.tag }}"
+          ports:
+            - containerPort: 5555
+              name: vnc
+          env:
+            - name: SE_EVENT_BUS_HOST
+              value: "{{ include "argus.fullname" . }}-selenium-hub"
+            - name: SE_EVENT_BUS_PUBLISH_PORT
+              value: "4442"
+            - name: SE_EVENT_BUS_SUBSCRIBE_PORT
+              value: "4443"
+            - name: SE_NODE_MAX_SESSIONS
+              value: "1"
+            - name: SE_NODE_OVERRIDE_MAX_SESSIONS
+              value: "true"
+            - name: SE_SCREEN_WIDTH
+              value: "1920"
+            - name: SE_SCREEN_HEIGHT
+              value: "1080"
+            - name: SE_SCREEN_DEPTH
+              value: "24"
+            - name: SE_VNC_NO_PASSWORD
+              value: "true"
+          resources:
+            {{- toYaml .Values.seleniumGrid.chrome.resources | nindent 12 }}
+          # Shared memory for Chrome
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+{{- end }}

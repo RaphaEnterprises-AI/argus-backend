@@ -1,0 +1,401 @@
+# Argus Enterprise - Helm Chart Values
+# =====================================
+# Full documentation: https://docs.heyargus.ai/self-hosted
+
+# Global configuration
+global:
+  # Storage class for persistent volumes
+  storageClass: ""  # Leave empty for default
+
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+  # - name: my-registry-secret
+
+  # Domain for ingress (if enabled)
+  domain: "argus.local"
+
+  # Environment
+  environment: "production"
+
+# =============================================================================
+# Argus Brain - Main Backend (FastAPI + LangGraph)
+# =============================================================================
+brain:
+  enabled: true
+
+  image:
+    repository: ghcr.io/raphaenterprises-ai/argus-brain
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+
+  # Autoscaling
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8000
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Environment variables
+  env:
+    # LLM Provider Configuration
+    # Options: anthropic, openai, azure, bedrock, ollama, local
+    LLM_PROVIDER: "anthropic"
+
+    # For air-gap deployments with local models
+    # OLLAMA_HOST: "http://ollama:11434"
+    # LOCAL_MODEL: "llama3.1:70b"
+
+    # Storage provider (minio for self-hosted)
+    STORAGE_PROVIDER: "minio"
+
+    # Logging
+    LOG_LEVEL: "info"
+
+  # Secrets (reference existing secrets or create new ones)
+  secrets:
+    # API Keys - create a secret named 'argus-api-keys' with these keys
+    existingSecret: ""  # Use existing secret
+    # Or specify keys directly (not recommended for production)
+    anthropicApiKey: ""
+    openaiApiKey: ""
+    supabaseUrl: ""
+    supabaseServiceKey: ""
+
+  # Pod annotations
+  podAnnotations: {}
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity rules
+  affinity: {}
+
+# =============================================================================
+# Argus MCP Server - Model Context Protocol for AI IDEs
+# =============================================================================
+mcp:
+  enabled: true
+
+  image:
+    repository: ghcr.io/raphaenterprises-ai/argus-mcp-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  env:
+    STORAGE_PROVIDER: "minio"
+    LOG_LEVEL: "info"
+
+# =============================================================================
+# PostgreSQL with pgvector
+# =============================================================================
+postgresql:
+  # Set to false to use external PostgreSQL
+  enabled: true
+
+  # External PostgreSQL configuration (when enabled: false)
+  external:
+    host: ""
+    port: 5432
+    database: "argus"
+    username: "argus"
+    existingSecret: ""  # Secret with 'password' key
+
+  # Bitnami PostgreSQL chart values
+  auth:
+    postgresPassword: ""  # Set in secrets
+    username: "argus"
+    password: ""  # Set in secrets
+    database: "argus"
+
+  primary:
+    # Enable pgvector extension
+    initdb:
+      scripts:
+        init-extensions.sql: |
+          CREATE EXTENSION IF NOT EXISTS vector;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    persistence:
+      enabled: true
+      size: 50Gi
+
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+
+# =============================================================================
+# Redis / Valkey (Caching & Sessions)
+# =============================================================================
+redis:
+  # Set to false to use external Redis
+  enabled: true
+
+  # External Redis configuration (when enabled: false)
+  external:
+    host: ""
+    port: 6379
+    existingSecret: ""  # Secret with 'password' key
+
+  # Bitnami Redis chart values
+  architecture: standalone
+
+  auth:
+    enabled: true
+    password: ""  # Set in secrets
+
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# =============================================================================
+# MinIO (S3-Compatible Object Storage)
+# =============================================================================
+minio:
+  # Set to false to use external S3/MinIO
+  enabled: true
+
+  # External S3 configuration (when enabled: false)
+  external:
+    endpoint: ""
+    accessKey: ""
+    secretKey: ""
+    bucket: "argus-artifacts"
+    secure: true
+
+  # Bitnami MinIO chart values
+  auth:
+    rootUser: "minioadmin"
+    rootPassword: ""  # Set in secrets
+
+  defaultBuckets: "argus-artifacts"
+
+  persistence:
+    enabled: true
+    size: 100Gi
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# =============================================================================
+# Selenium Grid (Browser Automation)
+# =============================================================================
+seleniumGrid:
+  enabled: true
+
+  hub:
+    replicas: 1
+    image:
+      repository: selenium/hub
+      tag: "4.27.0"
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+    service:
+      type: ClusterIP
+      port: 4444
+
+  # Chrome nodes
+  chrome:
+    enabled: true
+    replicas: 3
+    image:
+      repository: selenium/node-chrome
+      tag: "4.27.0"
+
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+
+    # Video recording (optional)
+    video:
+      enabled: false
+      image:
+        repository: selenium/video
+        tag: "ffmpeg-7.1-20241217"
+
+  # Firefox nodes (optional)
+  firefox:
+    enabled: false
+    replicas: 0
+
+# =============================================================================
+# Ingress Configuration
+# =============================================================================
+ingress:
+  enabled: false
+
+  className: "nginx"
+
+  annotations: {}
+    # kubernetes.io/tls-acme: "true"
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+
+  # TLS configuration
+  tls:
+    enabled: false
+    secretName: "argus-tls"
+
+  # Hosts
+  hosts:
+    brain: "api.argus.local"
+    mcp: "mcp.argus.local"
+
+# =============================================================================
+# Network Policies
+# =============================================================================
+networkPolicies:
+  enabled: true
+
+  # Allow traffic from specific namespaces
+  allowedNamespaces:
+    - kube-system
+    - monitoring
+
+# =============================================================================
+# Service Account
+# =============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# =============================================================================
+# Pod Security
+# =============================================================================
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# =============================================================================
+# Monitoring (Prometheus)
+# =============================================================================
+metrics:
+  enabled: true
+
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
+# =============================================================================
+# Local LLM Configuration (Air-Gap)
+# =============================================================================
+ollama:
+  # Enable Ollama for local LLM inference
+  enabled: false
+
+  image:
+    repository: ollama/ollama
+    tag: "latest"
+
+  # GPU support
+  gpu:
+    enabled: false
+    count: 1
+
+  # Pre-load models
+  models:
+    - "llama3.1:8b"
+    # - "llama3.1:70b"  # Requires significant resources
+
+  persistence:
+    enabled: true
+    size: 100Gi  # Large for model storage
+
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "8Gi"
+    limits:
+      cpu: "8000m"
+      memory: "32Gi"
+      # nvidia.com/gpu: 1  # Uncomment for GPU

@@ -1,0 +1,145 @@
+{{- if .Values.networkPolicies.enabled }}
+# Default deny all ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argus.fullname" . }}-default-deny
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "argus.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+---
+# Allow Brain to receive traffic from ingress and MCP
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argus.fullname" . }}-brain-ingress
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "argus.brain.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # From MCP server
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "argus.mcp.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8000
+    # From allowed namespaces (e.g., ingress-nginx)
+    {{- range .Values.networkPolicies.allowedNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+      ports:
+        - protocol: TCP
+          port: 8000
+    {{- end }}
+---
+# Allow MCP to receive traffic from ingress
+{{- if .Values.mcp.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argus.fullname" . }}-mcp-ingress
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "argus.mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # From allowed namespaces (e.g., ingress-nginx)
+    {{- range .Values.networkPolicies.allowedNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+      ports:
+        - protocol: TCP
+          port: 3000
+    {{- end }}
+{{- end }}
+---
+# Allow Brain to access databases
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argus.fullname" . }}-brain-egress
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "argus.brain.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # To PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    # To Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To MinIO
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: minio
+      ports:
+        - protocol: TCP
+          port: 9000
+    # To Selenium Grid
+    {{- if .Values.seleniumGrid.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: selenium-hub
+      ports:
+        - protocol: TCP
+          port: 4444
+    {{- end }}
+    # To DNS (required for name resolution)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # To external LLM APIs (if not using local)
+    {{- if not (or (eq .Values.brain.env.LLM_PROVIDER "ollama") (eq .Values.brain.env.LLM_PROVIDER "local")) }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

@@ -1,0 +1,17 @@
+{{- if .Values.brain.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argus.fullname" . }}-brain
+  labels:
+    {{- include "argus.brain.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.brain.service.type }}
+  ports:
+    - port: {{ .Values.brain.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "argus.brain.selectorLabels" . | nindent 4 }}
+{{- end }}

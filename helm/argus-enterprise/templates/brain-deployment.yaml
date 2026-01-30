@@ -1,0 +1,145 @@
+{{- if .Values.brain.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argus.fullname" . }}-brain
+  labels:
+    {{- include "argus.brain.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.brain.autoscaling.enabled }}
+  replicas: {{ .Values.brain.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "argus.brain.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- with .Values.brain.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "argus.brain.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- include "argus.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "argus.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: brain
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.brain.image.repository }}:{{ .Values.brain.image.tag }}"
+          imagePullPolicy: {{ .Values.brain.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            # Database
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: postgresql-password
+            - name: DATABASE_URL
+              value: {{ include "argus.postgresql.url" . | quote }}
+
+            # Redis
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: redis-password
+            - name: REDIS_URL
+              value: {{ include "argus.redis.url" . | quote }}
+
+            # MinIO / Storage
+            - name: STORAGE_PROVIDER
+              value: {{ .Values.brain.env.STORAGE_PROVIDER | quote }}
+            - name: MINIO_ENDPOINT
+              value: {{ include "argus.minio.endpoint" . | quote }}
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: minio-secret-key
+            - name: MINIO_BUCKET
+              value: "argus-artifacts"
+            - name: MINIO_SECURE
+              value: "false"
+
+            # LLM Configuration
+            - name: LLM_PROVIDER
+              value: {{ .Values.brain.env.LLM_PROVIDER | quote }}
+            {{- if eq .Values.brain.env.LLM_PROVIDER "anthropic" }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: anthropic-api-key
+                  optional: true
+            {{- end }}
+            {{- if eq .Values.brain.env.LLM_PROVIDER "openai" }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argus.fullname" . }}-secrets
+                  key: openai-api-key
+                  optional: true
+            {{- end }}
+            {{- if or (eq .Values.brain.env.LLM_PROVIDER "ollama") (eq .Values.brain.env.LLM_PROVIDER "local") }}
+            - name: OLLAMA_HOST
+              value: "http://{{ include "argus.fullname" . }}-ollama:11434"
+            {{- end }}
+
+            # Selenium Grid
+            {{- if .Values.seleniumGrid.enabled }}
+            - name: SELENIUM_GRID_URL
+              value: "http://{{ include "argus.fullname" . }}-selenium-hub:4444"
+            {{- end }}
+
+            # MCP Server
+            {{- if .Values.mcp.enabled }}
+            - name: MCP_SERVER_URL
+              value: "http://{{ include "argus.fullname" . }}-mcp:3000"
+            {{- end }}
+
+            # General
+            - name: LOG_LEVEL
+              value: {{ .Values.brain.env.LOG_LEVEL | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | quote }}
+
+          livenessProbe:
+            {{- toYaml .Values.brain.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.brain.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.brain.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.brain.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.brain.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.brain.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
