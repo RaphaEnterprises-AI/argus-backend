@@ -32,6 +32,9 @@ class ModelProvider(str, Enum):
     COHERE = "cohere"  # Enterprise NLP
     XAI = "xai"  # Grok models
 
+    # Local/Air-gap providers (RAP-299)
+    OLLAMA = "ollama"  # Local LLM inference
+
 
 class ModelName(str, Enum):
     """Available Claude models (legacy, for backwards compatibility)."""
@@ -215,6 +218,34 @@ class Settings(BaseSettings):
     minio_public_url_base: str | None = Field(
         None,
         description="Public URL base for MinIO artifacts (e.g., https://cdn.example.com/artifacts)"
+    )
+
+    # ==========================================================================
+    # Ollama Configuration (RAP-299: Air-Gap Foundation - Local LLM)
+    # ==========================================================================
+    # Enables fully offline LLM inference without external API calls.
+    # Ollama supports Llama, Mistral, CodeLlama, and other open models.
+    # GPU requirements vary by model (8GB for 8B models, 48GB for 70B).
+
+    ollama_host: str = Field(
+        "http://localhost:11434",
+        description="Ollama server URL (e.g., http://ollama:11434 in K8s)"
+    )
+    ollama_model: str = Field(
+        "llama3.1:70b",
+        description="Default Ollama model for inference"
+    )
+    ollama_embed_model: str = Field(
+        "nomic-embed-text",
+        description="Ollama model for embeddings"
+    )
+    ollama_timeout: int = Field(
+        120,
+        description="Ollama request timeout in seconds (local inference can be slower)"
+    )
+    ollama_num_ctx: int | None = Field(
+        None,
+        description="Ollama context window size override (num_ctx option)"
     )
 
     # Notifications (optional)

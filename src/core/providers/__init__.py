@@ -97,6 +97,7 @@ from .deepseek_provider import DEEPSEEK_MODELS, DeepSeekProvider
 from .mistral_provider import MistralProvider
 from .openrouter_provider import OpenRouterProvider, get_openrouter_provider
 from .vertex_provider import VertexProvider
+from .ollama_provider import OLLAMA_COMMON_MODELS, OllamaProvider, get_ollama_provider
 from .xai_provider import XAIProvider
 
 __all__ = [
@@ -121,7 +122,10 @@ __all__ = [
     "OpenRouterProvider",
     "VertexProvider",
     "XAIProvider",
+    "OllamaProvider",
+    "OLLAMA_COMMON_MODELS",
     "get_openrouter_provider",
+    "get_ollama_provider",
     # Exceptions
     "ProviderError",
     "AuthenticationError",

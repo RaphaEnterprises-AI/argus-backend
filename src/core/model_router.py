@@ -514,6 +514,92 @@ MODELS = {
         supports_computer_use=True,
         latency_ms=800,
     ),
+
+    # =============================================================================
+    # LOCAL INFERENCE (RAP-299: Air-Gap Foundation - Ollama)
+    # =============================================================================
+    # For air-gap deployments without external API access.
+    # Cost is $0 (local GPU) but latency depends on hardware.
+    # GPU Requirements vary by model size.
+
+    "ollama-llama-8b": ModelConfig(
+        provider=ModelProvider.LOCAL,
+        model_id="llama3.1:8b",
+        input_cost_per_1m=0.0,  # Local inference - no cost
+        output_cost_per_1m=0.0,
+        max_tokens=8192,
+        context_window=128000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=500,  # Depends on GPU
+    ),
+
+    "ollama-llama-70b": ModelConfig(
+        provider=ModelProvider.LOCAL,
+        model_id="llama3.1:70b",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        max_tokens=8192,
+        context_window=128000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=2000,  # Slower due to model size
+    ),
+
+    "ollama-codellama": ModelConfig(
+        provider=ModelProvider.LOCAL,
+        model_id="codellama:34b",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        max_tokens=4096,
+        context_window=16384,
+        supports_vision=False,
+        supports_tools=False,
+        supports_json_mode=False,
+        latency_ms=1500,
+    ),
+
+    "ollama-mistral": ModelConfig(
+        provider=ModelProvider.LOCAL,
+        model_id="mistral:7b",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        max_tokens=4096,
+        context_window=32768,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=400,
+    ),
+
+    "ollama-qwen": ModelConfig(
+        provider=ModelProvider.LOCAL,
+        model_id="qwen2.5:72b",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        max_tokens=8192,
+        context_window=131072,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=2000,
+    ),
+
+    "ollama-deepseek-r1": ModelConfig(
+        provider=ModelProvider.LOCAL,
+        model_id="deepseek-r1:70b",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        max_tokens=8192,
+        context_window=64000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,  # Reasoning model
+        latency_ms=3000,
+    ),
 }
 
 
@@ -1638,6 +1724,113 @@ class VertexAIClient(BaseModelClient):
         )
 
 
+class OllamaClient(BaseModelClient):
+    """
+    Client for Ollama local LLM inference.
+
+    RAP-299: Air-Gap Foundation - Enables fully offline LLM inference
+    without external API calls. Uses OpenAI-compatible API format.
+
+    GPU Requirements:
+        - llama3.1:8b: 8GB VRAM
+        - llama3.1:70b: 48GB VRAM
+        - codellama:34b: 24GB VRAM
+    """
+
+    def __init__(self):
+        import os
+        from src.core.providers.ollama_provider import OllamaProvider
+
+        self.provider = OllamaProvider(
+            base_url=os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        )
+        self._initialized = False
+
+    async def _ensure_initialized(self):
+        """Ensure the client is initialized."""
+        if not self._initialized:
+            # Verify connectivity on first use
+            try:
+                health = await self.provider.health_check()
+                if health.get("status") != "healthy":
+                    logger.warning(
+                        "Ollama health check warning",
+                        status=health.get("status"),
+                        error=health.get("error"),
+                    )
+            except Exception as e:
+                logger.error(f"Ollama initialization error: {e}")
+            self._initialized = True
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: list | None = None,
+    ) -> dict:
+        """Generate a completion using local Ollama inference."""
+        await self._ensure_initialized()
+
+        from src.core.providers.base import ChatMessage
+
+        # Convert dict messages to ChatMessage objects
+        chat_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            chat_messages.append(ChatMessage(role=role, content=content))
+
+        # Build kwargs for the provider
+        kwargs = {}
+        if json_mode:
+            kwargs["format"] = "json"
+
+        try:
+            response = await self.provider.chat(
+                messages=chat_messages,
+                model=model_config.model_id,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tools=tools,
+                **kwargs,
+            )
+
+            return {
+                "content": response.content,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+                "model": response.model,
+            }
+        except Exception as e:
+            logger.error(f"Ollama completion error: {e}")
+            raise
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """
+        Generate a completion with images using Ollama.
+
+        Note: Vision support depends on the model (e.g., llava, bakllava).
+        """
+        # Ollama vision models use a different format
+        # For now, log a warning and attempt text-only completion
+        logger.warning(
+            "Ollama vision support is model-dependent. "
+            "Ensure you're using a vision-capable model like 'llava'."
+        )
+
+        # TODO: Implement proper vision support for Ollama when models support it
+        return await self.complete(messages, model_config, max_tokens)
+
+
 class ModelRouter:
     """
     Intelligent model router that selects the best model for each task.
@@ -1732,6 +1925,14 @@ class ModelRouter:
                 self._clients[provider] = GoogleClient()
             elif provider == ModelProvider.GROQ:
                 self._clients[provider] = GroqClient()
+
+            # Local inference - Ollama (RAP-299: Air-Gap Foundation)
+            elif provider == ModelProvider.LOCAL:
+                logger.info(
+                    "Using Ollama for local LLM inference",
+                    provider=provider.value,
+                )
+                self._clients[provider] = OllamaClient()
 
             # Less common providers - fallback to OpenRouter if not configured
             elif provider in (ModelProvider.CEREBRAS, ModelProvider.DEEPSEEK,
