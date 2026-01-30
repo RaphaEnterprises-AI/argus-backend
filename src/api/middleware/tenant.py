@@ -59,6 +59,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
         call_next: RequestResponseEndpoint,
     ) -> Response:
         """Process request and inject tenant context."""
+        # Skip CORS preflight requests (OPTIONS)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
 
         # Skip tenant extraction for public paths

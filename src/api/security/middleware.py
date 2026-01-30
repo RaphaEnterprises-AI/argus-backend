@@ -163,6 +163,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
 
+        # Skip auth for CORS preflight requests (OPTIONS)
+        # These are sent by browsers before cross-origin requests and don't include auth
+        # The actual request that follows will be authenticated
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip auth for public endpoints
         if is_public_endpoint(request.url.path):
             request.state.user = UserContext(
@@ -355,6 +361,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Skip if disabled
         if not self.enabled:
+            return await call_next(request)
+
+        # Skip CORS preflight requests (OPTIONS)
+        if request.method == "OPTIONS":
             return await call_next(request)
 
         # Skip exempt endpoints
