@@ -24,6 +24,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_project_ownership
 from src.api.security.auth import UserContext, get_current_user
 from src.services.supabase_client import get_supabase_client
 
@@ -545,6 +546,9 @@ async def list_patterns(
     user: UserContext = Depends(get_current_user),
 ):
     """List failure patterns for a project."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -624,6 +628,9 @@ async def get_pattern(
             raise HTTPException(status_code=404, detail="Pattern not found")
 
         row = result["data"][0]
+
+        # RAP-293: IDOR Prevention - Validate pattern's project belongs to user's organization
+        await validate_project_ownership(row["project_id"], user.organization_id)
         made = row.get("predictions_made", 0)
         correct = row.get("predictions_correct", 0)
         accuracy = correct / made if made > 0 else 0.5
@@ -664,6 +671,9 @@ async def get_accuracy_stats(
     user: UserContext = Depends(get_current_user),
 ):
     """Get overall prediction accuracy statistics."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -739,6 +749,9 @@ async def predict_failure(
 
     Uses learned patterns to estimate which tests are likely to fail.
     """
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -831,6 +844,9 @@ async def record_outcome(
 
     This updates pattern accuracy based on whether predictions were correct.
     """
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -896,6 +912,9 @@ async def extract_features(
 
     Call this when a new commit is received to prepare for prediction.
     """
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -965,6 +984,9 @@ async def create_pattern(
     user: UserContext = Depends(get_current_user),
 ):
     """Create a new failure pattern manually."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -1106,6 +1128,9 @@ async def train_patterns(
     user: UserContext = Depends(get_current_user),
 ):
     """Trigger pattern training from historical data."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     valid_types = ["full_history", "incremental", "pattern_discovery", "accuracy_update", "cleanup"]

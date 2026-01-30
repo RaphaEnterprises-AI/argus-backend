@@ -20,6 +20,8 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_project_ownership
+from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.services.supabase_client import get_supabase_client
 
@@ -1259,8 +1261,12 @@ async def analyze_commit_endpoint(
 async def get_commit_analysis(
     commit_sha: str,
     project_id: str = Query(..., description="Project ID"),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get analysis results for a specific commit."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     result = await supabase.request(
@@ -1282,8 +1288,12 @@ async def list_webhook_events(
     event_type: str | None = Query(None, description="Filter by event type"),
     status: str | None = Query(None, description="Filter by processing status"),
     limit: int = Query(50, ge=1, le=200, description="Maximum events to return"),
+    user: UserContext = Depends(get_current_user),
 ):
     """List recent GitHub webhook events."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     query_path = f"/github_webhook_events?project_id=eq.{project_id}"

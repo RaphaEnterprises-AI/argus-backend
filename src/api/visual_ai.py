@@ -19,12 +19,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.agents.visual_ai import (
     VisualAI,
 )
+from src.api.middleware.tenant import validate_project_ownership
+from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
@@ -1089,12 +1091,16 @@ async def create_baseline(
     project_id: str,
     viewport: ViewportConfig | None = None,
     browser: str = "chromium",
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Create or update a visual baseline.
 
     Captures the URL and stores it as a baseline for future comparisons.
     """
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
     baseline_id = _generate_baseline_id()
     vp = viewport or ViewportConfig()
@@ -1281,8 +1287,12 @@ async def get_baseline_history(
 async def list_baselines(
     project_id: str = Query(...),
     limit: int = Query(50, le=100),
+    user: UserContext = Depends(get_current_user),
 ):
     """List all baselines for a project."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:
@@ -1650,8 +1660,13 @@ async def list_comparisons(
     project_id: str | None = Query(None),
     status: str | None = Query(None),
     limit: int = Query(50, le=100),
+    user: UserContext = Depends(get_current_user),
 ):
     """List visual comparisons with optional filtering."""
+    # RAP-293: IDOR Prevention - Validate project belongs to user's organization
+    if project_id:
+        await validate_project_ownership(project_id, user.organization_id)
+
     supabase = get_supabase_client()
 
     try:

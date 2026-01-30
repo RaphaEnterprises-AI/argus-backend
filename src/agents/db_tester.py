@@ -7,6 +7,7 @@ This agent:
 - Verifies data integrity
 """
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,6 +15,43 @@ from typing import Any
 from .base import AgentCapability, AgentResult, BaseAgent
 from .prompts import get_enhanced_prompt
 from .test_planner import TestSpec
+
+
+# RAP-291: SQL Injection Prevention
+# Regex pattern for valid SQL identifiers (table names, column names)
+# Allows alphanumeric, underscores, and schema-qualified names (schema.table)
+VALID_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$")
+
+
+def validate_sql_identifier(identifier: str) -> str:
+    """Validate and quote a SQL identifier to prevent SQL injection.
+
+    Args:
+        identifier: Table or column name to validate
+
+    Returns:
+        Quoted identifier safe for SQL
+
+    Raises:
+        ValueError: If identifier contains invalid characters
+    """
+    if not identifier:
+        raise ValueError("SQL identifier cannot be empty")
+
+    # Check against allowlist pattern
+    if not VALID_IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(
+            f"Invalid SQL identifier: '{identifier}'. "
+            "Only alphanumeric characters, underscores, and dots (for schema.table) are allowed."
+        )
+
+    # Handle schema-qualified names (e.g., public.users)
+    if "." in identifier:
+        schema, table = identifier.split(".", 1)
+        return f'"{schema}"."{table}"'
+
+    # Quote the identifier to prevent any edge cases
+    return f'"{identifier}"'
 
 
 @dataclass
@@ -345,19 +383,102 @@ Respond with JSON containing:
                 error=str(e),
             )
 
+    async def _execute_query_parameterized(
+        self, query: str, params: dict
+    ) -> QueryResult:
+        """Execute a parameterized SQL query safely.
+
+        RAP-291: This method uses SQLAlchemy's parameterized query support
+        to prevent SQL injection attacks on values.
+
+        Args:
+            query: SQL query with :param_name placeholders
+            params: Dictionary mapping parameter names to values
+
+        Returns:
+            QueryResult with execution details
+        """
+        start_time = time.time()
+
+        try:
+            from sqlalchemy import text
+
+            # Create parameterized query
+            stmt = text(query)
+
+            if self._session:
+                result = await self._session.execute(stmt, params)
+                rows = [dict(row._mapping) for row in result.fetchall()]
+            else:
+                with self._engine.connect() as conn:
+                    result = conn.execute(stmt, params)
+                    rows = [dict(row._mapping) for row in result.fetchall()]
+
+            # Log query for debugging (without sensitive params)
+            self.log.debug(
+                "Executed parameterized query",
+                query=query[:100],
+                param_count=len(params),
+            )
+
+            return QueryResult(
+                query=query,  # Note: params not included in result for security
+                rows=rows,
+                row_count=len(rows),
+                execution_time_ms=int((time.time() - start_time) * 1000),
+                success=True,
+            )
+
+        except Exception as e:
+            self.log.error(
+                "Parameterized query failed",
+                error=str(e),
+                query=query[:100],
+            )
+            return QueryResult(
+                query=query,
+                rows=[],
+                row_count=0,
+                execution_time_ms=int((time.time() - start_time) * 1000),
+                success=False,
+                error=str(e),
+            )
+
     async def _validate_exists(
         self, table: str, conditions: dict
     ) -> DataValidationResult:
-        """Validate that a record exists."""
-        where_clauses = " AND ".join(
-            f"{k} = '{v}'" if isinstance(v, str) else f"{k} = {v}"
-            for k, v in conditions.items()
-        )
-        query = f"SELECT COUNT(*) as cnt FROM {table}"
-        if where_clauses:
-            query += f" WHERE {where_clauses}"
+        """Validate that a record exists.
 
-        result = await self._execute_query(query)
+        RAP-291: Uses parameterized queries to prevent SQL injection.
+        """
+        try:
+            # Validate table name against allowlist pattern
+            safe_table = validate_sql_identifier(table)
+
+            # Build parameterized WHERE clause
+            params = {}
+            where_parts = []
+            for i, (k, v) in enumerate(conditions.items()):
+                # Validate column name
+                safe_column = validate_sql_identifier(k)
+                param_name = f"param_{i}"
+                where_parts.append(f"{safe_column} = :{param_name}")
+                params[param_name] = v
+
+            query = f"SELECT COUNT(*) as cnt FROM {safe_table}"
+            if where_parts:
+                query += f" WHERE {' AND '.join(where_parts)}"
+
+            result = await self._execute_query_parameterized(query, params)
+        except ValueError as e:
+            return DataValidationResult(
+                validation_type="exists",
+                table=table,
+                passed=False,
+                expected="record exists",
+                actual="validation error",
+                error=str(e),
+            )
 
         if not result.success:
             return DataValidationResult(
@@ -384,16 +505,38 @@ Respond with JSON containing:
     async def _validate_count(
         self, table: str, expected_count: int, conditions: dict
     ) -> DataValidationResult:
-        """Validate record count."""
-        where_clauses = " AND ".join(
-            f"{k} = '{v}'" if isinstance(v, str) else f"{k} = {v}"
-            for k, v in conditions.items()
-        )
-        query = f"SELECT COUNT(*) as cnt FROM {table}"
-        if where_clauses:
-            query += f" WHERE {where_clauses}"
+        """Validate record count.
 
-        result = await self._execute_query(query)
+        RAP-291: Uses parameterized queries to prevent SQL injection.
+        """
+        try:
+            # Validate table name against allowlist pattern
+            safe_table = validate_sql_identifier(table)
+
+            # Build parameterized WHERE clause
+            params = {}
+            where_parts = []
+            for i, (k, v) in enumerate(conditions.items()):
+                # Validate column name
+                safe_column = validate_sql_identifier(k)
+                param_name = f"param_{i}"
+                where_parts.append(f"{safe_column} = :{param_name}")
+                params[param_name] = v
+
+            query = f"SELECT COUNT(*) as cnt FROM {safe_table}"
+            if where_parts:
+                query += f" WHERE {' AND '.join(where_parts)}"
+
+            result = await self._execute_query_parameterized(query, params)
+        except ValueError as e:
+            return DataValidationResult(
+                validation_type="count",
+                table=table,
+                passed=False,
+                expected=expected_count,
+                actual="validation error",
+                error=str(e),
+            )
 
         if not result.success:
             return DataValidationResult(
@@ -420,20 +563,39 @@ Respond with JSON containing:
     async def _validate_relationship(
         self, source_table: str, relationship: dict
     ) -> DataValidationResult:
-        """Validate a foreign key relationship."""
+        """Validate a foreign key relationship.
+
+        RAP-291: Uses validated identifiers to prevent SQL injection.
+        """
         target_table = relationship.get("target_table")
         source_column = relationship.get("source_column")
         target_column = relationship.get("target_column")
 
-        # Check for orphaned records
-        query = f"""
-            SELECT COUNT(*) as orphan_count
-            FROM {source_table} s
-            LEFT JOIN {target_table} t ON s.{source_column} = t.{target_column}
-            WHERE s.{source_column} IS NOT NULL AND t.{target_column} IS NULL
-        """
+        try:
+            # Validate all identifiers against allowlist pattern
+            safe_source_table = validate_sql_identifier(source_table)
+            safe_target_table = validate_sql_identifier(target_table)
+            safe_source_column = validate_sql_identifier(source_column)
+            safe_target_column = validate_sql_identifier(target_column)
 
-        result = await self._execute_query(query)
+            # Check for orphaned records using validated identifiers
+            query = f"""
+                SELECT COUNT(*) as orphan_count
+                FROM {safe_source_table} s
+                LEFT JOIN {safe_target_table} t ON s.{safe_source_column} = t.{safe_target_column}
+                WHERE s.{safe_source_column} IS NOT NULL AND t.{safe_target_column} IS NULL
+            """
+
+            result = await self._execute_query_parameterized(query, {})
+        except ValueError as e:
+            return DataValidationResult(
+                validation_type="relationship",
+                table=source_table,
+                passed=False,
+                expected="no orphaned records",
+                actual="validation error",
+                error=str(e),
+            )
 
         if not result.success:
             return DataValidationResult(
@@ -498,30 +660,56 @@ Respond with JSON containing:
         )
 
     async def get_table_schema(self, table_name: str) -> dict:
-        """Get schema information for a table."""
-        query = f"""
-            SELECT column_name, data_type, is_nullable, column_default
-            FROM information_schema.columns
-            WHERE table_name = '{table_name}'
-            ORDER BY ordinal_position
+        """Get schema information for a table.
+
+        RAP-291: Uses parameterized query to prevent SQL injection.
         """
+        try:
+            # Validate table name but don't quote it for the parameter
+            if not VALID_IDENTIFIER_PATTERN.match(table_name):
+                raise ValueError(f"Invalid table name: '{table_name}'")
 
-        result = await self._execute_query(query)
+            # Use parameterized query for the table name in WHERE clause
+            query = """
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = :table_name
+                ORDER BY ordinal_position
+            """
 
-        if result.success:
-            return {
-                "table": table_name,
-                "columns": result.rows,
-            }
-        return {"table": table_name, "error": result.error}
+            result = await self._execute_query_parameterized(
+                query, {"table_name": table_name}
+            )
+
+            if result.success:
+                return {
+                    "table": table_name,
+                    "columns": result.rows,
+                }
+            return {"table": table_name, "error": result.error}
+        except ValueError as e:
+            return {"table": table_name, "error": str(e)}
 
     async def get_table_stats(self, table_name: str) -> dict:
-        """Get statistics for a table."""
-        count_result = await self._execute_query(
-            f"SELECT COUNT(*) as total FROM {table_name}"
-        )
+        """Get statistics for a table.
 
-        return {
-            "table": table_name,
-            "row_count": count_result.rows[0]["total"] if count_result.success else 0,
-        }
+        RAP-291: Uses validated identifier to prevent SQL injection.
+        """
+        try:
+            # Validate and quote table name
+            safe_table = validate_sql_identifier(table_name)
+
+            count_result = await self._execute_query_parameterized(
+                f"SELECT COUNT(*) as total FROM {safe_table}", {}
+            )
+
+            return {
+                "table": table_name,
+                "row_count": count_result.rows[0]["total"] if count_result.success else 0,
+            }
+        except ValueError as e:
+            return {
+                "table": table_name,
+                "row_count": 0,
+                "error": str(e),
+            }

@@ -332,3 +332,79 @@ async def validate_project_access(
     # For now, if user has org access, they have project access
     # Enterprise tier could add project-level permissions
     return True
+
+
+async def validate_project_ownership(
+    project_id: str,
+    user_org_id: str | None,
+) -> bool:
+    """Validate that a project belongs to the user's organization.
+
+    RAP-293: IDOR Prevention - This function validates that a project_id
+    parameter provided in API requests belongs to the authenticated user's
+    organization, preventing cross-tenant data access.
+
+    Args:
+        project_id: The project ID from the request
+        user_org_id: The authenticated user's organization ID
+
+    Returns:
+        True if the project belongs to the user's organization
+
+    Raises:
+        HTTPException: 403 if access denied, 400 if no org context
+    """
+    from src.services.supabase_client import get_supabase_client
+
+    if not user_org_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Organization context required for this operation"
+        )
+
+    if not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Project ID is required"
+        )
+
+    # Query the projects table to verify ownership
+    supabase = get_supabase_client()
+    try:
+        result = await supabase.request(
+            f"/projects?id=eq.{project_id}&organization_id=eq.{user_org_id}&select=id"
+        )
+
+        if result.get("error"):
+            logger.error(
+                "Failed to validate project ownership",
+                project_id=project_id,
+                org_id=user_org_id,
+                error=result.get("error")
+            )
+            raise HTTPException(status_code=500, detail="Failed to validate project access")
+
+        data = result.get("data", [])
+        if not data:
+            logger.warning(
+                "IDOR attempt blocked: project access denied",
+                project_id=project_id,
+                requested_by_org=user_org_id,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: project does not belong to your organization"
+            )
+
+        return True
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error validating project ownership",
+            project_id=project_id,
+            org_id=user_org_id,
+            error=str(e)
+        )
+        raise HTTPException(status_code=500, detail="Failed to validate project access")

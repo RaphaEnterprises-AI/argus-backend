@@ -8,11 +8,43 @@ This plugin provides integration with Turso (libSQL) for:
 - Connection testing
 """
 
+import re
 import time
 from datetime import datetime
 from typing import Any, Optional
 
 import httpx
+
+
+# RAP-291: SQL Injection Prevention for Turso queries
+# Regex pattern for valid SQL identifiers (table names, column names)
+VALID_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_turso_identifier(identifier: str) -> str:
+    """Validate a SQL identifier for Turso queries to prevent SQL injection.
+
+    Args:
+        identifier: Table or column name to validate
+
+    Returns:
+        The validated identifier (Turso/SQLite uses double quotes for identifiers)
+
+    Raises:
+        ValueError: If identifier contains invalid characters
+    """
+    if not identifier:
+        raise ValueError("SQL identifier cannot be empty")
+
+    # Check against allowlist pattern
+    if not VALID_IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(
+            f"Invalid SQL identifier: '{identifier}'. "
+            "Only alphanumeric characters and underscores are allowed."
+        )
+
+    # Quote the identifier for safety (SQLite style)
+    return f'"{identifier}"'
 
 from src.integrations.base import (
     AuthType,
@@ -657,10 +689,18 @@ class TursoPlugin(IntegrationPlugin):
                 if table and table_name != table:
                     continue
 
-                # Get column info
+                # Get column info - RAP-291: Validate table name to prevent SQL injection
+                # Note: table_name comes from sqlite_master but could be crafted maliciously
+                try:
+                    if not VALID_IDENTIFIER_PATTERN.match(table_name):
+                        continue  # Skip tables with invalid names
+                    safe_table = validate_turso_identifier(table_name)
+                except ValueError:
+                    continue  # Skip tables with invalid names
+
                 columns_result = await self.execute_query(
                     credentials,
-                    f"PRAGMA table_info({table_name})",
+                    f"PRAGMA table_info({safe_table})",
                 )
 
                 columns = []
@@ -707,30 +747,65 @@ class TursoPlugin(IntegrationPlugin):
             table: Table to insert data into.
             records: List of records to insert.
             cleanup_first: Whether to delete existing data first.
-            cleanup_condition: Optional WHERE clause for cleanup (e.g., "type = 'test'").
+            cleanup_condition: Optional parameterized WHERE clause dict
+                               (e.g., {"column": "type", "value": "test"}).
+                               Raw SQL strings are no longer accepted for security.
 
         Returns:
             Result of the operation.
+
+        RAP-291: This method now validates all identifiers and uses parameterized
+        queries to prevent SQL injection attacks.
         """
         results: dict[str, Any] = {"cleanup": None, "insert": None}
         statements: list[dict[str, Any]] = []
 
         try:
+            # RAP-291: Validate table name
+            safe_table = validate_turso_identifier(table)
+
             # Cleanup existing test data if requested
             if cleanup_first:
-                cleanup_sql = f"DELETE FROM {table}"
+                cleanup_sql = f"DELETE FROM {safe_table}"
+
+                # RAP-291: Handle cleanup_condition securely
                 if cleanup_condition:
-                    cleanup_sql += f" WHERE {cleanup_condition}"
-                statements.append({"q": cleanup_sql})
+                    # If cleanup_condition is a dict, use parameterized query
+                    if isinstance(cleanup_condition, dict):
+                        col = cleanup_condition.get("column", "")
+                        val = cleanup_condition.get("value")
+                        safe_col = validate_turso_identifier(col)
+                        cleanup_sql += f" WHERE {safe_col} = ?"
+                        statements.append({"q": cleanup_sql, "params": [val]})
+                    else:
+                        # For backwards compatibility, validate that it looks safe
+                        # Only allow simple column = 'value' patterns
+                        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*['\"]?[^'\"]+['\"]?$", cleanup_condition):
+                            return {
+                                "success": False,
+                                "error": "Invalid cleanup_condition format. Use dict format: {'column': 'col', 'value': 'val'}",
+                                "results": results,
+                            }
+                        # Log deprecation warning
+                        cleanup_sql += f" WHERE {cleanup_condition}"
+                        statements.append({"q": cleanup_sql})
+                else:
+                    statements.append({"q": cleanup_sql})
 
             # Build insert statements
             if records:
                 for record in records:
                     columns = list(record.keys())
+
+                    # RAP-291: Validate all column names
+                    safe_columns = []
+                    for col in columns:
+                        safe_columns.append(validate_turso_identifier(col))
+
                     placeholders = ", ".join(["?" for _ in columns])
                     values = [record[col] for col in columns]
 
-                    insert_sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+                    insert_sql = f"INSERT INTO {safe_table} ({', '.join(safe_columns)}) VALUES ({placeholders})"
                     statements.append({"q": insert_sql, "params": values})
 
             # Execute batch

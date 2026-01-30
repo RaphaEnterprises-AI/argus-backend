@@ -15,10 +15,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.security.auth import UserContext, get_current_user
 from src.integrations.supabase import get_supabase, is_supabase_configured
 
 logger = structlog.get_logger()
@@ -1596,7 +1597,11 @@ async def get_schedule_runs(
 
 
 @router.get("/{schedule_id}/runs/{run_id}", response_model=ScheduleRunResponse)
-async def get_schedule_run(schedule_id: str, run_id: str):
+async def get_schedule_run(
+    schedule_id: str,
+    run_id: str,
+    user: UserContext = Depends(get_current_user),
+):
     """
     Get details for a specific run.
 
@@ -1604,6 +1609,11 @@ async def get_schedule_run(schedule_id: str, run_id: str):
     """
     if schedule_id not in schedules:
         raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # RAP-293: IDOR Prevention - Verify schedule belongs to user's organization
+    schedule = schedules.get(schedule_id)
+    if schedule and schedule.get("organization_id") != user.organization_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     runs = schedule_runs.get(schedule_id, [])
     run = next((r for r in runs if r["id"] == run_id), None)
@@ -1637,7 +1647,11 @@ async def get_schedule_run(schedule_id: str, run_id: str):
 
 
 @router.post("/{schedule_id}/runs/{run_id}/cancel")
-async def cancel_run(schedule_id: str, run_id: str):
+async def cancel_run(
+    schedule_id: str,
+    run_id: str,
+    user: UserContext = Depends(get_current_user),
+):
     """
     Cancel a running test run.
 
@@ -1645,6 +1659,11 @@ async def cancel_run(schedule_id: str, run_id: str):
     """
     if schedule_id not in schedules:
         raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # RAP-293: IDOR Prevention - Verify schedule belongs to user's organization
+    schedule = schedules.get(schedule_id)
+    if schedule and schedule.get("organization_id") != user.organization_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     runs = schedule_runs.get(schedule_id, [])
     run = next((r for r in runs if r["id"] == run_id), None)
@@ -1671,7 +1690,11 @@ async def cancel_run(schedule_id: str, run_id: str):
 
 
 @router.get("/{schedule_id}/runs/{run_id}/stream")
-async def stream_schedule_run(schedule_id: str, run_id: str):
+async def stream_schedule_run(
+    schedule_id: str,
+    run_id: str,
+    user: UserContext = Depends(get_current_user),
+):
     """
     Stream run progress via Server-Sent Events.
 
@@ -1698,6 +1721,10 @@ async def stream_schedule_run(schedule_id: str, run_id: str):
     schedule = await _get_schedule_from_db(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # RAP-293: IDOR Prevention - Verify schedule belongs to user's organization
+    if schedule.get("organization_id") != user.organization_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     queue_key = f"{schedule_id}:{run_id}"
 

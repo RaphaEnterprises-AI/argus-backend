@@ -52,6 +52,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_project_ownership
 from src.api.security.auth import UserContext, get_current_user
 from src.services.event_gateway import (
     ArgusEvent,
@@ -254,17 +255,20 @@ async def publish_event(
             f"Valid types: {[e.value for e in EventType]}"
         )
 
-    # Use authenticated user's org if not specified
-    org_id = payload.org_id
-    if user.organization_id and payload.org_id != user.organization_id:
-        # Log potential cross-tenant access attempt
+    # RAP-293: IDOR Prevention - Force org_id to authenticated user's organization
+    org_id = user.organization_id or payload.org_id
+    if payload.org_id != org_id:
+        # Log cross-tenant attempt
         logger.warning(
-            "Cross-tenant event publish attempt",
+            "Cross-tenant event publish attempt blocked",
             requested_org=payload.org_id,
             user_org=user.organization_id,
             user_id=user.user_id,
         )
-        org_id = user.organization_id  # Force to user's org
+
+    # RAP-293: Validate project belongs to user's organization if provided
+    if payload.project_id:
+        await validate_project_ownership(payload.project_id, org_id)
 
     gateway = await get_or_start_gateway()
     event_id = str(uuid4())
@@ -376,17 +380,29 @@ async def publish_batch_events(
             # Validate event structure
             if "event_type" not in event_data:
                 raise ValueError("Missing 'event_type' field")
-            if "org_id" not in event_data:
-                raise ValueError("Missing 'org_id' field")
 
             event_type = event_data["event_type"]
             event_type_enum = _event_type_from_string(event_type)
             if event_type_enum is None:
                 raise ValueError(f"Unknown event type: {event_type}")
 
-            org_id = event_data["org_id"]
+            # RAP-293: IDOR Prevention - Force org_id to user's organization
+            org_id = user.organization_id or event_data.get("org_id")
+            if event_data.get("org_id") and event_data.get("org_id") != org_id:
+                logger.warning(
+                    "Cross-tenant batch event blocked",
+                    requested_org=event_data.get("org_id"),
+                    user_org=user.organization_id,
+                    event_index=i,
+                )
+
             data = event_data.get("data", {})
             project_id = event_data.get("project_id")
+
+            # RAP-293: Validate project belongs to user's organization
+            if project_id:
+                await validate_project_ownership(project_id, org_id)
+
             event_id = str(uuid4())
             topic = f"argus.{event_type}"
             timestamp = datetime.now(UTC).isoformat()
@@ -395,7 +411,7 @@ async def publish_batch_events(
                 result = await gateway.publish(
                     event_type=event_type_enum,
                     data=data,
-                    org_id=org_id,
+                    org_id=org_id,  # RAP-293: Use validated org_id
                     project_id=project_id,
                     user_id=event_data.get("user_id") or user.user_id,
                     correlation_id=event_data.get("correlation_id"),
@@ -481,6 +497,19 @@ async def publish_test_executed(
 
     This is the primary endpoint for Cognee pattern learning.
     """
+    # RAP-293: IDOR Prevention - Force org_id to user's organization
+    org_id = user.organization_id or payload.org_id
+    if payload.org_id and payload.org_id != org_id:
+        logger.warning(
+            "Cross-tenant test.executed attempt blocked",
+            requested_org=payload.org_id,
+            user_org=user.organization_id,
+        )
+
+    # RAP-293: Validate project belongs to user's organization
+    if payload.project_id:
+        await validate_project_ownership(payload.project_id, org_id)
+
     gateway = await get_or_start_gateway()
     event_id = str(uuid4())
     topic = "argus.test.executed"
@@ -504,7 +533,7 @@ async def publish_test_executed(
             result = await gateway.publish(
                 event_type=EventType.TEST_EXECUTED,
                 data=data,
-                org_id=payload.org_id,
+                org_id=org_id,  # RAP-293: Use validated org_id
                 project_id=payload.project_id,
                 user_id=user.user_id,
             )
@@ -539,6 +568,19 @@ async def publish_test_failed(
 
     Critical for Cognee failure pattern learning and self-healing.
     """
+    # RAP-293: IDOR Prevention - Force org_id to user's organization
+    org_id = user.organization_id or payload.org_id
+    if payload.org_id and payload.org_id != org_id:
+        logger.warning(
+            "Cross-tenant test.failed attempt blocked",
+            requested_org=payload.org_id,
+            user_org=user.organization_id,
+        )
+
+    # RAP-293: Validate project belongs to user's organization
+    if payload.project_id:
+        await validate_project_ownership(payload.project_id, org_id)
+
     gateway = await get_or_start_gateway()
     event_id = str(uuid4())
     topic = "argus.test.failed"
@@ -562,7 +604,7 @@ async def publish_test_failed(
             result = await gateway.publish(
                 event_type=EventType.TEST_FAILED,
                 data=data,
-                org_id=payload.org_id,
+                org_id=org_id,  # RAP-293: Use validated org_id
                 project_id=payload.project_id,
                 user_id=user.user_id,
             )
