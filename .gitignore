@@ -102,3 +102,6 @@ supabase/.temp/
 **/.temp/
 audit-logs/
 argus-plugin/
+
+# Git worktrees
+.worktrees/
