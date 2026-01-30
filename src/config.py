@@ -98,7 +98,59 @@ class Settings(BaseSettings):
     # Cloud platform providers
     azure_openai_api_key: SecretStr | None = Field(None, description="Azure OpenAI API key")
     azure_openai_endpoint: str | None = Field(None, description="Azure OpenAI endpoint URL")
-    aws_bedrock_region: str | None = Field(None, description="AWS Bedrock region (e.g., us-east-1, us-west-2)")
+
+    # ==========================================================================
+    # AWS Bedrock Configuration (RAP-301: Enterprise AWS Deployments)
+    # ==========================================================================
+    # Benefits: IAM role authentication, unified AWS billing, VPC endpoints,
+    # SOC2/HIPAA/FedRAMP compliance, data stays in AWS account
+    #
+    # Authentication priority:
+    # 1. Explicit access keys (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)
+    # 2. AWS profile (AWS_PROFILE)
+    # 3. IAM role (recommended for EC2/ECS/Lambda)
+    # 4. Environment credentials chain
+
+    aws_bedrock_region: str | None = Field(
+        None,
+        description="AWS Bedrock region (e.g., us-east-1, us-west-2)"
+    )
+    aws_bedrock_access_key_id: str | None = Field(
+        None,
+        description="AWS access key ID for Bedrock (optional if using IAM roles)"
+    )
+    aws_bedrock_secret_access_key: SecretStr | None = Field(
+        None,
+        description="AWS secret access key for Bedrock (optional if using IAM roles)"
+    )
+    aws_bedrock_session_token: str | None = Field(
+        None,
+        description="AWS session token for temporary credentials"
+    )
+    aws_bedrock_profile: str | None = Field(
+        None,
+        description="AWS profile name from ~/.aws/credentials"
+    )
+    aws_bedrock_default_model: str = Field(
+        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        description="Default Bedrock model ID for inference"
+    )
+    aws_bedrock_max_retries: int = Field(
+        3,
+        description="Maximum retries for Bedrock throttling errors"
+    )
+    aws_bedrock_retry_delay: float = Field(
+        1.0,
+        description="Base delay in seconds between Bedrock retries (exponential backoff)"
+    )
+    aws_bedrock_cross_region_inference: bool = Field(
+        False,
+        description="Enable cross-region inference for higher availability"
+    )
+    aws_bedrock_fallback_regions: str = Field(
+        "us-west-2,eu-west-1",
+        description="Comma-separated list of fallback regions for cross-region inference"
+    )
 
     # Vertex AI Configuration (Claude via Google Cloud)
     # Benefits: Unified GCP billing, committed spend, enterprise features, Computer Use supported

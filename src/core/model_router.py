@@ -19,6 +19,7 @@ MODEL TIERS:
 - Tier 4 (Expert): Debugging, novel problems → $0.05/call
 """
 
+import asyncio
 import os
 import time
 from abc import ABC, abstractmethod
@@ -599,6 +600,203 @@ MODELS = {
         supports_json_mode=True,
         supports_thinking=True,  # Reasoning model
         latency_ms=3000,
+    ),
+
+    # =============================================================================
+    # AWS BEDROCK (RAP-301: Enterprise AWS Deployments)
+    # =============================================================================
+    # For enterprise deployments within AWS ecosystem.
+    # Benefits: IAM authentication, VPC endpoints, unified AWS billing,
+    # SOC2/HIPAA/FedRAMP compliance, data stays in AWS account.
+    #
+    # Pricing is same as direct API but with AWS billing consolidation.
+    # Configure via AWS_BEDROCK_REGION env var.
+
+    # Claude models on Bedrock
+    "bedrock-claude-sonnet-4": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+        input_cost_per_1m=3.00,
+        output_cost_per_1m=15.00,
+        max_tokens=8192,
+        context_window=200000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=False,
+        supports_computer_use=True,
+        latency_ms=1000,
+    ),
+
+    "bedrock-claude-opus-4": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="anthropic.claude-opus-4-20250514-v1:0",
+        input_cost_per_1m=15.00,
+        output_cost_per_1m=75.00,
+        max_tokens=8192,
+        context_window=200000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=False,
+        supports_computer_use=True,
+        supports_thinking=True,
+        latency_ms=2000,
+    ),
+
+    "bedrock-claude-3-5-sonnet": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        input_cost_per_1m=3.00,
+        output_cost_per_1m=15.00,
+        max_tokens=8192,
+        context_window=200000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=False,
+        supports_computer_use=True,
+        latency_ms=1000,
+    ),
+
+    "bedrock-claude-3-5-haiku": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="anthropic.claude-3-5-haiku-20241022-v1:0",
+        input_cost_per_1m=0.80,
+        output_cost_per_1m=4.00,
+        max_tokens=8192,
+        context_window=200000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=False,
+        supports_computer_use=False,
+        latency_ms=500,
+    ),
+
+    "bedrock-claude-3-haiku": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="anthropic.claude-3-haiku-20240307-v1:0",
+        input_cost_per_1m=0.25,
+        output_cost_per_1m=1.25,
+        max_tokens=4096,
+        context_window=200000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=False,
+        supports_computer_use=False,
+        latency_ms=400,
+    ),
+
+    # Llama models on Bedrock
+    "bedrock-llama-3-2-90b": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="meta.llama3-2-90b-instruct-v1:0",
+        input_cost_per_1m=0.72,
+        output_cost_per_1m=0.72,
+        max_tokens=4096,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=800,
+    ),
+
+    "bedrock-llama-3-2-11b": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="meta.llama3-2-11b-instruct-v1:0",
+        input_cost_per_1m=0.16,
+        output_cost_per_1m=0.16,
+        max_tokens=4096,
+        context_window=128000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=400,
+    ),
+
+    "bedrock-llama-3-2-3b": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="meta.llama3-2-3b-instruct-v1:0",
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=0.15,
+        max_tokens=4096,
+        context_window=128000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=200,
+    ),
+
+    # Amazon Titan models on Bedrock
+    "bedrock-titan-premier": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="amazon.titan-text-premier-v1:0",
+        input_cost_per_1m=0.50,
+        output_cost_per_1m=1.50,
+        max_tokens=3072,
+        context_window=32000,
+        supports_vision=False,
+        supports_tools=False,
+        supports_json_mode=False,
+        supports_computer_use=False,
+        latency_ms=600,
+    ),
+
+    "bedrock-titan-express": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="amazon.titan-text-express-v1",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=0.60,
+        max_tokens=2048,
+        context_window=8000,
+        supports_vision=False,
+        supports_tools=False,
+        supports_json_mode=False,
+        supports_computer_use=False,
+        latency_ms=400,
+    ),
+
+    "bedrock-titan-lite": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="amazon.titan-text-lite-v1",
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=0.20,
+        max_tokens=2048,
+        context_window=4000,
+        supports_vision=False,
+        supports_tools=False,
+        supports_json_mode=False,
+        supports_computer_use=False,
+        latency_ms=300,
+    ),
+
+    # Mistral models on Bedrock
+    "bedrock-mistral-large": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="mistral.mistral-large-2407-v1:0",
+        input_cost_per_1m=2.00,
+        output_cost_per_1m=6.00,
+        max_tokens=8192,
+        context_window=128000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=700,
+    ),
+
+    "bedrock-mistral-small": ModelConfig(
+        provider=ModelProvider.AWS_BEDROCK,
+        model_id="mistral.mistral-small-2402-v1:0",
+        input_cost_per_1m=0.10,
+        output_cost_per_1m=0.30,
+        max_tokens=8192,
+        context_window=32000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_computer_use=False,
+        latency_ms=400,
     ),
 }
 
@@ -1831,6 +2029,263 @@ class OllamaClient(BaseModelClient):
         return await self.complete(messages, model_config, max_tokens)
 
 
+class BedrockClient(BaseModelClient):
+    """
+    Client for AWS Bedrock foundation models.
+
+    RAP-301: Enterprise AWS Deployments - Enables Claude, Llama, and Titan models
+    via AWS Bedrock with IAM authentication, VPC endpoints, and unified AWS billing.
+
+    Benefits:
+        - IAM role authentication (no API keys needed)
+        - Data stays in your AWS account
+        - VPC endpoints for private connectivity
+        - SOC2, HIPAA, FedRAMP compliance
+        - Unified AWS billing
+
+    Supported Model Families:
+        - Claude (Anthropic): claude-3-5-sonnet, claude-3-5-haiku, claude-4
+        - Llama (Meta): llama-3-2-90b, llama-3-2-11b, etc.
+        - Titan (Amazon): titan-text-premier, titan-text-express
+        - Mistral: mistral-large, mistral-small
+    """
+
+    def __init__(
+        self,
+        region: str | None = None,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ):
+        """Initialize Bedrock client.
+
+        Args:
+            region: AWS region (defaults to AWS_BEDROCK_REGION env var)
+            max_retries: Maximum retries for throttling errors
+            retry_delay: Base delay in seconds for exponential backoff
+        """
+        self._provider = None
+        self._region = region or os.environ.get("AWS_BEDROCK_REGION", "us-east-1")
+        self._max_retries = max_retries
+        self._retry_delay = retry_delay
+        self._initialized = False
+        self._langfuse = None
+
+    @property
+    def provider(self):
+        """Lazy load Bedrock provider."""
+        if self._provider is None:
+            from src.core.providers.bedrock_provider import BedrockProvider
+
+            self._provider = BedrockProvider(
+                region=self._region,
+                access_key_id=os.environ.get("AWS_BEDROCK_ACCESS_KEY_ID") or os.environ.get("AWS_ACCESS_KEY_ID"),
+                secret_access_key=os.environ.get("AWS_BEDROCK_SECRET_ACCESS_KEY") or os.environ.get("AWS_SECRET_ACCESS_KEY"),
+                session_token=os.environ.get("AWS_BEDROCK_SESSION_TOKEN") or os.environ.get("AWS_SESSION_TOKEN"),
+                profile_name=os.environ.get("AWS_BEDROCK_PROFILE") or os.environ.get("AWS_PROFILE"),
+            )
+        return self._provider
+
+    @property
+    def langfuse(self):
+        """Lazy load Langfuse client."""
+        if self._langfuse is None:
+            from .ai_client import _get_langfuse
+            self._langfuse = _get_langfuse()
+        return self._langfuse
+
+    async def _ensure_initialized(self):
+        """Ensure the client is initialized and credentials are valid."""
+        if not self._initialized:
+            try:
+                health = await self.provider.health_check()
+                if health.get("status") != "healthy":
+                    logger.warning(
+                        "Bedrock health check warning",
+                        status=health.get("status"),
+                        region=self._region,
+                        auth_method=health.get("auth_method"),
+                    )
+                else:
+                    logger.info(
+                        "Bedrock client initialized",
+                        region=self._region,
+                        auth_method=health.get("auth_method"),
+                    )
+            except Exception as e:
+                logger.error(f"Bedrock initialization error: {e}")
+            self._initialized = True
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: list | None = None,
+    ) -> dict:
+        """Generate a completion using AWS Bedrock.
+
+        Includes retry logic for throttling errors with exponential backoff.
+        """
+        await self._ensure_initialized()
+
+        from src.core.providers.base import ChatMessage
+        from src.core.providers.bedrock_provider import ThrottlingError
+
+        # Convert dict messages to ChatMessage objects
+        chat_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            chat_messages.append(ChatMessage(role=role, content=content))
+
+        # Create Langfuse trace if available
+        generation = None
+        if self.langfuse:
+            trace = self.langfuse.trace(
+                name="model_router:bedrock",
+                tags=["model_router", "bedrock", f"model:{model_config.model_id}"],
+                metadata={"component": "ModelRouter", "region": self._region},
+            )
+            generation = trace.generation(
+                name="bedrock_completion",
+                model=model_config.model_id,
+                input=messages,
+                model_parameters={"max_tokens": max_tokens, "temperature": temperature},
+            )
+
+        start_time = time.time()
+        last_error = None
+
+        # Retry loop with exponential backoff for throttling
+        for attempt in range(self._max_retries):
+            try:
+                response = await self.provider.chat(
+                    messages=chat_messages,
+                    model=model_config.model_id,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tools=tools,
+                )
+
+                result = {
+                    "content": response.content,
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                    "model": response.model,
+                }
+
+                # End Langfuse generation on success
+                if generation:
+                    generation.end(
+                        output=result["content"],
+                        usage={
+                            "input": result["input_tokens"],
+                            "output": result["output_tokens"],
+                            "total": result["input_tokens"] + result["output_tokens"],
+                        },
+                        metadata={
+                            "latency_ms": (time.time() - start_time) * 1000,
+                            "region": self._region,
+                            "attempts": attempt + 1,
+                        },
+                    )
+
+                return result
+
+            except ThrottlingError as e:
+                last_error = e
+                if attempt < self._max_retries - 1:
+                    # Exponential backoff with jitter
+                    import random
+                    delay = self._retry_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                    logger.warning(
+                        "Bedrock throttled, retrying",
+                        attempt=attempt + 1,
+                        max_retries=self._max_retries,
+                        delay=delay,
+                        model=model_config.model_id,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "Bedrock throttling exceeded max retries",
+                        max_retries=self._max_retries,
+                        model=model_config.model_id,
+                    )
+                    if generation:
+                        generation.end(level="ERROR", status_message=str(e))
+                    raise
+
+            except Exception as e:
+                last_error = e
+                logger.error(f"Bedrock completion error: {e}")
+                if generation:
+                    generation.end(level="ERROR", status_message=str(e))
+                raise
+
+        # If we get here, we've exhausted retries
+        raise last_error or Exception("Bedrock request failed after retries")
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """Generate a completion with images using Bedrock.
+
+        Note: Vision is supported by Claude models on Bedrock.
+        """
+        import base64
+
+        # Convert images to Bedrock/Claude format
+        enhanced_messages = messages.copy()
+        if enhanced_messages and enhanced_messages[-1]["role"] == "user":
+            image_content = []
+            for img in images:
+                image_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": base64.b64encode(img).decode(),
+                    }
+                })
+
+            # Merge with existing content
+            last_msg = enhanced_messages[-1]
+            if isinstance(last_msg["content"], str):
+                enhanced_messages[-1]["content"] = [
+                    {"type": "text", "text": last_msg["content"]},
+                    *image_content
+                ]
+            else:
+                enhanced_messages[-1]["content"].extend(image_content)
+
+        return await self.complete(enhanced_messages, model_config, max_tokens)
+
+    async def computer_use(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        tools: list[dict],
+        max_tokens: int = 4096,
+    ) -> dict:
+        """Execute Computer Use task via Bedrock.
+
+        Computer Use is fully supported by Claude models on Bedrock.
+        """
+        return await self.complete(
+            messages=messages,
+            model_config=model_config,
+            max_tokens=max_tokens,
+            tools=tools,
+        )
+
+
 class ModelRouter:
     """
     Intelligent model router that selects the best model for each task.
@@ -1933,6 +2388,19 @@ class ModelRouter:
                     provider=provider.value,
                 )
                 self._clients[provider] = OllamaClient()
+
+            # AWS Bedrock - Enterprise AWS deployments (RAP-301)
+            elif provider == ModelProvider.AWS_BEDROCK:
+                logger.info(
+                    "Using AWS Bedrock for enterprise inference",
+                    provider=provider.value,
+                    region=os.environ.get("AWS_BEDROCK_REGION", "us-east-1"),
+                )
+                self._clients[provider] = BedrockClient(
+                    region=os.environ.get("AWS_BEDROCK_REGION"),
+                    max_retries=int(os.environ.get("AWS_BEDROCK_MAX_RETRIES", "3")),
+                    retry_delay=float(os.environ.get("AWS_BEDROCK_RETRY_DELAY", "1.0")),
+                )
 
             # Less common providers - fallback to OpenRouter if not configured
             elif provider in (ModelProvider.CEREBRAS, ModelProvider.DEEPSEEK,

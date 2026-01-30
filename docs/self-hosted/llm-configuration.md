@@ -414,3 +414,163 @@ brain:
 # Verify NVIDIA runtime
 kubectl exec deploy/argus-ollama -n argus -- nvidia-smi
 ```
+
+## External Dependencies Reference {#external-dependencies}
+
+This section documents all external network dependencies for each deployment mode.
+Use this to plan firewall rules and verify air-gap compliance.
+
+### Cloud Deployment Dependencies
+
+When using cloud LLM providers, the following external endpoints are required:
+
+| Component | Endpoint | Port | Purpose |
+|-----------|----------|------|---------|
+| **Anthropic** | api.anthropic.com | 443 | Claude API |
+| **OpenRouter** | api.openrouter.ai | 443 | Multi-model API |
+| **Azure OpenAI** | *.openai.azure.com | 443 | Azure OpenAI API |
+| **AWS Bedrock** | bedrock.*.amazonaws.com | 443 | Bedrock API |
+| **OpenAI** | api.openai.com | 443 | OpenAI API (via OpenRouter) |
+| **Google** | generativelanguage.googleapis.com | 443 | Gemini API (via OpenRouter) |
+| **Cohere** | api.cohere.ai | 443 | Embeddings (optional) |
+
+**Storage (if using cloud storage):**
+
+| Component | Endpoint | Port | Purpose |
+|-----------|----------|------|---------|
+| **Cloudflare R2** | *.r2.cloudflarestorage.com | 443 | Artifact storage |
+| **AWS S3** | s3.*.amazonaws.com | 443 | S3 storage |
+| **Supabase Storage** | *.supabase.co | 443 | Supabase storage |
+
+### Air-Gap Mode Dependencies
+
+When configured for air-gap operation with Ollama and MinIO, **no external network access is required**.
+
+| Component | Endpoint | Port | Notes |
+|-----------|----------|------|-------|
+| **Ollama** | localhost:11434 | 11434 | Local only |
+| **MinIO** | localhost:9000 | 9000 | Local only |
+| **PostgreSQL** | localhost:5432 | 5432 | Local only |
+| **Valkey/Redis** | localhost:6379 | 6379 | Local only |
+
+### Components That Require Pre-Installation for Air-Gap
+
+The following must be pre-installed/downloaded before disconnecting from the internet:
+
+1. **Ollama Models** (40-100GB depending on models)
+   ```bash
+   # Pre-download required models
+   ollama pull llama3.1:70b        # 40GB
+   ollama pull codellama:34b       # 19GB
+   ollama pull nomic-embed-text    # 300MB (for embeddings)
+   ```
+
+2. **Container Images** (~5GB total)
+   ```bash
+   # Pull and save all required images
+   docker pull ollama/ollama:latest
+   docker pull minio/minio:latest
+   docker pull postgres:15
+   docker pull redis:7-alpine
+   docker pull ghcr.io/argus/argus-brain:latest
+
+   # Save to archive for air-gap transfer
+   docker save ollama/ollama minio/minio postgres:15 redis:7-alpine \
+     ghcr.io/argus/argus-brain:latest | gzip > argus-images.tar.gz
+   ```
+
+3. **Helm Charts**
+   ```bash
+   # Download charts for offline installation
+   helm pull argus/argus-enterprise --version 1.0.0
+   ```
+
+4. **Python Dependencies** (for development only)
+   ```bash
+   pip download -r requirements.txt -d ./offline-packages/
+   ```
+
+### Verifying Air-Gap Compliance
+
+Run the air-gap integration tests to verify no external calls are made:
+
+```bash
+# Install test dependencies
+pip install pytest pytest-asyncio httpx
+
+# Run air-gap validation tests
+pytest tests/integration/test_airgap.py -v -m airgap
+
+# Generate validation report
+pytest tests/integration/test_airgap.py::test_airgap_validation_report -v
+```
+
+The test suite verifies:
+- Ollama responds without external network calls
+- MinIO handles artifact storage locally
+- Full test generation workflow completes offline
+- No DNS queries or TCP connections to external hosts
+
+### Network Isolation Testing
+
+For strict air-gap validation, run tests with network isolation:
+
+```bash
+# Linux: Use network namespace
+sudo unshare --net pytest tests/integration/test_airgap.py -v
+
+# Docker: Use --network=none
+docker run --network=none -v $(pwd):/app argus-test \
+  pytest /app/tests/integration/test_airgap.py -v
+
+# Kubernetes: Use NetworkPolicy to block egress
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: argus
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector: {}  # Allow within cluster only
+EOF
+```
+
+### Remaining Dependencies to Address
+
+The following features have optional external dependencies that can be disabled:
+
+| Feature | External Dependency | Air-Gap Alternative | Configuration |
+|---------|---------------------|---------------------|---------------|
+| Telemetry | Sentry | Disable | `SENTRY_ENABLED=false` |
+| Webhooks | External URLs | Internal only | Configure internal endpoints |
+| GitHub/GitLab Integration | API | Disable or use self-hosted | Configure self-hosted URLs |
+| Documentation links | docs.heyargus.ai | Bundle locally | Use offline docs |
+
+To fully disable all external features:
+
+```yaml
+# values-airgap.yaml
+brain:
+  env:
+    # Disable telemetry
+    SENTRY_ENABLED: "false"
+    TELEMETRY_ENABLED: "false"
+
+    # Use local providers only
+    LLM_PROVIDER: "ollama"
+    STORAGE_PROVIDER: "minio"
+
+    # Disable external integrations
+    GITHUB_INTEGRATION_ENABLED: "false"
+    GITLAB_INTEGRATION_ENABLED: "false"
+
+    # Use local embedding model
+    EMBEDDING_PROVIDER: "ollama"
+    EMBEDDING_MODEL: "nomic-embed-text"
+```

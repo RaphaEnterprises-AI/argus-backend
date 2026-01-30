@@ -69,7 +69,7 @@ Configuration:
         - CEREBRAS_API_KEY: Your Cerebras API key
 """
 
-from .azure_provider import AzureOpenAIProvider
+from .azure_provider import AzureOpenAIProvider, get_azure_openai_provider
 from .base import (
     AuthenticationError,
     # Base class
@@ -91,7 +91,13 @@ from .base import (
     RateLimitError,
     ToolCall,
 )
-from .bedrock_provider import BedrockError, BedrockProvider, ServiceQuotaError, ThrottlingError
+from .bedrock_provider import (
+    BedrockError,
+    BedrockProvider,
+    ServiceQuotaError,
+    ThrottlingError,
+    get_bedrock_provider,
+)
 from .cerebras_provider import CerebrasProvider
 from .deepseek_provider import DEEPSEEK_MODELS, DeepSeekProvider
 from .mistral_provider import MistralProvider
@@ -124,6 +130,9 @@ __all__ = [
     "XAIProvider",
     "OllamaProvider",
     "OLLAMA_COMMON_MODELS",
+    # Factory functions
+    "get_azure_openai_provider",
+    "get_bedrock_provider",
     "get_openrouter_provider",
     "get_ollama_provider",
     # Exceptions

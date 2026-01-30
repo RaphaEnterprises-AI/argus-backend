@@ -1108,3 +1108,50 @@ class BedrockProvider(BaseProvider):
             return "profile"
         else:
             return "iam_role"
+
+
+def get_bedrock_provider(
+    region: str | None = None,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
+    profile_name: str | None = None,
+) -> BedrockProvider:
+    """Factory function to create a Bedrock provider.
+
+    This function provides a convenient way to create a BedrockProvider
+    with configuration from environment variables.
+
+    Args:
+        region: AWS region (defaults to AWS_BEDROCK_REGION or AWS_REGION env var)
+        access_key_id: AWS access key ID (optional if using IAM roles)
+        secret_access_key: AWS secret access key (optional if using IAM roles)
+        session_token: AWS session token for temporary credentials
+        profile_name: AWS profile name from ~/.aws/credentials
+
+    Returns:
+        Configured BedrockProvider instance
+
+    Example:
+        ```python
+        # Using IAM role (recommended for AWS deployments)
+        provider = get_bedrock_provider(region="us-east-1")
+
+        # Using explicit credentials (for local development)
+        provider = get_bedrock_provider(
+            region="us-east-1",
+            access_key_id="AKIA...",
+            secret_access_key="...",
+        )
+
+        # Using AWS profile
+        provider = get_bedrock_provider(profile_name="my-profile")
+        ```
+    """
+    return BedrockProvider(
+        region=region,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        session_token=session_token,
+        profile_name=profile_name,
+    )
