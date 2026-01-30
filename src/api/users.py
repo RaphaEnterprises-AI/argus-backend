@@ -959,10 +959,10 @@ async def list_my_organizations(request: Request):
         email_result = await supabase.request(
             f"/organization_members?email=eq.{user['email']}&status=eq.active&select=organization_id,role"
         )
-        memberships_by_email = email_result.get("data", [])
+        memberships_by_email = (email_result or {}).get("data", []) or []
 
     # Combine memberships, avoiding duplicates
-    all_memberships = memberships.get("data", [])
+    all_memberships = (memberships or {}).get("data", []) or []
     seen_org_ids = {m["organization_id"] for m in all_memberships}
 
     for m in memberships_by_email:
@@ -989,14 +989,14 @@ async def list_my_organizations(request: Request):
         f"/organizations?id=in.({','.join(org_ids)})&select=*"
     )
 
-    if orgs.get("error"):
+    if not orgs or orgs.get("error"):
         raise HTTPException(status_code=500, detail="Failed to fetch organizations")
 
     # Build response with member counts
     result = []
     default_org_id = profile.get("default_organization_id")
 
-    for org in orgs.get("data", []):
+    for org in (orgs or {}).get("data", []) or []:
         # Get member count
         members = await supabase.request(
             f"/organization_members?organization_id=eq.{org['id']}&status=eq.active&select=id"
@@ -1008,7 +1008,7 @@ async def list_my_organizations(request: Request):
             slug=org["slug"],
             role=role_by_org.get(org["id"], "member"),
             plan=org.get("plan", "free"),
-            member_count=len(members.get("data", [])),
+            member_count=len((members or {}).get("data", []) or []),
             is_default=(org["id"] == default_org_id),
             is_personal=org.get("is_personal", False),
         ))
@@ -1265,7 +1265,7 @@ async def get_account_activity(request: Request):
     api_keys_result = await supabase.request(
         f"/api_keys?user_id=eq.{user['user_id']}&is_active=eq.true&select=id"
     )
-    api_keys_count = len(api_keys_result.get("data", []))
+    api_keys_count = len((api_keys_result or {}).get("data", []))
 
     # Get API requests in last 30 days (from ai_usage_logs if available)
     # This is a simplified count - in production you'd query a proper usage table
@@ -1276,7 +1276,7 @@ async def get_account_activity(request: Request):
             f"&created_at=gte.{(datetime.now(UTC).replace(day=1)).isoformat()}"
             f"&select=id"
         )
-        api_requests_30d = len(usage_result.get("data", []))
+        api_requests_30d = len((usage_result or {}).get("data", []))
     except Exception:
         # Table might not exist, that's okay
         pass
@@ -1327,7 +1327,7 @@ async def get_connected_accounts(request: Request):
     api_keys_result = await supabase.request(
         f"/api_keys?user_id=eq.{user['user_id']}&select=id,is_active"
     )
-    api_keys = api_keys_result.get("data", [])
+    api_keys = (api_keys_result or {}).get("data", []) or []
     api_keys_active = sum(1 for k in api_keys if k.get("is_active"))
     api_keys_total = len(api_keys)
 
