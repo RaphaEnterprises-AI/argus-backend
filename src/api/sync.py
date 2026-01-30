@@ -5,6 +5,7 @@ import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid
 from src.sync import (
     ConflictResolutionStrategy,
     SyncManager,
@@ -125,6 +126,10 @@ async def push_changes(request: SyncPushRequest):
     Syncs test specifications from IDE to the platform.
     Detects conflicts if remote has diverged.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(request.project_id, "project_id")
+    validate_uuid(request.test_id, "test_id")
+
     try:
         manager = get_sync_manager(request.project_id)
 
@@ -189,6 +194,11 @@ async def pull_changes(
 
     Fetches the latest test specifications and updates from team members.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+    if test_id:
+        validate_uuid(test_id, "test_id")
+
     try:
         get_sync_manager(project_id)
 
@@ -224,6 +234,9 @@ async def get_sync_status(project_id: str):
 
     Shows pending changes, conflicts, and sync state for all tests.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     try:
         manager = get_sync_manager(project_id)
         status = manager.get_sync_status(project_id)
@@ -265,6 +278,10 @@ async def resolve_conflict(request: SyncResolveRequest):
     - merge: Attempt automatic merge
     - manual: Use provided manual_value
     """
+    # RAP-292: UUID Validation
+    validate_uuid(request.project_id, "project_id")
+    validate_uuid(request.conflict_id, "conflict_id")
+
     try:
         manager = get_sync_manager(request.project_id)
 

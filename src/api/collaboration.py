@@ -9,6 +9,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from src.api.middleware.tenant import validate_uuid
+
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/collaboration", tags=["Collaboration"])
@@ -222,6 +224,9 @@ async def get_presence(workspace_id: str):
 
     Returns list of all users currently active in the workspace.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(workspace_id, "workspace_id")
+
     try:
         # Clean up stale presence first
         _cleanup_stale_presence(workspace_id)
@@ -252,6 +257,10 @@ async def remove_presence(workspace_id: str, user_id: str):
 
     Call this when user leaves or closes the tab.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(workspace_id, "workspace_id")
+    validate_uuid(user_id, "user_id")
+
     try:
         if workspace_id in _presence and user_id in _presence[workspace_id]:
             del _presence[workspace_id][user_id]
@@ -338,6 +347,9 @@ async def list_comments(
 
     Optionally filter by step index or exclude resolved comments.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+
     try:
         comments = _comments.get(test_id, [])
 
@@ -381,6 +393,9 @@ async def update_comment(comment_id: str, request: CommentUpdateRequest):
 
     Can update content or mark as resolved.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(comment_id, "comment_id")
+
     try:
         # Find comment
         comment = None
@@ -427,6 +442,9 @@ async def delete_comment(comment_id: str):
     """
     Delete a comment.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(comment_id, "comment_id")
+
     try:
         # Find and remove comment
         for test_id, comments in _comments.items():
@@ -449,6 +467,10 @@ async def add_reaction(comment_id: str, emoji: str, user_id: str):
     """
     Add a reaction to a comment.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(comment_id, "comment_id")
+    validate_uuid(user_id, "user_id")
+
     try:
         # Find comment
         for test_id, comments in _comments.items():
@@ -560,6 +582,10 @@ async def acquire_edit_lock(
 
     Prevents conflicting edits by marking the resource as being edited.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(test_id, "test_id")
+    validate_uuid(user_id, "user_id")
+
     # In production, this would use Redis distributed locks
     # For now, simple in-memory tracking
 
@@ -578,6 +604,9 @@ async def release_edit_lock(lock_id: str):
     """
     Release an edit lock.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(lock_id, "lock_id")
+
     return {
         "success": True,
         "message": f"Lock {lock_id} released",

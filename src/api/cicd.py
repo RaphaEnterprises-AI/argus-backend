@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from src.api.context import require_organization_id
+from src.api.middleware.tenant import validate_uuid
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.config import get_settings
@@ -374,6 +375,9 @@ async def get_build(
     Returns full build object with test results.
     Requires membership in the build's project organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(build_id, "build_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -422,6 +426,9 @@ async def list_deployments(
     Returns deployments with optional filtering by environment and status.
     Requires membership in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(project_id, "project_id")
+
     user = await get_current_user(request)
     await verify_project_access(
         project_id, user["user_id"], user.get("email"), request=request
@@ -481,6 +488,9 @@ async def get_deployment(
     Returns full deployment details including risk factors and metadata.
     Requires membership in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(deployment_id, "deployment_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -524,6 +534,9 @@ async def rollback_deployment(
 
     Requires membership in the project's organization.
     """
+    # RAP-292: UUID Validation
+    validate_uuid(deployment_id, "deployment_id")
+
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -999,6 +1012,9 @@ async def get_pipeline(
     Returns:
     - Full pipeline object with stages and jobs.
     """
+    # RAP-292: UUID Validation (project_id only - pipeline_id is GitHub run ID)
+    validate_uuid(project_id, "project_id")
+
     # Get GitHub config for project
     github_config = await get_project_github_config(project_id)
 
@@ -1054,6 +1070,9 @@ async def retrigger_pipeline(
     - message: Status message
     - pipeline: The new pipeline object if successful
     """
+    # RAP-292: UUID Validation (project_id only - pipeline_id is GitHub run ID)
+    validate_uuid(project_id, "project_id")
+
     # Get GitHub config for project
     github_config = await get_project_github_config(project_id)
 
@@ -1157,6 +1176,9 @@ async def cancel_pipeline(
     - message: Status message
     - pipeline: The updated pipeline object if successful
     """
+    # RAP-292: UUID Validation (project_id only - pipeline_id is GitHub run ID)
+    validate_uuid(project_id, "project_id")
+
     # Get GitHub config for project
     github_config = await get_project_github_config(project_id)
 

@@ -7,6 +7,7 @@ All protected endpoints should use TenantDep for automatic context injection.
 
 import re
 from typing import Annotated, Optional
+from uuid import UUID
 
 import structlog
 from fastapi import Depends, HTTPException, Request
@@ -408,3 +409,60 @@ async def validate_project_ownership(
             error=str(e)
         )
         raise HTTPException(status_code=500, detail="Failed to validate project access")
+
+
+def validate_uuid(value: str, field_name: str = "id") -> UUID:
+    """Validate that a string is a valid UUID format.
+
+    RAP-292: UUID Validation - This function prevents invalid/malicious ID
+    inputs from reaching database queries. Used across all API endpoints
+    that accept ID parameters.
+
+    Args:
+        value: The string to validate as UUID
+        field_name: Name of the field for error messages
+
+    Returns:
+        UUID object if valid
+
+    Raises:
+        HTTPException: 400 if value is not a valid UUID format
+    """
+    if not value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name}: value cannot be empty"
+        )
+
+    try:
+        return UUID(value)
+    except (ValueError, AttributeError):
+        logger.warning(
+            "Invalid UUID format rejected",
+            field=field_name,
+            value=value[:50] if len(value) > 50 else value,  # Truncate for safety
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name}: '{value}' is not a valid UUID format"
+        )
+
+
+def validate_uuid_optional(value: str | None, field_name: str = "id") -> UUID | None:
+    """Validate that a string is a valid UUID format, allowing None.
+
+    RAP-292: UUID Validation for optional fields.
+
+    Args:
+        value: The string to validate as UUID, or None
+        field_name: Name of the field for error messages
+
+    Returns:
+        UUID object if valid, None if input was None
+
+    Raises:
+        HTTPException: 400 if value is not None and not a valid UUID format
+    """
+    if value is None:
+        return None
+    return validate_uuid(value, field_name)

@@ -15,6 +15,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, translate_clerk_org_id, verify_org_access
 from src.services.supabase_client import get_supabase_client
 
@@ -327,6 +328,9 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
 @router.post("/organizations/{org_id}/keys/{key_id}/rotate", response_model=RotateKeyResponse)
 async def rotate_api_key(org_id: str, key_id: str, request: Request):
     """Rotate an API key (revoke old, create new with same settings)."""
+    # RAP-292: UUID Validation
+    validate_uuid(key_id, "key_id")
+
     user = await get_current_user(request)
 
     # Resolve 'default' to actual organization ID
@@ -457,6 +461,9 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
 @router.delete("/organizations/{org_id}/keys/{key_id}")
 async def revoke_api_key(org_id: str, key_id: str, request: Request):
     """Revoke an API key."""
+    # RAP-292: UUID Validation
+    validate_uuid(key_id, "key_id")
+
     user = await get_current_user(request)
 
     # Resolve 'default' to actual organization ID
