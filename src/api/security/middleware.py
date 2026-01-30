@@ -60,15 +60,78 @@ class RateLimitConfig:
     # Per-endpoint overrides
     # NOTE: Order matters! More specific paths must come before less specific ones
     # because _get_limit_for_endpoint uses startswith() matching.
+    #
+    # RAP-294: Rate limiting hardening for enterprise compliance
     ENDPOINT_LIMITS = {
+        # =================================================================
+        # LLM-HEAVY ENDPOINTS (Expensive API calls - strict limits)
+        # These endpoints call Claude/OpenAI APIs with significant cost
+        # =================================================================
         "/api/v1/chat/stream": {"requests": 10, "window": 60},
+        "/api/v1/chat/message": {"requests": 15, "window": 60},
         "/api/v1/stream/test": {"requests": 5, "window": 60},
+        # Test generation (calls LLM)
+        "/api/v1/quality/generate-test": {"requests": 10, "window": 60},
+        "/api/v1/quality/batch-generate": {"requests": 3, "window": 60},
+        # Visual AI (expensive - includes screenshot analysis)
+        "/api/v1/visual-ai/analyze": {"requests": 10, "window": 60},
+        "/api/v1/visual-ai/compare": {"requests": 10, "window": 60},
+        "/api/v1/visual-ai/accessibility": {"requests": 10, "window": 60},
+        # API test generation
+        "/api/v1/api-tests/generate": {"requests": 5, "window": 60},
+        # Healing (AI-powered)
+        "/api/v1/healing/analyze": {"requests": 10, "window": 60},
+        "/api/v1/healing/suggest": {"requests": 10, "window": 60},
+        # SAST analysis (expensive)
+        "/api/v1/sast/analyze": {"requests": 5, "window": 60},
+        # Insights generation
+        "/api/v1/insights/generate": {"requests": 10, "window": 60},
+        "/api/v1/correlations/insights": {"requests": 10, "window": 60},
+        # Reports with AI summaries
+        "/api/v1/reports/generate": {"requests": 5, "window": 60},
+
+        # =================================================================
+        # AUTHENTICATION ENDPOINTS (Brute force protection)
+        # =================================================================
+        "/api/v1/auth/device/authorize": {"requests": 10, "window": 60},
+        "/api/v1/auth/device/token": {"requests": 10, "window": 60},
+        "/api/v1/auth/device/verify": {"requests": 10, "window": 60},
+        "/api/v1/api-keys": {"requests": 10, "window": 60},
+        "/api/v1/oauth/": {"requests": 20, "window": 60},
+
+        # =================================================================
+        # DATA MODIFICATION ENDPOINTS (Prevent abuse)
+        # =================================================================
+        "/api/v1/organizations": {"requests": 5, "window": 60},
+        "/api/v1/projects": {"requests": 20, "window": 60},
+        "/api/v1/tests": {"requests": 30, "window": 60},
+        "/api/v1/artifacts": {"requests": 20, "window": 60},
+
+        # =================================================================
+        # WEBHOOK ENDPOINTS (External integrations)
+        # =================================================================
+        "/api/v1/webhooks/": {"requests": 100, "window": 60},
+
+        # =================================================================
+        # DISCOVERY & CRAWLING (Resource intensive)
+        # =================================================================
         # Discovery API endpoints - higher limits for normal API usage
         # Must come BEFORE /api/v1/discover to avoid false matches
         "/api/v1/discovery/": {"requests": 100, "window": 60},
         # Auto-discover endpoint (intensive crawling operation) - keep low
         "/api/v1/discover": {"requests": 10, "window": 60},
+
+        # =================================================================
+        # BROWSER EXECUTION (Resource intensive)
+        # =================================================================
+        "/api/v1/browser/execute": {"requests": 10, "window": 60},
+        "/api/v1/browser/action": {"requests": 30, "window": 60},
+
+        # =================================================================
+        # HEALTH & MONITORING (High limits)
+        # =================================================================
         "/health": {"requests": 1000, "window": 60},
+        "/api/v1/health": {"requests": 1000, "window": 60},
     }
 
     # Exempt endpoints from rate limiting
