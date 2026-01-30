@@ -988,7 +988,7 @@ async def list_anthropic_models(
     with their correct version IDs.
 
     Returns:
-        - Model IDs with full version (e.g., claude-sonnet-4-5-20250514)
+        - Model IDs with full version (e.g., claude-sonnet-4-5-20241022)
         - Creation dates
         - Capabilities (vision, tools, computer use)
 
@@ -1178,7 +1178,7 @@ async def list_openrouter_models(
 class DiscoveredModelInfo(BaseModel):
     """Model information from dynamic discovery."""
 
-    id: str  # Full API model ID (e.g., "claude-sonnet-4-5-20250514")
+    id: str  # Full API model ID (e.g., "claude-sonnet-4-5-20241022")
     short_id: str  # Short key (e.g., "claude-sonnet-4-5")
     display_name: str
     provider: str

@@ -43,6 +43,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.config import get_settings
+from src.core.model_registry import get_default_api_model_id
 from src.orchestrator.langfuse_integration import get_langfuse_handler, flush_langfuse, score_trace
 
 logger = structlog.get_logger()
@@ -269,7 +270,7 @@ async def supervisor_node(state: SupervisorState, config: RunnableConfig) -> dic
             api_key = api_key.get_secret_value()
 
         llm = ChatAnthropic(
-            model="claude-sonnet-4-20250514",
+            model=get_default_api_model_id(),
             api_key=api_key,
             max_tokens=1024,
         )

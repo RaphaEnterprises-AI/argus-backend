@@ -329,7 +329,7 @@ class BaseProvider(ABC):
 
         response = await provider.chat(
             messages=messages,
-            model="claude-sonnet-4-5-20250514",
+            model="claude-sonnet-4-5-20241022",
             temperature=0.7,
         )
 

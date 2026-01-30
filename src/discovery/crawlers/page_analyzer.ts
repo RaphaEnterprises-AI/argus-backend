@@ -151,7 +151,7 @@ const PRICING = {
   "claude-3-5-sonnet-latest": { input: 3.0, output: 15.0 },
   "claude-3-5-sonnet-20241022": { input: 3.0, output: 15.0 },
   "claude-3-haiku-20240307": { input: 0.25, output: 1.25 },
-  "claude-sonnet-4-5-20250514": { input: 3.0, output: 15.0 },
+  "claude-sonnet-4-5-20241022": { input: 3.0, output: 15.0 },
 };
 
 type ModelId = keyof typeof PRICING;
@@ -458,7 +458,7 @@ Focus on:
 
   const response = await withRetry(async () => {
     return client.messages.create({
-      model: "claude-sonnet-4-5-20250514",
+      model: "claude-sonnet-4-5-20241022",
       max_tokens: 2000,
       messages: [
         {
@@ -695,7 +695,7 @@ Prioritization guide:
 
   const response = await withRetry(async () => {
     return client.messages.create({
-      model: "claude-sonnet-4-5-20250514",
+      model: "claude-sonnet-4-5-20241022",
       max_tokens: 4000,
       messages: [
         {

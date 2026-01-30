@@ -12,6 +12,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.config import get_settings
+from src.core.model_registry import get_default_api_model_id
 from src.services.audit_logger import AuditAction, AuditStatus, ResourceType, get_audit_logger
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 
@@ -463,7 +464,8 @@ async def chat_node(state: ChatState, config) -> dict:
     """
     # Get AI config from state (set by chat API based on user preferences)
     ai_config = state.get("ai_config") or {}
-    model_id = ai_config.get("model", "claude-sonnet-4-20250514")
+    # Use centralized model registry for default model ID
+    model_id = ai_config.get("model") or get_default_api_model_id()
     provider = ai_config.get("provider", "anthropic")
     user_api_key = ai_config.get("api_key")  # BYOK key (already decrypted)
 
@@ -486,6 +488,15 @@ async def chat_node(state: ChatState, config) -> dict:
 
     # Prune messages to prevent context overflow
     pruned_messages = prune_messages_for_context(list(state["messages"]))
+
+    # RAP-284: Validate we have at least one non-system message for the API
+    # Anthropic requires at least one user/assistant message
+    if not pruned_messages:
+        logger.warning("No messages after pruning, returning empty state")
+        return {
+            "messages": [AIMessage(content="I'm sorry, but I didn't receive any messages to respond to. Please send a message.")],
+        }
+
     messages = [SystemMessage(content=system_prompt)] + pruned_messages
 
     # Define tools

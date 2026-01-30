@@ -2193,7 +2193,7 @@ class AIGateway:
 
         Args:
             prompt_hash: SHA256 hash of the prompt content
-            model: Model identifier (e.g., 'claude-sonnet-4-5-20250514')
+            model: Model identifier (e.g., 'claude-sonnet-4-5-20241022')
 
         Returns:
             Cache key string in format: argus:{model}:{prompt_hash[:32]}

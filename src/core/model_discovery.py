@@ -52,7 +52,7 @@ class ModelProvider(str, Enum):
 @dataclass
 class DiscoveredModel:
     """A model discovered from a provider API."""
-    id: str  # Full API model ID (e.g., "claude-sonnet-4-5-20250514")
+    id: str  # Full API model ID (e.g., "claude-sonnet-4-5-20241022")
     provider: ModelProvider
     display_name: str
     created_at: datetime | None = None
@@ -76,7 +76,7 @@ class DiscoveredModel:
     @property
     def short_id(self) -> str:
         """Get short model ID without version/date suffix."""
-        # claude-sonnet-4-5-20250514 -> claude-sonnet-4-5
+        # claude-sonnet-4-5-20241022 -> claude-sonnet-4-5
         # gpt-4o-2024-08-06 -> gpt-4o
         parts = self.id.rsplit("-", 1)
         if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) >= 6:

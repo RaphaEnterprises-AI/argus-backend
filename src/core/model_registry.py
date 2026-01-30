@@ -365,7 +365,8 @@ class ModelRegistry:
 
     API_MODEL_IDS: dict[str, str] = {
         # Anthropic Claude - use latest stable versions
-        "claude-opus-4-5": "claude-opus-4-5-20250514",
+        # Updated 2025-01: Opus 4.5 released Feb 2025
+        "claude-opus-4-5": "claude-opus-4-5-20250222",
         "claude-sonnet-4-5": "claude-sonnet-4-5-20241022",
         "claude-haiku-4-5": "claude-haiku-4-5-20241022",
         # Legacy Claude 3.5 models
