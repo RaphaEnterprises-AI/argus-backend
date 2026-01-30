@@ -173,6 +173,50 @@ class Settings(BaseSettings):
         description="Cloudflare Worker URL for screenshot/video access"
     )
 
+    # ==========================================================================
+    # Pluggable Storage Configuration (RAP-297: Air-Gap Foundation)
+    # ==========================================================================
+    # Supports multiple storage backends for different deployment scenarios:
+    # - cloudflare (default): Cloudflare R2 for cloud deployments
+    # - minio: MinIO for self-hosted / air-gap deployments
+    # - s3: AWS S3 or S3-compatible storage
+    # - local: Local filesystem (development only)
+
+    storage_provider: str = Field(
+        "cloudflare",
+        description="Storage provider: cloudflare, minio, s3, local"
+    )
+
+    # MinIO Configuration (for air-gap deployments)
+    minio_endpoint: str | None = Field(
+        None,
+        description="MinIO endpoint (e.g., minio.local:9000 or s3.amazonaws.com)"
+    )
+    minio_access_key: str | None = Field(
+        None,
+        description="MinIO access key ID"
+    )
+    minio_secret_key: SecretStr | None = Field(
+        None,
+        description="MinIO secret access key"
+    )
+    minio_bucket: str = Field(
+        "argus-artifacts",
+        description="MinIO bucket name for artifacts"
+    )
+    minio_secure: bool = Field(
+        True,
+        description="Use HTTPS for MinIO connections"
+    )
+    minio_region: str = Field(
+        "us-east-1",
+        description="MinIO region (required for S3 signature)"
+    )
+    minio_public_url_base: str | None = Field(
+        None,
+        description="Public URL base for MinIO artifacts (e.g., https://cdn.example.com/artifacts)"
+    )
+
     # Notifications (optional)
     slack_webhook_url: str | None = Field(None, description="Slack webhook for notifications")
 
