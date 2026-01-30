@@ -358,6 +358,37 @@ class ModelRegistry:
     VISION_MODEL = "claude-sonnet-4-5"
     COMPUTER_USE_MODEL = "claude-sonnet-4-5"
 
+    # =========================================================================
+    # API MODEL IDS - Full model identifiers for API calls
+    # UPDATE THESE when Anthropic releases new model versions
+    # =========================================================================
+
+    API_MODEL_IDS: dict[str, str] = {
+        # Anthropic Claude - use latest stable versions
+        "claude-opus-4-5": "claude-opus-4-5-20250514",
+        "claude-sonnet-4-5": "claude-sonnet-4-5-20241022",
+        "claude-haiku-4-5": "claude-haiku-4-5-20241022",
+        # Legacy Claude 3.5 models
+        "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku": "claude-3-5-haiku-20241022",
+        # Google Gemini
+        "gemini-2.0-flash": "gemini-2.0-flash-exp",
+        "gemini-2.0-pro": "gemini-2.0-pro-exp",
+        "gemini-1.5-pro": "gemini-1.5-pro",
+        "gemini-1.5-flash": "gemini-1.5-flash",
+        # OpenAI
+        "gpt-4o": "gpt-4o",
+        "gpt-4o-mini": "gpt-4o-mini",
+        "o1": "o1",
+        "o1-mini": "o1-mini",
+        # Groq (uses same IDs)
+        "llama-3.3-70b": "llama-3.3-70b-versatile",
+        "llama-3.1-8b": "llama-3.1-8b-instant",
+        # DeepSeek
+        "deepseek-r1": "deepseek-reasoner",
+        "deepseek-v3": "deepseek-chat",
+    }
+
     def __init__(self):
         self._models = self.MODELS.copy()
         self._load_overrides()
@@ -377,9 +408,26 @@ class ModelRegistry:
         return self._models.get(model_key)
 
     def get_model_id(self, model_key: str) -> str:
-        """Get just the model ID string for API calls."""
+        """Get just the model ID string (short form)."""
         model = self.get_model(model_key)
         return model.model_id if model else model_key
+
+    def get_api_model_id(self, model_key: str) -> str:
+        """Get the full API model ID for making API calls.
+
+        This returns the model ID with version/date suffix that APIs expect.
+        For example: 'claude-sonnet-4-5' -> 'claude-sonnet-4-5-20241022'
+
+        Args:
+            model_key: Short model key (e.g., 'claude-sonnet-4-5')
+
+        Returns:
+            Full API model ID (e.g., 'claude-sonnet-4-5-20241022')
+        """
+        # Check if it's already a full API ID (contains date pattern)
+        if any(char.isdigit() and len(model_key) > 20 for char in model_key[-8:]):
+            return model_key
+        return self.API_MODEL_IDS.get(model_key, model_key)
 
     def get_default_model(self) -> ModelConfig:
         """Get the default model configuration."""
@@ -482,3 +530,29 @@ def get_fast_model_id() -> str:
 def get_model_for_task(task_type: TaskType) -> str:
     """Get the best model ID for a task."""
     return get_model_registry().get_model_for_task(task_type).model_id
+
+
+def get_api_model_id(model_key: str) -> str:
+    """Get the full API model ID for making API calls.
+
+    This is the main function to use when you need a model ID for API calls.
+
+    Args:
+        model_key: Short model key (e.g., 'claude-sonnet-4-5')
+
+    Returns:
+        Full API model ID (e.g., 'claude-sonnet-4-5-20241022')
+    """
+    return get_model_registry().get_api_model_id(model_key)
+
+
+def get_default_api_model_id() -> str:
+    """Get the default model's full API ID."""
+    registry = get_model_registry()
+    return registry.get_api_model_id(registry.DEFAULT_MODEL)
+
+
+def get_fast_api_model_id() -> str:
+    """Get the fast model's full API ID."""
+    registry = get_model_registry()
+    return registry.get_api_model_id(registry.FAST_MODEL)

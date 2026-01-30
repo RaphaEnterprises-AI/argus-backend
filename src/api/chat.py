@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from pydantic import BaseModel, field_validator
 
 from src.api.security.auth import UserContext, get_current_user
+from src.core.model_registry import get_api_model_id, get_default_api_model_id
 from src.orchestrator.chat_graph import AIConfig, ChatState, create_chat_graph
 from src.orchestrator.checkpointer import get_checkpointer
 from src.orchestrator.langfuse_integration import (
@@ -115,9 +116,9 @@ async def _build_ai_config(
         provider = None
         use_byok = True  # Default to using BYOK if available
 
-    # If no model specified, use defaults
+    # If no model specified, use defaults from centralized registry
     if not model:
-        model = "claude-sonnet-4-20250514"
+        model = get_default_api_model_id()
         provider = "anthropic"
 
     # Build base config
@@ -204,7 +205,7 @@ async def send_message(
     ai_config = await _build_ai_config(request.ai_config, user.user_id)
 
     # Get model info for Langfuse tracking
-    model_id = ai_config.get("model", "claude-sonnet-4-20250514") if ai_config else "claude-sonnet-4-20250514"
+    model_id = ai_config.get("model", get_default_api_model_id()) if ai_config else get_default_api_model_id()
     provider = ai_config.get("provider", "anthropic") if ai_config else "anthropic"
 
     # Create graph with checkpointer
@@ -236,6 +237,14 @@ async def send_message(
             lc_messages.append(HumanMessage(content=msg.content))
         elif msg.role == "assistant":
             lc_messages.append(AIMessage(content=msg.content))
+        # Note: system messages are handled separately by the chat graph
+
+    # Validate that we have at least one user message for the API
+    if not lc_messages:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one user or assistant message is required"
+        )
 
     # Create initial state with AI config
     initial_state: ChatState = {
@@ -317,7 +326,7 @@ async def stream_message(
         langfuse_handler = None
         try:
             # Get model info for logging and Langfuse
-            model_id = ai_config.get("model", "claude-sonnet-4-20250514") if ai_config else "claude-sonnet-4-20250514"
+            model_id = ai_config.get("model", get_default_api_model_id()) if ai_config else get_default_api_model_id()
             provider = ai_config.get("provider", "anthropic") if ai_config else "anthropic"
             using_byok = bool(ai_config.get("api_key")) if ai_config else False
 
@@ -351,6 +360,13 @@ async def stream_message(
                     lc_messages.append(HumanMessage(content=msg.content))
                 elif msg.role == "assistant":
                     lc_messages.append(AIMessage(content=msg.content))
+                # Note: system messages are handled separately by the chat graph
+
+            # Validate that we have at least one user message for the API
+            if not lc_messages:
+                yield f'3:{json.dumps("At least one user or assistant message is required")}\n'
+                yield f'd:{json.dumps({"finishReason": "error"})}\n'
+                return
 
             initial_state: ChatState = {
                 "messages": lc_messages,
