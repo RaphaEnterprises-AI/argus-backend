@@ -1290,6 +1290,7 @@ async def connect_integration(
             "id": integration_id,
             "type": platform,
             "name": body.name or platform_name,
+            "user_id": user["user_id"],
             "project_id": body.project_id,
             "credentials": encrypted_creds,
             "settings": body.settings or {},
