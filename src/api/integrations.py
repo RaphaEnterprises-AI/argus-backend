@@ -1123,7 +1123,7 @@ async def list_integrations(
             path += f"&project_id=in.({','.join(project_ids)})"
 
     if platform:
-        path += f"&type=eq.{platform}"
+        path += f"&platform=eq.{platform}"
 
     path += "&order=created_at.desc"
 
@@ -1232,7 +1232,7 @@ async def connect_integration(
         )
 
     # Check for existing integration
-    check_path = f"/integrations?type=eq.{platform}"
+    check_path = f"/integrations?platform=eq.{platform}"
     if body.project_id:
         check_path += f"&project_id=eq.{body.project_id}"
     existing = await supabase.request(check_path)
@@ -1286,18 +1286,30 @@ async def connect_integration(
         else:
             platform_name = platform.title()
 
+        # Determine platform_type from plugin or legacy metadata
+        if plugin_metadata:
+            platform_type_value = CATEGORY_TO_PLATFORM_TYPE.get(
+                plugin_metadata.category,
+                PlatformType.OBSERVABILITY,
+            ).value
+        elif platform_enum:
+            platform_type_value = PLATFORM_INFO[platform_enum]["type"].value
+        else:
+            platform_type_value = "observability"
+
         integration_data = {
             "id": integration_id,
-            "type": platform,
+            "platform": platform,  # DB column is 'platform', not 'type'
+            "platform_type": platform_type_value,
             "name": body.name or platform_name,
             "user_id": user["user_id"],
             "project_id": body.project_id,
             "credentials": encrypted_creds,
-            "settings": body.settings or {},
+            "config": body.settings or {},  # DB column is 'config', not 'settings'
             "status": "connected",
+            "is_connected": True,
             "sync_frequency_minutes": body.sync_frequency_minutes,
             "data_points_synced": 0,
-            "features_enabled": [],
             "created_at": datetime.now(UTC).isoformat(),
         }
 
@@ -1357,7 +1369,7 @@ async def disconnect_integration(
     supabase = get_supabase_client()
 
     # Find the integration
-    path = f"/integrations?type=eq.{platform}"
+    path = f"/integrations?platform=eq.{platform}"
     if project_id:
         path += f"&project_id=eq.{project_id}"
 
@@ -1493,7 +1505,7 @@ async def trigger_sync(
     supabase = get_supabase_client()
 
     # Find the integration
-    path = f"/integrations?type=eq.{platform}&status=eq.connected"
+    path = f"/integrations?platform=eq.{platform}&status=eq.connected"
     if project_id:
         path += f"&project_id=eq.{project_id}"
 
@@ -1829,7 +1841,7 @@ async def get_integration(
 
     supabase = get_supabase_client()
 
-    path = f"/integrations?type=eq.{platform}"
+    path = f"/integrations?platform=eq.{platform}"
     if project_id:
         path += f"&project_id=eq.{project_id}"
 
@@ -1858,7 +1870,7 @@ async def delete_integration(
     supabase = get_supabase_client()
 
     # Find the integration
-    path = f"/integrations?type=eq.{platform}"
+    path = f"/integrations?platform=eq.{platform}"
     if project_id:
         path += f"&project_id=eq.{project_id}"
 
