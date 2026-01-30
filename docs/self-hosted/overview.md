@@ -7,6 +7,7 @@ Argus Enterprise enables organizations to deploy the complete Argus E2E Testing 
 - **Data Sovereignty**: All test data, screenshots, and AI interactions stay within your network
 - **Air-Gap Support**: Optional fully offline operation with local LLM inference
 - **Compliance**: Meet SOC2, HIPAA, GDPR, and industry-specific requirements
+- **Data Residency**: Flexible deployment options for regional data requirements ([details](data-residency.md))
 - **Integration**: Connect to your existing CI/CD, observability, and security tools
 
 ## Architecture
@@ -95,7 +96,17 @@ Browser automation infrastructure:
 - [Quick Start](quick-start.md) - Get running in 15 minutes
 - [Configuration](configuration.md) - All configuration options
 - [Networking](networking.md) - Network architecture and policies
+- [Data Residency](data-residency.md) - Data storage locations and compliance
 - [Troubleshooting](troubleshooting.md) - Common issues and solutions
+
+## Compliance & Data Residency
+
+For enterprises with strict compliance requirements, see:
+
+- [Data Residency Guide](data-residency.md) - Where your data is stored
+- [Data Processing Agreement](/docs/compliance/DATA_PROCESSING_AGREEMENT.md) - DPA template
+- [SOC2 Evidence](/docs/SOC2_EVIDENCE.md) - Security controls documentation
+- [Air-Gap Configuration](llm-configuration.md#air-gap) - Zero external connectivity
 
 ## Support
 
