@@ -1,0 +1,105 @@
+# Gitleaks Configuration for Argus E2E Testing Agent
+# https://github.com/gitleaks/gitleaks
+#
+# This configuration defines rules and allowlists for secret scanning.
+# False positives (test data, example keys) are allowlisted here.
+
+title = "Argus Gitleaks Configuration"
+
+[extend]
+# Use the default gitleaks config as base
+useDefault = true
+
+# Global allowlist for paths that contain only test/example data
+[allowlist]
+description = "Global allowlist for test files and documentation examples"
+
+# Paths that should be ignored entirely (test fixtures, examples, local env files)
+paths = [
+    '''tests/.*\.py$''',                    # All Python test files
+    '''tests/fixtures/.*''',                # Test fixtures
+    '''\.wrangler/tmp/.*''',                # Wrangler dev temp files
+    '''node_modules/.*''',                  # Node modules
+    '''\.venv/.*''',                        # Python virtual env
+    '''__pycache__/.*''',                   # Python cache
+    '''\.env$''',                           # Local env file (not tracked)
+    '''\.env\.local$''',                    # Local env file (not tracked)
+    '''\.env\..*''',                        # All .env.* files (not tracked)
+]
+
+# Specific fingerprints to allowlist (identified as false positives)
+# Format: "commit:file:rule:line"
+stopwords = [
+    "test_api_key",
+    "test_token",
+    "example",
+    "YOUR_API_KEY",
+    "YOUR_API_TOKEN",
+    "abc123",
+    "12345",
+    "test-token",
+    "sample",
+    "placeholder",
+]
+
+# Allowlist specific commits that contain only example/test data
+commits = []
+
+# Regex patterns to ignore
+regexes = [
+    '''argus_sk_abc123''',                  # Example API key prefix in docs
+    '''argus_sk_test''',                    # Test API keys
+    '''argus_sk_new123''',                  # Example keys in docs
+    '''argus_sk_xyz789''',                  # Example keys in docs
+    '''test_api_key_\d+''',                 # Test API keys with numbers
+    '''api-key-\d+''',                      # Generic test API keys
+    '''lin_api_key_\d+''',                  # Linear test API keys
+    '''pd_api_key_\d+''',                   # PagerDuty test API keys
+    '''glpat-test-token''',                 # GitLab test PAT
+    '''sk-\d{10,}[a-z]+''',                 # Generic test secret keys
+    '''YOUR_.*_KEY''',                      # Placeholder keys
+    '''dGhlIHNhbXBsZSBub25jZQ==''',         # WebSocket sample nonce (RFC 6455)
+]
+
+# Rule-specific configurations
+[[rules]]
+id = "argus-test-keys"
+description = "Argus test/example API keys"
+regex = '''argus_sk_(test|abc|xyz|new|example)\w*'''
+keywords = ["argus_sk_"]
+
+[[rules]]
+id = "documentation-examples"
+description = "Example keys in documentation"
+regex = '''["\']?(YOUR_[A-Z_]+|example_[a-z_]+)["\']?'''
+keywords = ["YOUR_", "example_"]
+
+# Files that should NEVER be committed (even if allowlisted elsewhere)
+# These patterns trigger a hard failure
+[[rules]]
+id = "env-files"
+description = "Environment files with real secrets"
+path = '''\.env(?:\.local|\.production|\.staging)?$'''
+regex = '''(?i)(api[_-]?key|secret|password|token)\s*[=:]\s*[^\s]{10,}'''
+keywords = ["API_KEY", "SECRET", "PASSWORD", "TOKEN"]
+entropy = 3.5
+
+[[rules]]
+id = "private-keys"
+description = "Private key files"
+path = '''(?i)(id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key)$'''
+regex = '''-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----'''
+keywords = ["PRIVATE KEY"]
+
+# Real secrets that MUST be rotated (documented for tracking)
+# These are NOT allowlisted - they should trigger failures until rotated
+#
+# CRITICAL SECRETS IDENTIFIED:
+# 1. Langfuse PostgreSQL password (langfuse-secrets.yaml)
+# 2. Langfuse root password (langfuse-secrets.yaml)
+# 3. Langfuse NextAuth secret (langfuse-secrets.yaml)
+# 4. Langfuse project secret (langfuse-secrets.yaml)
+# 5. Langfuse S3 secret access key (langfuse-secrets.yaml)
+# 6. Confluent SASL password (scripts/create_confluent_topics.py)
+# 7. Flink SASL password (data-layer/kubernetes/flink-cluster.yaml)
+# 8. Supabase JWT (dashboard/scripts/test-chat-api.ts)

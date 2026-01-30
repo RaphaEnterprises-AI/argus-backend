@@ -1,16 +1,47 @@
 #!/usr/bin/env python3
-"""Validate Confluent Cloud topics are created correctly."""
+"""Validate Confluent Cloud topics are created correctly.
+
+Usage:
+    # Set environment variables first
+    export CONFLUENT_BOOTSTRAP_SERVERS="pkc-xxx.region.aws.confluent.cloud:9092"
+    export CONFLUENT_SASL_USERNAME="your-api-key"
+    export CONFLUENT_SASL_PASSWORD="your-api-secret"
+
+    # Then run
+    python scripts/validate_confluent.py
+"""
+
+import os
+import sys
 
 from confluent_kafka.admin import AdminClient
 
-# Confluent Cloud configuration
-config = {
-    "bootstrap.servers": "pkc-9q8rv.ap-south-2.aws.confluent.cloud:9092",
-    "security.protocol": "SASL_SSL",
-    "sasl.mechanism": "PLAIN",
-    "sasl.username": "6APHEEKPOS6HAZ46",
-    "sasl.password": "cflt6S4Fs2VhtY0D1fbZrUIVhWKVwsJtRcnJnk8WuA92hFti+KylNdSLMmyMGhRw",
-}
+
+def get_config():
+    """Get Confluent configuration from environment variables."""
+    bootstrap_servers = os.environ.get("CONFLUENT_BOOTSTRAP_SERVERS")
+    sasl_username = os.environ.get("CONFLUENT_SASL_USERNAME")
+    sasl_password = os.environ.get("CONFLUENT_SASL_PASSWORD")
+
+    if not all([bootstrap_servers, sasl_username, sasl_password]):
+        print("❌ Missing required environment variables:")
+        print("   - CONFLUENT_BOOTSTRAP_SERVERS")
+        print("   - CONFLUENT_SASL_USERNAME")
+        print("   - CONFLUENT_SASL_PASSWORD")
+        print("\nExample:")
+        print('   export CONFLUENT_BOOTSTRAP_SERVERS="pkc-xxx.region.aws.confluent.cloud:9092"')
+        print('   export CONFLUENT_SASL_USERNAME="your-api-key"')
+        print('   export CONFLUENT_SASL_PASSWORD="your-api-secret"')
+        sys.exit(1)
+
+    return {
+        "bootstrap.servers": bootstrap_servers,
+        "security.protocol": "SASL_SSL",
+        "sasl.mechanism": "PLAIN",
+        "sasl.username": sasl_username,
+        "sasl.password": sasl_password,
+    }
+
 
 # Expected topics
 EXPECTED_TOPICS = [
@@ -20,7 +51,10 @@ EXPECTED_TOPICS = [
     "argus.dlq",
 ]
 
+
 def main():
+    config = get_config()
+
     print("Connecting to Confluent Cloud...")
     admin = AdminClient(config)
 
@@ -44,13 +78,14 @@ def main():
     # Check for missing topics
     missing = [t for t in EXPECTED_TOPICS if t not in topics]
     if missing:
-        print(f"\n⚠️  Missing topics:")
+        print("\n⚠️  Missing topics:")
         for t in missing:
             print(f"   ❌ {t}")
         return False
 
     print(f"\n🎉 All {len(EXPECTED_TOPICS)} expected topics are present!")
     return True
+
 
 if __name__ == "__main__":
     main()
