@@ -13,6 +13,20 @@ secrets/
 *.pem
 credentials.json
 secrets.yaml
+*-secrets.yaml
+*-secrets.yml
+
+# Kubernetes secrets (never commit actual secrets to git)
+**/kubernetes/**/*-secrets.yaml
+**/kubernetes/**/*-secrets.yml
+**/*secret*.yaml
+**/*secret*.yml
+
+# Environment files in nested directories
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.vercel-check
 
 # Python
 __pycache__/
