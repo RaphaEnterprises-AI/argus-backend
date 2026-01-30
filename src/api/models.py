@@ -1278,6 +1278,10 @@ async def discover_all_models(
         input_price = float(pricing.get("prompt", 0)) * 1_000_000
         output_price = float(pricing.get("completion", 0)) * 1_000_000
 
+        # Ensure integer values for context_window and max_tokens
+        context_len = m.get("context_length", 128000)
+        max_completion = m.get("top_provider", {}).get("max_completion_tokens", 4096)
+
         all_models.append(DiscoveredModelInfo(
             id=model_id,
             short_id=short_id,
@@ -1289,8 +1293,8 @@ async def discover_all_models(
             supports_vision="vision" in model_id.lower() or m.get("architecture", {}).get("modality") == "multimodal",
             supports_tools=True,
             supports_computer_use="claude" in model_id.lower() and ("sonnet" in model_id.lower() or "opus" in model_id.lower()),
-            context_window=m.get("context_length", 128000),
-            max_tokens=m.get("top_provider", {}).get("max_completion_tokens", 4096),
+            context_window=int(context_len) if context_len is not None else 128000,
+            max_tokens=int(max_completion) if max_completion is not None else 4096,
         ))
 
     # 3. Add registry models as fallback
