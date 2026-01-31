@@ -127,39 +127,40 @@
   - Request deduplication
   - Cache integration (TanStack Query)
 
-#### 1.3 Tests Domain Migration (42 queries)
-- [ ] Backend: `POST /api/v1/tests` - Create test
-- [ ] Backend: `GET /api/v1/tests` - List tests
-- [ ] Backend: `GET /api/v1/tests/{id}` - Get test
-- [ ] Backend: `PUT /api/v1/tests/{id}` - Update test
-- [ ] Backend: `DELETE /api/v1/tests/{id}` - Delete test
-- [ ] Backend: `POST /api/v1/test-runs` - Create run
-- [ ] Backend: `GET /api/v1/test-runs` - List runs
-- [ ] Backend: `GET /api/v1/test-runs/{id}` - Get run with results
-- [ ] Backend: `POST /api/v1/test-runs/{id}/results` - Add result
-- [ ] Dashboard: Migrate `use-tests.ts` (22 queries)
-- [ ] Dashboard: Migrate `use-test-library.ts` (10 queries)
-- [ ] Dashboard: Migrate `use-realtime-tests.ts` (4 queries)
-- [ ] Dashboard: Migrate `use-flaky-tests.ts` (6 queries)
+#### 1.3 Tests Domain Migration (42 queries) ✅ COMPLETED
+- [x] Backend: `POST /api/v1/tests` - Create test (existing)
+- [x] Backend: `GET /api/v1/tests` - List tests (existing)
+- [x] Backend: `GET /api/v1/tests/{id}` - Get test (existing)
+- [x] Backend: `PUT /api/v1/tests/{id}` - Update test (existing)
+- [x] Backend: `DELETE /api/v1/tests/{id}` - Delete test (existing)
+- [x] Backend: `POST /api/v1/test-runs` - Create run (NEW in src/api/test_runs.py)
+- [x] Backend: `GET /api/v1/test-runs` - List runs (NEW)
+- [x] Backend: `GET /api/v1/test-runs/{id}` - Get run with results (NEW)
+- [x] Backend: `POST /api/v1/test-runs/{id}/results` - Add result (NEW)
+- [x] Dashboard: Migrate `use-tests.ts` (22 queries → API)
+- [ ] Dashboard: Migrate `use-test-library.ts` (10 queries) - PENDING
+- [ ] Dashboard: Migrate `use-realtime-tests.ts` (4 queries) - PENDING
+- [ ] Dashboard: Migrate `use-flaky-tests.ts` (6 queries) - PENDING
 
 ### Phase 2: Discovery & Projects (Week 3-4) - P1
 
-#### 2.1 Discovery Domain Migration (28 queries)
-- [ ] Backend: `POST /api/v1/discovery/sessions` - Start session
-- [ ] Backend: `GET /api/v1/discovery/sessions` - List sessions
-- [ ] Backend: `GET /api/v1/discovery/sessions/{id}` - Get session
-- [ ] Backend: `GET /api/v1/discovery/sessions/{id}/pages` - Get pages
-- [ ] Backend: `GET /api/v1/discovery/sessions/{id}/flows` - Get flows
-- [ ] Backend: `POST /api/v1/discovery/sessions/{id}/flows` - Create flow
-- [ ] Backend: `PUT /api/v1/discovery/flows/{id}` - Update flow
-- [ ] Backend: `GET /api/v1/discovery/patterns` - Get patterns
-- [ ] Dashboard: Migrate `use-discovery.ts` (17 queries)
-- [ ] Dashboard: Migrate `use-discovery-session.ts` (8 queries)
-- [ ] Dashboard: Migrate `use-discovery-for-visual.ts` (3 queries)
+#### 2.1 Discovery Domain Migration (28 queries) ✅ COMPLETED
+- [x] Backend: `POST /api/v1/discovery/sessions` - Start session (existing)
+- [x] Backend: `GET /api/v1/discovery/sessions` - List sessions (existing)
+- [x] Backend: `GET /api/v1/discovery/sessions/{id}` - Get session (existing)
+- [x] Backend: `GET /api/v1/discovery/sessions/{id}/pages` - Get pages (existing)
+- [x] Backend: `GET /api/v1/discovery/sessions/{id}/flows` - Get flows (existing)
+- [x] Backend: `POST /api/v1/discovery/sessions/{id}/flows` - Create flow (existing)
+- [x] Backend: `PUT /api/v1/discovery/flows/{id}` - Update flow (existing)
+- [x] Backend: `GET /api/v1/discovery/patterns` - Get patterns (existing)
+- [x] Dashboard: Enhanced `lib/api-client.ts` with full discoveryApi
+- [x] Dashboard: Migrate `use-discovery.ts` (15 queries → 100% API)
+- [x] Dashboard: Migrate `use-discovery-session.ts` (9 fallbacks removed → 100% API)
+- [x] Dashboard: Migrate `use-discovery-for-visual.ts` (2 queries → 100% API)
 
 #### 2.2 Projects Domain Migration (4 queries)
 - [ ] Backend: Verify existing `/api/v1/projects` endpoints
-- [ ] Dashboard: Migrate `use-projects.ts` (4 queries)
+- [ ] Dashboard: Migrate `use-projects.ts` (4 queries) - PENDING
 
 ### Phase 3: Scheduling & Notifications (Week 5-6) - P2
 
