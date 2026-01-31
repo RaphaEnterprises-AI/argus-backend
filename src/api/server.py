@@ -27,6 +27,8 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from src.api.accessibility import router as accessibility_router
+from src.api.activity import router as activity_router
 from src.api.ai_settings import router as ai_settings_router
 from src.api.api_keys import router as api_keys_router
 from src.api.api_testing import router as api_testing_router
@@ -37,12 +39,14 @@ from src.api.browser import router as browser_router
 from src.api.chat import router as chat_router
 from src.api.cicd import router as cicd_router
 from src.api.collaboration import router as collaboration_router
+from src.api.conversations import router as conversations_router
 from src.api.correlations import router as correlations_router
 from src.api.data_layer_health import router as data_layer_health_router
 from src.api.discovery import router as discovery_router
 from src.api.events import router as events_router
 from src.api.export import router as export_router
 from src.api.failure_patterns import router as failure_patterns_router
+from src.api.flaky_detector import router as flaky_tests_router
 from src.api.github_webhooks import router as github_webhooks_router
 from src.api.global_tests import router as global_tests_router
 from src.api.healing import router as healing_router
@@ -63,6 +67,7 @@ from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
 from src.api.orgs import router as orgs_router
 from src.api.parameterized import router as parameterized_router
+from src.api.performance import router as performance_router
 from src.api.pr_comments import router as pr_comments_router
 from src.api.projects import router as projects_router
 from src.api.quality import router as quality_router
@@ -392,12 +397,14 @@ app.include_router(collaboration_router)
 app.include_router(correlations_router)
 app.include_router(impact_graph_router)
 app.include_router(failure_patterns_router)
+app.include_router(flaky_tests_router)
 app.include_router(github_webhooks_router)
 app.include_router(global_tests_router)
 app.include_router(scheduling_router)
 app.include_router(notifications_router)
 app.include_router(parameterized_router)
 app.include_router(chat_router)
+app.include_router(conversations_router)
 app.include_router(cicd_router)
 app.include_router(streaming_router)
 app.include_router(approvals_router)
@@ -432,6 +439,9 @@ app.include_router(vcs_github_webhook_router)
 app.include_router(vcs_gitlab_webhook_router)
 app.include_router(models_router)
 app.include_router(events_router)
+app.include_router(accessibility_router)
+app.include_router(activity_router)
+app.include_router(performance_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
