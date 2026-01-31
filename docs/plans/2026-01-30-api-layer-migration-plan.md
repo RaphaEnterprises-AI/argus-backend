@@ -158,9 +158,15 @@
 - [x] Dashboard: Migrate `use-discovery-session.ts` (9 fallbacks removed → 100% API)
 - [x] Dashboard: Migrate `use-discovery-for-visual.ts` (2 queries → 100% API)
 
-#### 2.2 Projects Domain Migration (4 queries)
-- [ ] Backend: Verify existing `/api/v1/projects` endpoints
-- [ ] Dashboard: Migrate `use-projects.ts` (4 queries) - PENDING
+#### 2.2 Projects Domain Migration (4 queries) ✅ COMPLETED
+- [x] Backend: Verify existing `/api/v1/projects` endpoints (CRUD exists)
+- [x] Dashboard: Add `projectsApi` to `lib/api-client.ts`
+- [x] Dashboard: Migrate `use-projects.ts` (4 queries → 100% API)
+  - `useProjects()` - list projects via API
+  - `useProject()` - get single project via API
+  - `useCreateProject()` - create via API
+  - `useUpdateProject()` - update via API
+  - `useDeleteProject()` - delete via API
 
 ### Phase 3: Scheduling & Notifications (Week 5-6) - P2
 
