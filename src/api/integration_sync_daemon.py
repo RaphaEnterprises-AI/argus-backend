@@ -132,7 +132,7 @@ async def get_integrations_due_for_sync() -> list[dict]:
 
         due_integrations = []
         for integration in result:
-            platform = integration.get("type", "").lower()
+            platform = (integration.get("platform") or "").lower()
             interval = SYNC_INTERVALS.get(platform)
 
             # Skip webhook-only integrations
@@ -232,7 +232,7 @@ async def sync_integration(integration: dict) -> None:
         integration: Integration dict with configuration and credentials
     """
     integration_id = integration.get("id", "unknown")
-    platform = integration.get("type", "").lower()
+    platform = (integration.get("platform") or "").lower()
     project_id = integration.get("project_id")
 
     logger.info(
@@ -533,7 +533,7 @@ async def trigger_manual_sync(integration_id: str) -> dict:
         return {
             "success": True,
             "message": f"Sync started for integration {integration_id}",
-            "platform": integration.get("type"),
+            "platform": integration.get("platform"),
         }
 
     except Exception as e:
