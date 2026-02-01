@@ -11,6 +11,11 @@ The supervisor coordinates:
 - SelfHealer: Analyzes test failures and fixes selectors/assertions
 - Reporter: Generates human-readable reports and notifications
 
+Advanced agents (2026 patterns):
+- SREAgent: Incident correlation, runbook execution, MTTR tracking
+- CorrectiveRAG: Self-correcting knowledge retrieval for context
+- ToolDiscovery: Dynamic tool creation from API documentation
+
 Example usage:
     from src.orchestrator.supervisor import create_supervisor_graph, SupervisorState
 
@@ -112,6 +117,10 @@ AGENTS = [
     "api_tester",
     "self_healer",
     "reporter",
+    # Advanced agents (2026 patterns)
+    "sre_agent",
+    "corrective_rag",
+    "tool_discovery",
 ]
 
 AGENT_DESCRIPTIONS = {
@@ -121,6 +130,10 @@ AGENT_DESCRIPTIONS = {
     "api_tester": "Tests REST/GraphQL APIs with schema validation. Handles HTTP requests, response validation, authentication flows.",
     "self_healer": "Analyzes test failures and fixes selectors/assertions. Use when tests fail due to UI changes, not real bugs.",
     "reporter": "Generates human-readable reports, creates GitHub PR comments, sends Slack notifications. Use at the end.",
+    # Advanced agents (2026 patterns)
+    "sre_agent": "Handles incident correlation, alert triage, runbook execution, infrastructure healing, and MTTR tracking. Use for production issues, infrastructure problems, or when correlating failures across systems.",
+    "corrective_rag": "Self-correcting retrieval agent that finds relevant documentation, code context, and historical patterns. Use when you need accurate context from knowledge bases, when initial retrieval seems incomplete, or for complex queries requiring multiple sources.",
+    "tool_discovery": "Discovers and creates tools dynamically from API documentation (OpenAPI, GraphQL, MCP). Use when existing tools are insufficient, when integrating new APIs, or when capability gaps are identified.",
 }
 
 PHASE_DESCRIPTIONS = {
@@ -129,6 +142,10 @@ PHASE_DESCRIPTIONS = {
     "execution": "Running UI and API tests against the application",
     "healing": "Analyzing failures and attempting to fix broken tests",
     "reporting": "Generating final reports and notifications",
+    # Advanced phases
+    "incident_response": "Correlating failures, triaging alerts, executing runbooks for infrastructure issues",
+    "knowledge_retrieval": "Finding relevant documentation and historical patterns for context",
+    "tool_creation": "Discovering or creating new tools to fill capability gaps",
 }
 
 
@@ -157,6 +174,9 @@ Workflow Guidelines:
 - Then use test_planner to create a test plan
 - Execute tests with ui_tester and/or api_tester based on test types
 - If tests fail, consider using self_healer before giving up
+- For infrastructure issues or incident correlation, use sre_agent
+- When context is unclear or retrieval seems incomplete, use corrective_rag
+- If tools are missing for a task, use tool_discovery to create them
 - Always end with reporter to generate final reports
 
 Decision Rules:
@@ -164,6 +184,9 @@ Decision Rules:
 - If current_phase is "planning" and no test_plan exists, use test_planner
 - If current_phase is "execution" and test_plan has items, use ui_tester or api_tester
 - If failures exist and self-healing hasn't been tried, use self_healer
+- If infrastructure issues, alerts, or incident correlation is needed, use sre_agent
+- If you need documentation, historical patterns, or context retrieval, use corrective_rag
+- If existing tools are insufficient or API integration is needed, use tool_discovery
 - If all tests are complete or an error occurred, use reporter
 
 IMPORTANT: Respond with EXACTLY ONE of these options:
@@ -377,6 +400,13 @@ async def supervisor_node(state: SupervisorState, config: RunnableConfig) -> dic
             new_phase = "healing"
         elif next_agent == "reporter":
             new_phase = "reporting"
+        # Advanced agent phases
+        elif next_agent == "sre_agent":
+            new_phase = "incident_response"
+        elif next_agent == "corrective_rag":
+            new_phase = "knowledge_retrieval"
+        elif next_agent == "tool_discovery":
+            new_phase = "tool_creation"
 
         log.info("Supervisor routing", next_agent=next_agent, new_phase=new_phase)
 
@@ -669,6 +699,264 @@ async def supervisor_reporter_node(state: SupervisorState) -> dict:
     }
 
 
+# =============================================================================
+# Advanced Agent Nodes (2026 Patterns)
+# =============================================================================
+
+
+async def supervisor_sre_agent_node(state: SupervisorState) -> dict:
+    """Wrapper for SRE Agent that works with supervisor state.
+
+    Handles incident correlation, alert triage, runbook execution,
+    infrastructure healing, and MTTR tracking.
+    """
+    from src.agents.sre_agent import SREAgent
+
+    log = logger.bind(node="supervisor_sre_agent")
+    log.info("Running SRE agent")
+
+    try:
+        agent = SREAgent()
+
+        # Determine what SRE operation to perform based on state
+        failures = state.get("failures", [])
+        error = state.get("error")
+
+        if failures:
+            # Correlate test failures with infrastructure signals
+            correlation_result = await agent.correlate_signals(
+                signals=[
+                    {"type": "test_failure", "data": f} for f in failures[:5]
+                ],
+                time_window_minutes=30,
+            )
+
+            if correlation_result.get("incidents"):
+                incidents = correlation_result["incidents"]
+                summary = f"Correlated {len(incidents)} potential incidents from {len(failures)} test failures."
+
+                # Check if runbook execution is needed
+                runbook_results = []
+                for incident in incidents[:2]:  # Limit to 2 runbooks
+                    if incident.get("suggested_runbook"):
+                        result = await agent.execute_runbook(
+                            runbook_id=incident["suggested_runbook"],
+                            dry_run=True,  # Safety: dry run first
+                        )
+                        runbook_results.append(result)
+
+                return {
+                    "messages": [AIMessage(content=f"SRE Analysis: {summary}")],
+                    "current_phase": "healing",  # Move back to healing with new context
+                    "results": {
+                        **state.get("results", {}),
+                        "sre_analysis": {
+                            "incidents": len(incidents),
+                            "correlation": correlation_result,
+                            "runbooks_checked": len(runbook_results),
+                        }
+                    },
+                }
+            else:
+                summary = "No infrastructure incidents detected. Failures likely application-level."
+        elif error:
+            # Analyze error for potential infrastructure issues
+            summary = f"Analyzed error: {error[:100]}. Checking for infrastructure correlation."
+        else:
+            summary = "No failures or errors to analyze. SRE agent check complete."
+
+        return {
+            "messages": [AIMessage(content=f"SRE Analysis: {summary}")],
+            "current_phase": state.get("current_phase", "execution"),
+            "results": {
+                **state.get("results", {}),
+                "sre_analysis": {"summary": summary}
+            },
+        }
+
+    except Exception as e:
+        log.error("SRE agent failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"SRE agent error: {str(e)}")],
+            "current_phase": state.get("current_phase", "execution"),
+        }
+
+
+async def supervisor_corrective_rag_node(state: SupervisorState) -> dict:
+    """Wrapper for Corrective RAG Agent that works with supervisor state.
+
+    Provides self-correcting knowledge retrieval for documentation,
+    code context, and historical patterns.
+    """
+    from src.agents.corrective_rag_agent import CorrectiveRAGAgent
+
+    log = logger.bind(node="supervisor_corrective_rag")
+    log.info("Running Corrective RAG agent")
+
+    try:
+        agent = CorrectiveRAGAgent()
+
+        # Build query from current context
+        query_parts = []
+
+        if state.get("failures"):
+            failure_types = list(set(f.get("type", "unknown") for f in state["failures"][:5]))
+            query_parts.append(f"test failures: {', '.join(failure_types)}")
+
+        if state.get("error"):
+            query_parts.append(f"error: {state['error'][:200]}")
+
+        if state.get("testable_surfaces"):
+            surfaces = [s.get("name", "unknown") for s in state["testable_surfaces"][:3]]
+            query_parts.append(f"testing surfaces: {', '.join(surfaces)}")
+
+        if not query_parts:
+            query_parts.append("E2E testing best practices and patterns")
+
+        query = "Find relevant documentation and patterns for: " + "; ".join(query_parts)
+
+        # Execute CRAG query
+        result = await agent.query(
+            query=query,
+            org_id=state.get("org_id", "default"),
+            project_id=state.get("project_id", "default"),
+        )
+
+        if result.success and result.data:
+            documents = result.data.get("documents", [])
+            confidence = result.data.get("confidence", 0)
+
+            summary = f"Retrieved {len(documents)} relevant documents (confidence: {confidence:.2f})"
+
+            # Extract key insights
+            insights = []
+            for doc in documents[:3]:
+                if doc.get("summary"):
+                    insights.append(doc["summary"][:100])
+
+            return {
+                "messages": [AIMessage(content=f"Knowledge Retrieval: {summary}\nKey insights: {'; '.join(insights)}")],
+                "current_phase": state.get("current_phase", "analysis"),
+                "results": {
+                    **state.get("results", {}),
+                    "knowledge_retrieval": {
+                        "documents_found": len(documents),
+                        "confidence": confidence,
+                        "query": query,
+                    }
+                },
+            }
+        else:
+            summary = "No highly relevant documents found. Continuing with available context."
+
+        return {
+            "messages": [AIMessage(content=f"Knowledge Retrieval: {summary}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+    except Exception as e:
+        log.error("Corrective RAG agent failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"Knowledge retrieval error: {str(e)}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+
+async def supervisor_tool_discovery_node(state: SupervisorState) -> dict:
+    """Wrapper for Tool Discovery Agent that works with supervisor state.
+
+    Discovers and creates tools dynamically from API documentation
+    when existing tools are insufficient.
+    """
+    from src.agents.tool_discovery_agent import ToolDiscoveryAgent, ToolCreatorAgent
+
+    log = logger.bind(node="supervisor_tool_discovery")
+    log.info("Running Tool Discovery agent")
+
+    try:
+        discovery_agent = ToolDiscoveryAgent()
+
+        # Check if we have API documentation to process
+        app_url = state.get("app_url", "")
+        tools_discovered = []
+
+        # Try to discover tools from common API documentation paths
+        doc_paths = [
+            f"{app_url}/openapi.json",
+            f"{app_url}/api/openapi.json",
+            f"{app_url}/swagger.json",
+            f"{app_url}/api/docs",
+        ]
+
+        for doc_url in doc_paths[:2]:  # Limit attempts
+            try:
+                result = await discovery_agent.discover_tools_from_docs(
+                    doc_url=doc_url,
+                    org_id=state.get("org_id", "default"),
+                    project_id=state.get("project_id", "default"),
+                )
+                if result.success and result.data:
+                    tools_discovered.extend(result.data)
+                    break  # Found docs, stop searching
+            except Exception:
+                continue  # Try next path
+
+        if tools_discovered:
+            summary = f"Discovered {len(tools_discovered)} tools from API documentation."
+
+            # Verify and integrate top tools
+            verified_count = 0
+            for tool in tools_discovered[:5]:
+                try:
+                    verification = await discovery_agent.verify_tool(tool)
+                    if verification.get("is_valid"):
+                        await discovery_agent.integrate_tool(
+                            tool,
+                            org_id=state.get("org_id", "default"),
+                        )
+                        verified_count += 1
+                except Exception:
+                    continue
+
+            summary += f" Verified and integrated {verified_count} tools."
+
+            return {
+                "messages": [AIMessage(content=f"Tool Discovery: {summary}")],
+                "current_phase": "planning",  # Move to planning with new tools
+                "results": {
+                    **state.get("results", {}),
+                    "tool_discovery": {
+                        "tools_discovered": len(tools_discovered),
+                        "tools_integrated": verified_count,
+                    }
+                },
+            }
+        else:
+            # No tools discovered, try creating if there's a capability gap
+            creator = ToolCreatorAgent()
+
+            # Check for capability gaps based on test plan
+            test_plan = state.get("test_plan", [])
+            if test_plan:
+                # Identify potential gaps
+                test_types = set(t.get("type", "unknown") for t in test_plan)
+                summary = f"No API documentation found. Analyzed {len(test_types)} test types for capability gaps."
+            else:
+                summary = "No API documentation found and no test plan to analyze for gaps."
+
+        return {
+            "messages": [AIMessage(content=f"Tool Discovery: {summary}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+    except Exception as e:
+        log.error("Tool Discovery agent failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"Tool discovery error: {str(e)}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+
 def create_supervisor_graph() -> StateGraph:
     """Create the multi-agent supervisor graph.
 
@@ -722,6 +1010,11 @@ def create_supervisor_graph() -> StateGraph:
     graph.add_node("self_healer", supervisor_self_healer_node)
     graph.add_node("reporter", supervisor_reporter_node)
 
+    # Advanced agent nodes (2026 patterns)
+    graph.add_node("sre_agent", supervisor_sre_agent_node)
+    graph.add_node("corrective_rag", supervisor_corrective_rag_node)
+    graph.add_node("tool_discovery", supervisor_tool_discovery_node)
+
     # Entry point
     graph.set_entry_point("supervisor")
 
@@ -736,6 +1029,10 @@ def create_supervisor_graph() -> StateGraph:
             "api_tester": "api_tester",
             "self_healer": "self_healer",
             "reporter": "reporter",
+            # Advanced agents
+            "sre_agent": "sre_agent",
+            "corrective_rag": "corrective_rag",
+            "tool_discovery": "tool_discovery",
             "end": END,
         }
     )
