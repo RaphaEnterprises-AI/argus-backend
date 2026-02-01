@@ -550,6 +550,132 @@ async def exchange_linear_code(code: str, redirect_uri: str, code_verifier: str 
 
 
 # =============================================================================
+# Helper Functions for External Use
+# =============================================================================
+
+async def generate_oauth_url(
+    platform: str,
+    user_id: str,
+    org_id: str | None = None,
+    scopes: list[str] | None = None,
+) -> dict[str, str]:
+    """Generate OAuth authorization URL for a platform.
+
+    This function can be called from other modules (e.g., integrations API)
+    to initiate OAuth flows without going through the endpoint directly.
+
+    Args:
+        platform: Platform name (github, slack, jira, linear)
+        user_id: User ID initiating the OAuth flow
+        org_id: Optional organization ID for scoping
+        scopes: Optional list of scopes to request
+
+    Returns:
+        Dict with 'authorize_url', 'state', and 'platform' keys
+
+    Raises:
+        ValueError: If platform is not a valid OAuth platform or not configured
+    """
+    # Validate platform
+    try:
+        oauth_platform = OAuthPlatform(platform.lower())
+    except ValueError:
+        raise ValueError(f"Platform '{platform}' does not support OAuth. Valid OAuth platforms: {[p.value for p in OAuthPlatform]}")
+
+    settings = get_settings()
+    config = OAUTH_CONFIG[oauth_platform]
+
+    # Validate platform is configured
+    client_id = getattr(settings, f"{oauth_platform.value}_client_id", None)
+    if not client_id:
+        raise ValueError(f"{oauth_platform.value.title()} OAuth not configured (missing client_id)")
+
+    # Determine scopes
+    requested_scopes = scopes or config["default_scopes"]
+
+    # Build redirect URI
+    redirect_uri = f"{settings.oauth_redirect_base_url}/api/v1/oauth/{oauth_platform.value}/callback"
+
+    # Generate PKCE if supported
+    code_verifier = None
+    code_challenge = None
+    if config.get("supports_pkce"):
+        code_verifier, code_challenge = generate_pkce_pair()
+
+    # Create and store state with org_id in metadata
+    metadata = {"scopes": requested_scopes}
+    if org_id:
+        metadata["org_id"] = org_id
+
+    state = await create_oauth_state(
+        user_id=user_id,
+        platform=oauth_platform,
+        redirect_uri=redirect_uri,
+        code_verifier=code_verifier,
+        metadata=metadata,
+    )
+
+    # Build authorization URL
+    params: dict[str, Any] = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "response_type": "code",
+    }
+
+    # Platform-specific parameters
+    if oauth_platform == OAuthPlatform.GITHUB:
+        params["scope"] = " ".join(requested_scopes)
+    elif oauth_platform == OAuthPlatform.SLACK:
+        params["scope"] = ",".join(requested_scopes)
+        params["user_scope"] = ""
+    elif oauth_platform == OAuthPlatform.JIRA:
+        params["scope"] = " ".join(requested_scopes)
+        params["audience"] = config["audience"]
+        params["prompt"] = "consent"
+        if code_challenge:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+    elif oauth_platform == OAuthPlatform.LINEAR:
+        params["scope"] = ",".join(requested_scopes)
+        if code_challenge:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+
+    authorize_url = f"{config['authorize_url']}?{urlencode(params)}"
+
+    logger.info(
+        "OAuth URL generated",
+        platform=oauth_platform.value,
+        user_id=user_id,
+        org_id=org_id,
+        scopes=requested_scopes,
+    )
+
+    return {
+        "authorize_url": authorize_url,
+        "state": state,
+        "platform": oauth_platform.value,
+    }
+
+
+def is_oauth_platform(platform: str) -> bool:
+    """Check if a platform uses OAuth authentication.
+
+    Args:
+        platform: Platform name to check
+
+    Returns:
+        True if the platform uses OAuth, False otherwise
+    """
+    try:
+        OAuthPlatform(platform.lower())
+        return True
+    except ValueError:
+        return False
+
+
+# =============================================================================
 # API Endpoints
 # =============================================================================
 

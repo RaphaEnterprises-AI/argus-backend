@@ -18,7 +18,7 @@ hardcoded test_*_connection functions until they are migrated to plugins.
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import httpx
 import structlog
@@ -29,6 +29,7 @@ from src.api.context import get_current_organization_id
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.integrations.base import (
+    AuthType,
     ConnectionTestResult,
     IntegrationCategory,
     IntegrationCredentials,
@@ -329,6 +330,34 @@ class SyncResponse(BaseModel):
     message: str
     sync_id: str | None = None
     data_points_synced: int = 0
+
+
+class OAuthRedirectResponse(BaseModel):
+    """Response when OAuth authentication is required.
+
+    Returned by connect_integration when the platform uses OAuth.
+    The frontend should redirect the user to the oauth_url.
+    """
+    oauth_url: str = Field(
+        ...,
+        description="URL to redirect the user to for OAuth authorization",
+    )
+    state: str = Field(
+        ...,
+        description="OAuth state parameter for CSRF protection",
+    )
+    platform: str = Field(
+        ...,
+        description="Platform name",
+    )
+    message: str = Field(
+        default="Redirect to OAuth provider to authorize",
+        description="Human-readable message",
+    )
+    requires_oauth: bool = Field(
+        default=True,
+        description="Indicates this platform requires OAuth flow",
+    )
 
 
 # ============================================================================
@@ -1155,7 +1184,7 @@ async def list_integrations(
     )
 
 
-@router.post("/{platform}/connect", response_model=IntegrationResponse)
+@router.post("/{platform}/connect", response_model=Union[IntegrationResponse, OAuthRedirectResponse])
 async def connect_integration(
     platform: str,
     body: ConnectRequest,
@@ -1164,8 +1193,14 @@ async def connect_integration(
     """
     Connect a new integration.
 
-    Credentials are encrypted before storage using AES-256-GCM.
-    The integration is validated before being saved.
+    For API key/token-based integrations:
+    - Credentials are encrypted before storage using AES-256-GCM
+    - The integration is validated before being saved
+
+    For OAuth-based integrations (GitHub, Slack, Jira, Linear):
+    - Returns an OAuth authorization URL instead
+    - The frontend should redirect the user to complete authorization
+    - The OAuth callback will handle saving the credentials
 
     Supports both plugin-based platforms (discovered from PluginRegistry)
     and legacy platforms defined in PLATFORM_INFO.
@@ -1193,7 +1228,57 @@ async def connect_integration(
     user = await get_current_user(request)
     org_id = await get_current_organization_id(request)
 
-    # Validate required credentials
+    # Determine authentication type
+    auth_type: Optional[str] = None
+    if plugin_metadata:
+        # Plugin-based platforms have AuthType enum
+        auth_type = plugin_metadata.auth_type.value if plugin_metadata.auth_type else None
+    elif platform_enum:
+        # Legacy platforms have auth_type string in PLATFORM_INFO
+        auth_type = PLATFORM_INFO.get(platform_enum, {}).get("auth_type")
+
+    # For OAuth integrations, return OAuth authorization URL instead of validating credentials
+    if auth_type in ("oauth", "oauth2"):
+        from src.api.oauth import generate_oauth_url, is_oauth_platform
+
+        # Check if this platform has OAuth support
+        if is_oauth_platform(platform):
+            try:
+                oauth_result = await generate_oauth_url(
+                    platform=platform,
+                    user_id=user["user_id"],
+                    org_id=org_id,
+                )
+                logger.info(
+                    "OAuth redirect generated for integration connect",
+                    platform=platform,
+                    user_id=user["user_id"],
+                    org_id=org_id,
+                )
+                return OAuthRedirectResponse(
+                    oauth_url=oauth_result["authorize_url"],
+                    state=oauth_result["state"],
+                    platform=oauth_result["platform"],
+                    message=f"Redirect to {platform.title()} to authorize access",
+                )
+            except ValueError as e:
+                # OAuth not configured for this platform, log and continue
+                # This allows the endpoint to fall back to credential-based auth
+                logger.warning(
+                    "OAuth not configured, falling back to credential auth",
+                    platform=platform,
+                    error=str(e),
+                )
+        else:
+            # Platform marked as OAuth but not in our OAuth platform list
+            # This is a configuration mismatch, log warning
+            logger.warning(
+                "Platform marked as OAuth but not in OAuth platform list",
+                platform=platform,
+                auth_type=auth_type,
+            )
+
+    # Validate required credentials (for non-OAuth or OAuth fallback)
     if plugin_metadata:
         # Use plugin's credential validation
         creds = dict_to_integration_credentials(body.credentials)
