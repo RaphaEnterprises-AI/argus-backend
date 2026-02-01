@@ -117,8 +117,35 @@ This project leverages the full power of LangGraph 1.0 for production-ready orch
 ### Multi-agent Supervisor
 - Supervisor pattern for dynamic agent routing
 - Specialized agents: CodeAnalyzer, UITester, APITester, SelfHealer, Reporter
+- Advanced agents: SREAgent, CorrectiveRAG, ToolDiscovery
 - Automatic task delegation based on current state
 - File: `src/orchestrator/supervisor.py`
+
+### Advanced 2026 Agentic AI Patterns
+
+Argus implements state-of-the-art agentic AI patterns from 2026 research:
+
+| Pattern | Agent/Module | Description |
+|---------|--------------|-------------|
+| **Reflexion** | `BaseAgent._call_ai_with_reflexion()` | Execute → Critique → Refine loop for self-improvement |
+| **Agent-as-Judge** | `AgentAsJudge`, `MetaJudge` | Multi-agent evaluation with debate for quality assurance |
+| **Corrective RAG** | `CorrectiveRAGAgent` | Self-correcting retrieval with relevance assessment |
+| **Adaptive RAG** | `AdaptiveRAGRouter` | Dynamic strategy selection based on query complexity |
+| **ToolLLM/CREATOR** | `ToolDiscoveryAgent`, `ToolCreatorAgent` | Dynamic tool discovery and creation |
+| **SRE Agent** | `SREAgent` | Unified incident correlation, runbook execution, MTTR |
+| **Episodic Memory** | `MemoryManager` | Session-based memory with importance weighting |
+| **Procedural Memory** | `MemoryManager` | Learned procedures with Zettelkasten linking |
+| **Deep Agent** | `PlanningMiddleware` | TodoList-based planning and task decomposition |
+| **DSPy Optimization** | `src/optimization/` | Automatic prompt optimization (COPRO, MIPRO, SIMBA, GEPA) |
+
+Key files:
+- `src/agents/agent_judge.py` - Agent-as-Judge + MetaJudge
+- `src/agents/corrective_rag_agent.py` - CRAG + Adaptive RAG
+- `src/agents/sre_agent.py` - Unified SRE operations
+- `src/agents/tool_discovery_agent.py` - ToolLLM + CREATOR patterns
+- `src/orchestrator/memory_manager.py` - Episodic + Procedural memory
+- `src/orchestrator/planning_middleware.py` - Deep Agent TodoList
+- `src/optimization/prompt_optimizer.py` - DSPy-style prompt optimization
 
 ### Chat-through-Orchestrator
 - All chat routed through LangGraph
@@ -1153,9 +1180,10 @@ class TestImpactAgent(BaseAgent):
 The agents in `src/agents/` already implement sophisticated AI logic. API endpoints should
 IMPORT and USE these agents, not implement their own heuristics.
 
-**Existing Agents (20+):**
+**Existing Agents (30+):**
 ```python
 from src.agents import (
+    # Core Testing Agents
     TestImpactAnalyzer,     # AI-powered test impact analysis
     SmartTestSelector,      # Risk-based test selection
     SelfHealerAgent,        # Self-healing with Cognee learning
@@ -1169,7 +1197,15 @@ from src.agents import (
     PerformanceAnalyzerAgent,
     SecurityScannerAgent,
     AccessibilityCheckerAgent,
-    # ... and more
+
+    # Advanced 2026 Agentic AI Patterns
+    SREAgent,               # Unified incident correlation, runbooks, MTTR
+    AgentAsJudge,           # Multi-agent evaluation with debate
+    MetaJudge,              # Arbitrates judge disagreements
+    CorrectiveRAGAgent,     # Self-correcting retrieval (CRAG)
+    AdaptiveRAGRouter,      # Dynamic retrieval strategy selection
+    ToolDiscoveryAgent,     # Discover tools from API docs (ToolLLM)
+    ToolCreatorAgent,       # Create tools for capability gaps (CREATOR)
 )
 ```
 
