@@ -31,7 +31,10 @@ import httpx
 import structlog
 
 from ..core.model_router import TaskType
-from ..knowledge.cognee_client import CogneeClient, get_cognee_client
+from ..knowledge.cognee_client import CogneeKnowledgeClient, get_cognee_client
+
+# Alias for backwards compatibility
+CogneeClient = CogneeKnowledgeClient
 from .base import AgentCapability, AgentResult, AICapability, BaseAgent
 
 
