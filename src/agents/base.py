@@ -1307,3 +1307,394 @@ class BaseAgent(ABC):
     def reset_usage(self) -> None:
         """Reset usage statistics."""
         self._usage = UsageStats()
+
+    # =========================================================================
+    # RAP-250: Reflexion Middleware - Self-Improving Agent Pattern
+    # =========================================================================
+
+    async def _call_ai_with_reflexion(
+        self,
+        messages: list[dict],
+        task_type: TaskType | None = None,
+        required_capabilities: list[AICapability] | None = None,
+        max_reflexion_rounds: int = 3,
+        quality_threshold: float = 0.8,
+        critique_prompt: str | None = None,
+        refinement_prompt: str | None = None,
+        max_cost: float | None = None,
+        **kwargs,
+    ) -> "ReflexionResult":
+        """Execute AI call with Reflexion pattern: Execute → Critique → Refine → Repeat.
+
+        Implements the Reflexion pattern from Shinn et al. (2023) for self-improving
+        agent outputs. Each round:
+        1. Execute: Generate initial response
+        2. Critique: Self-evaluate the response quality
+        3. Refine: If below threshold, refine based on critique
+        4. Repeat: Until quality threshold met or max rounds reached
+
+        Args:
+            messages: Conversation messages in OpenAI format
+            task_type: Type of task for model selection routing
+            required_capabilities: List of capabilities the model must support
+            max_reflexion_rounds: Maximum reflection iterations (default: 3)
+            quality_threshold: Quality score (0-1) to accept output (default: 0.8)
+            critique_prompt: Custom prompt for self-critique (optional)
+            refinement_prompt: Custom prompt for refinement (optional)
+            max_cost: Maximum total cost across all rounds
+            **kwargs: Additional args passed to _call_ai()
+
+        Returns:
+            ReflexionResult with final response, critique history, and metrics
+
+        Example:
+            ```python
+            result = await self._call_ai_with_reflexion(
+                messages=[{"role": "user", "content": "Generate test cases for auth.py"}],
+                task_type=TaskType.TEST_GENERATION,
+                max_reflexion_rounds=3,
+                quality_threshold=0.85,
+            )
+            print(f"Final output: {result.response.content}")
+            print(f"Quality: {result.final_quality_score}")
+            print(f"Rounds: {result.rounds_used}")
+            ```
+        """
+        from dataclasses import dataclass, field as dataclass_field
+
+        @dataclass
+        class CritiqueResult:
+            """Result of a self-critique round."""
+            quality_score: float
+            strengths: list[str]
+            weaknesses: list[str]
+            suggestions: list[str]
+            should_refine: bool
+
+        @dataclass
+        class ReflexionRound:
+            """Record of a single reflexion round."""
+            round_number: int
+            response: AIResponse
+            critique: CritiqueResult
+            refined: bool
+            cost: float
+
+        rounds: list[ReflexionRound] = []
+        total_cost = 0.0
+        effective_max_cost = max_cost or self.settings.cost_limit_per_test * 3
+
+        # Default critique prompt
+        default_critique_prompt = """Evaluate the quality of the following response:
+
+<response>
+{response}
+</response>
+
+<original_request>
+{request}
+</original_request>
+
+Provide a structured critique in JSON format:
+{{
+    "quality_score": <float 0.0-1.0>,
+    "strengths": [<list of specific strengths>],
+    "weaknesses": [<list of specific weaknesses>],
+    "suggestions": [<list of actionable improvements>],
+    "should_refine": <boolean - true if quality_score < threshold>
+}}
+
+Be rigorous but fair. Consider:
+- Completeness: Does it fully address the request?
+- Correctness: Are there any errors or inaccuracies?
+- Clarity: Is it well-structured and easy to understand?
+- Practicality: Is it actionable and implementable?
+
+Quality threshold for acceptance: {threshold}"""
+
+        # Default refinement prompt
+        default_refinement_prompt = """Improve the following response based on the critique:
+
+<original_response>
+{response}
+</original_response>
+
+<critique>
+Weaknesses: {weaknesses}
+Suggestions: {suggestions}
+</critique>
+
+Generate an improved response that:
+1. Addresses all identified weaknesses
+2. Incorporates the suggestions
+3. Maintains the strengths of the original
+
+Provide the improved response directly, without any preamble."""
+
+        # Round 1: Initial execution
+        self.log.info(
+            "Starting Reflexion execution",
+            max_rounds=max_reflexion_rounds,
+            threshold=quality_threshold,
+        )
+
+        current_response = await self._call_ai(
+            messages=messages,
+            task_type=task_type,
+            required_capabilities=required_capabilities,
+            max_cost=effective_max_cost,
+            **kwargs,
+        )
+        total_cost += current_response.cost
+
+        for round_num in range(1, max_reflexion_rounds + 1):
+            # Check cost budget
+            if total_cost >= effective_max_cost:
+                self.log.warning(
+                    "Reflexion stopped: cost budget exceeded",
+                    total_cost=total_cost,
+                    max_cost=effective_max_cost,
+                )
+                break
+
+            # Self-critique
+            critique_text = (critique_prompt or default_critique_prompt).format(
+                response=current_response.content,
+                request=messages[-1].get("content", "") if messages else "",
+                threshold=quality_threshold,
+            )
+
+            critique_response = await self._call_ai(
+                messages=[{"role": "user", "content": critique_text}],
+                task_type=TaskType.ERROR_CLASSIFICATION,  # Use lighter model for critique
+                json_mode=True,
+                max_cost=(effective_max_cost - total_cost) / 2,
+                **{k: v for k, v in kwargs.items() if k not in ["json_mode"]},
+            )
+            total_cost += critique_response.cost
+
+            # Parse critique
+            try:
+                critique_data = self._parse_json_response(critique_response.content, {})
+                critique = CritiqueResult(
+                    quality_score=float(critique_data.get("quality_score", 0.5)),
+                    strengths=critique_data.get("strengths", []),
+                    weaknesses=critique_data.get("weaknesses", []),
+                    suggestions=critique_data.get("suggestions", []),
+                    should_refine=critique_data.get("should_refine", True),
+                )
+            except Exception as e:
+                self.log.warning("Failed to parse critique, assuming quality met", error=str(e))
+                critique = CritiqueResult(
+                    quality_score=quality_threshold,
+                    strengths=["Unable to parse critique"],
+                    weaknesses=[],
+                    suggestions=[],
+                    should_refine=False,
+                )
+
+            # Record round
+            rounds.append(ReflexionRound(
+                round_number=round_num,
+                response=current_response,
+                critique=critique,
+                refined=critique.should_refine and critique.quality_score < quality_threshold,
+                cost=current_response.cost + critique_response.cost,
+            ))
+
+            self.log.debug(
+                "Reflexion round complete",
+                round=round_num,
+                quality_score=critique.quality_score,
+                should_refine=critique.should_refine,
+            )
+
+            # Check if quality threshold met
+            if critique.quality_score >= quality_threshold or not critique.should_refine:
+                self.log.info(
+                    "Reflexion complete: quality threshold met",
+                    rounds_used=round_num,
+                    final_quality=critique.quality_score,
+                )
+                break
+
+            # Refine if needed and not last round
+            if round_num < max_reflexion_rounds:
+                refinement_text = (refinement_prompt or default_refinement_prompt).format(
+                    response=current_response.content,
+                    weaknesses="; ".join(critique.weaknesses),
+                    suggestions="; ".join(critique.suggestions),
+                )
+
+                # Add refinement request to conversation
+                refined_messages = messages + [
+                    {"role": "assistant", "content": current_response.content},
+                    {"role": "user", "content": refinement_text},
+                ]
+
+                current_response = await self._call_ai(
+                    messages=refined_messages,
+                    task_type=task_type,
+                    required_capabilities=required_capabilities,
+                    max_cost=effective_max_cost - total_cost,
+                    **kwargs,
+                )
+                total_cost += current_response.cost
+
+        # Build final result
+        final_round = rounds[-1] if rounds else None
+
+        @dataclass
+        class ReflexionResult:
+            """Final result of Reflexion execution."""
+            response: AIResponse
+            rounds: list
+            rounds_used: int
+            final_quality_score: float
+            total_cost: float
+            critique_history: list[dict]
+            improved: bool
+
+        return ReflexionResult(
+            response=current_response,
+            rounds=rounds,
+            rounds_used=len(rounds),
+            final_quality_score=final_round.critique.quality_score if final_round else 0.0,
+            total_cost=total_cost,
+            critique_history=[
+                {
+                    "round": r.round_number,
+                    "quality": r.critique.quality_score,
+                    "weaknesses": r.critique.weaknesses,
+                    "refined": r.refined,
+                }
+                for r in rounds
+            ],
+            improved=len(rounds) > 1 and rounds[-1].critique.quality_score > rounds[0].critique.quality_score,
+        )
+
+    # =========================================================================
+    # RAP-251: Agent-as-Judge Pattern for Output Evaluation
+    # =========================================================================
+
+    async def _evaluate_output(
+        self,
+        output: str,
+        criteria: list[str] | None = None,
+        rubric: dict[str, str] | None = None,
+        reference: str | None = None,
+    ) -> "EvaluationResult":
+        """Evaluate an output using Agent-as-Judge pattern.
+
+        Uses a separate evaluation pass to assess output quality against
+        specified criteria. This is useful for:
+        - Validating generated code
+        - Assessing test coverage
+        - Checking compliance with requirements
+
+        Args:
+            output: The output to evaluate
+            criteria: List of criteria to evaluate (default: accuracy, completeness, clarity)
+            rubric: Optional detailed rubric with scoring guidelines
+            reference: Optional reference/gold standard to compare against
+
+        Returns:
+            EvaluationResult with scores and feedback
+
+        Example:
+            ```python
+            result = await self._evaluate_output(
+                output=generated_code,
+                criteria=["correctness", "efficiency", "readability"],
+                rubric={
+                    "correctness": "Code should pass all test cases",
+                    "efficiency": "O(n) or better time complexity",
+                },
+            )
+            if result.overall_score < 0.7:
+                # Trigger refinement
+                pass
+            ```
+        """
+        from dataclasses import dataclass
+
+        @dataclass
+        class CriterionScore:
+            """Score for a single criterion."""
+            criterion: str
+            score: float  # 0.0-1.0
+            feedback: str
+            evidence: str
+
+        @dataclass
+        class EvaluationResult:
+            """Result of Agent-as-Judge evaluation."""
+            overall_score: float
+            scores: dict[str, CriterionScore]
+            summary: str
+            pass_fail: bool
+            recommendations: list[str]
+
+        default_criteria = criteria or ["accuracy", "completeness", "clarity", "practicality"]
+
+        # Build evaluation prompt
+        rubric_text = ""
+        if rubric:
+            rubric_text = "\n".join([f"- {k}: {v}" for k, v in rubric.items()])
+
+        reference_text = ""
+        if reference:
+            reference_text = f"\n\n<reference>\n{reference}\n</reference>"
+
+        eval_prompt = f"""You are an expert evaluator. Assess the following output against the specified criteria.
+
+<output>
+{output}
+</output>{reference_text}
+
+Criteria to evaluate: {', '.join(default_criteria)}
+
+{f"Rubric:{chr(10)}{rubric_text}" if rubric_text else ""}
+
+Provide your evaluation in JSON format:
+{{
+    "overall_score": <float 0.0-1.0>,
+    "criteria_scores": {{
+        "<criterion>": {{
+            "score": <float 0.0-1.0>,
+            "feedback": "<specific feedback>",
+            "evidence": "<quote or reference from output>"
+        }}
+    }},
+    "summary": "<2-3 sentence summary>",
+    "pass_fail": <boolean - true if overall_score >= 0.7>,
+    "recommendations": [<list of specific improvements>]
+}}"""
+
+        response = await self._call_ai(
+            messages=[{"role": "user", "content": eval_prompt}],
+            task_type=TaskType.ERROR_CLASSIFICATION,
+            json_mode=True,
+            max_tokens=2000,
+        )
+
+        # Parse evaluation
+        eval_data = self._parse_json_response(response.content, {})
+
+        scores = {}
+        for criterion in default_criteria:
+            criterion_data = eval_data.get("criteria_scores", {}).get(criterion, {})
+            scores[criterion] = CriterionScore(
+                criterion=criterion,
+                score=float(criterion_data.get("score", 0.5)),
+                feedback=criterion_data.get("feedback", "No feedback provided"),
+                evidence=criterion_data.get("evidence", ""),
+            )
+
+        return EvaluationResult(
+            overall_score=float(eval_data.get("overall_score", 0.5)),
+            scores=scores,
+            summary=eval_data.get("summary", "Evaluation complete"),
+            pass_fail=eval_data.get("pass_fail", False),
+            recommendations=eval_data.get("recommendations", []),
+        )

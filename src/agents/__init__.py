@@ -25,7 +25,39 @@ from .accessibility_checker import (
 from .api_tester import APITesterAgent
 from .auto_discovery import AutoDiscovery, DiscoveryResult, QuickDiscover
 from .base import AgentCapability, AgentResult, AICapability, AIResponse, BaseAgent, UsageStats
+
+# Agent-as-Judge + MetaJudge (RAP-255)
+from .agent_judge import (
+    AgentAsJudge,
+    AgentEvaluation,
+    create_agent_judge,
+    create_meta_judge,
+    DebateRound,
+    EvaluationCategory,
+    EvaluationIssue,
+    evaluate_agent_output_simple,
+    ExecutionEvaluation,
+    HealingValidation,
+    IssueSeverity,
+    JudgeCapability,
+    MetaEvaluation,
+    MetaJudge,
+    TestValidation,
+    VerificationMethod,
+)
+
 from .code_analyzer import CodeAnalyzerAgent
+
+# Corrective RAG (CRAG) - Self-correcting retrieval (RAP-254)
+from .corrective_rag_agent import (
+    AdaptiveRAGRouter,
+    AdaptiveRAGStrategy,
+    CorrectiveRAGAgent,
+    CRAGResult,
+    RelevanceLevel,
+    RetrievalAction,
+    RetrievedDocument,
+)
 from .db_tester import DBTesterAgent
 
 # Flaky Test Detection
@@ -51,6 +83,30 @@ from .mr_analyzer import (
     create_mr_analyzer,
 )
 from .nlp_test_creator import ConversationalTestBuilder, GeneratedTest, NLPTestCreator
+
+# Tool Discovery and Creation (ToolLLM + CREATOR patterns)
+from .tool_discovery_agent import (
+    AuthType,
+    CapabilityGap,
+    DFSDTToolSelector,
+    DiscoveredTool,
+    GeneratedTool,
+    IntegrationResult,
+    ParameterType,
+    ToolCapability,
+    ToolCreatorAgent,
+    ToolDesign,
+    ToolDiscoveryAgent,
+    ToolLearning,
+    ToolParameter,
+    ToolRegistry,
+    ToolReturn,
+    ToolType,
+    ToolVerification,
+    create_tool_creator_agent,
+    create_tool_discovery_agent,
+    get_tool_registry,
+)
 
 # New Advanced Agents
 from .performance_analyzer import (
@@ -81,6 +137,16 @@ from .security_scanner import (
     VulnerabilitySeverity,
 )
 from .self_healer import SelfHealerAgent
+
+# SRE Agent - Unified incident correlation, remediation, optimization (RAP-253)
+from .sre_agent import (
+    CorrelatedIncident,
+    IncidentSeverity,
+    RemediationStatus,
+    Runbook,
+    SREAgent,
+    SREMetrics,
+)
 
 # Test Impact Analysis
 from .test_impact_analyzer import (
@@ -184,4 +250,40 @@ __all__ = [
     "TestPriority",
     "TestType",
     "create_mr_analyzer",
+    # Tool Discovery and Creation (ToolLLM + CREATOR patterns)
+    "ToolDiscoveryAgent",
+    "ToolCreatorAgent",
+    "ToolRegistry",
+    "DFSDTToolSelector",
+    "ToolCapability",
+    "ToolType",
+    "ParameterType",
+    "AuthType",
+    "ToolParameter",
+    "ToolReturn",
+    "DiscoveredTool",
+    "GeneratedTool",
+    "ToolVerification",
+    "IntegrationResult",
+    "ToolLearning",
+    "CapabilityGap",
+    "ToolDesign",
+    "create_tool_discovery_agent",
+    "create_tool_creator_agent",
+    "get_tool_registry",
+    # SRE Agent (RAP-253) - Unified incident response
+    "SREAgent",
+    "CorrelatedIncident",
+    "IncidentSeverity",
+    "RemediationStatus",
+    "Runbook",
+    "SREMetrics",
+    # Corrective RAG Agent (RAP-254) - Self-correcting retrieval
+    "CorrectiveRAGAgent",
+    "CRAGResult",
+    "RetrievedDocument",
+    "RelevanceLevel",
+    "RetrievalAction",
+    "AdaptiveRAGRouter",
+    "AdaptiveRAGStrategy",
 ]

@@ -116,6 +116,29 @@ from .langfuse_integration import (
     score_trace,
 )
 
+# Memory Manager - Episodic and Procedural Memory (RAP-252)
+from .memory_manager import (
+    EpisodicMemory,
+    get_memory_manager,
+    MemoryImportance,
+    MemoryManager,
+    MemorySearchResult,
+    MemoryType,
+    ProceduralMemory,
+)
+
+# Planning Middleware - Deep Agent Pattern (RAP-245)
+from .planning_middleware import (
+    ExecutionResult,
+    get_planning_tools,
+    planning_middleware_node,
+    PlanningMiddleware,
+    PlanningToolHandler,
+    TodoItem,
+    TodoList,
+    TodoStatus,
+)
+
 # MARP - Multi-Agent Reasoning Protocol for consensus (RAP-235)
 from .marp import (
     MARP,
@@ -327,4 +350,21 @@ __all__ = [
     "flush_langfuse",
     "score_trace",
     "get_trace_url",
+    # Memory Manager (RAP-252) - Episodic and Procedural Memory
+    "MemoryManager",
+    "get_memory_manager",
+    "EpisodicMemory",
+    "ProceduralMemory",
+    "MemoryType",
+    "MemoryImportance",
+    "MemorySearchResult",
+    # Planning Middleware (RAP-245) - Deep Agent Pattern
+    "TodoStatus",
+    "TodoItem",
+    "TodoList",
+    "ExecutionResult",
+    "PlanningMiddleware",
+    "PlanningToolHandler",
+    "get_planning_tools",
+    "planning_middleware_node",
 ]
