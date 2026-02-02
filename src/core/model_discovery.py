@@ -178,6 +178,134 @@ async def fetch_anthropic_models(api_key: str | None = None) -> list[DiscoveredM
     return models
 
 
+async def fetch_openai_models(api_key: str | None = None) -> list[DiscoveredModel]:
+    """
+    Fetch available models from OpenAI API.
+
+    API: GET https://api.openai.com/v1/models
+    Docs: https://platform.openai.com/docs/api-reference/models/list
+
+    Returns:
+        List of discovered OpenAI models
+    """
+    api_key = api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.debug("OPENAI_API_KEY not set, skipping OpenAI model discovery")
+        return []
+
+    models: list[DiscoveredModel] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            for model_data in data.get("data", []):
+                model_id = model_data.get("id", "")
+
+                # Skip non-chat models (embeddings, whisper, tts, dall-e, etc.)
+                if any(skip in model_id for skip in ["embedding", "whisper", "tts", "dall-e", "davinci", "babbage", "curie"]):
+                    continue
+
+                # Parse created timestamp
+                created_at = None
+                if model_data.get("created"):
+                    try:
+                        created_at = datetime.fromtimestamp(model_data["created"])
+                    except (ValueError, TypeError):
+                        pass
+
+                # Determine capabilities
+                is_gpt4 = "gpt-4" in model_id
+                is_o1 = model_id.startswith("o1") or model_id.startswith("o3")
+
+                model = DiscoveredModel(
+                    id=model_id,
+                    provider=ModelProvider.OPENAI,
+                    display_name=model_id,
+                    created_at=created_at,
+                    context_length=128000 if is_gpt4 or is_o1 else 16384,
+                    max_output_tokens=16384 if is_o1 else 4096,
+                    supports_vision=is_gpt4 or is_o1,
+                    supports_tools=not is_o1,  # o1 doesn't support tools yet
+                    supports_json_mode=True,
+                )
+                models.append(model)
+                logger.debug(f"Discovered OpenAI model: {model_id}")
+
+            logger.info(f"Discovered {len(models)} OpenAI models")
+
+    except httpx.HTTPError as e:
+        logger.error(f"Failed to fetch OpenAI models: {e}")
+    except Exception as e:
+        logger.error(f"Error processing OpenAI models response: {e}")
+
+    return models
+
+
+async def fetch_google_models(api_key: str | None = None) -> list[DiscoveredModel]:
+    """
+    Fetch available models from Google Gemini API.
+
+    API: GET https://generativelanguage.googleapis.com/v1beta/models
+    Docs: https://ai.google.dev/api/models
+
+    Returns:
+        List of discovered Google Gemini models
+    """
+    api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        logger.debug("GOOGLE_API_KEY not set, skipping Google model discovery")
+        return []
+
+    models: list[DiscoveredModel] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": api_key, "pageSize": 100},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            for model_data in data.get("models", []):
+                # Model name is like "models/gemini-2.0-flash-exp"
+                full_name = model_data.get("name", "")
+                model_id = full_name.replace("models/", "") if full_name.startswith("models/") else full_name
+
+                # Skip embedding models
+                if "embedding" in model_id.lower():
+                    continue
+
+                model = DiscoveredModel(
+                    id=model_id,
+                    provider=ModelProvider.GOOGLE,
+                    display_name=model_data.get("displayName", model_id),
+                    context_length=model_data.get("inputTokenLimit", 128000),
+                    max_output_tokens=model_data.get("outputTokenLimit", 8192),
+                    supports_vision="vision" in model_id or "gemini" in model_id,
+                    supports_tools=True,
+                    supports_json_mode=True,
+                    description=model_data.get("description", ""),
+                )
+                models.append(model)
+                logger.debug(f"Discovered Google model: {model_id}")
+
+            logger.info(f"Discovered {len(models)} Google models")
+
+    except httpx.HTTPError as e:
+        logger.error(f"Failed to fetch Google models: {e}")
+    except Exception as e:
+        logger.error(f"Error processing Google models response: {e}")
+
+    return models
+
+
 async def fetch_openrouter_models(api_key: str | None = None) -> list[DiscoveredModel]:
     """
     Fetch available models from OpenRouter API.
@@ -293,8 +421,13 @@ async def discover_models(
 
     logger.info("Discovering models from provider APIs...")
 
-    # Fetch from APIs in parallel
-    tasks = [fetch_anthropic_models()]
+    # Fetch from all provider APIs in parallel
+    # Direct APIs provide accurate model IDs without provider prefixes
+    tasks = [
+        fetch_anthropic_models(),
+        fetch_openai_models(),
+        fetch_google_models(),
+    ]
     if include_openrouter:
         tasks.append(fetch_openrouter_models())
 
@@ -371,6 +504,51 @@ async def get_latest_model(
 def get_cached_models() -> dict[str, DiscoveredModel]:
     """Get currently cached models (synchronous, may be empty/stale)."""
     return _model_cache.models
+
+
+def resolve_model_id(model_key: str) -> str | None:
+    """
+    Resolve a short model key to a full API model ID from cache.
+
+    This function handles multiple ID formats:
+    1. Direct match: "gpt-4o" -> "gpt-4o"
+    2. Prefix match: "claude-sonnet-4-5" -> "claude-sonnet-4-5-20250929"
+    3. OpenRouter format: strips provider prefix if needed
+
+    Args:
+        model_key: Short model key (e.g., "claude-sonnet-4-5", "gpt-4o")
+
+    Returns:
+        Full API model ID if found, None otherwise
+    """
+    cached = _model_cache.models
+    if not cached:
+        return None
+
+    # 1. Direct match
+    if model_key in cached:
+        return model_key
+
+    # 2. Find models that start with this key (for versioned models)
+    # e.g., "claude-sonnet-4-5" matches "claude-sonnet-4-5-20250929"
+    prefix_matches = [
+        m.id for m in cached.values()
+        if m.id.startswith(model_key) and m.id != model_key
+    ]
+    if prefix_matches:
+        # Return the latest version (highest lexicographically)
+        return sorted(prefix_matches, reverse=True)[0]
+
+    # 3. Check OpenRouter format (provider/model)
+    # e.g., "gpt-4o" might be stored as "openai/gpt-4o"
+    for model in cached.values():
+        if "/" in model.id:
+            # Extract model name after provider prefix
+            _, model_name = model.id.split("/", 1)
+            if model_name == model_key or model_name.startswith(model_key):
+                return model.id
+
+    return None
 
 
 def clear_cache() -> None:

@@ -421,36 +421,27 @@ class ModelRegistry:
 
         Resolution order:
         1. If model_key is already a full API ID (has date suffix), return it
-        2. Try to find latest version from dynamic discovery cache
+        2. Try to find from dynamic discovery cache (handles all providers)
         3. Fall back to static API_MODEL_IDS mapping
         4. Return model_key as-is if no mapping found
 
         Args:
-            model_key: Short model key (e.g., 'claude-sonnet-4-5')
+            model_key: Short model key (e.g., 'claude-sonnet-4-5', 'gpt-4o')
 
         Returns:
-            Full API model ID (e.g., 'claude-sonnet-4-5-20250929')
+            Full API model ID (e.g., 'claude-sonnet-4-5-20250929', 'gpt-4o')
         """
         # Check if it's already a full API ID (contains date pattern like -20241022)
         if len(model_key) > 15 and model_key[-8:].isdigit():
             return model_key
 
-        # Try dynamic discovery cache first (synchronous read from cache)
+        # Try dynamic discovery cache first (handles all providers)
         try:
-            from src.core.model_discovery import get_cached_models
+            from src.core.model_discovery import resolve_model_id
 
-            cached_models = get_cached_models()
-            if cached_models:
-                # Find the latest version matching this model key
-                # e.g., "claude-sonnet-4-5" matches "claude-sonnet-4-5-20250929"
-                matching = [
-                    m.id for m in cached_models.values()
-                    if m.id.startswith(model_key) and m.id != model_key
-                ]
-                if matching:
-                    # Sort by ID (higher version dates are lexicographically later)
-                    matching.sort(reverse=True)
-                    return matching[0]
+            resolved = resolve_model_id(model_key)
+            if resolved:
+                return resolved
         except ImportError:
             pass  # model_discovery not available
 
