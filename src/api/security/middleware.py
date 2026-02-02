@@ -35,6 +35,30 @@ from src.services.audit_logger import get_audit_logger
 logger = structlog.get_logger()
 
 
+def _get_cors_headers(request: Request) -> dict[str, str]:
+    """Get CORS headers for error responses.
+
+    When middleware returns early (401, 429, etc.), the response bypasses
+    the CORS middleware. We must manually add CORS headers to prevent
+    browsers from reporting CORS errors instead of the actual error.
+    """
+    origin = request.headers.get("origin", "")
+    if not origin:
+        return {}
+
+    # Import settings to check allowed origins
+    from src.config import get_settings
+    settings = get_settings()
+    allowed_origins = settings.cors_allowed_origins
+
+    if "*" in allowed_origins or origin in allowed_origins:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
 # =============================================================================
 # Rate Limiting Configuration
 # =============================================================================
@@ -279,7 +303,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     "detail": "Authentication required",
                     "request_id": request_id,
                 },
-                headers={"WWW-Authenticate": "Bearer, ApiKey"},
+                headers={
+                    "WWW-Authenticate": "Bearer, ApiKey",
+                    **_get_cors_headers(request),
+                },
             )
 
         # Attach user to request
@@ -413,6 +440,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         "X-RateLimit-Limit": str(max_requests),
                         "X-RateLimit-Remaining": "0",
                         "X-RateLimit-Reset": str(int(now + retry_after)),
+                        **_get_cors_headers(request),
                     },
                 )
 
