@@ -280,11 +280,14 @@ async def get_and_delete_oauth_state(state: str) -> dict | None:
     Returns:
         The state data or None if not found/expired
     """
+    from urllib.parse import quote
+
     supabase = get_supabase_client()
 
-    # Get the state
+    # Get the state - URL encode the timestamp to prevent + being decoded as space
+    now_iso = quote(datetime.now(UTC).isoformat(), safe='')
     result = await supabase.request(
-        f"/oauth_states?state=eq.{state}&expires_at=gt.{datetime.now(UTC).isoformat()}&select=*"
+        f"/oauth_states?state=eq.{state}&expires_at=gt.{now_iso}&select=*"
     )
 
     if result.get("error") or not result.get("data"):
@@ -307,10 +310,13 @@ async def cleanup_expired_states() -> int:
     Returns:
         Number of states deleted
     """
+    from urllib.parse import quote
+
     supabase = get_supabase_client()
 
+    now_iso = quote(datetime.now(UTC).isoformat(), safe='')
     result = await supabase.request(
-        f"/oauth_states?expires_at=lt.{datetime.now(UTC).isoformat()}",
+        f"/oauth_states?expires_at=lt.{now_iso}",
         method="DELETE"
     )
 
