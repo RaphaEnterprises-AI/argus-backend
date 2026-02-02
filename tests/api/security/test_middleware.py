@@ -47,13 +47,30 @@ class TestRateLimitConfig:
         """Test endpoint-specific rate limits."""
         from src.api.security.middleware import RateLimitConfig
 
-        # Streaming endpoints should have lower limits
+        # Legacy config still exists for backwards compatibility
         assert "/api/v1/chat/stream" in RateLimitConfig.ENDPOINT_LIMITS
-        assert RateLimitConfig.ENDPOINT_LIMITS["/api/v1/chat/stream"]["requests"] == 10
+        # Chat endpoint limit was increased to 60 in recent update
+        assert RateLimitConfig.ENDPOINT_LIMITS["/api/v1/chat/stream"]["requests"] == 60
 
         # Health endpoint should have high limit
         assert "/health" in RateLimitConfig.ENDPOINT_LIMITS
         assert RateLimitConfig.ENDPOINT_LIMITS["/health"]["requests"] == 1000
+
+    def test_endpoint_limits_new_config(self):
+        """Test endpoint-specific rate limits via new config module."""
+        from src.api.security.rate_limit_config import (
+            get_limit_for_endpoint,
+            ENDPOINT_LIMITS,
+        )
+
+        # Chat endpoint should use new config
+        requests, window = get_limit_for_endpoint("/api/v1/chat/stream")
+        assert requests == 60  # Default for free tier
+        assert window == 60
+
+        # Health endpoint should have high limit
+        requests, window = get_limit_for_endpoint("/health")
+        assert requests == 1000
 
     def test_exempt_endpoints(self):
         """Test rate limit exempt endpoints."""
@@ -62,6 +79,15 @@ class TestRateLimitConfig:
         assert "/health" in RateLimitConfig.EXEMPT_ENDPOINTS
         assert "/docs" in RateLimitConfig.EXEMPT_ENDPOINTS
         assert "/openapi.json" in RateLimitConfig.EXEMPT_ENDPOINTS
+
+    def test_exempt_endpoints_new_config(self):
+        """Test exempt endpoints via new config module."""
+        from src.api.security.rate_limit_config import is_exempt_endpoint
+
+        assert is_exempt_endpoint("/health") is True
+        assert is_exempt_endpoint("/docs") is True
+        assert is_exempt_endpoint("/openapi.json") is True
+        assert is_exempt_endpoint("/api/v1/tests") is False
 
 
 # =============================================================================
@@ -281,6 +307,20 @@ class TestRateLimitMiddleware:
     @pytest.mark.asyncio
     async def test_dispatch_adds_rate_limit_headers(self, rate_middleware, mock_request, mock_call_next):
         """Test that rate limit headers are added to response."""
+        from src.services.rate_limiter import RateLimitResult
+
+        # Mock the rate limiter to return allowed
+        mock_limiter = AsyncMock()
+        mock_limiter.is_allowed = AsyncMock(return_value=RateLimitResult(
+            allowed=True,
+            remaining=59,
+            limit=60,
+            reset_at=1234567890,
+            retry_after=0,
+            backend="memory",
+        ))
+        rate_middleware._limiter = mock_limiter
+
         response = await rate_middleware.dispatch(mock_request, mock_call_next)
 
         assert "X-RateLimit-Limit" in response.headers
@@ -311,8 +351,7 @@ class TestRateLimitMiddleware:
     @pytest.mark.asyncio
     async def test_dispatch_rate_limit_exceeded(self, rate_middleware, mock_request):
         """Test that exceeding rate limit returns 429."""
-        # Make many requests to exceed limit
-        from src.api.security.middleware import RateLimitConfig
+        from src.services.rate_limiter import RateLimitResult
 
         async def call_next(request):
             response = MagicMock()
@@ -320,15 +359,19 @@ class TestRateLimitMiddleware:
             response.headers = {}
             return response
 
-        # Clear any existing counts
-        rate_middleware._request_counts.clear()
+        # Mock the rate limiter to return denied
+        mock_limiter = AsyncMock()
+        mock_limiter.is_allowed = AsyncMock(return_value=RateLimitResult(
+            allowed=False,
+            remaining=0,
+            limit=120,
+            reset_at=1234567890,
+            retry_after=30,
+            backend="memory",
+        ))
+        rate_middleware._limiter = mock_limiter
 
-        # Make enough requests to exceed limit
-        limit = RateLimitConfig.DEFAULT_LIMIT
-        for i in range(limit):
-            await rate_middleware.dispatch(mock_request, call_next)
-
-        # Next request should be rate limited
+        # Request should be rate limited
         response = await rate_middleware.dispatch(mock_request, call_next)
 
         assert response.status_code == 429
@@ -372,32 +415,35 @@ class TestRateLimitMiddleware:
         assert key == "ip:192.168.1.100"
 
     def test_get_limit_for_endpoint_specific(self, rate_middleware):
-        """Test getting specific endpoint limits."""
-        from src.api.security.middleware import RateLimitConfig
+        """Test getting specific endpoint limits via new config module."""
+        from src.api.security.rate_limit_config import CHAT_LIMIT
 
         limit = rate_middleware._get_limit_for_endpoint("/api/v1/chat/stream", None)
 
-        assert limit["requests"] == RateLimitConfig.ENDPOINT_LIMITS["/api/v1/chat/stream"]["requests"]
+        # Chat endpoint should have the configured limit
+        assert limit["requests"] == CHAT_LIMIT
+        assert limit["window"] == 60
 
     def test_get_limit_for_endpoint_default(self, rate_middleware):
         """Test getting default limits for unspecified endpoint."""
-        from src.api.security.middleware import RateLimitConfig
+        from src.api.security.rate_limit_config import DEFAULT_LIMIT, DEFAULT_WINDOW
 
         limit = rate_middleware._get_limit_for_endpoint("/api/v1/some/endpoint", None)
 
-        assert limit["requests"] == RateLimitConfig.DEFAULT_LIMIT
-        assert limit["window"] == RateLimitConfig.DEFAULT_WINDOW
+        assert limit["requests"] == DEFAULT_LIMIT
+        assert limit["window"] == DEFAULT_WINDOW
 
     def test_get_limit_for_endpoint_user_tier(self, rate_middleware):
         """Test getting limits based on user tier."""
-        from src.api.security.middleware import RateLimitConfig
+        from src.api.security.rate_limit_config import TIER_LIMITS
 
         user = MagicMock()
         user.tier = "pro"
 
-        limit = rate_middleware._get_limit_for_endpoint("/api/v1/tests", user)
+        limit = rate_middleware._get_limit_for_endpoint("/api/v1/some/unspecified/endpoint", user)
 
-        assert limit["requests"] == RateLimitConfig.TIER_LIMITS["pro"]["requests"]
+        # For unspecified endpoints, tier limits apply
+        assert limit["requests"] == TIER_LIMITS["pro"]["requests"]
 
 
 # =============================================================================
@@ -800,8 +846,9 @@ class TestMiddlewareIntegration:
 
     @pytest.mark.asyncio
     async def test_rate_limited_then_allowed(self):
-        """Test request is rate limited then allowed after window."""
+        """Test request is rate limited then allowed after reset."""
         from src.api.security.middleware import RateLimitMiddleware
+        from src.services.rate_limiter import RateLimitResult
 
         mock_app = MagicMock()
         middleware = RateLimitMiddleware(mock_app, enabled=True)
@@ -821,23 +868,29 @@ class TestMiddlewareIntegration:
             response.headers = {}
             return response
 
-        # Clear counters
-        middleware._request_counts.clear()
+        # Mock limiter to return denied first, then allowed
+        call_count = [0]
 
-        # Make requests up to limit
-        from src.api.security.middleware import RateLimitConfig
-        limit = RateLimitConfig.DEFAULT_LIMIT
+        async def mock_is_allowed(key, limit, window_seconds):
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return RateLimitResult(
+                    allowed=False, remaining=0, limit=limit,
+                    reset_at=1234567890, retry_after=30, backend="memory"
+                )
+            return RateLimitResult(
+                allowed=True, remaining=limit - 1, limit=limit,
+                reset_at=1234567890, retry_after=0, backend="memory"
+            )
 
-        for _ in range(limit):
-            await middleware.dispatch(request, call_next)
+        mock_limiter = AsyncMock()
+        mock_limiter.is_allowed = mock_is_allowed
+        middleware._limiter = mock_limiter
 
-        # Next should be limited
+        # First request should be limited
         response = await middleware.dispatch(request, call_next)
         assert response.status_code == 429
 
-        # Clear to simulate time passing
-        middleware._request_counts.clear()
-
-        # Should work again
+        # Second request should be allowed (mock returns allowed after first call)
         response = await middleware.dispatch(request, call_next)
         assert response.status_code == 200

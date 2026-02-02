@@ -350,13 +350,33 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Rate limiting middleware with per-user and per-IP limits."""
+    """Distributed rate limiting middleware using Redis/Valkey.
+
+    Features:
+    - Sliding window counter algorithm (prevents burst at window boundaries)
+    - Distributed across instances via Valkey/Upstash
+    - Graceful fallback to in-memory when Redis unavailable
+    - Per-organization, per-user, or per-IP limiting
+    - Tier-based rate multipliers
+
+    The middleware uses the SlidingWindowRateLimiter service which provides
+    a 3-tier fallback chain:
+    1. Valkey (K8s internal) - 1-5ms
+    2. Upstash Redis (REST) - 10-30ms
+    3. In-memory (emergency fallback)
+    """
 
     def __init__(self, app: ASGIApp, enabled: bool = True):
         super().__init__(app)
         self.enabled = enabled
-        self._request_counts: dict[str, list] = defaultdict(list)
-        self._lock = asyncio.Lock()
+        self._limiter = None  # Lazy initialization
+
+    def _get_limiter(self):
+        """Get rate limiter instance (lazy initialization)."""
+        if self._limiter is None:
+            from src.services.rate_limiter import get_rate_limiter
+            self._limiter = get_rate_limiter()
+        return self._limiter
 
     def _get_rate_limit_key(self, request: Request) -> str:
         """Generate rate limit key based on user or IP."""
@@ -368,22 +388,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return f"ip:{get_client_ip(request)}"
 
     def _get_limit_for_endpoint(self, path: str, user: UserContext | None) -> dict:
-        """Get rate limit for specific endpoint and user tier."""
-        # Check endpoint-specific limits
-        for endpoint_prefix, limit in RateLimitConfig.ENDPOINT_LIMITS.items():
-            if path.startswith(endpoint_prefix):
-                return limit
+        """Get rate limit for specific endpoint and user tier.
 
-        # Check user tier
+        Uses the new configuration module for tier-aware limits.
+        """
+        # Import the configuration module
+        from src.api.security.rate_limit_config import (
+            get_limit_for_endpoint,
+            EXEMPT_ENDPOINTS,
+        )
+
+        # Get user tier if available
+        user_tier = None
         if user and hasattr(user, "tier"):
-            tier = getattr(user, "tier", "free")
-            if tier in RateLimitConfig.TIER_LIMITS:
-                return RateLimitConfig.TIER_LIMITS[tier]
+            user_tier = getattr(user, "tier", None)
 
-        return {
-            "requests": RateLimitConfig.DEFAULT_LIMIT,
-            "window": RateLimitConfig.DEFAULT_WINDOW,
-        }
+        requests, window = get_limit_for_endpoint(path, user_tier)
+
+        return {"requests": requests, "window": window}
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Skip if disabled
@@ -395,6 +417,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip exempt endpoints
+        from src.api.security.rate_limit_config import is_exempt_endpoint
+        if is_exempt_endpoint(request.url.path):
+            return await call_next(request)
+
+        # Also check legacy exempt endpoints for backwards compatibility
         if request.url.path in RateLimitConfig.EXEMPT_ENDPOINTS:
             return await call_next(request)
 
@@ -406,53 +433,53 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         max_requests = limit_config["requests"]
         window = limit_config["window"]
 
-        # Check rate limit
-        now = time.time()
+        # Handle unlimited tier
+        if max_requests >= 1e9:
+            response = await call_next(request)
+            response.headers["X-RateLimit-Limit"] = "unlimited"
+            response.headers["X-RateLimit-Remaining"] = "unlimited"
+            return response
 
-        async with self._lock:
-            # Clean old requests
-            self._request_counts[key] = [
-                ts for ts in self._request_counts[key] if ts > now - window
-            ]
+        # Check rate limit using distributed limiter
+        limiter = self._get_limiter()
+        result = await limiter.is_allowed(
+            key=key,
+            limit=max_requests,
+            window_seconds=window,
+        )
 
-            # Check if over limit
-            if len(self._request_counts[key]) >= max_requests:
-                retry_after = int(window - (now - self._request_counts[key][0]))
+        if not result.allowed:
+            logger.warning(
+                "Rate limit exceeded",
+                key=key,
+                path=request.url.path,
+                limit=max_requests,
+                window=window,
+                backend=result.backend,
+            )
 
-                logger.warning(
-                    "Rate limit exceeded",
-                    key=key,
-                    path=request.url.path,
-                    limit=max_requests,
-                    window=window,
-                )
-
-                return JSONResponse(
-                    status_code=429,
-                    content={
-                        "detail": "Rate limit exceeded",
-                        "retry_after": retry_after,
-                        "limit": max_requests,
-                        "window": window,
-                    },
-                    headers={
-                        "Retry-After": str(retry_after),
-                        "X-RateLimit-Limit": str(max_requests),
-                        "X-RateLimit-Remaining": "0",
-                        "X-RateLimit-Reset": str(int(now + retry_after)),
-                        **_get_cors_headers(request),
-                    },
-                )
-
-            # Record this request
-            self._request_counts[key].append(now)
-            remaining = max_requests - len(self._request_counts[key])
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": "Rate limit exceeded",
+                    "retry_after": result.retry_after,
+                    "limit": result.limit,
+                    "window": window,
+                },
+                headers={
+                    "Retry-After": str(result.retry_after),
+                    "X-RateLimit-Limit": str(result.limit),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(result.reset_at),
+                    **_get_cors_headers(request),
+                },
+            )
 
         # Add rate limit headers to response
         response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(max_requests)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(int(now + window))
+        response.headers["X-RateLimit-Limit"] = str(result.limit)
+        response.headers["X-RateLimit-Remaining"] = str(result.remaining)
+        response.headers["X-RateLimit-Reset"] = str(result.reset_at)
 
         return response
 

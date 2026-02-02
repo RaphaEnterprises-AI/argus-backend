@@ -466,6 +466,16 @@ class Settings(BaseSettings):
     rate_limiting_enabled: bool = Field(True, description="Enable rate limiting")
     rate_limit_requests: int = Field(60, description="Max requests per window")
     rate_limit_window_seconds: int = Field(60, description="Rate limit window in seconds")
+    rate_limit_backend: str = Field(
+        "redis",
+        description="Rate limiting backend: 'redis' (distributed via Valkey/Upstash with memory fallback), "
+        "'redis_only' (no memory fallback - fail open if Redis unavailable), "
+        "'memory' (in-memory only - per-instance, resets on restart)"
+    )
+    rate_limit_key_prefix: str = Field(
+        "ratelimit",
+        description="Key prefix for rate limit entries in Redis"
+    )
 
     # CORS Security - accepts comma-separated string or JSON array
     # WARNING: Wildcard (*) allows any origin and is a security risk in production.
