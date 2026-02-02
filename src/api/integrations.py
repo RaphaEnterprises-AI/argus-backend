@@ -285,21 +285,34 @@ class ConnectRequest(BaseModel):
 
 
 class IntegrationResponse(BaseModel):
-    """Integration details response."""
+    """Integration details response.
+
+    Field names match the frontend Integration interface in use-integrations.ts.
+    """
     id: str
     platform: str
-    platform_type: str
     name: str
-    is_connected: bool
-    project_id: str | None
-    last_sync_at: str | None
-    sync_status: str | None
-    sync_frequency_minutes: int
-    data_points_synced: int
-    features_enabled: list[str]
-    error_message: str | None
-    created_at: str
-    updated_at: str | None
+    description: str = ""  # Added for frontend compatibility
+    connected: bool
+    auth_type: str = "api_key"  # Added for frontend compatibility: oauth, api_key, webhook
+    features: list[str] = []  # Renamed from features_enabled
+    # Connection metadata
+    connected_at: str | None = None
+    connected_by: str | None = None
+    # Sync information
+    last_sync_at: str | None = None
+    sync_status: str | None = None
+    data_points: int = 0  # Renamed from data_points_synced
+    # Configuration (sanitized, no secrets)
+    config: dict | None = None
+    # Error information
+    error_message: str | None = None
+    # Legacy fields for backward compatibility
+    platform_type: str | None = None
+    project_id: str | None = None
+    sync_frequency_minutes: int = 60
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class IntegrationListResponse(BaseModel):
@@ -948,6 +961,7 @@ def format_integration_response(integration: dict) -> IntegrationResponse:
     """Convert database record to response model.
 
     Checks both the plugin registry and legacy PLATFORM_INFO for metadata.
+    Field names match the frontend Integration interface in use-integrations.ts.
     """
     platform = integration.get("type") or integration.get("platform", "unknown")
 
@@ -962,25 +976,45 @@ def format_integration_response(integration: dict) -> IntegrationResponse:
             PlatformType.OBSERVABILITY,
         ).value
         platform_name = plugin_metadata.name
+        platform_description = plugin_metadata.description
+        platform_auth_type = plugin_metadata.auth_type.value if hasattr(plugin_metadata.auth_type, 'value') else str(plugin_metadata.auth_type)
+        platform_features = plugin_metadata.features or []
     else:
         # Fall back to legacy PLATFORM_INFO
         platform_info = PLATFORM_INFO.get(Platform(platform) if platform in [p.value for p in Platform] else None, {})
         platform_type = platform_info.get("type", PlatformType.OBSERVABILITY).value if platform_info else "unknown"
         platform_name = platform_info.get("name", platform) if platform_info else platform
+        platform_description = platform_info.get("description", "") if platform_info else ""
+        platform_auth_type = platform_info.get("auth_type", "api_key") if platform_info else "api_key"
+        platform_features = platform_info.get("features", []) if platform_info else []
+
+    # Extract config (sanitized - no secrets)
+    config = integration.get("config", {})
+    if config:
+        # Remove sensitive fields
+        config = {k: v for k, v in config.items() if k not in ["access_token", "refresh_token", "api_key", "secret"]}
 
     return IntegrationResponse(
         id=integration["id"],
         platform=platform,
-        platform_type=platform_type,
         name=integration.get("name") or platform_name,
-        is_connected=integration.get("status") == "connected" or integration.get("is_connected", False),
-        project_id=integration.get("project_id"),
+        description=platform_description,
+        connected=integration.get("status") == "connected" or integration.get("is_connected", False),
+        auth_type=platform_auth_type,
+        features=integration.get("features_enabled") or platform_features,
+        # Connection metadata
+        connected_at=integration.get("config", {}).get("connected_at") or integration.get("connected_at"),
+        connected_by=integration.get("connected_by"),
+        # Sync information
         last_sync_at=integration.get("last_sync_at"),
         sync_status=integration.get("sync_status"),
-        sync_frequency_minutes=integration.get("sync_frequency_minutes") or 60,
-        data_points_synced=integration.get("data_points_synced") or 0,
-        features_enabled=integration.get("features_enabled") or [],
+        data_points=integration.get("data_points_synced") or 0,
+        config=config if config else None,
         error_message=integration.get("error_message"),
+        # Legacy fields
+        platform_type=platform_type,
+        project_id=integration.get("project_id"),
+        sync_frequency_minutes=integration.get("sync_frequency_minutes") or 60,
         created_at=integration.get("created_at") or datetime.now(UTC).isoformat(),
         updated_at=integration.get("updated_at"),
     )
@@ -1130,22 +1164,40 @@ async def list_integrations(
     """
     List all integrations for the current user/organization.
 
+    Includes both:
+    - Project-level integrations (filtered by project_id or org projects)
+    - User-level integrations (OAuth integrations stored with user_id)
+
     Optionally filter by project_id or platform.
     """
     # Validate UUID parameters
     validate_uuid_optional(project_id, "project_id")
 
     user = await get_current_user(request)
+    user_id = user.get("user_id")
     org_id = await get_current_organization_id(request)
 
     supabase = get_supabase_client()
 
-    # Build query path
-    path = "/integrations?select=*"
+    all_integrations = []
 
-    # Filter by organization via project membership
+    # 1. First, get user-level integrations (OAuth integrations)
+    # These are stored with user_id, not project_id
+    user_path = f"/integrations?user_id=eq.{user_id}&select=*"
+    if platform:
+        user_path += f"&platform=eq.{platform}"
+    user_result = await supabase.request(user_path)
+    if user_result.get("data"):
+        all_integrations.extend(user_result["data"])
+
+    # 2. Then get project-level integrations
     if project_id:
-        path += f"&project_id=eq.{project_id}"
+        project_path = f"/integrations?project_id=eq.{project_id}&select=*"
+        if platform:
+            project_path += f"&platform=eq.{platform}"
+        project_result = await supabase.request(project_path)
+        if project_result.get("data"):
+            all_integrations.extend(project_result["data"])
     elif org_id:
         # Get all projects in the organization
         projects_result = await supabase.request(
@@ -1153,19 +1205,28 @@ async def list_integrations(
         )
         if projects_result.get("data"):
             project_ids = [p["id"] for p in projects_result["data"]]
-            path += f"&project_id=in.({','.join(project_ids)})"
+            if project_ids:
+                project_path = f"/integrations?project_id=in.({','.join(project_ids)})&select=*"
+                if platform:
+                    project_path += f"&platform=eq.{platform}"
+                project_result = await supabase.request(project_path)
+                if project_result.get("data"):
+                    all_integrations.extend(project_result["data"])
 
-    if platform:
-        path += f"&platform=eq.{platform}"
+    # Deduplicate by id (in case an integration has both user_id and project_id)
+    seen_ids = set()
+    unique_integrations = []
+    for integration in all_integrations:
+        if integration["id"] not in seen_ids:
+            seen_ids.add(integration["id"])
+            unique_integrations.append(integration)
 
-    path += "&order=created_at.desc"
-
-    result = await supabase.request(path)
+    # Sort by created_at descending
+    unique_integrations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
     integrations = []
-    if result.get("data"):
-        for integration in result["data"]:
-            integrations.append(format_integration_response(integration))
+    for integration in unique_integrations:
+        integrations.append(format_integration_response(integration))
 
     # Build available platforms list from both plugins and legacy
     available_platforms = get_all_available_platforms()
