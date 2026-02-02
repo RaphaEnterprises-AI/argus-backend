@@ -16,6 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/teams", tags=["Team Management"])
@@ -448,7 +449,7 @@ async def list_organizations(request: Request):
             ai_spend_this_month=float(org.get("ai_spend_this_month", 0)),
             features=org.get("features", {}),
             member_count=member_count,
-            created_at=org["created_at"],
+            created_at=safe_datetime(org.get("created_at")),
         ))
 
     return result
@@ -532,7 +533,7 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
         ai_spend_this_month=0,
         features=org.get("features", {}),
         member_count=1,
-        created_at=org["created_at"],
+        created_at=safe_datetime(org.get("created_at")),
     )
 
 
@@ -570,7 +571,7 @@ async def get_organization(org_id: str, request: Request):
         ai_spend_this_month=float(org_data.get("ai_spend_this_month", 0)),
         features=org_data.get("features", {}),
         member_count=len(members.get("data", [])),
-        created_at=org_data["created_at"],
+        created_at=safe_datetime(org_data.get("created_at")),
     )
 
 
@@ -648,7 +649,7 @@ async def list_members(org_id: str, request: Request):
             status=m["status"],
             invited_at=m.get("invited_at"),
             accepted_at=m.get("accepted_at"),
-            created_at=m["created_at"],
+            created_at=safe_datetime(m.get("created_at")),
         )
         for m in members.get("data", [])
     ]
@@ -724,7 +725,7 @@ async def invite_member(org_id: str, body: InviteMemberRequest, request: Request
         status=member["status"],
         invited_at=member.get("invited_at"),
         accepted_at=member.get("accepted_at"),
-        created_at=member["created_at"],
+        created_at=safe_datetime(member.get("created_at")),
     )
 
 

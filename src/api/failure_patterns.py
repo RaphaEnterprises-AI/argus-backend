@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from src.api.middleware.tenant import validate_project_ownership
 from src.api.security.auth import UserContext, get_current_user
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/patterns", tags=["Failure Patterns"])
@@ -593,10 +594,10 @@ async def list_patterns(
                 is_active=row.get("is_active", True),
                 discovered_by=row.get("discovered_by", "algorithm"),
                 created_at=datetime.fromisoformat(
-                    row["created_at"].replace("Z", "+00:00")
+                    safe_datetime(row.get("created_at")).replace("Z", "+00:00")
                 ),
                 updated_at=datetime.fromisoformat(
-                    row["updated_at"].replace("Z", "+00:00")
+                    safe_datetime(row.get("updated_at")).replace("Z", "+00:00")
                 ),
             ))
 
@@ -650,10 +651,10 @@ async def get_pattern(
             is_active=row.get("is_active", True),
             discovered_by=row.get("discovered_by", "algorithm"),
             created_at=datetime.fromisoformat(
-                row["created_at"].replace("Z", "+00:00")
+                safe_datetime(row.get("created_at")).replace("Z", "+00:00")
             ),
             updated_at=datetime.fromisoformat(
-                row["updated_at"].replace("Z", "+00:00")
+                safe_datetime(row.get("updated_at")).replace("Z", "+00:00")
             ),
         )
 
@@ -1031,10 +1032,10 @@ async def create_pattern(
             is_active=True,
             discovered_by="user",
             created_at=datetime.fromisoformat(
-                row["created_at"].replace("Z", "+00:00")
+                safe_datetime(row.get("created_at")).replace("Z", "+00:00")
             ),
             updated_at=datetime.fromisoformat(
-                row["updated_at"].replace("Z", "+00:00")
+                safe_datetime(row.get("updated_at")).replace("Z", "+00:00")
             ),
         )
 
@@ -1181,7 +1182,7 @@ async def train_patterns(
             patterns_updated=0,
             patterns_deactivated=0,
             created_at=datetime.fromisoformat(
-                job["created_at"].replace("Z", "+00:00")
+                safe_datetime(job.get("created_at")).replace("Z", "+00:00")
             ),
         )
 
@@ -1224,7 +1225,7 @@ async def get_training_status(
             patterns_deactivated=job.get("patterns_deactivated", 0),
             error_message=job.get("error_message"),
             created_at=datetime.fromisoformat(
-                job["created_at"].replace("Z", "+00:00")
+                safe_datetime(job.get("created_at")).replace("Z", "+00:00")
             ),
             completed_at=datetime.fromisoformat(
                 job["completed_at"].replace("Z", "+00:00")

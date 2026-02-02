@@ -111,6 +111,7 @@ from src.orchestrator.checkpointer import (
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 from src.workers.cognee_consumer import CogneeConsumer
 
 logger = structlog.get_logger()
@@ -1067,7 +1068,7 @@ async def get_job_status(job_id: str):
         progress=job.get("progress"),
         result=job.get("result"),
         error=job.get("error"),
-        created_at=job["created_at"],
+        created_at=safe_datetime(job.get("created_at")),
         completed_at=job.get("completed_at"),
     )
 

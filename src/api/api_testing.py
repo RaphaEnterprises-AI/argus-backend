@@ -29,6 +29,7 @@ from src.api.tests import get_project_org_id
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/api-tests", tags=["API Testing"])
@@ -1358,7 +1359,7 @@ async def list_api_test_cases(
             source=tc.get("source", "manual"),
             is_active=tc.get("is_active", True),
             last_run_status=tc.get("last_run_status"),
-            created_at=tc["created_at"],
+            created_at=safe_datetime(tc.get("created_at")),
             updated_at=tc.get("updated_at"),
         )
         for tc in result.get("data", [])
@@ -1419,7 +1420,7 @@ async def list_api_test_results(
             schema_errors=r.get("schema_errors", []),
             error_message=r.get("error_message"),
             environment=r.get("environment", "test"),
-            created_at=r["created_at"],
+            created_at=safe_datetime(r.get("created_at")),
         )
         for r in result.get("data", [])
     ]
@@ -1507,7 +1508,7 @@ async def create_api_test_case(body: CreateTestCaseRequest, request: Request):
         source=created.get("source", "manual"),
         is_active=created.get("is_active", True),
         last_run_status=None,
-        created_at=created["created_at"],
+        created_at=safe_datetime(created.get("created_at")),
         updated_at=None,
     )
 
@@ -1612,7 +1613,7 @@ async def update_api_test_case(test_id: str, body: UpdateTestCaseRequest, reques
         source=updated.get("source", "manual"),
         is_active=updated.get("is_active", True),
         last_run_status=updated.get("last_run_status"),
-        created_at=updated["created_at"],
+        created_at=safe_datetime(updated.get("created_at")),
         updated_at=updated.get("updated_at"),
     )
 

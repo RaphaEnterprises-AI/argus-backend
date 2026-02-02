@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.security.auth import UserContext, get_current_user
 from src.integrations.supabase import get_supabase, is_supabase_configured
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/schedules", tags=["Scheduling"])
@@ -851,8 +852,8 @@ def _build_schedule_response(schedule: dict, runs: list[dict]) -> ScheduleRespon
         success_count=success_count,
         failure_count=schedule.get("failure_count", failure_count),
         avg_duration_seconds=round(avg_duration, 2) if avg_duration else None,
-        created_at=schedule["created_at"],
-        updated_at=schedule.get("updated_at", schedule["created_at"]),
+        created_at=safe_datetime(schedule.get("created_at")),
+        updated_at=safe_datetime(schedule.get("updated_at")) or safe_datetime(schedule.get("created_at")),
         created_by=schedule.get("created_by"),
         # AI Configuration
         auto_heal_enabled=schedule.get("auto_heal_enabled", False),

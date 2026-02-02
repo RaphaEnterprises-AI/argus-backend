@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/organizations", tags=["Organizations"])
@@ -281,7 +282,7 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
         domain=org.get("domain"),
         sso_enabled=org.get("sso_enabled", False),
         member_count=1,
-        created_at=org["created_at"],
+        created_at=safe_datetime(org.get("created_at")),
         updated_at=org.get("updated_at"),
     )
 
@@ -332,7 +333,7 @@ async def list_organizations(request: Request):
             logo_url=org.get("logo_url"),
             member_count=member_counts.get(str(org["id"]), 0),
             role=org_roles.get(org["id"], "member"),
-            created_at=org["created_at"],
+            created_at=safe_datetime(org.get("created_at")),
         ))
 
     return result
@@ -370,7 +371,7 @@ async def get_organization(org_id: str, request: Request):
         domain=org_data.get("domain"),
         sso_enabled=org_data.get("sso_enabled", False),
         member_count=member_count,
-        created_at=org_data["created_at"],
+        created_at=safe_datetime(org_data.get("created_at")),
         updated_at=org_data.get("updated_at"),
     )
 

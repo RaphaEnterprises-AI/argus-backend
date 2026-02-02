@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.security.auth import UserContext, get_current_user
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/activity", tags=["Activity Feed"])
@@ -153,7 +154,7 @@ async def get_activity_feed(
                     type=event_type,
                     title=log.get("title", ""),
                     description=log.get("description") or "",
-                    timestamp=log["created_at"],
+                    timestamp=safe_datetime(log.get("created_at")),
                     user=ActivityUser(name="System"),
                     metadata=ActivityMetadata(
                         project_id=log.get("project_id"),
@@ -203,7 +204,7 @@ async def get_activity_feed(
                     type=event_type,
                     title=title,
                     description=description,
-                    timestamp=run.get("completed_at") or run.get("started_at") or run["created_at"],
+                    timestamp=safe_datetime(run.get("completed_at") or run.get("started_at") or run.get("created_at")),
                     user=ActivityUser(name=user_name),
                     metadata=ActivityMetadata(
                         project_id=run.get("project_id"),
@@ -232,7 +233,7 @@ async def get_activity_feed(
                     type="discovery_completed" if is_complete else "discovery_started",
                     title="Discovery completed" if is_complete else "Discovery started",
                     description=f"Found {pages_found} pages and {flows_found} flows" if is_complete else "AI discovery session started",
-                    timestamp=disc.get("completed_at") or disc["created_at"],
+                    timestamp=safe_datetime(disc.get("completed_at") or disc.get("created_at")),
                     user=ActivityUser(name="Argus AI"),
                     metadata=ActivityMetadata(
                         project_id=disc.get("project_id"),
@@ -265,7 +266,7 @@ async def get_activity_feed(
                     type="healing_applied" if is_applied else "healing_suggested",
                     title="Self-healing fix applied" if is_applied else "Healing suggestion available",
                     description=description,
-                    timestamp=heal["created_at"],
+                    timestamp=safe_datetime(heal.get("created_at")),
                     user=ActivityUser(name="Argus AI"),
                     metadata=ActivityMetadata(
                         project_id=heal.get("project_id"),

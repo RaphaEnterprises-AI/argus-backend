@@ -24,6 +24,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/global-tests", tags=["Global Tests"])
@@ -272,7 +273,7 @@ async def start_global_test(body: StartGlobalTestRequest, request: Request):
         started_at=test.get("started_at"),
         completed_at=test.get("completed_at"),
         triggered_by=test.get("triggered_by"),
-        created_at=test["created_at"],
+        created_at=safe_datetime(test.get("created_at")),
         results=None,
     )
 
@@ -428,7 +429,7 @@ async def get_global_test(test_id: str, request: Request):
                 ttfb_ms=r.get("ttfb_ms"),
                 page_load_ms=r.get("page_load_ms"),
                 error_message=r.get("error_message"),
-                created_at=r["created_at"],
+                created_at=safe_datetime(r.get("created_at")),
             )
             for r in results_result["data"]
         ]
@@ -446,7 +447,7 @@ async def get_global_test(test_id: str, request: Request):
         started_at=test.get("started_at"),
         completed_at=test.get("completed_at"),
         triggered_by=test.get("triggered_by"),
-        created_at=test["created_at"],
+        created_at=safe_datetime(test.get("created_at")),
         results=results,
     )
 
@@ -676,7 +677,7 @@ async def list_global_tests(
             started_at=t.get("started_at"),
             completed_at=t.get("completed_at"),
             triggered_by=t.get("triggered_by"),
-            created_at=t["created_at"],
+            created_at=safe_datetime(t.get("created_at")),
             results=None,
         )
         for t in tests_result.get("data", [])

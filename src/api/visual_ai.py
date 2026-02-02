@@ -30,6 +30,7 @@ from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/visual", tags=["Visual AI"])
@@ -1150,7 +1151,7 @@ async def create_baseline(
         "browser": browser,
         "version": version,
         "metadata": metadata,
-        "created_at": now if version == 1 else existing["data"][0].get("created_at", now),
+        "created_at": now if version == 1 else safe_datetime(existing["data"][0].get("created_at")),
         "updated_at": now,
     }
 

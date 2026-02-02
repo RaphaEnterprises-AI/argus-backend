@@ -19,6 +19,7 @@ from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.email_service import get_email_service
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/invitations", tags=["Invitation Management"])
@@ -190,7 +191,7 @@ async def send_invitation(org_id: str, body: SendInvitationRequest, request: Req
         message=invitation.get("message"),
         token_expires_at=invitation["token_expires_at"],
         invited_by=invitation.get("invited_by"),
-        created_at=invitation["created_at"],
+        created_at=safe_datetime(invitation.get("created_at")),
     )
 
 
@@ -230,7 +231,7 @@ async def list_pending_invitations(org_id: str, request: Request):
                 message=inv.get("message"),
                 token_expires_at=inv["token_expires_at"],
                 invited_by=inv.get("invited_by"),
-                created_at=inv["created_at"],
+                created_at=safe_datetime(inv.get("created_at")),
             )
             for inv in invitations
         ],

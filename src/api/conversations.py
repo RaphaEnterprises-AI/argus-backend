@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 from src.api.middleware.tenant import validate_uuid
 from src.api.security.auth import UserContext, get_current_user
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/conversations", tags=["Conversations"])
@@ -143,8 +144,8 @@ async def list_conversations(
                 title=c.get("title"),
                 preview=c.get("preview"),
                 message_count=c.get("message_count", 0),
-                created_at=c["created_at"],
-                updated_at=c["updated_at"],
+                created_at=safe_datetime(c.get("created_at")),
+                updated_at=safe_datetime(c.get("updated_at")),
             ).model_dump()
             for c in conversations
         ],
@@ -207,8 +208,8 @@ async def create_conversation(
         title=data.get("title"),
         preview=data.get("preview"),
         message_count=data.get("message_count", 0),
-        created_at=data["created_at"],
-        updated_at=data["updated_at"],
+        created_at=safe_datetime(data.get("created_at")),
+        updated_at=safe_datetime(data.get("updated_at")),
     )
 
 
@@ -250,8 +251,8 @@ async def get_conversation(
         title=c.get("title"),
         preview=c.get("preview"),
         message_count=c.get("message_count", 0),
-        created_at=c["created_at"],
-        updated_at=c["updated_at"],
+        created_at=safe_datetime(c.get("created_at")),
+        updated_at=safe_datetime(c.get("updated_at")),
     )
 
 
@@ -307,8 +308,8 @@ async def update_conversation(
         title=c.get("title"),
         preview=c.get("preview"),
         message_count=c.get("message_count", 0),
-        created_at=c["created_at"],
-        updated_at=c["updated_at"],
+        created_at=safe_datetime(c.get("created_at")),
+        updated_at=safe_datetime(c.get("updated_at")),
     )
 
 
@@ -411,7 +412,7 @@ async def get_conversation_messages(
                 role=m["role"],
                 content=m["content"],
                 tool_invocations=m.get("tool_invocations"),
-                created_at=m["created_at"],
+                created_at=safe_datetime(m.get("created_at")),
             ).model_dump()
             for m in messages
         ],
@@ -498,5 +499,5 @@ async def add_message(
         role=data["role"],
         content=data["content"],
         tool_invocations=data.get("tool_invocations"),
-        created_at=data["created_at"],
+        created_at=safe_datetime(data.get("created_at")),
     )

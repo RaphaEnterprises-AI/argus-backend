@@ -24,6 +24,7 @@ from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.api.tests import get_project_org_id, get_project_org_ids_batch
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Test Runs"])
@@ -273,7 +274,7 @@ async def list_test_runs(
             failed_tests=run.get("failed_tests", 0) or 0,
             duration_ms=run.get("duration_ms"),
             completed_at=run.get("completed_at"),
-            created_at=run["created_at"],
+            created_at=safe_datetime(run.get("created_at")),
         )
         for run in runs
     ]
@@ -357,7 +358,7 @@ async def create_test_run(body: CreateTestRunRequest, request: Request):
         started_at=run.get("started_at"),
         completed_at=run.get("completed_at"),
         created_by=run.get("created_by"),
-        created_at=run["created_at"],
+        created_at=safe_datetime(run.get("created_at")),
         updated_at=run.get("updated_at"),
     )
 
@@ -397,7 +398,7 @@ async def get_test_run(
                     status=r.get("status", "unknown"),
                     duration_ms=r.get("duration_ms"),
                     error_message=r.get("error_message"),
-                    created_at=r["created_at"],
+                    created_at=safe_datetime(r.get("created_at")),
                 )
                 for r in results_result["data"]
             ]
@@ -418,7 +419,7 @@ async def get_test_run(
         started_at=run.get("started_at"),
         completed_at=run.get("completed_at"),
         created_by=run.get("created_by"),
-        created_at=run["created_at"],
+        created_at=safe_datetime(run.get("created_at")),
         updated_at=run.get("updated_at"),
         results=results,
     )
@@ -502,7 +503,7 @@ async def update_test_run(run_id: str, body: UpdateTestRunRequest, request: Requ
         started_at=updated_run.get("started_at"),
         completed_at=updated_run.get("completed_at"),
         created_by=updated_run.get("created_by"),
-        created_at=updated_run["created_at"],
+        created_at=safe_datetime(updated_run.get("created_at")),
         updated_at=updated_run.get("updated_at"),
     )
 
@@ -596,7 +597,7 @@ async def get_test_run_results(run_id: str, request: Request):
             error_screenshot=r.get("error_screenshot"),
             step_results=r.get("step_results"),
             completed_at=r.get("completed_at"),
-            created_at=r["created_at"],
+            created_at=safe_datetime(r.get("created_at")),
         )
         for r in results_result.get("data", [])
     ]
@@ -655,7 +656,7 @@ async def add_test_result(run_id: str, body: CreateTestResultRequest, request: R
         error_screenshot=test_result.get("error_screenshot"),
         step_results=test_result.get("step_results"),
         completed_at=test_result.get("completed_at"),
-        created_at=test_result["created_at"],
+        created_at=safe_datetime(test_result.get("created_at")),
     )
 
 
@@ -737,7 +738,7 @@ async def get_test_run_comparison(project_id: str, request: Request):
             failed_tests=run.get("failed_tests", 0) or 0,
             duration_ms=run.get("duration_ms"),
             completed_at=run.get("completed_at"),
-            created_at=run["created_at"],
+            created_at=safe_datetime(run.get("created_at")),
         )
 
     return TestRunComparisonResponse(

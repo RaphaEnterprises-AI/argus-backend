@@ -29,6 +29,7 @@ from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Reports"])
@@ -646,7 +647,7 @@ async def list_reports(
             passed_tests=report.get("passed_tests", 0),
             failed_tests=report.get("failed_tests", 0),
             coverage_percentage=report.get("coverage_percentage"),
-            created_at=report["created_at"],
+            created_at=safe_datetime(report["created_at"]),
             generated_at=report.get("generated_at"),
         )
         for report in reports
@@ -769,7 +770,7 @@ async def create_report(
         file_url=report.get("file_url"),
         file_size_bytes=report.get("file_size_bytes"),
         created_by=report.get("created_by"),
-        created_at=report["created_at"],
+        created_at=safe_datetime(report["created_at"]),
         updated_at=report.get("updated_at"),
         generated_at=report.get("generated_at"),
         expires_at=report.get("expires_at"),
@@ -812,7 +813,7 @@ async def get_report(report_id: str, request: Request):
         file_url=report.get("file_url"),
         file_size_bytes=report.get("file_size_bytes"),
         created_by=report.get("created_by"),
-        created_at=report["created_at"],
+        created_at=safe_datetime(report["created_at"]),
         updated_at=report.get("updated_at"),
         generated_at=report.get("generated_at"),
         expires_at=report.get("expires_at"),

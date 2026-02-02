@@ -27,6 +27,7 @@ from src.services.pricing_service import get_pricing_service
 from src.services.provider_router import Provider as ProviderEnum
 from src.services.provider_router import get_provider_router
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/users/me", tags=["AI Settings"])
@@ -321,7 +322,7 @@ async def list_provider_keys(request: Request):
                 is_valid=key.get("is_valid", True),
                 last_validated_at=key.get("last_validated_at"),
                 validation_error=key.get("validation_error"),
-                created_at=key["created_at"],
+                created_at=safe_datetime(key.get("created_at"), context="user_provider_keys.created_at"),
             )
         )
 
@@ -748,7 +749,7 @@ async def get_ai_usage(
                 cost_usd=float(r["cost_usd"]),
                 key_source=r["key_source"],
                 thread_id=r.get("thread_id"),
-                created_at=r["created_at"],
+                created_at=safe_datetime(r.get("created_at"), context="user_ai_usage.created_at"),
             )
         )
 

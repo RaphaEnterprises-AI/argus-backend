@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, verify_org_access
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/audit", tags=["Audit Logs"])
@@ -158,7 +159,7 @@ async def get_audit_logs(
                 user_agent=log.get("user_agent"),
                 status=log["status"],
                 error_message=log.get("error_message"),
-                created_at=log["created_at"],
+                created_at=safe_datetime(log.get("created_at")),
             )
             for log in logs_data
         ]
@@ -234,12 +235,14 @@ async def get_audit_summary(org_id: str, request: Request):
 
         for log in logs:
             try:
-                created_at = datetime.fromisoformat(log["created_at"].replace("Z", "+00:00"))
+                created_at_str = log.get("created_at")
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
 
-                if created_at >= today_start:
-                    events_today += 1
-                if created_at >= week_start:
-                    events_this_week += 1
+                    if created_at >= today_start:
+                        events_today += 1
+                    if created_at >= week_start:
+                        events_this_week += 1
             except (ValueError, KeyError, TypeError):
                 # Handle malformed date gracefully
                 pass
@@ -287,7 +290,7 @@ async def get_audit_summary(org_id: str, request: Request):
                 user_agent=log.get("user_agent"),
                 status=log.get("status") or "unknown",
                 error_message=log.get("error_message"),
-                created_at=log["created_at"],
+                created_at=safe_datetime(log.get("created_at")),
             )
             for log in logs[:10]
         ]

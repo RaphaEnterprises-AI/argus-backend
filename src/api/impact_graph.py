@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from src.api.security.auth import UserContext, get_current_user
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/impact-graph", tags=["Impact Graph"])
@@ -817,7 +818,7 @@ async def get_coverage_import(
             mappings_created=record.get("mappings_created", 0),
             error_message=record.get("error_message"),
             created_at=datetime.fromisoformat(
-                record["created_at"].replace("Z", "+00:00")
+                safe_datetime(record.get("created_at"), context="coverage_imports.created_at").replace("Z", "+00:00")
             ),
         )
 
@@ -962,7 +963,7 @@ async def get_job_status(
             files_analyzed=record.get("files_analyzed", 0),
             error_message=record.get("error_message"),
             created_at=datetime.fromisoformat(
-                record["created_at"].replace("Z", "+00:00")
+                safe_datetime(record.get("created_at"), context="impact_graph_jobs.created_at").replace("Z", "+00:00")
             ),
             completed_at=datetime.fromisoformat(
                 record["completed_at"].replace("Z", "+00:00")

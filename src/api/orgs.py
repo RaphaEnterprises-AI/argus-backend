@@ -27,6 +27,7 @@ from src.api.middleware.tenant import (
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.core.tenant import TenantContext
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 
@@ -192,7 +193,7 @@ async def get_organization(org_id: str, request: Request):
         member_count=member_count,
         ai_budget_daily=float(org_data.get("ai_budget_daily", 1.0)),
         ai_budget_monthly=float(org_data.get("ai_budget_monthly", 25.0)),
-        created_at=org_data["created_at"],
+        created_at=safe_datetime(org_data["created_at"]),
         updated_at=org_data.get("updated_at"),
     )
 
@@ -249,7 +250,7 @@ async def list_org_projects(
             repository_url=project.get("repository_url"),
             is_active=project.get("is_active", True),
             test_count=test_counts.get(project["id"], 0),
-            created_at=project["created_at"],
+            created_at=safe_datetime(project["created_at"]),
         ))
 
     return result
@@ -314,7 +315,7 @@ async def create_project(
         settings=project.get("settings"),
         is_active=True,
         test_count=0,
-        created_at=project["created_at"],
+        created_at=safe_datetime(project.get("created_at")),
     )
 
 
@@ -357,7 +358,7 @@ async def get_project(org_id: str, project_id: str, request: Request):
         is_active=project_data.get("is_active", True),
         test_count=test_count,
         last_run_at=project_data.get("last_run_at"),
-        created_at=project_data["created_at"],
+        created_at=safe_datetime(project_data["created_at"]),
         updated_at=project_data.get("updated_at"),
     )
 

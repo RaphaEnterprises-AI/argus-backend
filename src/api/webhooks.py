@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.knowledge import CogneeError, CogneeStorageError, get_cognee_client
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 
@@ -1271,9 +1272,8 @@ async def handle_github_actions_webhook(
             duration_seconds = None
             if run.get("updated_at") and run.get("created_at"):
                 try:
-                    from datetime import datetime as dt
-                    created = dt.fromisoformat(run["created_at"].replace("Z", "+00:00"))
-                    updated = dt.fromisoformat(run["updated_at"].replace("Z", "+00:00"))
+                    created = safe_datetime(run.get("created_at"))
+                    updated = safe_datetime(run.get("updated_at"))
                     duration_seconds = int((updated - created).total_seconds())
                 except Exception:
                     pass
@@ -1982,9 +1982,8 @@ async def handle_circleci_webhook(
         duration_seconds = None
         if workflow.get("stopped_at") and workflow.get("created_at"):
             try:
-                from datetime import datetime as dt
-                created = dt.fromisoformat(workflow["created_at"].replace("Z", "+00:00"))
-                stopped = dt.fromisoformat(workflow["stopped_at"].replace("Z", "+00:00"))
+                created = safe_datetime(workflow.get("created_at"))
+                stopped = safe_datetime(workflow.get("stopped_at"))
                 duration_seconds = int((stopped - created).total_seconds())
             except Exception:
                 pass
@@ -3004,9 +3003,8 @@ async def handle_pagerduty_webhook(
             duration_seconds = None
             if resolved_at and created_at:
                 try:
-                    from datetime import datetime as dt
-                    created = dt.fromisoformat(created_at.replace("Z", "+00:00"))
-                    resolved = dt.fromisoformat(resolved_at.replace("Z", "+00:00"))
+                    created = safe_datetime(created_at)
+                    resolved = safe_datetime(resolved_at)
                     duration_seconds = int((resolved - created).total_seconds())
                 except Exception:
                     pass

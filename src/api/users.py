@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from src.api.teams import get_current_user
 from src.config import get_settings
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/users", tags=["User Profile"])
@@ -386,8 +387,8 @@ async def get_my_profile(request: Request):
         last_login_at=profile.get("last_login_at"),
         last_active_at=profile.get("last_active_at"),
         login_count=profile.get("login_count", 0),
-        created_at=profile["created_at"],
-        updated_at=profile["updated_at"],
+        created_at=safe_datetime(profile.get("created_at")),
+        updated_at=safe_datetime(profile.get("updated_at")),
     )
 
 
@@ -1282,7 +1283,7 @@ async def get_account_activity(request: Request):
         pass
 
     return AccountActivityResponse(
-        member_since=profile["created_at"],
+        member_since=safe_datetime(profile.get("created_at")),
         last_login_at=profile.get("last_login_at"),
         last_active_at=profile.get("last_active_at"),
         login_count=profile.get("login_count", 0),

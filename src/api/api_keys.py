@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, translate_clerk_org_id, verify_org_access
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/api-keys", tags=["API Keys"])
@@ -221,7 +222,7 @@ async def list_api_keys(org_id: str, request: Request, include_revoked: bool = F
             request_count=key.get("request_count") or 0,
             expires_at=key.get("expires_at"),
             revoked_at=key.get("revoked_at"),
-            created_at=key["created_at"],
+            created_at=safe_datetime(key.get("created_at")),
             is_active=(
                 key.get("revoked_at") is None and
                 (key.get("expires_at") is None or
@@ -320,7 +321,7 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
         request_count=0,
         expires_at=key_data.get("expires_at"),
         revoked_at=None,
-        created_at=key_data["created_at"],
+        created_at=safe_datetime(key_data.get("created_at")),
         is_active=True,
     )
 
@@ -451,7 +452,7 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
             request_count=0,
             expires_at=new_key_data.get("expires_at"),
             revoked_at=None,
-            created_at=new_key_data["created_at"],
+            created_at=safe_datetime(new_key_data.get("created_at")),
             is_active=True,
         ),
         message="Key rotated successfully. The old key has been revoked.",

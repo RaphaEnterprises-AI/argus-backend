@@ -34,6 +34,7 @@ from src.api.middleware.tenant import validate_uuid
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 from src.services.crawlee_client import get_crawlee_client
 from src.services.supabase_client import get_raw_supabase_client, get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/discovery", tags=["Discovery"])
@@ -2737,7 +2738,7 @@ async def create_pattern(request: PatternCreateRequest):
             times_seen=created.get("times_seen", 1),
             test_success_rate=created.get("test_success_rate"),
             self_heal_success_rate=created.get("self_heal_success_rate"),
-            created_at=str(created.get("created_at", pattern_data["created_at"])),
+            created_at=safe_datetime(created.get("created_at") or pattern_data.get("created_at")),
         )
 
     except Exception as e:

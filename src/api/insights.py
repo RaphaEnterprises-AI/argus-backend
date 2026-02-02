@@ -23,6 +23,7 @@ from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/insights", tags=["AI Insights"])
@@ -1216,9 +1217,7 @@ async def list_insights(
                 action_url=row.get("action_url"),
                 related_test_ids=row.get("related_test_ids"),
                 is_resolved=row.get("is_resolved", False),
-                created_at=datetime.fromisoformat(
-                    row["created_at"].replace("Z", "+00:00")
-                ),
+                created_at=safe_datetime(row.get("created_at")),
                 metadata=row.get("metadata") or {},
             ))
 

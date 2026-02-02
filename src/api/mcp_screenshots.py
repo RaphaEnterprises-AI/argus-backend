@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src.api.teams import get_current_user
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/mcp/screenshots", tags=["MCP Screenshots"])
@@ -67,7 +68,7 @@ async def register_screenshot(request: Request, body: RegisterScreenshotRequest)
     return RegisterScreenshotResponse(
         screenshot_id=str(data["id"]),
         r2_key=body.r2_key,
-        created_at=data["created_at"]
+        created_at=safe_datetime(data.get("created_at"))
     )
 
 

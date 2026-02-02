@@ -21,6 +21,7 @@ from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.api.tests import get_project_org_id
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/performance", tags=["Performance"])
@@ -205,7 +206,7 @@ def _db_to_response(test: dict) -> PerformanceTestResponse:
         started_at=test.get("started_at"),
         completed_at=test.get("completed_at"),
         triggered_by=test.get("triggered_by"),
-        created_at=test["created_at"],
+        created_at=safe_datetime(test.get("created_at")),
     )
 
 
@@ -397,8 +398,8 @@ async def get_performance_trends(
     trends = []
     for item in result.get("data", []):
         # Format date as "Jan 15" style
-        created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
-        date_str = created_at.strftime("%b %d")
+        created_at = safe_datetime(item.get("created_at"))
+        date_str = datetime.fromisoformat(created_at).strftime("%b %d") if created_at else "Unknown"
 
         trends.append(
             PerformanceTrendPoint(
@@ -481,8 +482,8 @@ async def get_performance_summary(
 
     trends = []
     for item in trends_result.get("data", []):
-        created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
-        date_str = created_at.strftime("%b %d")
+        created_at = safe_datetime(item.get("created_at"))
+        date_str = datetime.fromisoformat(created_at).strftime("%b %d") if created_at else "Unknown"
 
         trends.append(
             PerformanceTrendPoint(

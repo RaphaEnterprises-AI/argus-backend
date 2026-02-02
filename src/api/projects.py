@@ -19,6 +19,7 @@ from src.api.context import get_current_organization_id, require_organization_id
 from src.api.middleware.tenant import validate_uuid
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Projects"])
@@ -233,7 +234,7 @@ async def list_organization_projects(
             is_active=project.get("is_active", True),
             test_count=test_counts.get(str(project["id"]), 0),
             last_run_at=project.get("last_run_at"),
-            created_at=project["created_at"],
+            created_at=safe_datetime(project.get("created_at")),
         ))
 
     return result
@@ -304,7 +305,7 @@ async def create_organization_project(
         is_active=project.get("is_active", True),
         test_count=0,
         last_run_at=None,
-        created_at=project["created_at"],
+        created_at=safe_datetime(project.get("created_at")),
         updated_at=project.get("updated_at"),
     )
 
@@ -374,7 +375,7 @@ async def list_projects(
                 is_active=project.get("is_active", True),
                 test_count=test_counts.get(str(project["id"]), 0),
                 last_run_at=project.get("last_run_at"),
-                created_at=project["created_at"],
+                created_at=safe_datetime(project.get("created_at")),
             ))
 
         return result
@@ -424,7 +425,7 @@ async def get_project(project_id: str, request: Request):
         is_active=project.get("is_active", True),
         test_count=test_count,
         last_run_at=project.get("last_run_at"),
-        created_at=project["created_at"],
+        created_at=safe_datetime(project.get("created_at")),
         updated_at=project.get("updated_at"),
     )
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/accessibility", tags=["Accessibility"])
@@ -115,7 +116,7 @@ def map_audit_response(audit: dict) -> QualityAuditResponse:
         started_at=audit.get("started_at"),
         completed_at=audit.get("completed_at"),
         triggered_by=audit.get("triggered_by"),
-        created_at=audit["created_at"],
+        created_at=safe_datetime(audit.get("created_at")),
     )
 
 
@@ -130,7 +131,7 @@ def map_issue_response(issue: dict) -> AccessibilityIssueResponse:
         description=issue["description"],
         suggested_fix=issue.get("suggested_fix"),
         wcag_criteria=issue.get("wcag_criteria"),
-        created_at=issue["created_at"],
+        created_at=safe_datetime(issue.get("created_at")),
     )
 
 

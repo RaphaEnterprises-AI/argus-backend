@@ -21,6 +21,7 @@ from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user, log_audit, verify_org_access
 from src.intelligence import QueryIntent, QueryRouter, get_query_router
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/healing", tags=["Self-Healing"])
@@ -322,8 +323,8 @@ def _config_to_response(config: dict) -> HealingConfigResponse:
         approvers=config.get("approvers"),
         max_heals_per_hour=config.get("max_heals_per_hour", 50),
         max_heals_per_test=config.get("max_heals_per_test", 5),
-        created_at=config["created_at"],
-        updated_at=config.get("updated_at", config["created_at"]),
+        created_at=safe_datetime(config.get("created_at")),
+        updated_at=safe_datetime(config.get("updated_at")) or safe_datetime(config.get("created_at")),
     )
 
 
@@ -382,7 +383,7 @@ async def list_healing_patterns(
             failure_count=p.get("failure_count", 0),
             confidence=float(p.get("confidence", 0)),
             project_id=p.get("project_id"),
-            created_at=p["created_at"],
+            created_at=safe_datetime(p.get("created_at")),
         )
         for p in result.get("data", [])
     ]
@@ -514,7 +515,7 @@ async def get_healing_stats(
             "healed": p["healed_selector"][:50],
             "error_type": p["error_type"],
             "confidence": float(p.get("confidence", 0)),
-            "created_at": p["created_at"],
+            "created_at": safe_datetime(p.get("created_at")),
         }
         for p in sorted(patterns_data, key=lambda x: x.get("created_at", ""), reverse=True)[:10]
     ]

@@ -21,6 +21,7 @@ from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.projects import verify_project_access
 from src.api.teams import get_current_user, log_audit
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["Tests"])
@@ -373,7 +374,7 @@ async def list_tests(
             is_active=test.get("is_active", True),
             source=test.get("source", "manual"),
             step_count=len(test.get("steps", []) or []),
-            created_at=test["created_at"],
+            created_at=safe_datetime(test.get("created_at")),
         )
         for test in tests
     ]
@@ -471,7 +472,7 @@ async def create_test(body: CreateTestRequest, request: Request):
         is_active=test.get("is_active", True),
         source=test.get("source", "manual"),
         created_by=test.get("created_by"),
-        created_at=test["created_at"],
+        created_at=safe_datetime(test.get("created_at")),
         updated_at=test.get("updated_at"),
     )
 
@@ -499,7 +500,7 @@ async def get_test(test_id: str, request: Request):
         is_active=test.get("is_active", True),
         source=test.get("source", "manual"),
         created_by=test.get("created_by"),
-        created_at=test["created_at"],
+        created_at=safe_datetime(test.get("created_at")),
         updated_at=test.get("updated_at"),
     )
 

@@ -22,6 +22,7 @@ from src.api.security.auth import UserContext, get_current_user
 from src.config import get_settings
 from src.core.model_registry import get_api_model_id
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/correlations", tags=["Correlations"])
@@ -134,6 +135,12 @@ def _row_to_sdlc_event(row: dict) -> SDLCEvent:
 
 def _row_to_insight(row: dict) -> CorrelationInsight:
     """Convert a database row to a CorrelationInsight model."""
+    # Use safe_datetime to handle null/missing created_at values
+    created_at_str = safe_datetime(
+        row.get("created_at"), context="correlation_insights.created_at"
+    )
+    created_at_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+
     return CorrelationInsight(
         id=row["id"],
         insight_type=row["insight_type"],
@@ -143,9 +150,7 @@ def _row_to_insight(row: dict) -> CorrelationInsight:
         recommendations=row.get("recommendations") or [],
         event_ids=[str(eid) for eid in (row.get("event_ids") or [])],
         status=row.get("status", "active"),
-        created_at=datetime.fromisoformat(
-            row["created_at"].replace("Z", "+00:00")
-        ) if isinstance(row["created_at"], str) else row["created_at"],
+        created_at=created_at_dt,
     )
 
 

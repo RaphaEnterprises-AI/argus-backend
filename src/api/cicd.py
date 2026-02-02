@@ -45,6 +45,7 @@ from src.events.schemas import (
     TestFailedEvent,
 )
 from src.services.supabase_client import get_supabase_client
+from src.utils import safe_datetime
 
 # Note: EventProducer and CogneeClient are imported lazily to avoid startup failures
 # when Kafka/Cognee infrastructure is not available
@@ -259,7 +260,7 @@ def _build_from_row(row: dict) -> Build:
         completed_at=row.get("completed_at"),
         duration_ms=row.get("duration_ms"),
         metadata=row.get("metadata") or {},
-        created_at=row["created_at"],
+        created_at=safe_datetime(row.get("created_at")),
     )
 
 
@@ -298,7 +299,7 @@ def _deployment_from_row(row: dict) -> Deployment:
         completed_at=row.get("completed_at"),
         duration_ms=row.get("duration_ms"),
         metadata=row.get("metadata") or {},
-        created_at=row["created_at"],
+        created_at=safe_datetime(row.get("created_at")),
     )
 
 
@@ -2169,7 +2170,7 @@ async def get_test_impact(
             skip_candidates=analysis.get("skip_candidates") or [],
             confidence_score=float(analysis.get("confidence_score", 0.5)),
             analysis_time_ms=analysis.get("analysis_time_ms", 0),
-            created_at=analysis["created_at"],
+            created_at=safe_datetime(analysis.get("created_at")),
         )
 
     except HTTPException:
