@@ -35,6 +35,27 @@ from src.services.audit_logger import get_audit_logger
 logger = structlog.get_logger()
 
 
+# =============================================================================
+# Streaming Endpoint Detection
+# =============================================================================
+
+# Endpoints that return StreamingResponse - must skip body processing
+STREAMING_ENDPOINTS = {
+    "/api/v1/chat/stream",
+    "/api/v1/stream/test",
+    "/api/v1/browser/execute",  # May stream results
+}
+
+
+def _is_streaming_endpoint(path: str) -> bool:
+    """Check if the endpoint returns a StreamingResponse.
+
+    These endpoints must be handled carefully to avoid breaking the ASGI
+    lifecycle with BaseHTTPMiddleware.
+    """
+    return any(path.startswith(ep) for ep in STREAMING_ENDPOINTS)
+
+
 def _get_cors_headers(request: Request) -> dict[str, str]:
     """Get CORS headers for error responses.
 
@@ -556,6 +577,16 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if not self.enabled:
+            return await call_next(request)
+
+        # CRITICAL: Skip detailed audit logging for streaming endpoints
+        # BaseHTTPMiddleware doesn't work well with StreamingResponse
+        # The streaming endpoint handles its own audit logging
+        if _is_streaming_endpoint(request.url.path):
+            logger.debug(
+                "Skipping audit middleware for streaming endpoint",
+                path=request.url.path,
+            )
             return await call_next(request)
 
         # Capture request details

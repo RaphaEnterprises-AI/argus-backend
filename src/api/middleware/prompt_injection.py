@@ -318,6 +318,13 @@ class PromptInjectionMiddleware(BaseHTTPMiddleware):
         "/api/v1/healing/",
     ]
 
+    # Streaming endpoints that must bypass body reading
+    # BaseHTTPMiddleware doesn't work well with StreamingResponse
+    STREAMING_ENDPOINTS = {
+        "/api/v1/chat/stream",
+        "/api/v1/stream/test",
+    }
+
     async def dispatch(
         self,
         request: Request,
@@ -326,6 +333,15 @@ class PromptInjectionMiddleware(BaseHTTPMiddleware):
         """Process request and check for prompt injection."""
         # Only check mutation methods
         if request.method not in ("POST", "PUT", "PATCH"):
+            return await call_next(request)
+
+        # CRITICAL: Skip body reading for streaming endpoints
+        # The streaming endpoint handles its own validation
+        if any(request.url.path.startswith(ep) for ep in self.STREAMING_ENDPOINTS):
+            logger.debug(
+                "Skipping prompt injection middleware for streaming endpoint",
+                path=request.url.path,
+            )
             return await call_next(request)
 
         # Only check protected paths

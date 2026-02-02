@@ -53,6 +53,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         app.add_middleware(TenantMiddleware)
     """
 
+    # Streaming endpoints - still process but don't block
+    STREAMING_ENDPOINTS = {
+        "/api/v1/chat/stream",
+        "/api/v1/stream/test",
+    }
+
     async def dispatch(
         self,
         request: Request,

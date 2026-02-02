@@ -125,9 +125,26 @@ class CamelCaseMiddleware(BaseHTTPMiddleware):
         '/favicon.ico',
     }
 
+    # Streaming endpoints that must bypass all body processing
+    STREAMING_ENDPOINTS = {
+        '/api/v1/chat/stream',
+        '/api/v1/stream/test',
+        '/api/v1/browser/execute',
+    }
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Skip excluded paths
         if any(request.url.path.startswith(path) for path in self.EXCLUDED_PATHS):
+            return await call_next(request)
+
+        # CRITICAL: Skip ALL processing for streaming endpoints
+        # BaseHTTPMiddleware doesn't work well with StreamingResponse
+        if any(request.url.path.startswith(ep) for ep in self.STREAMING_ENDPOINTS):
+            logger.debug(
+                "camelcase_middleware.streaming_bypass",
+                path=request.url.path,
+                note="Bypassing camelcase middleware for streaming endpoint",
+            )
             return await call_next(request)
 
         # Convert request body from camelCase to snake_case for JSON requests
