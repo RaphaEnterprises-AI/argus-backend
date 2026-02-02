@@ -799,7 +799,7 @@ async def oauth_callback(
         logger.warning("OAuth callback error", platform=platform.value, error=error, description=error_description)
         # Redirect to dashboard with error
         return RedirectResponse(
-            url=f"{settings.oauth_redirect_base_url}/settings/integrations?error={error}&platform={platform.value}",
+            url=f"{settings.oauth_frontend_url}/settings/integrations?error={error}&platform={platform.value}",
             status_code=302,
         )
 
@@ -808,7 +808,7 @@ async def oauth_callback(
     if not state_data:
         logger.warning("Invalid or expired OAuth state", state=state[:16])
         return RedirectResponse(
-            url=f"{settings.oauth_redirect_base_url}/settings/integrations?error=invalid_state&platform={platform.value}",
+            url=f"{settings.oauth_frontend_url}/settings/integrations?error=invalid_state&platform={platform.value}",
             status_code=302,
         )
 
@@ -908,7 +908,7 @@ async def oauth_callback(
 
         # Redirect to dashboard success page
         return RedirectResponse(
-            url=f"{settings.oauth_redirect_base_url}/settings/integrations?success=true&platform={platform.value}",
+            url=f"{settings.oauth_frontend_url}/settings/integrations?success=true&platform={platform.value}",
             status_code=302,
         )
 
@@ -917,7 +917,7 @@ async def oauth_callback(
     except Exception as e:
         logger.exception("OAuth callback error", platform=platform.value, error=str(e))
         return RedirectResponse(
-            url=f"{settings.oauth_redirect_base_url}/settings/integrations?error=token_exchange_failed&platform={platform.value}",
+            url=f"{settings.oauth_frontend_url}/settings/integrations?error=token_exchange_failed&platform={platform.value}",
             status_code=302,
         )
 

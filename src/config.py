@@ -593,10 +593,16 @@ class Settings(BaseSettings):
         description="32-byte key for encrypting OAuth tokens (base64 encoded). Generate with: openssl rand -base64 32"
     )
 
-    # OAuth Redirect Base URL (for constructing callback URLs)
+    # OAuth Redirect Base URL (for constructing callback URLs - must be backend URL)
     oauth_redirect_base_url: str = Field(
+        "http://localhost:8000",
+        description="Base URL for OAuth callbacks (backend URL where GitHub/Slack/etc call back to)"
+    )
+
+    # OAuth Frontend URL (where to redirect users after OAuth completes)
+    oauth_frontend_url: str = Field(
         "http://localhost:3000",
-        description="Base URL for OAuth redirect callbacks (e.g., https://app.heyargus.com)"
+        description="Frontend/dashboard URL for final redirect after OAuth (e.g., https://www.heyargus.ai)"
     )
 
     # ==========================================================================
