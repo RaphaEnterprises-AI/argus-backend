@@ -351,7 +351,9 @@ class TestTestPlannerAgent:
 
             spec = agent._parse_test_spec(data)
 
-            assert "test-" in spec.id
+            # ID is now a UUID (36 chars with dashes)
+            assert spec.id is not None
+            assert len(spec.id) == 36  # UUID format
             assert spec.name == "Unnamed Test"
             assert spec.type == "ui"
             assert spec.priority == "medium"

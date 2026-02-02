@@ -13,26 +13,57 @@ ANTHROPIC_PATCH = 'anthropic.Anthropic'
 class TestTestableSurface:
     """Tests for TestableSurface dataclass."""
 
-    def test_surface_creation(self, mock_env_vars):
-        """Test TestableSurface creation."""
+    @pytest.mark.parametrize(
+        "surface_type,name,path,priority,description,scenarios,expected_scenario_count",
+        [
+            ("ui", "Login Page", "/login", "critical", "User login page", ["Valid login", "Invalid password"], 2),
+            ("api", "User API", "/api/users", "high", "User management API", ["Create user", "Get user", "Delete user"], 3),
+            ("db", "Users Table", "users", "medium", "Users table", ["Check constraints"], 1),
+            ("ui", "Dashboard", "/dashboard", "low", "Main dashboard", [], 0),
+        ],
+        ids=["ui-critical", "api-high", "db-medium", "ui-low-empty-scenarios"],
+    )
+    def test_surface_creation(
+        self,
+        mock_env_vars,
+        surface_type,
+        name,
+        path,
+        priority,
+        description,
+        scenarios,
+        expected_scenario_count,
+    ):
+        """Test TestableSurface creation with various configurations."""
         from src.agents.code_analyzer import TestableSurface
 
         surface = TestableSurface(
-            type="ui",
-            name="Login Page",
-            path="/login",
-            priority="critical",
-            description="User login page",
-            test_scenarios=["Valid login", "Invalid password"],
+            type=surface_type,
+            name=name,
+            path=path,
+            priority=priority,
+            description=description,
+            test_scenarios=scenarios,
         )
 
-        assert surface.type == "ui"
-        assert surface.name == "Login Page"
-        assert surface.priority == "critical"
-        assert len(surface.test_scenarios) == 2
+        assert surface.type == surface_type
+        assert surface.name == name
+        assert surface.path == path
+        assert surface.priority == priority
+        assert surface.description == description
+        assert len(surface.test_scenarios) == expected_scenario_count
 
-    def test_surface_with_metadata(self, mock_env_vars):
-        """Test TestableSurface with metadata."""
+    @pytest.mark.parametrize(
+        "metadata,expected_keys",
+        [
+            ({"method": "POST", "auth": True}, ["method", "auth"]),
+            ({"method": "GET"}, ["method"]),
+            ({"auth": False, "rate_limit": 100, "version": "v1"}, ["auth", "rate_limit", "version"]),
+        ],
+        ids=["post-with-auth", "get-only", "multiple-fields"],
+    )
+    def test_surface_with_metadata(self, mock_env_vars, metadata, expected_keys):
+        """Test TestableSurface with various metadata configurations."""
         from src.agents.code_analyzer import TestableSurface
 
         surface = TestableSurface(
@@ -42,30 +73,42 @@ class TestTestableSurface:
             priority="high",
             description="User management API",
             test_scenarios=["Create user"],
-            metadata={"method": "POST", "auth": True},
+            metadata=metadata,
         )
 
-        assert surface.metadata["method"] == "POST"
-        assert surface.metadata["auth"] is True
+        for key in expected_keys:
+            assert key in surface.metadata
+            assert surface.metadata[key] == metadata[key]
 
-    def test_surface_to_dict(self, mock_env_vars):
-        """Test TestableSurface to_dict method."""
+    @pytest.mark.parametrize(
+        "surface_type,name,path,priority,expected_metadata",
+        [
+            ("ui", "Dashboard", "/dashboard", "high", {}),
+            ("api", "Health", "/health", "low", {}),
+            ("db", "Sessions", "sessions", "medium", {}),
+        ],
+        ids=["ui-dashboard", "api-health", "db-sessions"],
+    )
+    def test_surface_to_dict(self, mock_env_vars, surface_type, name, path, priority, expected_metadata):
+        """Test TestableSurface to_dict method with various configurations."""
         from src.agents.code_analyzer import TestableSurface
 
         surface = TestableSurface(
-            type="ui",
-            name="Dashboard",
-            path="/dashboard",
-            priority="high",
-            description="Main dashboard",
-            test_scenarios=["Load data"],
+            type=surface_type,
+            name=name,
+            path=path,
+            priority=priority,
+            description="Test description",
+            test_scenarios=["Test scenario"],
         )
 
         result = surface.to_dict()
 
-        assert result["type"] == "ui"
-        assert result["name"] == "Dashboard"
-        assert result["metadata"] == {}
+        assert result["type"] == surface_type
+        assert result["name"] == name
+        assert result["path"] == path
+        assert result["priority"] == priority
+        assert result["metadata"] == expected_metadata
 
     def test_surface_default_metadata(self, mock_env_vars):
         """Test TestableSurface default metadata is None."""
@@ -87,30 +130,53 @@ class TestTestableSurface:
 class TestCodeAnalysisResult:
     """Tests for CodeAnalysisResult dataclass."""
 
-    def test_result_creation(self, mock_env_vars):
-        """Test CodeAnalysisResult creation."""
+    @pytest.mark.parametrize(
+        "summary,framework,language,recommendations,surface_count",
+        [
+            ("Test application", "React", "TypeScript", ["Add more tests"], 1),
+            ("Next.js app", "Next.js", "TypeScript", ["Test SSR", "Test API routes"], 2),
+            ("Django backend", "Django", "Python", None, 3),
+            ("Simple app", None, None, None, 0),
+        ],
+        ids=["react-ts", "nextjs-ts", "django-py", "minimal"],
+    )
+    def test_result_creation(
+        self,
+        mock_env_vars,
+        summary,
+        framework,
+        language,
+        recommendations,
+        surface_count,
+    ):
+        """Test CodeAnalysisResult creation with various configurations."""
         from src.agents.code_analyzer import CodeAnalysisResult, TestableSurface
 
-        surface = TestableSurface(
-            type="ui",
-            name="Test",
-            path="/test",
-            priority="low",
-            description="Test",
-            test_scenarios=[],
-        )
+        surfaces = [
+            TestableSurface(
+                type="ui",
+                name=f"Test {i}",
+                path=f"/test{i}",
+                priority="low",
+                description="Test",
+                test_scenarios=[],
+            )
+            for i in range(surface_count)
+        ]
 
         result = CodeAnalysisResult(
-            summary="Test application",
-            testable_surfaces=[surface],
-            framework_detected="React",
-            language="TypeScript",
-            recommendations=["Add more tests"],
+            summary=summary,
+            testable_surfaces=surfaces,
+            framework_detected=framework,
+            language=language,
+            recommendations=recommendations,
         )
 
-        assert result.summary == "Test application"
-        assert len(result.testable_surfaces) == 1
-        assert result.framework_detected == "React"
+        assert result.summary == summary
+        assert len(result.testable_surfaces) == surface_count
+        assert result.framework_detected == framework
+        assert result.language == language
+        assert result.recommendations == recommendations
 
     def test_result_defaults(self, mock_env_vars):
         """Test CodeAnalysisResult default values."""
@@ -151,24 +217,43 @@ class TestCodeAnalyzerAgent:
             assert "test surface" in prompt.lower() or "testable surfaces" in prompt.lower()
             assert "JSON" in prompt or "json" in prompt
 
-    def test_build_analysis_prompt_basic(self, mock_env_vars):
-        """Test analysis prompt building."""
+    @pytest.mark.parametrize(
+        "codebase_path,app_url,expected_in_prompt",
+        [
+            ("/path/to/app", "http://localhost:3000", ["/path/to/app", "http://localhost:3000"]),
+            ("/home/user/project", "http://127.0.0.1:8080", ["/home/user/project", "http://127.0.0.1:8080"]),
+            ("./relative/path", "https://staging.example.com", ["./relative/path", "https://staging.example.com"]),
+        ],
+        ids=["standard-localhost", "ip-based-url", "https-staging"],
+    )
+    def test_build_analysis_prompt_basic(self, mock_env_vars, codebase_path, app_url, expected_in_prompt):
+        """Test analysis prompt building with various path and URL combinations."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
             agent = CodeAnalyzerAgent()
             prompt = agent._build_analysis_prompt(
-                codebase_path="/path/to/app",
-                app_url="http://localhost:3000",
+                codebase_path=codebase_path,
+                app_url=app_url,
                 changed_files=None,
                 file_contents=None,
             )
 
-            assert "/path/to/app" in prompt
-            assert "http://localhost:3000" in prompt
+            for expected in expected_in_prompt:
+                assert expected in prompt
 
-    def test_build_analysis_prompt_with_changed_files(self, mock_env_vars):
-        """Test analysis prompt with changed files."""
+    @pytest.mark.parametrize(
+        "changed_files",
+        [
+            ["src/login.py", "src/signup.py"],
+            ["src/auth/handler.ts", "src/auth/middleware.ts", "tests/auth.test.ts"],
+            ["single_file.py"],
+            ["a.py", "b.py", "c.py", "d.py", "e.py"],
+        ],
+        ids=["two-files", "three-nested-files", "single-file", "five-files"],
+    )
+    def test_build_analysis_prompt_with_changed_files(self, mock_env_vars, changed_files):
+        """Test analysis prompt includes all changed files."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
@@ -176,16 +261,34 @@ class TestCodeAnalyzerAgent:
             prompt = agent._build_analysis_prompt(
                 codebase_path="/app",
                 app_url="http://localhost",
-                changed_files=["src/login.py", "src/signup.py"],
+                changed_files=changed_files,
                 file_contents=None,
             )
 
             assert "CHANGED FILES" in prompt
-            assert "src/login.py" in prompt
-            assert "src/signup.py" in prompt
+            for file in changed_files:
+                assert file in prompt
 
-    def test_build_analysis_prompt_with_file_contents(self, mock_env_vars):
-        """Test analysis prompt with file contents."""
+    @pytest.mark.parametrize(
+        "file_contents,expected_snippets",
+        [
+            (
+                {"src/app.py": "def hello(): pass"},
+                ["FILE CONTENTS", "src/app.py", "def hello"],
+            ),
+            (
+                {"src/app.py": "def hello(): pass", "src/routes.py": "routes = []"},
+                ["FILE CONTENTS", "src/app.py", "def hello", "src/routes.py", "routes = []"],
+            ),
+            (
+                {"config.json": '{"key": "value"}'},
+                ["FILE CONTENTS", "config.json", '"key"'],
+            ),
+        ],
+        ids=["single-py-file", "multiple-py-files", "json-config"],
+    )
+    def test_build_analysis_prompt_with_file_contents(self, mock_env_vars, file_contents, expected_snippets):
+        """Test analysis prompt includes file contents."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
@@ -194,23 +297,24 @@ class TestCodeAnalyzerAgent:
                 codebase_path="/app",
                 app_url="http://localhost",
                 changed_files=None,
-                file_contents={
-                    "src/app.py": "def hello(): pass",
-                    "src/routes.py": "routes = []",
-                },
+                file_contents=file_contents,
             )
 
-            assert "FILE CONTENTS" in prompt
-            assert "src/app.py" in prompt
-            assert "def hello" in prompt
+            for snippet in expected_snippets:
+                assert snippet in prompt
 
-    def test_build_analysis_prompt_truncates_large_files(self, mock_env_vars):
+    @pytest.mark.parametrize(
+        "content_size",
+        [3000, 5000, 10000],
+        ids=["3k-chars", "5k-chars", "10k-chars"],
+    )
+    def test_build_analysis_prompt_truncates_large_files(self, mock_env_vars, content_size):
         """Test that large file contents are truncated."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
             agent = CodeAnalyzerAgent()
-            large_content = "x" * 5000  # Larger than 2000 char limit
+            large_content = "x" * content_size
 
             prompt = agent._build_analysis_prompt(
                 codebase_path="/app",
@@ -222,30 +326,91 @@ class TestCodeAnalyzerAgent:
             assert "..." in prompt  # Truncation marker
 
     @pytest.mark.asyncio
-    async def test_execute_success(self, mock_env_vars):
-        """Test successful code analysis."""
+    @pytest.mark.parametrize(
+        "response_json,expected_summary,expected_framework,expected_surface_count",
+        [
+            (
+                '''
+                {
+                    "summary": "A web application",
+                    "framework": "Next.js",
+                    "language": "TypeScript",
+                    "testable_surfaces": [
+                        {
+                            "type": "ui",
+                            "name": "Login Page",
+                            "path": "/login",
+                            "priority": "critical",
+                            "description": "User login",
+                            "test_scenarios": ["Valid login"]
+                        }
+                    ],
+                    "recommendations": ["Test auth flows"]
+                }
+                ''',
+                "A web application",
+                "Next.js",
+                1,
+            ),
+            (
+                '''
+                {
+                    "summary": "Django REST API",
+                    "framework": "Django",
+                    "language": "Python",
+                    "testable_surfaces": [
+                        {
+                            "type": "api",
+                            "name": "User API",
+                            "path": "/api/users",
+                            "priority": "high",
+                            "description": "User CRUD",
+                            "test_scenarios": ["Create", "Read", "Update", "Delete"]
+                        },
+                        {
+                            "type": "api",
+                            "name": "Auth API",
+                            "path": "/api/auth",
+                            "priority": "critical",
+                            "description": "Authentication",
+                            "test_scenarios": ["Login", "Logout"]
+                        }
+                    ],
+                    "recommendations": []
+                }
+                ''',
+                "Django REST API",
+                "Django",
+                2,
+            ),
+            (
+                '''
+                {
+                    "summary": "Simple static site",
+                    "testable_surfaces": []
+                }
+                ''',
+                "Simple static site",
+                None,
+                0,
+            ),
+        ],
+        ids=["nextjs-single-surface", "django-multiple-surfaces", "minimal-no-surfaces"],
+    )
+    async def test_execute_success(
+        self,
+        mock_env_vars,
+        response_json,
+        expected_summary,
+        expected_framework,
+        expected_surface_count,
+    ):
+        """Test successful code analysis with various response formats."""
         with patch(ANTHROPIC_PATCH) as mock_anthropic:
             mock_response = MagicMock()
             mock_response.usage.input_tokens = 100
             mock_response.usage.output_tokens = 200
-            mock_response.content = [MagicMock(text='''
-            {
-                "summary": "A web application",
-                "framework": "Next.js",
-                "language": "TypeScript",
-                "testable_surfaces": [
-                    {
-                        "type": "ui",
-                        "name": "Login Page",
-                        "path": "/login",
-                        "priority": "critical",
-                        "description": "User login",
-                        "test_scenarios": ["Valid login"]
-                    }
-                ],
-                "recommendations": ["Test auth flows"]
-            }
-            ''')]
+            mock_response.content = [MagicMock(text=response_json)]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
             from src.agents.code_analyzer import CodeAnalyzerAgent
@@ -257,9 +422,9 @@ class TestCodeAnalyzerAgent:
             )
 
             assert result.success is True
-            assert result.data.summary == "A web application"
-            assert len(result.data.testable_surfaces) == 1
-            assert result.data.framework_detected == "Next.js"
+            assert result.data.summary == expected_summary
+            assert len(result.data.testable_surfaces) == expected_surface_count
+            assert result.data.framework_detected == expected_framework
 
     @pytest.mark.asyncio
     async def test_execute_cost_limit_exceeded(self, mock_env_vars):
@@ -280,13 +445,25 @@ class TestCodeAnalyzerAgent:
             assert "Cost limit" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_parse_failure(self, mock_env_vars):
-        """Test execution with parse failure."""
+    @pytest.mark.parametrize(
+        "invalid_response",
+        [
+            "Not valid JSON",
+            "{ invalid json }",
+            "```json\n{}\n```",  # Markdown code block without proper content
+            "",
+            "null",
+            "[]",
+        ],
+        ids=["plain-text", "malformed-json", "markdown-block", "empty-string", "null-literal", "empty-array"],
+    )
+    async def test_execute_parse_failure(self, mock_env_vars, invalid_response):
+        """Test execution with various parse failures."""
         with patch(ANTHROPIC_PATCH) as mock_anthropic:
             mock_response = MagicMock()
             mock_response.usage.input_tokens = 100
             mock_response.usage.output_tokens = 50
-            mock_response.content = [MagicMock(text="Not valid JSON")]
+            mock_response.content = [MagicMock(text=invalid_response)]
             mock_anthropic.return_value.messages.create.return_value = mock_response
 
             from src.agents.code_analyzer import CodeAnalyzerAgent
@@ -301,10 +478,20 @@ class TestCodeAnalyzerAgent:
             assert "Failed to parse" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_exception(self, mock_env_vars):
-        """Test execution with exception."""
+    @pytest.mark.parametrize(
+        "exception_type,exception_message",
+        [
+            (Exception, "API Error"),
+            (ConnectionError, "Connection refused"),
+            (TimeoutError, "Request timed out"),
+            (ValueError, "Invalid parameter"),
+        ],
+        ids=["generic-exception", "connection-error", "timeout-error", "value-error"],
+    )
+    async def test_execute_exception(self, mock_env_vars, exception_type, exception_message):
+        """Test execution with various exception types."""
         with patch(ANTHROPIC_PATCH) as mock_anthropic:
-            mock_anthropic.return_value.messages.create.side_effect = Exception("API Error")
+            mock_anthropic.return_value.messages.create.side_effect = exception_type(exception_message)
 
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
@@ -317,43 +504,125 @@ class TestCodeAnalyzerAgent:
             assert result.success is False
             assert "Analysis failed" in result.error
 
-    def test_should_skip_directories(self, mock_env_vars):
-        """Test file skip logic for directories."""
+    @pytest.mark.parametrize(
+        "file_path",
+        [
+            # Directory-based skips (skip_dirs: node_modules, .git, __pycache__, .venv, venv, dist, build, .next)
+            "app/node_modules/pkg/index.js",
+            "app/node_modules/react/lib/react.js",
+            "app/.git/config",
+            "app/.git/objects/pack/pack-123.idx",
+            "app/__pycache__/mod.pyc",
+            "app/__pycache__/module.cpython-39.pyc",
+            "app/.venv/lib/pkg.py",
+            "app/.venv/bin/python",
+            "project/venv/bin/activate",
+            "project/venv/lib/python3.9/site-packages/pip.py",
+            "app/dist/bundle.js",
+            "app/dist/main.chunk.js",
+            "app/build/output.js",
+            "app/build/static/css/main.css",
+            "app/.next/server/pages/index.js",
+            "app/.next/cache/webpack/client-development.pack",
+            # Extension-based skips (.min.js, .map, .lock, .svg, .png, .jpg)
+            "app/bundle.min.js",
+            "app/vendor.min.js",
+            "app/file.map",
+            "app/bundle.js.map",
+            "app/logo.png",
+            "app/icon.png",
+            "app/image.jpg",
+            "app/photo.jpg",
+            "app/icon.svg",
+            "app/logo.svg",
+            "app/package-lock.json.lock",
+            "app/yarn.lock",
+        ],
+        ids=[
+            "node_modules-pkg",
+            "node_modules-nested",
+            "git-config",
+            "git-objects",
+            "pycache-mod",
+            "pycache-cpython",
+            "venv-dot-lib",
+            "venv-dot-bin",
+            "venv-bin",
+            "venv-site-packages",
+            "dist-bundle",
+            "dist-chunk",
+            "build-output",
+            "build-static",
+            "next-server",
+            "next-cache",
+            "minified-js-bundle",
+            "minified-js-vendor",
+            "map-file",
+            "map-js",
+            "png-logo",
+            "png-icon",
+            "jpg-image",
+            "jpg-photo",
+            "svg-icon",
+            "svg-logo",
+            "lock-package",
+            "lock-yarn",
+        ],
+    )
+    def test_should_skip_files(self, mock_env_vars, file_path):
+        """Test file skip logic for files that should be skipped."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
             agent = CodeAnalyzerAgent()
+            assert agent._should_skip(Path(file_path)) is True
 
-            # Should skip
-            assert agent._should_skip(Path("app/node_modules/pkg/index.js")) is True
-            assert agent._should_skip(Path("app/.git/config")) is True
-            assert agent._should_skip(Path("app/__pycache__/mod.pyc")) is True
-            assert agent._should_skip(Path("app/.venv/lib/pkg.py")) is True
-
-    def test_should_skip_extensions(self, mock_env_vars):
-        """Test file skip logic for extensions."""
+    @pytest.mark.parametrize(
+        "file_path",
+        [
+            "src/app.py",
+            "src/components/Login.tsx",
+            "routes/api.js",
+            "lib/utils.ts",
+            "app/models.py",
+            "tests/test_main.py",
+            "src/index.html",
+            "config/settings.json",
+            "src/styles.css",
+            "README.md",
+            "Makefile",
+            "Dockerfile",
+            "docker-compose.yml",
+            "src/main.go",
+            "src/lib.rs",
+            "src/Main.java",
+        ],
+        ids=[
+            "python-file",
+            "tsx-component",
+            "js-routes",
+            "ts-utils",
+            "python-models",
+            "python-tests",
+            "html-index",
+            "json-config",
+            "css-styles",
+            "markdown-readme",
+            "makefile",
+            "dockerfile",
+            "docker-compose",
+            "go-file",
+            "rust-file",
+            "java-file",
+        ],
+    )
+    def test_should_not_skip_valid_files(self, mock_env_vars, file_path):
+        """Test file skip logic for valid files that should not be skipped."""
         with patch(ANTHROPIC_PATCH):
             from src.agents.code_analyzer import CodeAnalyzerAgent
 
             agent = CodeAnalyzerAgent()
-
-            # Should skip
-            assert agent._should_skip(Path("app/bundle.min.js")) is True
-            assert agent._should_skip(Path("app/file.map")) is True
-            assert agent._should_skip(Path("app/logo.png")) is True
-            assert agent._should_skip(Path("app/package-lock.json.lock")) is True
-
-    def test_should_not_skip_valid_files(self, mock_env_vars):
-        """Test file skip logic for valid files."""
-        with patch(ANTHROPIC_PATCH):
-            from src.agents.code_analyzer import CodeAnalyzerAgent
-
-            agent = CodeAnalyzerAgent()
-
-            # Should not skip
-            assert agent._should_skip(Path("src/app.py")) is False
-            assert agent._should_skip(Path("src/components/Login.tsx")) is False
-            assert agent._should_skip(Path("routes/api.js")) is False
+            assert agent._should_skip(Path(file_path)) is False
 
     @pytest.mark.asyncio
     async def test_analyze_with_file_access_no_path(self, mock_env_vars):

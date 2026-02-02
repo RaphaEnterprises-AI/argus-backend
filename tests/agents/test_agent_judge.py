@@ -13,80 +13,80 @@ class TestAgentJudgeDataClasses:
         from src.agents.agent_judge import EvaluationIssue, IssueSeverity, EvaluationCategory
 
         issue = EvaluationIssue(
+            id="issue-001",
+            severity=IssueSeverity.CRITICAL,
             category=EvaluationCategory.CORRECTNESS,
-            severity=IssueSeverity.HIGH,
             description="Output missing required field",
             location="response.data",
-            suggestion="Include 'status' field in response",
+            suggested_fix="Include 'status' field in response",
         )
 
-        assert issue.category == EvaluationCategory.CORRECTNESS
-        assert issue.severity == IssueSeverity.HIGH
-        assert "status" in issue.suggestion
+        assert issue.id == "issue-001"
+        assert issue.severity == IssueSeverity.CRITICAL
+        assert "status" in issue.suggested_fix
 
     def test_agent_evaluation_creation(self, mock_env_vars):
         """Test AgentEvaluation dataclass."""
-        from src.agents.agent_judge import AgentEvaluation, EvaluationIssue, IssueSeverity, EvaluationCategory
+        from src.agents.agent_judge import AgentEvaluation, EvaluationIssue, IssueSeverity, EvaluationCategory, VerificationMethod
 
         evaluation = AgentEvaluation(
+            id="eval-001",
             agent_type="CodeAnalyzerAgent",
-            task_description="Analyze Python file",
-            output_quality_score=0.85,
+            overall_score=0.85,
+            criteria_scores={"accuracy": 0.9, "completeness": 0.8},
             issues=[
                 EvaluationIssue(
+                    id="issue-002",
+                    severity=IssueSeverity.MINOR,
                     category=EvaluationCategory.COMPLETENESS,
-                    severity=IssueSeverity.LOW,
                     description="Missing docstring analysis",
                 )
             ],
-            strengths=["Thorough function detection", "Accurate type inference"],
-            improvement_suggestions=["Add docstring extraction"],
-            overall_assessment="Good quality with minor gaps",
+            suggestions=["Add docstring extraction"],
+            verification_method=VerificationMethod.LLM_ANALYSIS,
         )
 
-        assert evaluation.output_quality_score == 0.85
+        assert evaluation.overall_score == 0.85
         assert len(evaluation.issues) == 1
-        assert len(evaluation.strengths) == 2
+        assert len(evaluation.suggestions) == 1
+        assert evaluation.id == "eval-001"
+        assert evaluation.verification_method == VerificationMethod.LLM_ANALYSIS
 
     def test_test_validation_creation(self, mock_env_vars):
         """Test TestValidation dataclass."""
-        from src.agents.agent_judge import TestValidation, VerificationMethod
+        from src.agents.agent_judge import TestValidation
 
         validation = TestValidation(
-            test_id="TEST-001",
             is_valid=True,
-            correctness_score=0.9,
-            completeness_score=0.85,
-            robustness_score=0.8,
-            verification_methods=[
-                VerificationMethod.SYNTAX_CHECK,
-                VerificationMethod.SCHEMA_VALIDATION,
-            ],
+            syntactic_validity=True,
+            semantic_validity=True,
+            edge_case_coverage=0.8,
+            flakiness_risk=0.1,
             issues=[],
-            recommendations=["Add edge case for empty input"],
+            suggested_improvements=["Add edge case for empty input"],
         )
 
         assert validation.is_valid is True
-        assert validation.correctness_score == 0.9
-        assert len(validation.verification_methods) == 2
+        assert validation.syntactic_validity is True
+        assert len(validation.suggested_improvements) == 1
 
     def test_healing_validation_creation(self, mock_env_vars):
         """Test HealingValidation dataclass."""
         from src.agents.agent_judge import HealingValidation
 
         validation = HealingValidation(
-            original_failure="Selector not found: #login-btn",
-            proposed_fix="Updated selector to [data-testid='login']",
-            is_valid_fix=True,
+            is_valid=True,
+            addresses_root_cause=True,
+            preserves_test_intent=True,
+            has_side_effects=False,
             confidence=0.92,
-            risk_assessment="Low risk - data-testid is stable",
-            side_effects=[],
-            alternative_fixes=["Use aria-label selector"],
+            alternative_suggestions=["Use aria-label selector"],
+            reasoning="Selector update addresses the DOM change",
         )
 
-        assert validation.is_valid_fix is True
+        assert validation.is_valid is True
         assert validation.confidence == 0.92
-        assert len(validation.side_effects) == 0
+        assert validation.has_side_effects is False
 
 
 class TestAgentJudgeEnums:
@@ -97,9 +97,8 @@ class TestAgentJudgeEnums:
         from src.agents.agent_judge import IssueSeverity
 
         assert IssueSeverity.CRITICAL.value == "critical"
-        assert IssueSeverity.HIGH.value == "high"
-        assert IssueSeverity.MEDIUM.value == "medium"
-        assert IssueSeverity.LOW.value == "low"
+        assert IssueSeverity.MAJOR.value == "major"
+        assert IssueSeverity.MINOR.value == "minor"
         assert IssueSeverity.INFO.value == "info"
 
     def test_evaluation_category_values(self, mock_env_vars):
@@ -115,9 +114,10 @@ class TestAgentJudgeEnums:
         """Test VerificationMethod enum."""
         from src.agents.agent_judge import VerificationMethod
 
-        assert VerificationMethod.SYNTAX_CHECK.value == "syntax_check"
-        assert VerificationMethod.SCHEMA_VALIDATION.value == "schema_validation"
-        assert VerificationMethod.EXECUTION_TEST.value == "execution_test"
+        assert VerificationMethod.LLM_ANALYSIS.value == "llm_analysis"
+        assert VerificationMethod.EXECUTION.value == "execution"
+        assert VerificationMethod.GROUND_TRUTH.value == "ground_truth"
+        assert VerificationMethod.HYBRID.value == "hybrid"
 
 
 class TestJudgeCapability:
@@ -127,10 +127,10 @@ class TestJudgeCapability:
         """Test JudgeCapability class has expected constants."""
         from src.agents.agent_judge import JudgeCapability
 
-        assert hasattr(JudgeCapability, 'EVALUATE_OUTPUT')
-        assert hasattr(JudgeCapability, 'VALIDATE_TEST')
-        assert hasattr(JudgeCapability, 'VERIFY_HEALING')
-        assert hasattr(JudgeCapability, 'META_EVALUATE')
+        assert hasattr(JudgeCapability, 'OUTPUT_EVALUATION')
+        assert hasattr(JudgeCapability, 'TEST_VALIDATION')
+        assert hasattr(JudgeCapability, 'CODE_VERIFICATION')
+        assert hasattr(JudgeCapability, 'MULTI_AGENT_DEBATE')
 
 
 class TestAgentAsJudge:
@@ -157,18 +157,18 @@ class TestAgentAsJudge:
         with patch.object(judge, '_call_ai', new_callable=AsyncMock) as mock_ai:
             mock_ai.return_value = MagicMock(
                 content='''{
-                    "output_quality_score": 0.85,
+                    "overall_score": 0.85,
+                    "criteria_scores": {"accuracy": 0.9},
                     "issues": [],
-                    "strengths": ["Accurate analysis"],
-                    "improvement_suggestions": [],
-                    "overall_assessment": "Good quality output"
+                    "suggestions": [],
+                    "reasoning": "Good quality output"
                 }'''
             )
 
             result = await judge.evaluate_agent_output(
                 agent_type="CodeAnalyzerAgent",
-                task_description="Analyze authentication module",
-                agent_output={"functions": ["login", "logout"], "complexity": "medium"},
+                input_context={"task": "Analyze authentication module"},
+                output={"functions": ["login", "logout"], "complexity": "medium"},
             )
 
             assert result is not None
@@ -185,23 +185,24 @@ class TestAgentAsJudge:
             mock_ai.return_value = MagicMock(
                 content='''{
                     "is_valid": true,
-                    "correctness_score": 0.9,
-                    "completeness_score": 0.85,
-                    "robustness_score": 0.8,
+                    "syntactic_validity": true,
+                    "semantic_validity": true,
+                    "edge_case_coverage": 0.8,
+                    "flakiness_risk": 0.1,
                     "issues": [],
-                    "recommendations": []
+                    "suggested_improvements": []
                 }'''
             )
 
-            test_case = {
+            test_spec = {
                 "name": "test_login_success",
                 "steps": ["Navigate to login", "Enter credentials", "Click submit"],
                 "assertions": ["User is logged in", "Dashboard visible"],
             }
 
             result = await judge.validate_generated_test(
-                test_case=test_case,
-                context={"app": "auth_service"},
+                test_spec=test_spec,
+                target_app_context={"app": "auth_service"},
             )
 
             assert result is not None
@@ -223,23 +224,36 @@ class TestMetaJudge:
     @pytest.mark.asyncio
     async def test_evaluate_with_debate(self, mock_env_vars):
         """Test evaluate_with_debate method."""
-        from src.agents.agent_judge import MetaJudge
+        from src.agents.agent_judge import MetaJudge, AgentAsJudge, AgentEvaluation, VerificationMethod
+
+        # Create the original evaluation that will be debated
+        original_evaluation = AgentEvaluation(
+            id="eval-debate-001",
+            agent_type="TestAgent",
+            overall_score=0.88,
+            criteria_scores={"correctness": 0.9, "completeness": 0.85},
+            issues=[],
+            suggestions=[],
+            verification_method=VerificationMethod.LLM_ANALYSIS,
+        )
 
         meta_judge = MetaJudge()
 
-        with patch.object(meta_judge, '_run_debate', new_callable=AsyncMock) as mock_debate:
-            mock_debate.return_value = MagicMock(
-                final_score=0.88,
-                consensus_reached=True,
-                debate_rounds=[],
-            )
+        # Mock the internal debate methods that use AI
+        with patch.object(meta_judge, '_critic_challenge', new_callable=AsyncMock) as mock_critic, \
+             patch.object(meta_judge, '_commander_resolve', new_callable=AsyncMock) as mock_commander:
+
+            mock_critic.return_value = ["Minor concern about edge cases"]
+            mock_commander.return_value = ("Resolution: evaluation is sound", 0.02)
 
             result = await meta_judge.evaluate_with_debate(
-                content="Test output to evaluate",
-                criteria=["correctness", "completeness"],
+                original_evaluation=original_evaluation,
+                debate_rounds=2,
             )
 
             assert result is not None
+            assert result.final_score is not None
+            assert len(result.debate_rounds) == 2
 
 
 class TestFactoryFunctions:
@@ -273,12 +287,13 @@ class TestEvaluateAgentOutputSimple:
         with patch('src.agents.agent_judge.AgentAsJudge') as MockJudge:
             mock_instance = MockJudge.return_value
             mock_instance.evaluate_agent_output = AsyncMock(return_value=MagicMock(
-                output_quality_score=0.9,
+                overall_score=0.9,
                 issues=[],
             ))
 
             result = await evaluate_agent_output_simple(
                 agent_type="TestAgent",
+                input_context={"task": "Test task"},
                 output={"data": "test"},
             )
 

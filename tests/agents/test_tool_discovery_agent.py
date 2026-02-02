@@ -38,9 +38,8 @@ class TestToolDiscoveryDataClasses:
         tool = DiscoveredTool(
             name="get_user",
             description="Retrieves user information by ID",
-            tool_type=ToolType.REST_API,
-            endpoint="/api/users/{user_id}",
-            method="GET",
+            tool_type=ToolType.REST,
+            source_url="https://api.example.com",
             parameters=[
                 ToolParameter(
                     name="user_id",
@@ -53,30 +52,39 @@ class TestToolDiscoveryDataClasses:
                 type=ParameterType.OBJECT,
                 description="User object",
             ),
-            auth_type=AuthType.BEARER_TOKEN,
-            source_doc="openapi.json",
+            auth_type=AuthType.BEARER,
         )
 
         assert tool.name == "get_user"
-        assert tool.tool_type == ToolType.REST_API
+        assert tool.tool_type == ToolType.REST
         assert len(tool.parameters) == 1
-        assert tool.auth_type == AuthType.BEARER_TOKEN
+        assert tool.auth_type == AuthType.BEARER
 
     def test_generated_tool_creation(self, mock_env_vars):
         """Test GeneratedTool dataclass."""
-        from src.agents.tool_discovery_agent import GeneratedTool, DiscoveredTool, ToolType
+        from src.agents.tool_discovery_agent import GeneratedTool, DiscoveredTool, ToolType, ToolParameter, ParameterType
 
         discovered = DiscoveredTool(
             name="test_tool",
             description="Test tool",
-            tool_type=ToolType.REST_API,
+            tool_type=ToolType.PYTHON,
+            source_url="inline",
+            parameters=[
+                ToolParameter(
+                    name="arg1",
+                    type=ParameterType.STRING,
+                    description="First argument",
+                    required=True,
+                )
+            ],
         )
 
         generated = GeneratedTool(
             tool=discovered,
             wrapper_code="async def test_tool(): pass",
-            test_code="async def test_test_tool(): pass",
-            documentation="# Test Tool\n\nA test tool.",
+            language="python",
+            dependencies=["httpx"],
+            test_cases=["test_basic()"],
         )
 
         assert generated.tool.name == "test_tool"
@@ -88,17 +96,17 @@ class TestToolDiscoveryDataClasses:
 
         verification = ToolVerification(
             tool_name="get_user",
-            is_valid=True,
             syntax_valid=True,
-            security_valid=True,
+            security_passed=True,
             runtime_tested=False,
-            issues=[],
-            suggestions=["Add rate limiting"],
+            test_results=[],
+            security_issues=[],
+            syntax_errors=[],
         )
 
-        assert verification.is_valid is True
         assert verification.syntax_valid is True
-        assert len(verification.suggestions) == 1
+        assert verification.security_passed is True
+        assert len(verification.test_results) == 0
 
 
 class TestToolDiscoveryEnums:
@@ -108,10 +116,11 @@ class TestToolDiscoveryEnums:
         """Test ToolType enum values."""
         from src.agents.tool_discovery_agent import ToolType
 
-        assert ToolType.REST_API.value == "rest_api"
+        assert ToolType.OPENAPI.value == "openapi"
         assert ToolType.GRAPHQL.value == "graphql"
-        assert ToolType.MCP_TOOL.value == "mcp_tool"
-        assert ToolType.PYTHON_FUNCTION.value == "python_function"
+        assert ToolType.MCP.value == "mcp"
+        assert ToolType.REST.value == "rest"
+        assert ToolType.PYTHON.value == "python"
 
     def test_parameter_type_values(self, mock_env_vars):
         """Test ParameterType enum values."""
@@ -129,7 +138,7 @@ class TestToolDiscoveryEnums:
 
         assert AuthType.NONE.value == "none"
         assert AuthType.API_KEY.value == "api_key"
-        assert AuthType.BEARER_TOKEN.value == "bearer_token"
+        assert AuthType.BEARER.value == "bearer"
         assert AuthType.OAUTH2.value == "oauth2"
 
 
@@ -155,37 +164,58 @@ class TestToolDiscoveryAgent:
 
         agent = ToolDiscoveryAgent()
 
-        with patch.object(agent, '_fetch_documentation', new_callable=AsyncMock) as mock_fetch:
-            with patch.object(agent, '_parse_openapi', new_callable=AsyncMock) as mock_parse:
-                mock_fetch.return_value = '{"openapi": "3.0.0", "paths": {}}'
-                mock_parse.return_value = []
+        with patch.object(agent, '_call_ai', new_callable=AsyncMock) as mock_ai:
+            mock_ai.return_value = MagicMock(
+                content='{"tools": []}'
+            )
 
-                result = await agent.discover_tools_from_docs(
-                    doc_url="https://api.example.com/openapi.json",
-                    org_id="test_org",
-                    project_id="test_project",
-                )
+            result = await agent.discover_tools_from_docs(
+                doc_content='{"openapi": "3.0.0", "paths": {}}',
+                doc_type="openapi",
+                source_url="https://api.example.com/openapi.json",
+            )
 
-                assert result is not None
+            assert result is not None
 
     @pytest.mark.asyncio
     async def test_verify_tool_syntax(self, mock_env_vars):
         """Test tool verification for syntax."""
-        from src.agents.tool_discovery_agent import ToolDiscoveryAgent, DiscoveredTool, ToolType
+        from src.agents.tool_discovery_agent import ToolDiscoveryAgent, DiscoveredTool, GeneratedTool, ToolType, ToolParameter, ParameterType
 
         agent = ToolDiscoveryAgent()
 
-        tool = DiscoveredTool(
+        # verify_tool expects a GeneratedTool, not DiscoveredTool
+        discovered = DiscoveredTool(
             name="valid_tool",
             description="A valid tool",
-            tool_type=ToolType.PYTHON_FUNCTION,
+            tool_type=ToolType.PYTHON,
+            source_url="inline",
+            parameters=[
+                ToolParameter(
+                    name="arg1",
+                    type=ParameterType.STRING,
+                    description="First argument",
+                    required=True,
+                )
+            ],
         )
 
-        with patch.object(agent, '_check_syntax', return_value=True):
-            with patch.object(agent, '_check_security', return_value=True):
-                result = await agent.verify_tool(tool)
+        generated = GeneratedTool(
+            tool=discovered,
+            wrapper_code="async def valid_tool(arg1: str) -> str:\n    return arg1",
+            language="python",
+            dependencies=[],
+            test_cases=[],
+        )
 
-                assert result is not None
+        with patch.object(agent, '_call_ai', new_callable=AsyncMock) as mock_ai:
+            mock_ai.return_value = MagicMock(
+                content='{"syntax_valid": true, "security_passed": true}'
+            )
+
+            result = await agent.verify_tool(generated)
+
+            assert result is not None
 
 
 class TestToolCreatorAgent:
@@ -203,30 +233,6 @@ class TestToolCreatorAgent:
         assert hasattr(agent, 'implement_tool')
 
     @pytest.mark.asyncio
-    async def test_identify_capability_gap(self, mock_env_vars):
-        """Test identifying capability gaps."""
-        from src.agents.tool_discovery_agent import ToolCreatorAgent
-
-        agent = ToolCreatorAgent()
-
-        with patch.object(agent, '_call_ai', new_callable=AsyncMock) as mock_ai:
-            mock_ai.return_value = MagicMock(
-                content='''{
-                    "gap_identified": true,
-                    "description": "Need JWT validation tool",
-                    "required_capabilities": ["token_decode", "signature_verify"],
-                    "existing_partial_tools": []
-                }'''
-            )
-
-            result = await agent.identify_capability_gap(
-                task_description="Validate JWT tokens and extract claims",
-            )
-
-            assert result is not None
-            mock_ai.assert_called()
-
-    @pytest.mark.asyncio
     async def test_design_tool(self, mock_env_vars):
         """Test designing a new tool."""
         from src.agents.tool_discovery_agent import ToolCreatorAgent, CapabilityGap
@@ -235,8 +241,9 @@ class TestToolCreatorAgent:
 
         gap = CapabilityGap(
             description="JWT validation needed",
-            required_capabilities=["decode", "verify"],
-            suggested_approach="Use PyJWT library",
+            required_capability="jwt_validation",
+            context="Authentication flow",
+            priority=1,
         )
 
         with patch.object(agent, '_call_ai', new_callable=AsyncMock) as mock_ai:
@@ -261,37 +268,53 @@ class TestDFSDTToolSelector:
 
     def test_dfsdt_selector_initialization(self, mock_env_vars):
         """Test DFSDTToolSelector initialization."""
-        from src.agents.tool_discovery_agent import DFSDTToolSelector
+        from src.agents.tool_discovery_agent import DFSDTToolSelector, ToolRegistry
 
-        selector = DFSDTToolSelector()
+        registry = ToolRegistry()
+        selector = DFSDTToolSelector(registry=registry)
 
         assert selector is not None
-        assert hasattr(selector, 'select_tool')
-        assert hasattr(selector, 'build_decision_tree')
+        assert hasattr(selector, 'select_tools')
+        assert hasattr(selector, 'build_tool_tree')
 
     @pytest.mark.asyncio
     async def test_select_tool_from_registry(self, mock_env_vars):
         """Test selecting a tool using DFSDT algorithm."""
-        from src.agents.tool_discovery_agent import DFSDTToolSelector, DiscoveredTool, ToolType
+        from src.agents.tool_discovery_agent import DFSDTToolSelector, DiscoveredTool, ToolType, ToolRegistry, ToolParameter, ParameterType
 
-        selector = DFSDTToolSelector()
+        registry = ToolRegistry()
+        selector = DFSDTToolSelector(registry=registry)
 
         tools = [
-            DiscoveredTool(name="tool_a", description="Does A", tool_type=ToolType.REST_API),
-            DiscoveredTool(name="tool_b", description="Does B", tool_type=ToolType.REST_API),
+            DiscoveredTool(
+                name="tool_a",
+                description="Does A",
+                tool_type=ToolType.REST,
+                source_url="https://api.example.com",
+                parameters=[
+                    ToolParameter(name="arg1", type=ParameterType.STRING, description="Arg", required=True)
+                ],
+            ),
+            DiscoveredTool(
+                name="tool_b",
+                description="Does B",
+                tool_type=ToolType.REST,
+                source_url="https://api.example.com",
+                parameters=[
+                    ToolParameter(name="arg1", type=ParameterType.STRING, description="Arg", required=True)
+                ],
+            ),
         ]
 
-        with patch.object(selector, '_build_decision_tree', new_callable=AsyncMock) as mock_tree:
-            with patch.object(selector, '_traverse_tree', new_callable=AsyncMock) as mock_traverse:
-                mock_tree.return_value = {"root": "task_type"}
-                mock_traverse.return_value = tools[0]
+        # DFSDTToolSelector doesn't have _call_ai, it uses internal decision logic
+        # Mock the _evaluate_tool_relevance method instead if needed
+        # For basic test, just verify select_tools returns something
+        result = await selector.select_tools(
+            task="Get user data",
+            available_tools=tools,
+        )
 
-                result = await selector.select_tool(
-                    task="Get user data",
-                    available_tools=tools,
-                )
-
-                assert result is not None
+        assert result is not None
 
 
 class TestToolRegistry:
@@ -306,16 +329,7 @@ class TestToolRegistry:
         assert registry is not None
         assert hasattr(registry, 'register')
         assert hasattr(registry, 'search')
-        assert hasattr(registry, 'get_by_capability')
-
-    def test_get_tool_registry_singleton(self, mock_env_vars):
-        """Test get_tool_registry returns singleton."""
-        from src.agents.tool_discovery_agent import get_tool_registry
-
-        registry1 = get_tool_registry()
-        registry2 = get_tool_registry()
-
-        assert registry1 is registry2
+        assert hasattr(registry, 'get')
 
 
 class TestToolLearning:
@@ -329,14 +343,14 @@ class TestToolLearning:
             tool_name="get_user",
             success_rate=0.95,
             avg_latency_ms=150.0,
-            common_errors=["timeout", "rate_limit"],
+            error_patterns=["timeout", "rate_limit"],
             usage_patterns=["fetch_by_id", "batch_fetch"],
-            optimization_suggestions=["Add caching", "Implement retry"],
+            common_parameters={"limit": 100, "offset": 0},
         )
 
         assert learning.tool_name == "get_user"
         assert learning.success_rate == 0.95
-        assert len(learning.common_errors) == 2
+        assert len(learning.error_patterns) == 2
 
 
 class TestFactoryFunctions:

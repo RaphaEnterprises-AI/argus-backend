@@ -576,7 +576,7 @@ class TestDBTesterAgent:
 
             agent = DBTesterAgent()
 
-            async def mock_execute_query(query):
+            async def mock_execute_query_parameterized(query, params):
                 return QueryResult(
                     query=query,
                     rows=[
@@ -588,7 +588,7 @@ class TestDBTesterAgent:
                     success=True,
                 )
 
-            agent._execute_query = mock_execute_query
+            agent._execute_query_parameterized = mock_execute_query_parameterized
 
             result = await agent.get_table_schema("users")
 
@@ -603,7 +603,7 @@ class TestDBTesterAgent:
 
             agent = DBTesterAgent()
 
-            async def mock_execute_query(query):
+            async def mock_execute_query_parameterized(query, params):
                 return QueryResult(
                     query=query,
                     rows=[{"total": 100}],
@@ -612,9 +612,879 @@ class TestDBTesterAgent:
                     success=True,
                 )
 
-            agent._execute_query = mock_execute_query
+            agent._execute_query_parameterized = mock_execute_query_parameterized
 
             result = await agent.get_table_stats("users")
 
             assert result["table"] == "users"
             assert result["row_count"] == 100
+
+
+class TestDBTesterEdgeCases:
+    """Edge case tests for DBTesterAgent."""
+
+    # =========================================================================
+    # Empty Input Tests
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_execute_empty_test_spec(self, mock_env_vars):
+        """Test execute with empty test specification."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            test_spec = {
+                "id": "",
+                "name": "",
+                "steps": [],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.test_id == ""
+            assert result.data.test_name == ""
+            assert result.data.status == "passed"  # No steps = no failures
+            assert len(result.data.queries) == 0
+            assert len(result.data.validations) == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_empty_query(self, mock_env_vars):
+        """Test execute with empty query string."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            async def mock_execute_query(query):
+                if not query.strip():
+                    return QueryResult(
+                        query=query,
+                        rows=[],
+                        row_count=0,
+                        execution_time_ms=0,
+                        success=False,
+                        error="Empty query",
+                    )
+                return QueryResult(
+                    query=query,
+                    rows=[],
+                    row_count=0,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query = mock_execute_query
+
+            test_spec = {
+                "id": "test-empty-query",
+                "name": "Empty Query Test",
+                "steps": [{"action": "query", "target": ""}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.status == "failed"
+            assert result.data.queries[0].success is False
+            assert "Empty query" in result.data.queries[0].error
+
+    @pytest.mark.asyncio
+    async def test_validate_exists_empty_table(self, mock_env_vars):
+        """Test validate_exists with empty table name."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            result = await agent._validate_exists(table="", conditions={})
+
+            assert result.passed is False
+            assert result.error is not None
+            assert "empty" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_validate_count_empty_conditions(self, mock_env_vars):
+        """Test validate_count with empty conditions."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query_parameterized(query, params):
+                return QueryResult(
+                    query=query,
+                    rows=[{"cnt": 5}],
+                    row_count=1,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent._validate_count(
+                table="users",
+                expected_count=5,
+                conditions={},
+            )
+
+            assert result.passed is True
+            assert result.actual == 5
+
+    # =========================================================================
+    # Invalid SQL Tests
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_execute_invalid_sql_syntax(self, mock_env_vars):
+        """Test execute with invalid SQL syntax."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            async def mock_execute_query(query):
+                return QueryResult(
+                    query=query,
+                    rows=[],
+                    row_count=0,
+                    execution_time_ms=5,
+                    success=False,
+                    error="syntax error at or near 'SELEKT'",
+                )
+
+            agent._execute_query = mock_execute_query
+
+            test_spec = {
+                "id": "test-invalid-sql",
+                "name": "Invalid SQL Test",
+                "steps": [{"action": "query", "target": "SELEKT * FORM users"}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.status == "failed"
+            assert "syntax error" in result.data.error_message
+
+    @pytest.mark.asyncio
+    async def test_validate_exists_sql_injection_attempt(self, mock_env_vars):
+        """Test that SQL injection attempts are blocked."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            # Attempt SQL injection via table name
+            result = await agent._validate_exists(
+                table="users; DROP TABLE users; --",
+                conditions={},
+            )
+
+            assert result.passed is False
+            assert result.error is not None
+            assert "Invalid SQL identifier" in result.error
+
+    @pytest.mark.asyncio
+    async def test_validate_exists_sql_injection_in_column(self, mock_env_vars):
+        """Test that SQL injection in column names is blocked."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            # Attempt SQL injection via column name
+            result = await agent._validate_exists(
+                table="users",
+                conditions={"id; DROP TABLE users; --": 1},
+            )
+
+            assert result.passed is False
+            assert result.error is not None
+            assert "Invalid SQL identifier" in result.error
+
+    @pytest.mark.asyncio
+    async def test_validate_relationship_invalid_identifiers(self, mock_env_vars):
+        """Test validate_relationship with invalid SQL identifiers."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            result = await agent._validate_relationship(
+                source_table="orders",
+                relationship={
+                    "target_table": "users' OR '1'='1",
+                    "source_column": "user_id",
+                    "target_column": "id",
+                },
+            )
+
+            assert result.passed is False
+            assert "Invalid SQL identifier" in result.error
+
+    @pytest.mark.asyncio
+    async def test_get_table_schema_invalid_table_name(self, mock_env_vars):
+        """Test get_table_schema with invalid table name."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            result = await agent.get_table_schema("users; DELETE FROM users;")
+
+            assert "error" in result
+            assert "Invalid table name" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_get_table_stats_invalid_table_name(self, mock_env_vars):
+        """Test get_table_stats with invalid table name."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            result = await agent.get_table_stats("users--")
+
+            assert "error" in result
+            assert "Invalid SQL identifier" in result["error"]
+
+    # =========================================================================
+    # Connection Failure Tests
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_connect_invalid_url(self, mock_env_vars):
+        """Test connection with invalid database URL."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            with patch("sqlalchemy.ext.asyncio.create_async_engine") as mock_create_engine:
+                mock_create_engine.side_effect = Exception("Invalid database URL")
+
+                with pytest.raises(Exception) as exc_info:
+                    await agent._connect("invalid://url")
+
+                assert "Invalid database URL" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_connect_unreachable_host(self, mock_env_vars):
+        """Test connection to unreachable host."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            with patch("sqlalchemy.ext.asyncio.create_async_engine") as mock_create_engine:
+                mock_create_engine.side_effect = Exception(
+                    "could not connect to server: Connection refused"
+                )
+
+                with pytest.raises(Exception) as exc_info:
+                    await agent._connect("postgresql://nonexistent-host:5432/db")
+
+                assert "Connection refused" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_execute_connection_lost_during_query(self, mock_env_vars):
+        """Test handling of connection loss during query execution."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            async def mock_execute_query(query):
+                raise Exception("Connection reset by peer")
+
+            agent._execute_query = mock_execute_query
+
+            test_spec = {
+                "id": "test-conn-lost",
+                "name": "Connection Lost Test",
+                "steps": [{"action": "query", "target": "SELECT 1"}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.status == "error"
+            assert "Connection reset by peer" in result.data.error_message
+
+    @pytest.mark.asyncio
+    async def test_execute_authentication_failure(self, mock_env_vars):
+        """Test handling of authentication failure."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            with patch("sqlalchemy.ext.asyncio.create_async_engine") as mock_create_engine:
+                mock_create_engine.side_effect = Exception(
+                    "password authentication failed for user 'test'"
+                )
+
+                test_spec = {
+                    "id": "test-auth-fail",
+                    "name": "Auth Failure Test",
+                    "steps": [{"action": "query", "target": "SELECT 1"}],
+                    "assertions": [],
+                }
+
+                result = await agent.execute(
+                    test_spec,
+                    database_url="postgresql://user:wrongpass@localhost/db",
+                )
+
+                assert result.data.status == "error"
+                assert "password authentication failed" in result.data.error_message
+
+    @pytest.mark.asyncio
+    async def test_disconnect_when_not_connected(self, mock_env_vars):
+        """Test disconnect when no connection exists."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+            agent._engine = None
+            agent._session = None
+
+            # Should not raise any exceptions
+            await agent._disconnect()
+
+            assert agent._engine is None
+            assert agent._session is None
+
+    # =========================================================================
+    # Timeout Tests
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_execute_query_timeout(self, mock_env_vars):
+        """Test query execution timeout."""
+        with patch(ANTHROPIC_PATCH):
+            import asyncio
+
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            async def mock_slow_query(query):
+                raise asyncio.TimeoutError("Query timed out after 30 seconds")
+
+            agent._execute_query = mock_slow_query
+
+            test_spec = {
+                "id": "test-timeout",
+                "name": "Timeout Test",
+                "steps": [{"action": "query", "target": "SELECT pg_sleep(60)"}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.status == "error"
+            assert "timed out" in result.data.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_execute_connection_timeout(self, mock_env_vars):
+        """Test connection timeout."""
+        with patch(ANTHROPIC_PATCH):
+            import asyncio
+
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+
+            with patch("sqlalchemy.ext.asyncio.create_async_engine") as mock_create_engine:
+                mock_create_engine.side_effect = asyncio.TimeoutError(
+                    "Connection timed out"
+                )
+
+                test_spec = {
+                    "id": "test-conn-timeout",
+                    "name": "Connection Timeout Test",
+                    "steps": [{"action": "query", "target": "SELECT 1"}],
+                    "assertions": [],
+                }
+
+                result = await agent.execute(
+                    test_spec,
+                    database_url="postgresql://slow-host:5432/db",
+                )
+
+                assert result.data.status == "error"
+                assert "timed out" in result.data.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_validate_exists_timeout(self, mock_env_vars):
+        """Test validate_exists with timeout - returns failed QueryResult."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_timeout_query(query, params):
+                # Simulate timeout being caught by _execute_query_parameterized
+                # and returned as a failed QueryResult
+                return QueryResult(
+                    query=query,
+                    rows=[],
+                    row_count=0,
+                    execution_time_ms=30000,
+                    success=False,
+                    error="Query execution timed out after 30 seconds",
+                )
+
+            agent._execute_query_parameterized = mock_timeout_query
+
+            result = await agent._validate_exists(
+                table="large_table",
+                conditions={"id": 1},
+            )
+
+            assert result.passed is False
+            assert result.error is not None
+            # The actual error from validate_exists is "query failed"
+            assert "query failed" in result.actual.lower()
+
+    # =========================================================================
+    # Large Result Set Tests
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_query_result_truncation(self, mock_env_vars):
+        """Test that QueryResult truncates large result sets in to_dict()."""
+        from src.agents.db_tester import QueryResult
+
+        # Create result with 100 rows
+        large_rows = [{"id": i, "name": f"User {i}"} for i in range(100)]
+
+        result = QueryResult(
+            query="SELECT * FROM users",
+            rows=large_rows,
+            row_count=100,
+            execution_time_ms=500,
+            success=True,
+        )
+
+        dict_result = result.to_dict()
+
+        # Rows should be truncated to 10 in to_dict output
+        assert len(dict_result["rows"]) == 10
+        # Original row_count preserved
+        assert dict_result["row_count"] == 100
+        # Original object retains all rows
+        assert len(result.rows) == 100
+
+    @pytest.mark.asyncio
+    async def test_execute_large_result_set(self, mock_env_vars):
+        """Test execute with a query returning many rows."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            large_rows = [{"id": i} for i in range(10000)]
+
+            async def mock_execute_query(query):
+                return QueryResult(
+                    query=query,
+                    rows=large_rows,
+                    row_count=10000,
+                    execution_time_ms=5000,
+                    success=True,
+                )
+
+            agent._execute_query = mock_execute_query
+
+            test_spec = {
+                "id": "test-large-result",
+                "name": "Large Result Test",
+                "steps": [{"action": "query", "target": "SELECT * FROM big_table"}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.status == "passed"
+            assert result.data.queries[0].row_count == 10000
+            # Verify to_dict truncation
+            assert len(result.data.queries[0].to_dict()["rows"]) == 10
+
+    @pytest.mark.asyncio
+    async def test_validate_count_large_table(self, mock_env_vars):
+        """Test validate_count on a large table."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query_parameterized(query, params):
+                return QueryResult(
+                    query=query,
+                    rows=[{"cnt": 1000000}],
+                    row_count=1,
+                    execution_time_ms=2000,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent._validate_count(
+                table="large_table",
+                expected_count=1000000,
+                conditions={},
+            )
+
+            assert result.passed is True
+            assert result.actual == 1000000
+
+    @pytest.mark.asyncio
+    async def test_get_table_schema_many_columns(self, mock_env_vars):
+        """Test get_table_schema with a table having many columns."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            # Simulate a table with 200 columns
+            many_columns = [
+                {"column_name": f"col_{i}", "data_type": "varchar", "is_nullable": "YES"}
+                for i in range(200)
+            ]
+
+            async def mock_execute_query_parameterized(query, params):
+                return QueryResult(
+                    query=query,
+                    rows=many_columns,
+                    row_count=200,
+                    execution_time_ms=50,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent.get_table_schema("wide_table")
+
+            assert result["table"] == "wide_table"
+            assert len(result["columns"]) == 200
+
+    @pytest.mark.asyncio
+    async def test_memory_handling_very_large_result(self, mock_env_vars):
+        """Test that very large result sets don't cause memory issues."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            # Simulate a large text field in each row
+            large_text = "x" * 1000  # 1KB per field
+            rows = [{"id": i, "data": large_text} for i in range(1000)]
+
+            async def mock_execute_query(query):
+                return QueryResult(
+                    query=query,
+                    rows=rows,
+                    row_count=1000,
+                    execution_time_ms=3000,
+                    success=True,
+                )
+
+            agent._execute_query = mock_execute_query
+
+            test_spec = {
+                "id": "test-memory",
+                "name": "Memory Test",
+                "steps": [{"action": "query", "target": "SELECT * FROM text_table"}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            assert result.data.status == "passed"
+            # to_dict should truncate to 10 rows
+            dict_result = result.data.queries[0].to_dict()
+            assert len(dict_result["rows"]) == 10
+
+    # =========================================================================
+    # Additional Edge Cases
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_execute_null_values_in_conditions(self, mock_env_vars):
+        """Test validate_exists with NULL values in conditions."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query_parameterized(query, params):
+                return QueryResult(
+                    query=query,
+                    rows=[{"cnt": 0}],
+                    row_count=1,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent._validate_exists(
+                table="users",
+                conditions={"deleted_at": None},
+            )
+
+            # NULL conditions should still work (though may not match as expected)
+            assert result.validation_type == "exists"
+
+    @pytest.mark.asyncio
+    async def test_execute_special_characters_in_values(self, mock_env_vars):
+        """Test validate_exists with special characters in condition values."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query_parameterized(query, params):
+                # Verify parameterized query doesn't include raw value
+                assert "O'Brien" not in query  # Value should be parameterized
+                return QueryResult(
+                    query=query,
+                    rows=[{"cnt": 1}],
+                    row_count=1,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent._validate_exists(
+                table="users",
+                conditions={"name": "O'Brien"},  # Special character
+            )
+
+            assert result.validation_type == "exists"
+            assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_execute_unicode_in_values(self, mock_env_vars):
+        """Test handling of unicode values in conditions."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query_parameterized(query, params):
+                return QueryResult(
+                    query=query,
+                    rows=[{"cnt": 1}],
+                    row_count=1,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent._validate_exists(
+                table="users",
+                conditions={"name": "test user"},  # Unicode characters
+            )
+
+            assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_execute_schema_qualified_table_name(self, mock_env_vars):
+        """Test validation with schema-qualified table name."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query_parameterized(query, params):
+                # Verify schema-qualified name is properly quoted
+                assert '"public"."users"' in query
+                return QueryResult(
+                    query=query,
+                    rows=[{"cnt": 5}],
+                    row_count=1,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query_parameterized = mock_execute_query_parameterized
+
+            result = await agent._validate_count(
+                table="public.users",
+                expected_count=5,
+                conditions={},
+            )
+
+            assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_check_db_assertion_query_returns_empty(self, mock_env_vars):
+        """Test query_returns assertion expecting empty result."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent, QueryResult
+
+            agent = DBTesterAgent()
+
+            async def mock_execute_query(query):
+                return QueryResult(
+                    query=query,
+                    rows=[],
+                    row_count=0,
+                    execution_time_ms=10,
+                    success=True,
+                )
+
+            agent._execute_query = mock_execute_query
+
+            assertion = {
+                "type": "query_returns",
+                "target": "SELECT * FROM users WHERE deleted = true",
+                "expected": "no_rows",
+            }
+
+            result = await agent._check_db_assertion(assertion)
+
+            assert result.passed is True  # 0 rows when expecting no_rows
+
+    @pytest.mark.asyncio
+    async def test_execute_missing_action_in_step(self, mock_env_vars):
+        """Test execute with step missing action field."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            test_spec = {
+                "id": "test-no-action",
+                "name": "Missing Action Test",
+                "steps": [{"target": "SELECT 1"}],  # Missing 'action' key
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            # Should pass since unknown action is ignored
+            assert result.data.status == "passed"
+
+    @pytest.mark.asyncio
+    async def test_execute_unknown_action_type(self, mock_env_vars):
+        """Test execute with unknown action type."""
+        with patch(ANTHROPIC_PATCH):
+            from src.agents.db_tester import DBTesterAgent
+
+            agent = DBTesterAgent()
+            agent._engine = MagicMock()
+            agent._disconnect = AsyncMock()
+
+            test_spec = {
+                "id": "test-unknown-action",
+                "name": "Unknown Action Test",
+                "steps": [{"action": "unknown_action", "target": "users"}],
+                "assertions": [],
+            }
+
+            result = await agent.execute(test_spec)
+
+            # Unknown actions should be skipped
+            assert result.data.status == "passed"
+            assert len(result.data.queries) == 0
+            assert len(result.data.validations) == 0
+
+
+class TestValidateSqlIdentifier:
+    """Tests for validate_sql_identifier function."""
+
+    def test_valid_simple_identifier(self, mock_env_vars):
+        """Test valid simple identifier."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        result = validate_sql_identifier("users")
+        assert result == '"users"'
+
+    def test_valid_underscore_identifier(self, mock_env_vars):
+        """Test valid identifier with underscore."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        result = validate_sql_identifier("user_profiles")
+        assert result == '"user_profiles"'
+
+    def test_valid_schema_qualified(self, mock_env_vars):
+        """Test valid schema-qualified identifier."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        result = validate_sql_identifier("public.users")
+        assert result == '"public"."users"'
+
+    def test_empty_identifier(self, mock_env_vars):
+        """Test empty identifier raises ValueError."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_sql_identifier("")
+
+        assert "cannot be empty" in str(exc_info.value)
+
+    def test_invalid_special_characters(self, mock_env_vars):
+        """Test identifier with special characters raises ValueError."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_sql_identifier("users; DROP TABLE users;")
+
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+    def test_invalid_starting_with_number(self, mock_env_vars):
+        """Test identifier starting with number raises ValueError."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_sql_identifier("123users")
+
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+    def test_invalid_hyphen_in_identifier(self, mock_env_vars):
+        """Test identifier with hyphen raises ValueError."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_sql_identifier("user-profiles")
+
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+    def test_valid_identifier_with_numbers(self, mock_env_vars):
+        """Test valid identifier containing numbers."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        result = validate_sql_identifier("users2")
+        assert result == '"users2"'
+
+    def test_valid_identifier_starting_with_underscore(self, mock_env_vars):
+        """Test valid identifier starting with underscore."""
+        from src.agents.db_tester import validate_sql_identifier
+
+        result = validate_sql_identifier("_temp_table")
+        assert result == '"_temp_table"'

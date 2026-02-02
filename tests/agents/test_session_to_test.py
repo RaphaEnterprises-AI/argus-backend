@@ -402,7 +402,9 @@ class TestSessionToTestConverter:
 
             test = await converter.convert_session(session)
 
-            assert test.id == "session-sess-001"
+            # ID is now a UUID, not session-prefixed
+            assert test.id is not None
+            assert len(test.id) > 0  # Valid ID generated
             assert test.user_journey == "Login Flow"
 
 
