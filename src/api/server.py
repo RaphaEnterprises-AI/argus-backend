@@ -154,8 +154,8 @@ class AutonomousLoopRequest(BaseModel):
 settings = get_settings()
 
 # API Version - x-release-please-version
-API_VERSION = "2.14.0"  # x-release-please-version
-API_VERSION_DATE = "2026-02-01"
+API_VERSION = "2.15.0"  # x-release-please-version
+API_VERSION_DATE = "2026-02-02"
 
 # ============================================================================
 # Sentry Initialization (MUST be before FastAPI app creation)
@@ -287,6 +287,11 @@ Autonomous E2E testing powered by Claude AI.
 # =============================================================================
 # Security Middleware Stack (Order matters - executed bottom to top)
 # =============================================================================
+
+# 0. CamelCase Response Conversion - Converts snake_case to camelCase for JS clients
+# Added FIRST so it's outermost - processes response LAST before sending to client
+from src.api.middleware.camelcase import CamelCaseMiddleware
+app.add_middleware(CamelCaseMiddleware)
 
 # 1. Security Headers (OWASP) - Outermost layer
 # CSP strictness is controlled by environment setting (RAP-335)
