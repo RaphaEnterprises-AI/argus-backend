@@ -957,9 +957,20 @@ async def get_available_models(request: Request):
         keys_result = {"data": []}  # Return empty on failure
 
     user_providers = set()
-    for key in keys_result.get("data", []):
+    keys_data = keys_result.get("data", [])
+    logger.info(
+        "User provider keys query result",
+        user_id=user["user_id"],
+        keys_count=len(keys_data),
+        keys_data=keys_data,
+    )
+    for key in keys_data:
         if key.get("is_valid", True):
             user_providers.add(key["provider"])
+        else:
+            logger.info("Skipping invalid key", provider=key["provider"], is_valid=key.get("is_valid"))
+
+    logger.info("User providers from DB", user_providers=list(user_providers))
 
     # Check which platform keys are available
     import os
@@ -975,21 +986,35 @@ async def get_available_models(request: Request):
         platform_providers.add("groq")
     if os.getenv("TOGETHER_API_KEY"):
         platform_providers.add("together")
+    if os.getenv("OPENROUTER_API_KEY"):
+        platform_providers.add("openrouter")
+
+    logger.info("Platform providers from env vars", platform_providers=list(platform_providers))
 
     # Get user's fallback preference
     profile = await get_or_create_profile(user["user_id"], user.get("email"))
     prefs = profile.get("ai_preferences") or get_default_ai_preferences()
     use_platform_fallback = prefs.get("use_platform_key_fallback", True)
 
+    logger.info(
+        "User preferences",
+        use_platform_fallback=use_platform_fallback,
+        default_model=prefs.get("default_model"),
+        default_provider=prefs.get("default_provider"),
+    )
+
     # Available providers = user keys + (platform keys if fallback enabled)
     available_providers = user_providers.copy()
     if use_platform_fallback:
         available_providers.update(platform_providers)
 
+    logger.info("Final available providers", available_providers=list(available_providers))
+
     # Get models from registry
     try:
         registry = get_model_registry()
         all_models = registry.list_all_models()
+        logger.info("Model registry loaded", total_models=len(all_models))
     except Exception as e:
         logger.error("Failed to get model registry", error=str(e))
         # Return empty list instead of crashing
