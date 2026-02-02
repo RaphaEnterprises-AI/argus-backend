@@ -91,8 +91,8 @@ class RateLimitConfig:
         # LLM-HEAVY ENDPOINTS (Expensive API calls - strict limits)
         # These endpoints call Claude/OpenAI APIs with significant cost
         # =================================================================
-        "/api/v1/chat/stream": {"requests": 10, "window": 60},
-        "/api/v1/chat/message": {"requests": 15, "window": 60},
+        "/api/v1/chat/stream": {"requests": 60, "window": 60},
+        "/api/v1/chat/message": {"requests": 60, "window": 60},
         "/api/v1/stream/test": {"requests": 5, "window": 60},
         # Test generation (calls LLM)
         "/api/v1/quality/generate-test": {"requests": 10, "window": 60},
