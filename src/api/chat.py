@@ -580,21 +580,62 @@ async def stream_message(
             yield f'd:{json.dumps({"finishReason": "stop", "threadId": thread_id, "model": model_id, "provider": provider})}\n'
 
         except Exception as e:
-            logger.exception("Chat stream error", error=str(e))
-            # Log error to audit trail
-            audit = get_audit_logger()
-            await audit.log_error(
-                error=e,
-                context="chat_streaming",
-                resource_id=thread_id,
-                metadata={
-                    "thread_id": thread_id,
-                    "message_count": len(request.messages),
-                    "app_url": request.app_url,
-                },
+            # Check if this is a provider rate limit error
+            from src.services.provider_rate_limits import (
+                parse_provider_rate_limit_error,
+                get_provider_rate_tracker,
             )
-            # AI SDK error format: 3:"error message"\n (must be a string, not object)
-            yield f'3:{json.dumps(str(e))}\n'
+
+            rate_limit_info = parse_provider_rate_limit_error(e, provider)
+
+            if rate_limit_info:
+                # This is a provider rate limit, not our rate limit
+                logger.warning(
+                    "Provider rate limit hit during chat stream",
+                    provider=provider,
+                    limit_type=rate_limit_info.limit_type,
+                    retry_after=rate_limit_info.retry_after,
+                    error=str(e),
+                )
+
+                # Track the rate limit for future fallback decisions
+                tracker = get_provider_rate_tracker()
+                org_id = user.organization_id or user.user_id
+                await tracker.mark_rate_limited(
+                    provider=provider,
+                    org_id=org_id,
+                    retry_after=rate_limit_info.retry_after,
+                    limit_type=rate_limit_info.limit_type,
+                    message=str(e),
+                )
+
+                # Return user-friendly error with clear distinction
+                error_response = {
+                    "error": "provider_rate_limit",
+                    "provider": provider,
+                    "retry_after": int(rate_limit_info.retry_after),
+                    "message": f"The AI provider ({provider}) is temporarily rate limited. Please retry in {int(rate_limit_info.retry_after)} seconds.",
+                    "is_byok": bool(ai_config and ai_config.get("api_key")),
+                }
+                yield f'3:{json.dumps(json.dumps(error_response))}\n'
+                yield f'd:{json.dumps({"finishReason": "error", "error": "provider_rate_limit"})}\n'
+            else:
+                # Regular error
+                logger.exception("Chat stream error", error=str(e))
+                # Log error to audit trail
+                audit = get_audit_logger()
+                await audit.log_error(
+                    error=e,
+                    context="chat_streaming",
+                    resource_id=thread_id,
+                    metadata={
+                        "thread_id": thread_id,
+                        "message_count": len(request.messages),
+                        "app_url": request.app_url,
+                    },
+                )
+                # AI SDK error format: 3:"error message"\n (must be a string, not object)
+                yield f'3:{json.dumps(str(e))}\n'
 
         finally:
             # Flush Langfuse to ensure cost tracking data is sent
