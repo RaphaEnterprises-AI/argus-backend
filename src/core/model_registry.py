@@ -359,36 +359,9 @@ class ModelRegistry:
     COMPUTER_USE_MODEL = "claude-sonnet-4-5"
 
     # =========================================================================
-    # API MODEL IDS - Full model identifiers for API calls
-    # UPDATE THESE when Anthropic releases new model versions
+    # API MODEL IDS - Resolved dynamically from provider APIs
+    # See src/core/model_discovery.py for dynamic resolution
     # =========================================================================
-
-    API_MODEL_IDS: dict[str, str] = {
-        # Anthropic Claude - use latest stable versions
-        # Updated 2026-02: Correct model version dates
-        "claude-opus-4-5": "claude-opus-4-5-20251101",
-        "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
-        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
-        # Legacy Claude 3.5 models
-        "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku": "claude-3-5-haiku-20241022",
-        # Google Gemini
-        "gemini-2.0-flash": "gemini-2.0-flash-exp",
-        "gemini-2.0-pro": "gemini-2.0-pro-exp",
-        "gemini-1.5-pro": "gemini-1.5-pro",
-        "gemini-1.5-flash": "gemini-1.5-flash",
-        # OpenAI
-        "gpt-4o": "gpt-4o",
-        "gpt-4o-mini": "gpt-4o-mini",
-        "o1": "o1",
-        "o1-mini": "o1-mini",
-        # Groq (uses same IDs)
-        "llama-3.3-70b": "llama-3.3-70b-versatile",
-        "llama-3.1-8b": "llama-3.1-8b-instant",
-        # DeepSeek
-        "deepseek-r1": "deepseek-reasoner",
-        "deepseek-v3": "deepseek-chat",
-    }
 
     def __init__(self):
         self._models = self.MODELS.copy()
@@ -416,37 +389,36 @@ class ModelRegistry:
     def get_api_model_id(self, model_key: str) -> str:
         """Get the full API model ID for making API calls.
 
-        This returns the model ID with version/date suffix that APIs expect.
+        Resolves short model keys to full API IDs dynamically from provider APIs.
         For example: 'claude-sonnet-4-5' -> 'claude-sonnet-4-5-20250929'
 
-        Resolution order:
-        1. If model_key is already a full API ID (has date suffix), return it
-        2. Try to find from dynamic discovery cache (handles all providers)
-        3. Fall back to static API_MODEL_IDS mapping
-        4. Return model_key as-is if no mapping found
+        Resolution is FULLY DYNAMIC - fetched from:
+        - Anthropic API: /v1/models
+        - OpenAI API: /v1/models
+        - Google Gemini API: /v1beta/models
+        - OpenRouter API: /api/v1/models (400+ models)
+
+        Cache is warmed on startup and refreshed every hour.
 
         Args:
             model_key: Short model key (e.g., 'claude-sonnet-4-5', 'gpt-4o')
 
         Returns:
-            Full API model ID (e.g., 'claude-sonnet-4-5-20250929', 'gpt-4o')
+            Full API model ID from discovery cache, or model_key if not found
         """
         # Check if it's already a full API ID (contains date pattern like -20241022)
         if len(model_key) > 15 and model_key[-8:].isdigit():
             return model_key
 
-        # Try dynamic discovery cache first (handles all providers)
-        try:
-            from src.core.model_discovery import resolve_model_id
+        # Resolve from dynamic discovery cache (NO static fallback)
+        from src.core.model_discovery import resolve_model_id
 
-            resolved = resolve_model_id(model_key)
-            if resolved:
-                return resolved
-        except ImportError:
-            pass  # model_discovery not available
+        resolved = resolve_model_id(model_key)
+        if resolved:
+            return resolved
 
-        # Fall back to static mapping
-        return self.API_MODEL_IDS.get(model_key, model_key)
+        # Return as-is if not found (API will return error for invalid model)
+        return model_key
 
     def get_default_model(self) -> ModelConfig:
         """Get the default model configuration."""
