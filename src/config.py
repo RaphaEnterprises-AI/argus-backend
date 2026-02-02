@@ -477,6 +477,13 @@ class Settings(BaseSettings):
         description="Key prefix for rate limit entries in Redis"
     )
 
+    # Concurrent Connection Limiting (for SSE/streaming endpoints)
+    concurrent_connection_ttl: int = Field(
+        600,
+        description="Max lifetime of a streaming connection in seconds (default 10 min). "
+        "Connections older than this are auto-cleaned to prevent leaks from ungraceful disconnects."
+    )
+
     # CORS Security - accepts comma-separated string or JSON array
     # WARNING: Wildcard (*) allows any origin and is a security risk in production.
     # Set specific domains for production (e.g., "https://app.example.com,https://www.example.com")

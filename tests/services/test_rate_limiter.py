@@ -687,3 +687,229 @@ class TestConcurrency:
 
         assert allowed_count == 5
         assert denied_count == 5
+
+
+# =============================================================================
+# Concurrent Connection Limiter Tests
+# =============================================================================
+
+
+class TestConcurrentConnectionLimiter:
+    """Tests for the concurrent connection limiter (SSE/streaming endpoints)."""
+
+    @pytest.fixture
+    def limiter(self):
+        """Create a fresh concurrent limiter for each test."""
+        from src.services.rate_limiter import ConcurrentConnectionLimiter
+
+        return ConcurrentConnectionLimiter(
+            key_prefix="test_concurrent",
+            connection_ttl=60,
+        )
+
+    @pytest.mark.asyncio
+    async def test_acquire_single_connection(self, limiter):
+        """Test acquiring a single connection."""
+        result = await limiter.acquire(key="test:org1", limit=3)
+
+        assert result.allowed is True
+        assert result.active == 1
+        assert result.limit == 3
+        assert result.connection_id != ""
+        assert result.backend == "memory"
+
+    @pytest.mark.asyncio
+    async def test_acquire_up_to_limit(self, limiter):
+        """Test acquiring connections up to the limit."""
+        results = []
+        for _ in range(3):
+            result = await limiter.acquire(key="test:org2", limit=3)
+            results.append(result)
+
+        assert all(r.allowed for r in results)
+        assert results[-1].active == 3
+
+    @pytest.mark.asyncio
+    async def test_acquire_exceeds_limit(self, limiter):
+        """Test acquiring more connections than the limit allows."""
+        results = []
+        for _ in range(5):
+            result = await limiter.acquire(key="test:org3", limit=3)
+            results.append(result)
+
+        allowed = [r for r in results if r.allowed]
+        denied = [r for r in results if not r.allowed]
+
+        assert len(allowed) == 3
+        assert len(denied) == 2
+        # Denied results should have empty connection_id
+        assert all(r.connection_id == "" for r in denied)
+
+    @pytest.mark.asyncio
+    async def test_release_connection(self, limiter):
+        """Test releasing a connection."""
+        # Acquire 3 connections
+        conn1 = await limiter.acquire(key="test:org4", limit=3)
+        conn2 = await limiter.acquire(key="test:org4", limit=3)
+        conn3 = await limiter.acquire(key="test:org4", limit=3)
+
+        # Try to acquire a 4th - should fail
+        conn4 = await limiter.acquire(key="test:org4", limit=3)
+        assert conn4.allowed is False
+
+        # Release one connection
+        released = await limiter.release("test:org4", conn1.connection_id)
+        assert released is True
+
+        # Now we should be able to acquire again
+        conn5 = await limiter.acquire(key="test:org4", limit=3)
+        assert conn5.allowed is True
+        assert conn5.active == 3
+
+    @pytest.mark.asyncio
+    async def test_release_nonexistent_connection(self, limiter):
+        """Test releasing a connection that doesn't exist."""
+        released = await limiter.release("test:nonexistent", "fake-id-123")
+        assert released is False
+
+    @pytest.mark.asyncio
+    async def test_get_active_count(self, limiter):
+        """Test getting the active connection count."""
+        # Initially empty
+        count = await limiter.get_active_count("test:org5")
+        assert count == 0
+
+        # Add some connections
+        await limiter.acquire(key="test:org5", limit=5)
+        await limiter.acquire(key="test:org5", limit=5)
+
+        count = await limiter.get_active_count("test:org5")
+        assert count == 2
+
+    @pytest.mark.asyncio
+    async def test_different_keys_isolated(self, limiter):
+        """Test that different keys have separate limits."""
+        # Fill up org1's limit
+        for _ in range(3):
+            await limiter.acquire(key="test:org_a", limit=3)
+
+        # org2 should still be able to acquire
+        result = await limiter.acquire(key="test:org_b", limit=3)
+        assert result.allowed is True
+        assert result.active == 1
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, limiter):
+        """Test health check returns correct status."""
+        health = await limiter.health_check()
+
+        assert health["healthy"] is True
+        assert health["memory_fallback"] is True
+        assert health["connection_ttl_seconds"] == 60
+
+
+class TestConcurrentConnectionContext:
+    """Tests for the ConcurrentConnectionContext context manager."""
+
+    @pytest.mark.asyncio
+    async def test_context_manager_success(self):
+        """Test context manager with successful operation."""
+        from src.services.rate_limiter import (
+            ConcurrentConnectionContext,
+            ConcurrentConnectionLimiter,
+        )
+
+        limiter = ConcurrentConnectionLimiter(key_prefix="ctx_test")
+
+        async with ConcurrentConnectionContext(
+            key="test:ctx1",
+            limit=3,
+            limiter=limiter,
+        ) as conn:
+            assert conn.allowed is True
+            assert conn.active == 1
+
+        # After exit, the connection should be released
+        count = await limiter.get_active_count("test:ctx1")
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_context_manager_exceeds_limit(self):
+        """Test context manager when limit is exceeded."""
+        from src.services.rate_limiter import (
+            ConcurrentConnectionContext,
+            ConcurrentConnectionLimiter,
+        )
+
+        limiter = ConcurrentConnectionLimiter(key_prefix="ctx_test")
+
+        # Fill up the limit
+        for _ in range(3):
+            await limiter.acquire("test:ctx2", 3)
+
+        # Context manager should not be allowed
+        async with ConcurrentConnectionContext(
+            key="test:ctx2",
+            limit=3,
+            limiter=limiter,
+        ) as conn:
+            assert conn.allowed is False
+            assert conn.active == 3
+
+    @pytest.mark.asyncio
+    async def test_context_manager_releases_on_exception(self):
+        """Test that context manager releases connection even on exception."""
+        from src.services.rate_limiter import (
+            ConcurrentConnectionContext,
+            ConcurrentConnectionLimiter,
+        )
+
+        limiter = ConcurrentConnectionLimiter(key_prefix="ctx_test")
+
+        with pytest.raises(ValueError):
+            async with ConcurrentConnectionContext(
+                key="test:ctx3",
+                limit=3,
+                limiter=limiter,
+            ) as conn:
+                assert conn.allowed is True
+                raise ValueError("Test error")
+
+        # Connection should still be released
+        count = await limiter.get_active_count("test:ctx3")
+        assert count == 0
+
+
+class TestConcurrentGlobalInstance:
+    """Tests for global concurrent limiter instance management."""
+
+    def test_get_concurrent_limiter_singleton(self):
+        """Test that get_concurrent_limiter returns same instance."""
+        from src.services.rate_limiter import (
+            get_concurrent_limiter,
+            reset_concurrent_limiter,
+        )
+
+        reset_concurrent_limiter()
+
+        limiter1 = get_concurrent_limiter()
+        limiter2 = get_concurrent_limiter()
+
+        assert limiter1 is limiter2
+
+        reset_concurrent_limiter()
+
+    def test_reset_concurrent_limiter(self):
+        """Test that reset creates new instance."""
+        from src.services.rate_limiter import (
+            get_concurrent_limiter,
+            reset_concurrent_limiter,
+        )
+
+        limiter1 = get_concurrent_limiter()
+        reset_concurrent_limiter()
+        limiter2 = get_concurrent_limiter()
+
+        assert limiter1 is not limiter2
+
+        reset_concurrent_limiter()

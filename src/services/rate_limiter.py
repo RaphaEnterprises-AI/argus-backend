@@ -678,3 +678,452 @@ def hash_endpoint(path: str) -> str:
         8-character hash
     """
     return hashlib.sha256(path.encode()).hexdigest()[:8]
+
+
+# =============================================================================
+# CONCURRENT CONNECTION LIMITER
+# =============================================================================
+# For SSE/streaming endpoints that hold connections for extended periods
+
+
+@dataclass
+class ConcurrentResult:
+    """Result of a concurrent connection check.
+
+    Attributes:
+        allowed: Whether the connection should be allowed
+        active: Number of currently active connections
+        limit: Maximum concurrent connections allowed
+        connection_id: Unique ID for this connection (needed for release)
+        backend: Which backend was used
+    """
+
+    allowed: bool
+    active: int
+    limit: int
+    connection_id: str
+    backend: str
+
+
+class ConcurrentConnectionLimiter:
+    """Distributed concurrent connection limiter for SSE/streaming endpoints.
+
+    Unlike rate limiting which counts requests per time window, this limiter
+    tracks the number of **active** connections at any moment. This is essential
+    for SSE streams that can run for minutes.
+
+    Use Case:
+        A user starts a chat stream that takes 5 minutes. During this time,
+        they should not be able to open unlimited additional streams. This
+        limiter ensures at most N concurrent streams per user/org.
+
+    Implementation:
+        Uses Redis sorted sets with timestamp scores for automatic expiration.
+        Each active connection is stored with its start timestamp. A background
+        cleanup removes connections older than the TTL (in case of ungraceful
+        disconnects).
+
+    Example:
+        ```python
+        limiter = ConcurrentConnectionLimiter()
+
+        result = await limiter.acquire(
+            key="org:acme_corp:chat",
+            limit=3,
+        )
+
+        if not result.allowed:
+            return Response(status_code=429, content="Too many concurrent streams")
+
+        try:
+            async for chunk in stream_chat():
+                yield chunk
+        finally:
+            # CRITICAL: Always release the connection
+            await limiter.release(key, result.connection_id)
+        ```
+    """
+
+    def __init__(
+        self,
+        key_prefix: str = "concurrent",
+        connection_ttl: int = 600,  # 10 minute max connection
+    ):
+        """Initialize the concurrent connection limiter.
+
+        Args:
+            key_prefix: Prefix for Redis keys
+            connection_ttl: Max lifetime of a connection in seconds (auto-cleanup)
+        """
+        self._key_prefix = key_prefix
+        self._connection_ttl = connection_ttl
+        self._valkey_client: "ValkeyClient | None" = None
+        self._valkey_healthy: bool | None = None
+        self._memory_connections: dict[str, set[str]] = defaultdict(set)
+        self._memory_lock = asyncio.Lock()
+        self._log = logger.bind(component="concurrent_limiter")
+
+    def _get_key(self, base_key: str) -> str:
+        """Generate Redis key for connection tracking."""
+        return f"{self._key_prefix}:{base_key}"
+
+    def _generate_connection_id(self) -> str:
+        """Generate unique connection ID."""
+        import uuid
+
+        return str(uuid.uuid4())
+
+    async def _get_valkey_client(self) -> "ValkeyClient | None":
+        """Get Valkey client with health caching."""
+        if self._valkey_client is None:
+            from src.services.cache import get_valkey_client
+
+            self._valkey_client = get_valkey_client()
+
+        if self._valkey_client is None:
+            return None
+
+        if self._valkey_healthy is False:
+            return None
+
+        try:
+            healthy = await self._valkey_client.ping()
+            self._valkey_healthy = healthy
+            return self._valkey_client if healthy else None
+        except Exception as e:
+            self._valkey_healthy = False
+            self._log.warning("Valkey unhealthy for concurrent limiting", error=str(e))
+            return None
+
+    async def acquire(
+        self,
+        key: str,
+        limit: int,
+    ) -> ConcurrentResult:
+        """Acquire a connection slot.
+
+        Args:
+            key: Unique identifier for the connection bucket
+            limit: Maximum concurrent connections allowed
+
+        Returns:
+            ConcurrentResult with allowed status and connection_id
+        """
+        connection_id = self._generate_connection_id()
+        now = time.time()
+
+        # Try Valkey first
+        client = await self._get_valkey_client()
+        if client is not None:
+            try:
+                redis_client = await client._get_client()
+                redis_key = self._get_key(key)
+
+                # Clean up expired connections and check count atomically
+                pipe = redis_client.pipeline()
+                # Remove connections older than TTL
+                pipe.zremrangebyscore(redis_key, 0, now - self._connection_ttl)
+                # Get current count
+                pipe.zcard(redis_key)
+                results = await pipe.execute()
+
+                current_count = results[1]
+
+                if current_count >= limit:
+                    self._log.info(
+                        "Concurrent limit reached",
+                        key=key,
+                        active=current_count,
+                        limit=limit,
+                    )
+                    return ConcurrentResult(
+                        allowed=False,
+                        active=current_count,
+                        limit=limit,
+                        connection_id="",
+                        backend="valkey",
+                    )
+
+                # Add this connection
+                await redis_client.zadd(redis_key, {connection_id: now})
+                await redis_client.expire(redis_key, self._connection_ttl * 2)
+
+                self._log.debug(
+                    "Connection acquired",
+                    key=key,
+                    connection_id=connection_id,
+                    active=current_count + 1,
+                )
+
+                return ConcurrentResult(
+                    allowed=True,
+                    active=current_count + 1,
+                    limit=limit,
+                    connection_id=connection_id,
+                    backend="valkey",
+                )
+
+            except Exception as e:
+                self._log.warning(
+                    "Valkey concurrent check failed, using memory",
+                    error=str(e),
+                )
+                self._valkey_healthy = False
+
+        # Fallback to in-memory
+        async with self._memory_lock:
+            current_count = len(self._memory_connections[key])
+
+            if current_count >= limit:
+                return ConcurrentResult(
+                    allowed=False,
+                    active=current_count,
+                    limit=limit,
+                    connection_id="",
+                    backend="memory",
+                )
+
+            self._memory_connections[key].add(connection_id)
+
+            return ConcurrentResult(
+                allowed=True,
+                active=current_count + 1,
+                limit=limit,
+                connection_id=connection_id,
+                backend="memory",
+            )
+
+    async def release(self, key: str, connection_id: str) -> bool:
+        """Release a connection slot.
+
+        CRITICAL: Must be called when stream ends (success or error).
+
+        Args:
+            key: Connection bucket key
+            connection_id: ID returned from acquire()
+
+        Returns:
+            True if released successfully
+        """
+        if not connection_id:
+            return False
+
+        # Try Valkey first
+        client = await self._get_valkey_client()
+        if client is not None:
+            try:
+                redis_client = await client._get_client()
+                redis_key = self._get_key(key)
+                removed = await redis_client.zrem(redis_key, connection_id)
+
+                self._log.debug(
+                    "Connection released",
+                    key=key,
+                    connection_id=connection_id,
+                    removed=removed,
+                )
+                return removed > 0
+
+            except Exception as e:
+                self._log.warning(
+                    "Valkey release failed",
+                    error=str(e),
+                    connection_id=connection_id,
+                )
+
+        # Fallback to memory
+        async with self._memory_lock:
+            if connection_id in self._memory_connections.get(key, set()):
+                self._memory_connections[key].discard(connection_id)
+                return True
+
+        return False
+
+    async def get_active_count(self, key: str) -> int:
+        """Get current active connection count (for monitoring).
+
+        Args:
+            key: Connection bucket key
+
+        Returns:
+            Number of active connections
+        """
+        client = await self._get_valkey_client()
+        if client is not None:
+            try:
+                redis_client = await client._get_client()
+                redis_key = self._get_key(key)
+
+                # Clean expired and count
+                now = time.time()
+                await redis_client.zremrangebyscore(
+                    redis_key, 0, now - self._connection_ttl
+                )
+                return await redis_client.zcard(redis_key)
+
+            except Exception as e:
+                self._log.warning("Failed to get active count", error=str(e))
+
+        async with self._memory_lock:
+            return len(self._memory_connections.get(key, set()))
+
+    async def health_check(self) -> dict:
+        """Check health of concurrent connection limiter."""
+        valkey_healthy = False
+
+        client = await self._get_valkey_client()
+        if client is not None:
+            valkey_healthy = True
+
+        return {
+            "healthy": valkey_healthy or True,  # Memory fallback always works
+            "valkey_available": valkey_healthy,
+            "memory_fallback": True,
+            "connection_ttl_seconds": self._connection_ttl,
+        }
+
+
+# Global concurrent limiter instance (lazy initialized)
+_concurrent_limiter: ConcurrentConnectionLimiter | None = None
+
+
+def get_concurrent_limiter() -> ConcurrentConnectionLimiter:
+    """Get or create the global concurrent connection limiter.
+
+    Returns:
+        ConcurrentConnectionLimiter instance
+    """
+    global _concurrent_limiter
+
+    if _concurrent_limiter is None:
+        settings = get_settings()
+        _concurrent_limiter = ConcurrentConnectionLimiter(
+            key_prefix=getattr(settings, "rate_limit_key_prefix", "ratelimit")
+            + ":concurrent",
+            connection_ttl=getattr(settings, "concurrent_connection_ttl", 600),
+        )
+
+    return _concurrent_limiter
+
+
+def reset_concurrent_limiter() -> None:
+    """Reset the global concurrent limiter instance."""
+    global _concurrent_limiter
+    _concurrent_limiter = None
+
+
+class ConcurrentConnectionContext:
+    """Context manager for concurrent connection limiting.
+
+    Automatically acquires and releases connection slots, ensuring proper
+    cleanup even if the stream fails.
+
+    Example:
+        ```python
+        from src.services.rate_limiter import ConcurrentConnectionContext
+
+        @router.post("/chat/stream")
+        async def stream_chat(request: Request):
+            async with ConcurrentConnectionContext(
+                key=f"org:{request.state.user.organization_id}:chat",
+                limit=3,
+            ) as conn:
+                if not conn.allowed:
+                    raise HTTPException(429, "Too many concurrent streams")
+
+                async def generate():
+                    async for chunk in chat_stream():
+                        yield chunk
+
+                return EventSourceResponse(generate())
+        ```
+    """
+
+    def __init__(
+        self,
+        key: str,
+        limit: int,
+        limiter: ConcurrentConnectionLimiter | None = None,
+    ):
+        """Initialize the context.
+
+        Args:
+            key: Connection bucket key (e.g., "org:acme:chat")
+            limit: Maximum concurrent connections
+            limiter: Optional limiter instance (uses global if not provided)
+        """
+        self.key = key
+        self.limit = limit
+        self._limiter = limiter
+        self._result: ConcurrentResult | None = None
+
+    @property
+    def allowed(self) -> bool:
+        """Whether the connection was allowed."""
+        return self._result.allowed if self._result else False
+
+    @property
+    def active(self) -> int:
+        """Number of active connections."""
+        return self._result.active if self._result else 0
+
+    async def __aenter__(self) -> "ConcurrentConnectionContext":
+        if self._limiter is None:
+            self._limiter = get_concurrent_limiter()
+
+        self._result = await self._limiter.acquire(self.key, self.limit)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self._result and self._result.connection_id:
+            await self._limiter.release(self.key, self._result.connection_id)
+        return None  # Don't suppress exceptions
+
+
+async def check_concurrent_limit(
+    request: "Request",
+    path: str,
+    user_tier: str | None = None,
+) -> ConcurrentResult | None:
+    """Check concurrent connection limit for a streaming endpoint.
+
+    This is a simpler API for middleware-level checking.
+
+    Args:
+        request: FastAPI request
+        path: Request path
+        user_tier: User's subscription tier
+
+    Returns:
+        ConcurrentResult if limit applies, None if no limit for this endpoint
+    """
+    from src.api.security.rate_limit_config import (
+        get_concurrent_limit_for_endpoint,
+        is_streaming_endpoint,
+    )
+
+    # Only check for streaming endpoints
+    if not is_streaming_endpoint(path):
+        return None
+
+    limit = get_concurrent_limit_for_endpoint(path, user_tier)
+    if limit is None:
+        return None
+
+    # Generate key based on user/org
+    if hasattr(request.state, "user") and request.state.user:
+        user = request.state.user
+        if user.organization_id:
+            key = f"org:{user.organization_id}"
+        else:
+            key = f"user:{user.user_id}"
+    else:
+        from src.api.security.auth import get_client_ip
+
+        key = f"ip:{get_client_ip(request)}"
+
+    # Add path to key for endpoint-specific limits
+    key = f"{key}:{hash_endpoint(path)}"
+
+    limiter = get_concurrent_limiter()
+    return await limiter.acquire(key, limit)

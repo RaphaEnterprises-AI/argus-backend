@@ -372,6 +372,131 @@ EXEMPT_ENDPOINTS: set[str] = {
 }
 
 
+# =============================================================================
+# CONCURRENT CONNECTION LIMITS (for SSE/streaming endpoints)
+# =============================================================================
+# These endpoints hold open connections for extended periods.
+# Unlike rate limiting (requests/minute), this limits simultaneous connections.
+
+
+@dataclass(frozen=True)
+class ConcurrentLimit:
+    """Concurrent connection limit for streaming endpoints.
+
+    Attributes:
+        pattern: URL path prefix to match
+        max_concurrent: Maximum simultaneous connections per user/org
+        description: Human-readable description
+    """
+
+    pattern: str
+    max_concurrent: int
+    tier_multipliers: dict[str, float] = field(
+        default_factory=lambda: {
+            UserTier.FREE.value: 1.0,
+            UserTier.STARTER.value: 2.0,
+            UserTier.PRO.value: 5.0,
+            UserTier.ENTERPRISE.value: 10.0,
+            UserTier.UNLIMITED.value: float("inf"),
+        }
+    )
+    description: str = ""
+
+    def get_limit_for_tier(self, tier: str | None) -> int:
+        """Get adjusted concurrent limit for a tier."""
+        if tier is None:
+            tier = UserTier.FREE.value
+
+        multiplier = self.tier_multipliers.get(tier, 1.0)
+
+        if multiplier == float("inf"):
+            return int(1e6)  # Effectively unlimited
+
+        return max(1, int(self.max_concurrent * multiplier))
+
+
+# Base concurrent limits (can be overridden via env vars)
+CHAT_CONCURRENT = _get_env_int("CONCURRENT_CHAT_STREAMS", 3)
+TEST_CONCURRENT = _get_env_int("CONCURRENT_TEST_STREAMS", 2)
+STREAM_CONCURRENT = _get_env_int("CONCURRENT_GENERIC_STREAMS", 5)
+
+
+CONCURRENT_LIMITS: list[ConcurrentLimit] = [
+    # Chat streams - users can have multiple active conversations
+    ConcurrentLimit(
+        pattern="/api/v1/chat/stream",
+        max_concurrent=CHAT_CONCURRENT,
+        description="Chat streaming - AI conversation streams",
+    ),
+    ConcurrentLimit(
+        pattern="/api/v1/chat/message",
+        max_concurrent=CHAT_CONCURRENT,
+        description="Chat messages - non-streaming but LLM-heavy",
+    ),
+    # Test execution streams - resource intensive
+    ConcurrentLimit(
+        pattern="/api/v1/stream/test",
+        max_concurrent=TEST_CONCURRENT,
+        description="Test execution streaming - very resource intensive",
+    ),
+    ConcurrentLimit(
+        pattern="/api/v1/stream/",
+        max_concurrent=STREAM_CONCURRENT,
+        description="Generic streaming endpoints",
+    ),
+    # Browser automation - holds Selenium session
+    ConcurrentLimit(
+        pattern="/api/v1/browser/execute",
+        max_concurrent=2,
+        description="Browser execution - holds browser session",
+    ),
+    # Discovery crawling - intensive operation
+    ConcurrentLimit(
+        pattern="/api/v1/discover",
+        max_concurrent=1,
+        description="Auto-discovery - crawls entire application",
+    ),
+]
+
+
+def get_concurrent_limit_for_endpoint(
+    path: str,
+    user_tier: str | None = None,
+) -> int | None:
+    """Get concurrent connection limit for an endpoint.
+
+    Args:
+        path: Request path
+        user_tier: User's subscription tier
+
+    Returns:
+        Concurrent limit or None if no limit applies
+    """
+    for limit in CONCURRENT_LIMITS:
+        if path.startswith(limit.pattern):
+            return limit.get_limit_for_tier(user_tier)
+
+    return None  # No concurrent limit for this endpoint
+
+
+def is_streaming_endpoint(path: str) -> bool:
+    """Check if an endpoint is a streaming endpoint that needs concurrent limiting.
+
+    Args:
+        path: Request path
+
+    Returns:
+        True if this is a streaming endpoint
+    """
+    streaming_patterns = [
+        "/api/v1/chat/stream",
+        "/api/v1/stream/",
+        "/api/v1/browser/execute",
+        "/api/v1/discover",
+    ]
+    return any(path.startswith(pattern) for pattern in streaming_patterns)
+
+
 def get_limit_for_endpoint(
     path: str,
     user_tier: str | None = None,

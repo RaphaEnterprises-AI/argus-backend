@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel, field_validator
 
@@ -302,9 +302,56 @@ async def stream_message(
     - model: Model ID (e.g., "claude-sonnet-4-5", "gpt-4o")
     - provider: Provider name (e.g., "anthropic", "openai")
     - use_byok: Whether to use user's BYOK key if available
+
+    Rate Limiting:
+    - Request rate: 60/min (configurable)
+    - Concurrent streams: 3 per user/org (prevents resource exhaustion)
     """
+    from src.services.rate_limiter import (
+        ConcurrentConnectionContext,
+        get_concurrent_limiter,
+    )
+    from src.api.security.rate_limit_config import get_concurrent_limit_for_endpoint
 
     thread_id = request.thread_id or str(uuid.uuid4())
+
+    # Get concurrent limit based on user tier
+    user_tier = getattr(user, "tier", None)
+    concurrent_limit = get_concurrent_limit_for_endpoint("/api/v1/chat/stream", user_tier)
+    if concurrent_limit is None:
+        concurrent_limit = 3  # Default fallback
+
+    # Build connection key
+    if user.organization_id:
+        conn_key = f"org:{user.organization_id}:chat"
+    else:
+        conn_key = f"user:{user.user_id}:chat"
+
+    # Check concurrent connection limit before starting stream
+    limiter = get_concurrent_limiter()
+    conn_result = await limiter.acquire(conn_key, concurrent_limit)
+
+    if not conn_result.allowed:
+        logger.warning(
+            "Concurrent stream limit exceeded",
+            key=conn_key,
+            active=conn_result.active,
+            limit=concurrent_limit,
+            user_id=user.user_id,
+        )
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": "Too many concurrent chat streams",
+                "active_streams": conn_result.active,
+                "limit": concurrent_limit,
+                "suggestion": "Close an existing chat session before starting a new one",
+            },
+            headers={
+                "X-Concurrent-Limit": str(concurrent_limit),
+                "X-Concurrent-Active": str(conn_result.active),
+            },
+        )
 
     # Build AI config from user preferences - use authenticated user_id
     try:
@@ -552,6 +599,13 @@ async def stream_message(
         finally:
             # Flush Langfuse to ensure cost tracking data is sent
             flush_langfuse()
+            # Release concurrent connection slot
+            await limiter.release(conn_key, conn_result.connection_id)
+            logger.debug(
+                "Released concurrent connection slot",
+                key=conn_key,
+                connection_id=conn_result.connection_id,
+            )
 
     return StreamingResponse(
         generate_ai_sdk_stream(),
@@ -560,6 +614,8 @@ async def stream_message(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Thread-Id": thread_id,
+            "X-Concurrent-Limit": str(concurrent_limit),
+            "X-Concurrent-Active": str(conn_result.active),
         }
     )
 
