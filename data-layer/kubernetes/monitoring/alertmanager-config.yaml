@@ -1,0 +1,334 @@
+# AlertManager Configuration for Argus E2E Testing Platform
+# Defines receivers (notification channels) and routing/escalation policies
+#
+# This file provides the complete AlertManager configuration.
+# Apply using the kube-prometheus-stack values override or as a Secret.
+#
+# Deploy with:
+#   kubectl create secret generic alertmanager-config \
+#     --from-file=alertmanager.yaml=alertmanager-config.yaml \
+#     -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+#
+# Or merge into kube-prometheus-stack-values.yaml under alertmanager.config
+# =============================================================================
+
+global:
+  # How long to wait before sending a notification again (after first notification)
+  resolve_timeout: 5m
+
+  # Slack configuration (set via environment or K8s secrets)
+  # slack_api_url: 'https://hooks.slack.com/services/xxx/xxx/xxx'
+
+  # PagerDuty configuration
+  # pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+  # SMTP configuration for email alerts
+  # smtp_smarthost: 'smtp.gmail.com:587'
+  # smtp_from: 'alerts@heyargus.ai'
+  # smtp_auth_username: 'alerts@heyargus.ai'
+  # smtp_auth_password: ''
+
+# =============================================================================
+# Templates
+# =============================================================================
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# =============================================================================
+# Inhibition Rules
+# Suppress lower-severity alerts when higher-severity alerts are firing
+# =============================================================================
+inhibit_rules:
+  # If a critical alert fires, suppress warnings for the same component
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'component']
+
+  # If a service is down, don't alert on its high latency
+  - source_match:
+      alertname: 'CogneeWorkerDown'
+    target_match_re:
+      alertname: 'Cognee.*'
+    equal: ['pod']
+
+  - source_match:
+      alertname: 'FalkorDBDown'
+    target_match_re:
+      alertname: 'FalkorDB.*'
+    equal: ['pod']
+
+  - source_match:
+      alertname: 'ValkeyDown'
+    target_match_re:
+      alertname: 'Valkey.*'
+    equal: ['pod']
+
+  - source_match:
+      alertname: 'RedpandaBrokerDown'
+    target_match_re:
+      alertname: 'Redpanda.*'
+    equal: ['pod']
+
+  # If all browser workers are down, suppress individual worker alerts
+  - source_match:
+      alertname: 'AllBrowserWorkersDown'
+    target_match:
+      alertname: 'BrowserWorkerDown'
+
+  # If backend API is down, suppress latency alerts
+  - source_match:
+      alertname: 'BackendAPIHealthCheckFailing'
+    target_match_re:
+      alertname: 'BackendAPI(High|Critical)Latency'
+
+# =============================================================================
+# Routing Tree
+# Defines how alerts are grouped, throttled, and routed to receivers
+# =============================================================================
+route:
+  # Default receiver for all alerts
+  receiver: 'default-slack'
+
+  # Group alerts by these labels to batch notifications
+  group_by: ['alertname', 'component', 'namespace']
+
+  # Wait this long before sending initial notification (allows grouping)
+  group_wait: 30s
+
+  # Wait this long before sending additional alerts for same group
+  group_interval: 5m
+
+  # Wait this long before repeating notification for same alert
+  repeat_interval: 4h
+
+  # Child routes (evaluated in order, first match wins)
+  routes:
+    # ==========================================================================
+    # CRITICAL ALERTS - Immediate escalation
+    # ==========================================================================
+    - match:
+        severity: critical
+      receiver: 'critical-pagerduty'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: true  # Also send to Slack
+
+    - match:
+        severity: critical
+      receiver: 'critical-slack'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+
+    # ==========================================================================
+    # WARNING ALERTS - Standard notification
+    # ==========================================================================
+    - match:
+        severity: warning
+      receiver: 'warning-slack'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 4h
+
+    # ==========================================================================
+    # TEAM-SPECIFIC ROUTING
+    # ==========================================================================
+    # Platform team alerts
+    - match:
+        team: platform
+      receiver: 'platform-team-slack'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'platform-oncall-pagerduty'
+
+    # QA team alerts
+    - match:
+        team: qa
+      receiver: 'qa-team-slack'
+
+    # ==========================================================================
+    # COMPONENT-SPECIFIC ROUTING
+    # ==========================================================================
+    # Database alerts - always critical
+    - match:
+        component: database
+      receiver: 'database-oncall'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'database-pagerduty'
+          group_wait: 5s
+
+    # Cost alerts - billing team
+    - match:
+        component: cost
+      receiver: 'billing-team-slack'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'billing-pagerduty'
+
+    # A2A communication alerts
+    - match:
+        component: a2a
+      receiver: 'platform-team-slack'
+
+    # Intelligence layer alerts
+    - match:
+        component: intelligence
+      receiver: 'ai-team-slack'
+
+    # ==========================================================================
+    # WATCHDOG - Meta-alert to verify alerting is working
+    # ==========================================================================
+    - match:
+        alertname: Watchdog
+      receiver: 'watchdog'
+      repeat_interval: 1m
+
+# =============================================================================
+# Receivers
+# Define notification channels (Slack, PagerDuty, Email, Webhook)
+# =============================================================================
+receivers:
+  # ---------------------------------------------------------------------------
+  # Default receiver (fallback)
+  # ---------------------------------------------------------------------------
+  - name: 'default-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#argus-alerts'
+        send_resolved: true
+        title: '{{ template "slack.argus.title" . }}'
+        text: '{{ template "slack.argus.text" . }}'
+        color: '{{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}danger{{ else }}warning{{ end }}{{ else }}good{{ end }}'
+
+  # ---------------------------------------------------------------------------
+  # Critical alerts (PagerDuty + Slack)
+  # ---------------------------------------------------------------------------
+  - name: 'critical-pagerduty'
+    pagerduty_configs:
+      - routing_key_file: '/etc/alertmanager/secrets/pagerduty-routing-key'
+        severity: critical
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          firing: '{{ template "pagerduty.instances" .Alerts.Firing }}'
+          resolved: '{{ template "pagerduty.instances" .Alerts.Resolved }}'
+          num_firing: '{{ .Alerts.Firing | len }}'
+          num_resolved: '{{ .Alerts.Resolved | len }}'
+
+  - name: 'critical-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url-critical'
+        channel: '#argus-critical'
+        send_resolved: true
+        title: ':rotating_light: CRITICAL: {{ .CommonLabels.alertname }}'
+        text: '{{ template "slack.argus.text" . }}'
+        color: 'danger'
+
+  # ---------------------------------------------------------------------------
+  # Warning alerts
+  # ---------------------------------------------------------------------------
+  - name: 'warning-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#argus-alerts'
+        send_resolved: true
+        title: ':warning: {{ .CommonLabels.alertname }}'
+        text: '{{ template "slack.argus.text" . }}'
+        color: 'warning'
+
+  # ---------------------------------------------------------------------------
+  # Team-specific receivers
+  # ---------------------------------------------------------------------------
+  - name: 'platform-team-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#platform-alerts'
+        send_resolved: true
+        title: '[Platform] {{ .CommonLabels.alertname }}'
+        text: '{{ template "slack.argus.text" . }}'
+
+  - name: 'platform-oncall-pagerduty'
+    pagerduty_configs:
+      - routing_key_file: '/etc/alertmanager/secrets/pagerduty-platform-key'
+        severity: critical
+
+  - name: 'qa-team-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#qa-alerts'
+        send_resolved: true
+        title: '[QA] {{ .CommonLabels.alertname }}'
+        text: '{{ template "slack.argus.text" . }}'
+
+  - name: 'ai-team-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#ai-team-alerts'
+        send_resolved: true
+        title: '[AI/ML] {{ .CommonLabels.alertname }}'
+        text: '{{ template "slack.argus.text" . }}'
+
+  # ---------------------------------------------------------------------------
+  # Database team
+  # ---------------------------------------------------------------------------
+  - name: 'database-oncall'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#database-alerts'
+        send_resolved: true
+
+  - name: 'database-pagerduty'
+    pagerduty_configs:
+      - routing_key_file: '/etc/alertmanager/secrets/pagerduty-database-key'
+        severity: critical
+
+  # ---------------------------------------------------------------------------
+  # Billing/Cost team
+  # ---------------------------------------------------------------------------
+  - name: 'billing-team-slack'
+    slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+        channel: '#billing-alerts'
+        send_resolved: true
+        title: ':moneybag: {{ .CommonLabels.alertname }}'
+        text: '{{ template "slack.argus.text" . }}'
+
+  - name: 'billing-pagerduty'
+    pagerduty_configs:
+      - routing_key_file: '/etc/alertmanager/secrets/pagerduty-billing-key'
+        severity: critical
+
+  # ---------------------------------------------------------------------------
+  # Watchdog (Dead man's switch)
+  # ---------------------------------------------------------------------------
+  - name: 'watchdog'
+    webhook_configs:
+      - url: 'http://monitoring-alertmanager.monitoring:9093/api/v1/alerts'
+        send_resolved: false
+
+  # ---------------------------------------------------------------------------
+  # Webhook receiver for custom integrations (n8n, etc.)
+  # ---------------------------------------------------------------------------
+  - name: 'webhook-n8n'
+    webhook_configs:
+      - url_file: '/etc/alertmanager/secrets/n8n-webhook-url'
+        send_resolved: true
+        http_config:
+          bearer_token_file: '/etc/alertmanager/secrets/n8n-bearer-token'
+
+# =============================================================================
+# Time-based muting (for maintenance windows)
+# =============================================================================
+# mute_time_intervals:
+#   - name: 'maintenance-window'
+#     time_intervals:
+#       - weekdays: ['saturday', 'sunday']
+#         times:
+#           - start_time: '00:00'
+#             end_time: '06:00'

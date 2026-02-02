@@ -75,43 +75,170 @@ alertmanager:
             requests:
               storage: 40Gi
 
+    # Mount secrets for notification credentials
+    secrets:
+      - alertmanager-secrets
+
+    # Mount templates ConfigMap
+    configMaps:
+      - alertmanager-templates
+
   # Service - ClusterIP only
   service:
     type: ClusterIP
 
-  # Default config - customize for Slack/PagerDuty
+  # Template files path
+  templateFiles:
+    argus.tmpl: |-
+      {{ define "slack.argus.title" -}}
+      [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
+      {{- end }}
+      {{ define "slack.argus.text" -}}
+      {{ range .Alerts }}
+      *Alert:* {{ .Annotations.summary }}
+      *Description:* {{ .Annotations.description }}
+      *Severity:* `{{ .Labels.severity }}`
+      *Component:* `{{ .Labels.component }}`
+      {{ if .Labels.pod }}*Pod:* `{{ .Labels.pod }}`{{ end }}
+      {{ if .Labels.namespace }}*Namespace:* `{{ .Labels.namespace }}`{{ end }}
+      {{ if .Annotations.runbook_url }}*Runbook:* <{{ .Annotations.runbook_url }}|View Runbook>{{ end }}
+      ---
+      {{ end }}
+      {{- end }}
+
+  # Full AlertManager configuration with escalation policies
+  # See alertmanager-config.yaml for detailed documentation
   config:
     global:
       resolve_timeout: 5m
 
-    route:
-      group_by: ['alertname', 'namespace']
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 4h
-      receiver: 'default-receiver'
-      routes:
-        - match:
-            severity: critical
-          receiver: 'critical-receiver'
-        - match:
-            severity: warning
-          receiver: 'warning-receiver'
+    templates:
+      - '/etc/alertmanager/config/*.tmpl'
 
-    receivers:
-      - name: 'default-receiver'
-        # Configure webhook/slack here
-      - name: 'critical-receiver'
-        # Configure PagerDuty/Slack critical channel
-      - name: 'warning-receiver'
-        # Configure Slack warning channel
-
+    # Inhibition rules: suppress lower-severity when higher-severity fires
     inhibit_rules:
       - source_match:
           severity: 'critical'
         target_match:
           severity: 'warning'
-        equal: ['alertname', 'namespace']
+        equal: ['alertname', 'component']
+      - source_match:
+          alertname: 'CogneeWorkerDown'
+        target_match_re:
+          alertname: 'Cognee.*'
+        equal: ['pod']
+      - source_match:
+          alertname: 'AllBrowserWorkersDown'
+        target_match:
+          alertname: 'BrowserWorkerDown'
+      - source_match:
+          alertname: 'BackendAPIHealthCheckFailing'
+        target_match_re:
+          alertname: 'BackendAPI.*Latency'
+
+    # Routing tree with escalation policies
+    route:
+      receiver: 'default-slack'
+      group_by: ['alertname', 'component', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # Critical alerts: PagerDuty + Slack, fast escalation
+        - match:
+            severity: critical
+          receiver: 'critical-pagerduty'
+          group_wait: 10s
+          group_interval: 1m
+          repeat_interval: 1h
+          continue: true
+        - match:
+            severity: critical
+          receiver: 'critical-slack'
+          group_wait: 10s
+          group_interval: 1m
+          repeat_interval: 1h
+
+        # Warning alerts: Slack only
+        - match:
+            severity: warning
+          receiver: 'warning-slack'
+          group_wait: 1m
+          group_interval: 5m
+          repeat_interval: 4h
+
+        # Team-specific routing
+        - match:
+            team: platform
+          receiver: 'platform-team-slack'
+        - match:
+            team: qa
+          receiver: 'qa-team-slack'
+        - match:
+            component: database
+          receiver: 'database-slack'
+        - match:
+            component: cost
+          receiver: 'billing-slack'
+
+    # Receivers (notification channels)
+    # Secrets are mounted from alertmanager-secrets
+    receivers:
+      - name: 'default-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url'
+            channel: '#argus-alerts'
+            send_resolved: true
+            title: '{{ template "slack.argus.title" . }}'
+            text: '{{ template "slack.argus.text" . }}'
+
+      - name: 'critical-pagerduty'
+        pagerduty_configs:
+          - routing_key_file: '/etc/alertmanager/secrets/alertmanager-secrets/pagerduty-routing-key'
+            severity: critical
+            description: '{{ .CommonAnnotations.summary }}'
+
+      - name: 'critical-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url-critical'
+            channel: '#argus-critical'
+            send_resolved: true
+            title: ':rotating_light: CRITICAL: {{ .CommonLabels.alertname }}'
+            text: '{{ template "slack.argus.text" . }}'
+            color: 'danger'
+
+      - name: 'warning-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url'
+            channel: '#argus-alerts'
+            send_resolved: true
+            title: ':warning: {{ .CommonLabels.alertname }}'
+            text: '{{ template "slack.argus.text" . }}'
+            color: 'warning'
+
+      - name: 'platform-team-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url'
+            channel: '#platform-alerts'
+            send_resolved: true
+
+      - name: 'qa-team-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url'
+            channel: '#qa-alerts'
+            send_resolved: true
+
+      - name: 'database-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url'
+            channel: '#database-alerts'
+            send_resolved: true
+
+      - name: 'billing-slack'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/alertmanager-secrets/slack-webhook-url'
+            channel: '#billing-alerts'
+            send_resolved: true
 
 # =============================================================================
 # Grafana

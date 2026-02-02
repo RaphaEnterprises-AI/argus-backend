@@ -466,3 +466,335 @@ spec:
           annotations:
             summary: "Valkey cache memory usage high"
             description: "Valkey is using more than 90% of allocated memory (current: {{ $value | humanizePercentage }}). Consider increasing memory or reducing TTLs."
+
+    # =========================================================================
+    # Backend API Alerts (Railway-deployed FastAPI)
+    # =========================================================================
+    - name: backend-api
+      interval: 30s
+      rules:
+        - alert: BackendAPIHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{job="argus-backend", status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{job="argus-backend"}[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            component: backend-api
+            team: platform
+          annotations:
+            summary: "Backend API error rate above 5%"
+            description: "Backend API has {{ $value | humanizePercentage }} error rate for the last 5 minutes. Check Railway logs for details."
+            runbook_url: "https://docs.heyargus.com/runbooks/backend-api-errors"
+
+        - alert: BackendAPIHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{job="argus-backend"}[5m])) by (le)
+            ) > 2
+          for: 10m
+          labels:
+            severity: warning
+            component: backend-api
+            team: platform
+          annotations:
+            summary: "Backend API P95 latency above 2 seconds"
+            description: "Backend API P95 latency is {{ $value | humanizeDuration }}. Check for slow database queries or external API calls."
+
+        - alert: BackendAPICriticalLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{job="argus-backend"}[5m])) by (le)
+            ) > 10
+          for: 5m
+          labels:
+            severity: critical
+            component: backend-api
+            team: platform
+          annotations:
+            summary: "Backend API P99 latency critically high"
+            description: "Backend API P99 latency is {{ $value | humanizeDuration }}. Immediate investigation required."
+            runbook_url: "https://docs.heyargus.com/runbooks/backend-api-latency"
+
+        - alert: BackendAPIHealthCheckFailing
+          expr: probe_success{job="argus-backend-healthcheck"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: backend-api
+            team: platform
+          annotations:
+            summary: "Backend API health check failing"
+            description: "Backend API health endpoint has been failing for more than 2 minutes."
+            runbook_url: "https://docs.heyargus.com/runbooks/backend-api-health"
+
+        - alert: BackendAPIRateLimitExceeded
+          expr: |
+            sum(rate(http_requests_total{job="argus-backend", status="429"}[5m])) > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: backend-api
+            team: platform
+          annotations:
+            summary: "Backend API rate limiting active"
+            description: "Backend API is returning rate limit responses at {{ $value }}/sec. Check for misbehaving clients."
+
+    # =========================================================================
+    # Agent-to-Agent (A2A) Communication Alerts
+    # =========================================================================
+    - name: a2a-agents
+      interval: 30s
+      rules:
+        - alert: A2AHighRequestLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(a2a_request_duration_seconds_bucket[5m])) by (le, from_agent, to_agent)
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+            component: a2a
+            team: platform
+          annotations:
+            summary: "A2A request latency high"
+            description: "Agent {{ $labels.from_agent }} -> {{ $labels.to_agent }} P95 latency is {{ $value | humanizeDuration }}."
+
+        - alert: A2AHighErrorRate
+          expr: |
+            (
+              sum(rate(a2a_requests_total{status="error"}[5m])) by (from_agent, to_agent)
+              /
+              sum(rate(a2a_requests_total[5m])) by (from_agent, to_agent)
+            ) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: a2a
+            team: platform
+          annotations:
+            summary: "A2A communication error rate high"
+            description: "Agent {{ $labels.from_agent }} -> {{ $labels.to_agent }} error rate is {{ $value | humanizePercentage }}."
+
+        - alert: A2AAgentUnhealthy
+          expr: |
+            (time() - a2a_agent_last_heartbeat_timestamp) > 120
+          for: 2m
+          labels:
+            severity: warning
+            component: a2a
+            team: platform
+          annotations:
+            summary: "A2A agent heartbeat missing"
+            description: "Agent {{ $labels.agent_type }} has not sent a heartbeat in {{ $value | humanizeDuration }}."
+
+        - alert: A2ACircuitBreakerOpen
+          expr: a2a_circuit_breaker_state{state="open"} == 1
+          for: 1m
+          labels:
+            severity: critical
+            component: a2a
+            team: platform
+          annotations:
+            summary: "A2A circuit breaker open"
+            description: "Circuit breaker for agent {{ $labels.agent_type }} is open. Agent-to-agent communication is degraded."
+            runbook_url: "https://docs.heyargus.com/runbooks/a2a-circuit-breaker"
+
+        - alert: A2AKafkaTopicLag
+          expr: |
+            max(kafka_consumer_group_lag{group=~"argus-agent-.*"}) by (topic, group) > 500
+          for: 10m
+          labels:
+            severity: warning
+            component: a2a
+            team: platform
+          annotations:
+            summary: "A2A Kafka consumer lag high"
+            description: "Consumer group {{ $labels.group }} has lag > 500 on topic {{ $labels.topic }} (current: {{ $value }})."
+
+    # =========================================================================
+    # Test Execution Alerts
+    # =========================================================================
+    - name: test-execution
+      interval: 1m
+      rules:
+        - alert: TestExecutionHighFailureRate
+          expr: |
+            (
+              sum(rate(test_executions_total{status="failed"}[15m]))
+              /
+              sum(rate(test_executions_total[15m]))
+            ) > 0.3
+          for: 15m
+          labels:
+            severity: warning
+            component: test-execution
+            team: qa
+          annotations:
+            summary: "Test failure rate above 30%"
+            description: "Test failure rate is {{ $value | humanizePercentage }} over the last 15 minutes. Investigate recent code changes."
+
+        - alert: TestExecutionQueueBacklog
+          expr: test_execution_queue_size > 100
+          for: 15m
+          labels:
+            severity: warning
+            component: test-execution
+            team: platform
+          annotations:
+            summary: "Test execution queue backlog"
+            description: "{{ $value }} tests waiting in queue. Consider scaling browser workers."
+
+        - alert: SelfHealingHighFailureRate
+          expr: |
+            (
+              sum(rate(self_healing_attempts_total{status="failed"}[1h]))
+              /
+              sum(rate(self_healing_attempts_total[1h]))
+            ) > 0.5
+          for: 30m
+          labels:
+            severity: warning
+            component: self-healing
+            team: platform
+          annotations:
+            summary: "Self-healing success rate below 50%"
+            description: "Self-healing is failing {{ $value | humanizePercentage }} of the time. Review healing patterns in Cognee."
+
+        - alert: FlakyTestsDetected
+          expr: |
+            count(
+              (
+                sum(rate(test_executions_total{status="passed"}[24h])) by (test_id)
+                /
+                sum(rate(test_executions_total[24h])) by (test_id)
+              ) > 0.3 and
+              (
+                sum(rate(test_executions_total{status="passed"}[24h])) by (test_id)
+                /
+                sum(rate(test_executions_total[24h])) by (test_id)
+              ) < 0.7
+            ) > 10
+          for: 1h
+          labels:
+            severity: warning
+            component: test-execution
+            team: qa
+          annotations:
+            summary: "High number of flaky tests detected"
+            description: "{{ $value }} tests are showing flaky behavior (30-70% pass rate). Review in dashboard."
+
+    # =========================================================================
+    # Database/Supabase Alerts
+    # =========================================================================
+    - name: database
+      interval: 1m
+      rules:
+        - alert: DatabaseConnectionPoolExhausted
+          expr: |
+            (
+              pg_stat_activity_count{job="supabase-postgres"}
+              /
+              pg_settings_max_connections{job="supabase-postgres"}
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: critical
+            component: database
+            team: platform
+          annotations:
+            summary: "Database connection pool near exhaustion"
+            description: "Database is using {{ $value | humanizePercentage }} of available connections. Immediate action required."
+            runbook_url: "https://docs.heyargus.com/runbooks/database-connections"
+
+        - alert: DatabaseHighQueryLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(pg_stat_statements_seconds_bucket{job="supabase-postgres"}[5m])) by (le)
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+            component: database
+            team: platform
+          annotations:
+            summary: "Database query latency high"
+            description: "P95 database query latency is {{ $value | humanizeDuration }}. Review slow queries."
+
+        - alert: DatabaseReplicationLag
+          expr: pg_replication_lag{job="supabase-postgres"} > 30
+          for: 5m
+          labels:
+            severity: critical
+            component: database
+            team: platform
+          annotations:
+            summary: "Database replication lag critical"
+            description: "Replication lag is {{ $value }} seconds. Data consistency at risk."
+            runbook_url: "https://docs.heyargus.com/runbooks/database-replication"
+
+        - alert: DatabaseDiskSpaceLow
+          expr: |
+            (
+              pg_database_size_bytes{job="supabase-postgres"}
+              /
+              pg_settings_data_directory_capacity_bytes{job="supabase-postgres"}
+            ) > 0.8
+          for: 15m
+          labels:
+            severity: warning
+            component: database
+            team: platform
+          annotations:
+            summary: "Database disk space running low"
+            description: "Database is using {{ $value | humanizePercentage }} of allocated storage."
+
+    # =========================================================================
+    # Cost & Budget Alerts
+    # =========================================================================
+    - name: cost-alerts
+      interval: 5m
+      rules:
+        - alert: DailyAICostExceeded
+          expr: |
+            sum(increase(ai_cost_total_usd[24h])) > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: cost
+            team: platform
+          annotations:
+            summary: "Daily AI cost exceeded $100"
+            description: "AI spending is ${{ $value }} in the last 24 hours. Review high-cost operations."
+
+        - alert: HourlyAICostSpike
+          expr: |
+            sum(rate(ai_cost_total_usd[1h])) * 24 > 200
+          for: 15m
+          labels:
+            severity: critical
+            component: cost
+            team: platform
+          annotations:
+            summary: "AI cost rate unsustainable"
+            description: "Current AI spend rate projects to ${{ $value }} per day. Investigate immediately."
+            runbook_url: "https://docs.heyargus.com/runbooks/ai-cost-spike"
+
+        - alert: OrganizationBudgetWarning
+          expr: |
+            (
+              sum(ai_cost_total_usd) by (org_id)
+              /
+              sum(ai_budget_limit_usd) by (org_id)
+            ) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: cost
+            team: platform
+          annotations:
+            summary: "Organization approaching budget limit"
+            description: "Organization {{ $labels.org_id }} has used {{ $value | humanizePercentage }} of AI budget."
