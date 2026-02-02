@@ -10,6 +10,10 @@ Security Model:
 - Master key stored in ENCRYPTION_KEY env var (32 bytes, base64 encoded)
 - Per-key nonces stored alongside encrypted data
 - GCM provides both encryption and authentication
+
+Environment Handling:
+- In production/staging: ENCRYPTION_KEY is REQUIRED, raises ValueError if missing
+- In development: Falls back to deterministic dev key with warning (for local dev/tests)
 """
 
 import base64
@@ -21,6 +25,10 @@ import structlog
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 logger = structlog.get_logger()
+
+# Development fallback key - ONLY used in development environment
+# This is a deterministic 32-byte key for local development and testing ONLY
+_DEV_FALLBACK_KEY = base64.b64encode(b"01234567890123456789012345678901").decode()
 
 
 @dataclass
@@ -44,16 +52,34 @@ class KeyEncryptionService:
         Args:
             encryption_key: Base64-encoded 32-byte key.
                            Falls back to ENCRYPTION_KEY env var.
+
+        Raises:
+            ValueError: If encryption key is missing in production/staging environment,
+                       or if the key is invalid (wrong size, bad encoding).
         """
         key_b64 = encryption_key or os.getenv("ENCRYPTION_KEY")
 
         if not key_b64:
+            # Check environment to determine if fallback is allowed
+            environment = os.getenv("ENVIRONMENT", "development").lower()
+
+            if environment in ("production", "staging"):
+                logger.error(
+                    "ENCRYPTION_KEY is required in production/staging",
+                    environment=environment,
+                )
+                raise ValueError(
+                    f"ENCRYPTION_KEY environment variable is required in {environment}. "
+                    "Generate one with: openssl rand -base64 32"
+                )
+
+            # Development fallback - only for local dev and tests
             logger.warning(
-                "No ENCRYPTION_KEY configured - using fallback (NOT FOR PRODUCTION)"
+                "No ENCRYPTION_KEY configured - using development fallback",
+                environment=environment,
+                warning="DO NOT use in production - set ENCRYPTION_KEY env var",
             )
-            # Generate a deterministic fallback for development only
-            # In production, ENCRYPTION_KEY must be set
-            key_b64 = base64.b64encode(b"dev-key-32-bytes-1234567890ab").decode()
+            key_b64 = _DEV_FALLBACK_KEY
 
         try:
             self._key = base64.b64decode(key_b64)

@@ -1075,69 +1075,67 @@ class BaseAgent(ABC):
             DeprecationWarning,
             stacklevel=2,
         )
+
+        from ..core.retry import RetryPolicy, is_rate_limit_error, is_server_error
+
         system_prompt = system or self._get_system_prompt()
-        retries = 0
-        last_error = None
 
-        while retries <= self.config.max_retries:
-            try:
-                start_time = time.time()
+        # Create retry policy using centralized configuration (RAP-333)
+        def should_retry_anthropic(e: Exception) -> bool:
+            """Determine if Anthropic exception should be retried."""
+            if is_rate_limit_error(e):
+                return True
+            if is_server_error(e):
+                return True
+            if isinstance(e, anthropic.APIStatusError) and e.status_code >= 500:
+                return True
+            return False
 
-                kwargs = {
-                    "model": self.model.value,
-                    "max_tokens": max_tokens,
-                    "messages": messages,
-                    "temperature": temperature,
-                }
+        retry_policy = RetryPolicy(
+            max_retries=self.config.max_retries,
+            base_delay=self.config.retry_delay,
+            max_delay=60.0,
+            retry_on=should_retry_anthropic,
+            on_retry=lambda attempt, exc, delay: self.log.warning(
+                "Retrying Claude API call",
+                attempt=attempt,
+                error_type=type(exc).__name__,
+                delay_seconds=round(delay, 2),
+            ),
+        )
 
-                if system_prompt:
-                    kwargs["system"] = system_prompt
+        def make_request() -> anthropic.types.Message:
+            start_time = time.time()
 
-                if tools:
-                    kwargs["tools"] = tools
+            kwargs = {
+                "model": self.model.value,
+                "max_tokens": max_tokens,
+                "messages": messages,
+                "temperature": temperature,
+            }
 
-                response = self.client.messages.create(**kwargs)
+            if system_prompt:
+                kwargs["system"] = system_prompt
 
-                # Track usage
-                self._track_usage(response)
+            if tools:
+                kwargs["tools"] = tools
 
-                duration = int((time.time() - start_time) * 1000)
-                self.log.debug(
-                    "Claude API call succeeded",
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    duration_ms=duration,
-                )
+            response = self.client.messages.create(**kwargs)
 
-                return response
+            # Track usage
+            self._track_usage(response)
 
-            except anthropic.RateLimitError as e:
-                retries += 1
-                last_error = e
-                wait_time = self.config.retry_delay * (2 ** (retries - 1))
-                self.log.warning(
-                    "Rate limited, retrying",
-                    retry=retries,
-                    wait_seconds=wait_time,
-                )
-                time.sleep(wait_time)
+            duration = int((time.time() - start_time) * 1000)
+            self.log.debug(
+                "Claude API call succeeded",
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                duration_ms=duration,
+            )
 
-            except anthropic.APIStatusError as e:
-                if e.status_code >= 500:
-                    retries += 1
-                    last_error = e
-                    wait_time = self.config.retry_delay * (2 ** (retries - 1))
-                    self.log.warning(
-                        "Server error, retrying",
-                        status_code=e.status_code,
-                        retry=retries,
-                    )
-                    time.sleep(wait_time)
-                else:
-                    raise
+            return response
 
-        self._usage.total_retries += retries
-        raise last_error or Exception("Max retries exceeded")
+        return retry_policy.execute_sync(make_request)
 
     async def _call_model(
         self,
@@ -1698,3 +1696,113 @@ Provide your evaluation in JSON format:
             pass_fail=eval_data.get("pass_fail", False),
             recommendations=eval_data.get("recommendations", []),
         )
+
+    # =========================================================================
+    # RAP-330: Hallucination Detection via SelfCheckGPT
+    # =========================================================================
+
+    async def _call_ai_with_hallucination_check(
+        self,
+        messages: list[dict],
+        query: str,
+        context: str | None = None,
+        hallucination_threshold: float = 0.6,
+        num_samples: int = 3,
+        auto_retry: bool = False,
+        max_retries: int = 2,
+        **kwargs,
+    ) -> tuple[AIResponse, "HallucinationResult | None"]:
+        """Execute AI call with automatic hallucination detection.
+
+        Uses the SelfCheckGPT pattern to detect hallucinated content by
+        generating multiple samples and checking consistency.
+
+        Args:
+            messages: Conversation messages
+            query: The query being answered (for regeneration)
+            context: Optional grounding context to check against
+            hallucination_threshold: Minimum score to accept (0.0-1.0)
+            num_samples: Number of samples for consistency check
+            auto_retry: Whether to retry if hallucination detected
+            max_retries: Maximum retry attempts if auto_retry=True
+            **kwargs: Additional args passed to _call_ai()
+
+        Returns:
+            Tuple of (AIResponse, HallucinationResult or None if check disabled)
+
+        Example:
+            ```python
+            response, halluc_result = await self._call_ai_with_hallucination_check(
+                messages=[{"role": "user", "content": "Explain the auth flow"}],
+                query="Explain the auth flow",
+                context=api_docs,
+                hallucination_threshold=0.7,
+            )
+
+            if halluc_result and not halluc_result.is_reliable:
+                self.log.warning(
+                    "Response may contain hallucinations",
+                    hallucinated=halluc_result.hallucinated_sentences,
+                )
+            ```
+        """
+        from .hallucination_detector import HallucinationDetectorAgent
+
+        # Generate initial response
+        response = await self._call_ai(messages=messages, **kwargs)
+
+        # Create detector
+        detector = HallucinationDetectorAgent(
+            num_samples=num_samples,
+            consistency_threshold=hallucination_threshold,
+            enable_grounding=context is not None,
+        )
+
+        current_response = response
+        current_messages = messages.copy()
+
+        for attempt in range(max_retries + 1 if auto_retry else 1):
+            # Check for hallucinations
+            result = await detector.detect(
+                response=current_response.content,
+                query=query,
+                context=context,
+                messages=current_messages,
+            )
+
+            if result.overall_score >= hallucination_threshold:
+                self.log.debug(
+                    "Response passed hallucination check",
+                    score=result.overall_score,
+                    attempt=attempt + 1,
+                )
+                return current_response, result
+
+            if not auto_retry or attempt >= max_retries:
+                self.log.warning(
+                    "Response failed hallucination check",
+                    score=result.overall_score,
+                    severity=result.severity.value,
+                    hallucinated_count=len(result.hallucinated_sentences),
+                )
+                return current_response, result
+
+            # Retry with feedback
+            self.log.info(
+                "Retrying due to hallucination detection",
+                attempt=attempt + 1,
+                hallucinated=result.hallucinated_sentences[:2],
+            )
+
+            current_messages.append({"role": "assistant", "content": current_response.content})
+            current_messages.append({
+                "role": "user",
+                "content": f"""Your response may contain inaccuracies. The following statements could not be verified:
+{chr(10).join(f'- {s}' for s in result.hallucinated_sentences[:3])}
+
+Please provide a more accurate response, focusing only on verifiable information."""
+            })
+
+            current_response = await self._call_ai(messages=current_messages, **kwargs)
+
+        return current_response, result

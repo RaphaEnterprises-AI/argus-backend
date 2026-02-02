@@ -159,11 +159,12 @@ class RedpandaClient:
 
     Features:
     - Async-friendly producer with delivery reports
-    - Consumer with automatic offset management
+    - Consumer with manual offset management for exactly-once semantics
+    - Offset committed only after successful processing or DLQ write
     - Topic auto-creation with proper partitioning
     - Multi-tenant partitioning by org_id
     - Structured logging
-    - Error handling and retries
+    - Error handling and retries with DLQ support
     """
 
     # Topic configurations
@@ -354,6 +355,7 @@ class RedpandaClient:
         topics: list[str],
         group_id: str,
         auto_offset_reset: str = "earliest",
+        enable_auto_commit: bool = False,
     ) -> Consumer:
         """
         Create a consumer subscribed to topics.
@@ -362,9 +364,15 @@ class RedpandaClient:
             topics: List of topics to subscribe to
             group_id: Consumer group ID
             auto_offset_reset: Where to start if no offset exists
+            enable_auto_commit: Whether to auto-commit offsets (default False for manual control)
 
         Returns:
             Consumer instance
+
+        Note:
+            Manual offset commit (enable_auto_commit=False) is the default to ensure
+            exactly-once processing semantics. Offsets are only committed after
+            successful message processing or successful DLQ write.
         """
         consumer_key = f"{group_id}:{','.join(sorted(topics))}"
 
@@ -372,9 +380,11 @@ class RedpandaClient:
             consumer_config = self.config.to_confluent_config({
                 "group.id": group_id,
                 "auto.offset.reset": auto_offset_reset,
-                "enable.auto.commit": True,
-                "auto.commit.interval.ms": 5000,
+                "enable.auto.commit": enable_auto_commit,
             })
+            # Only add auto.commit.interval.ms if auto-commit is enabled
+            if enable_auto_commit:
+                consumer_config["auto.commit.interval.ms"] = 5000
             consumer = Consumer(consumer_config)
             consumer.subscribe(topics)
             self._consumers[consumer_key] = consumer
@@ -382,6 +392,7 @@ class RedpandaClient:
                 "Consumer created",
                 group_id=group_id,
                 topics=topics,
+                auto_commit=enable_auto_commit,
             )
 
         return self._consumers[consumer_key]
@@ -393,9 +404,15 @@ class RedpandaClient:
         handler: Callable[[ArgusEvent], None],
         max_messages: int | None = None,
         timeout_sec: float = 1.0,
+        enable_auto_commit: bool = False,
     ) -> int:
         """
         Consume messages and process with handler.
+
+        Uses manual offset commit by default to ensure exactly-once semantics:
+        - Offset is committed only after successful handler execution
+        - On handler failure, offset is committed only after successful DLQ write
+        - If DLQ write fails, offset is NOT committed (message will be reprocessed)
 
         Args:
             topics: Topics to consume from
@@ -403,14 +420,20 @@ class RedpandaClient:
             handler: Function to process each event
             max_messages: Max messages to process (None = infinite)
             timeout_sec: Poll timeout in seconds
+            enable_auto_commit: Whether to auto-commit offsets (default False)
 
         Returns:
             Number of messages processed
         """
-        consumer = self.subscribe(topics, group_id)
+        consumer = self.subscribe(topics, group_id, enable_auto_commit=enable_auto_commit)
         count = 0
 
-        logger.info("Starting consumption", topics=topics, group_id=group_id)
+        logger.info(
+            "Starting consumption",
+            topics=topics,
+            group_id=group_id,
+            auto_commit=enable_auto_commit,
+        )
 
         try:
             while True:
@@ -431,6 +454,10 @@ class RedpandaClient:
                         logger.error("Consumer error", error=msg.error())
                         continue
 
+                # Track whether we should commit the offset
+                should_commit = False
+                processing_success = False
+
                 try:
                     event = ArgusEvent.from_json(msg.value())
                     logger.debug(
@@ -442,15 +469,57 @@ class RedpandaClient:
                         org_id=event.org_id,
                     )
                     handler(event)
+                    processing_success = True
+                    should_commit = True
                 except Exception as e:
                     logger.error(
                         "Handler error",
                         error=str(e),
                         topic=msg.topic(),
+                        partition=msg.partition(),
                         offset=msg.offset(),
                     )
-                    # Send to DLQ
-                    self._send_to_dlq_raw(msg.value(), str(e))
+                    # Send to DLQ - only commit offset if DLQ write succeeds
+                    dlq_success = self._send_to_dlq_raw(msg.value(), str(e))
+                    if dlq_success:
+                        should_commit = True
+                        logger.info(
+                            "DLQ write successful, will commit offset",
+                            topic=msg.topic(),
+                            partition=msg.partition(),
+                            offset=msg.offset(),
+                        )
+                    else:
+                        # DLQ write failed - do NOT commit offset
+                        # Message will be reprocessed on next consumer start
+                        logger.error(
+                            "DLQ write failed, NOT committing offset - message will be reprocessed",
+                            topic=msg.topic(),
+                            partition=msg.partition(),
+                            offset=msg.offset(),
+                        )
+
+                # Manual offset commit (only if not using auto-commit)
+                if should_commit and not enable_auto_commit:
+                    try:
+                        consumer.commit(message=msg, asynchronous=False)
+                        logger.debug(
+                            "Offset committed",
+                            topic=msg.topic(),
+                            partition=msg.partition(),
+                            offset=msg.offset(),
+                            processing_success=processing_success,
+                        )
+                    except KafkaException as e:
+                        logger.error(
+                            "Failed to commit offset",
+                            error=str(e),
+                            topic=msg.topic(),
+                            partition=msg.partition(),
+                            offset=msg.offset(),
+                        )
+                        # If commit fails after successful processing, we may reprocess
+                        # This is acceptable for at-least-once semantics
 
                 count += 1
                 if max_messages and count >= max_messages:
@@ -463,23 +532,115 @@ class RedpandaClient:
 
         return count
 
-    def _send_to_dlq_raw(self, raw_message: bytes, error: str) -> None:
-        """Send failed raw message to Dead Letter Queue."""
-        try:
-            dlq_payload = {
-                "original_message": raw_message.decode('utf-8'),
-                "error": error,
-                "failed_at": datetime.now(UTC).isoformat(),
-            }
-            producer = self._get_producer()
-            producer.produce(
-                "argus.dlq",
-                key=b"error",
-                value=json.dumps(dlq_payload).encode('utf-8'),
-            )
-            logger.warning("Message sent to DLQ", error=error[:100])
-        except Exception as e:
-            logger.error("Failed to send to DLQ", error=str(e))
+    def _send_to_dlq_raw(
+        self,
+        raw_message: bytes,
+        error: str,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> bool:
+        """Send failed raw message to Dead Letter Queue with verification.
+
+        Args:
+            raw_message: The raw message bytes that failed processing
+            error: Error message describing the failure
+            max_retries: Maximum number of retry attempts for DLQ write
+            retry_delay: Delay in seconds between retries
+
+        Returns:
+            True if message was successfully written to DLQ, False otherwise
+        """
+        import time
+
+        dlq_payload = {
+            "original_message": raw_message.decode('utf-8', errors='replace'),
+            "error": error,
+            "failed_at": datetime.now(UTC).isoformat(),
+        }
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                producer = self._get_producer()
+
+                # Track delivery status
+                delivery_result = {"success": False, "error": None}
+
+                def dlq_delivery_callback(err, msg):
+                    if err:
+                        delivery_result["error"] = err
+                        logger.error(
+                            "DLQ delivery failed",
+                            error=str(err),
+                            attempt=attempt,
+                        )
+                    else:
+                        delivery_result["success"] = True
+                        logger.info(
+                            "DLQ message delivered successfully",
+                            topic=msg.topic(),
+                            partition=msg.partition(),
+                            offset=msg.offset(),
+                        )
+
+                producer.produce(
+                    "argus.dlq",
+                    key=b"error",
+                    value=json.dumps(dlq_payload).encode('utf-8'),
+                    callback=dlq_delivery_callback,
+                )
+
+                # Flush and wait for delivery confirmation
+                remaining = producer.flush(timeout=10.0)
+
+                if remaining > 0:
+                    logger.warning(
+                        "DLQ flush timeout - messages still in queue",
+                        remaining=remaining,
+                        attempt=attempt,
+                    )
+                    if attempt < max_retries:
+                        time.sleep(retry_delay * attempt)
+                        continue
+                    return False
+
+                if delivery_result["success"]:
+                    logger.warning(
+                        "Message sent to DLQ",
+                        error=error[:100],
+                        attempt=attempt,
+                    )
+                    return True
+
+                if delivery_result["error"]:
+                    if attempt < max_retries:
+                        logger.warning(
+                            "DLQ write failed, retrying",
+                            error=str(delivery_result["error"]),
+                            attempt=attempt,
+                            max_retries=max_retries,
+                        )
+                        time.sleep(retry_delay * attempt)
+                        continue
+                    logger.error(
+                        "DLQ write failed after all retries",
+                        error=str(delivery_result["error"]),
+                        attempts=max_retries,
+                    )
+                    return False
+
+            except Exception as e:
+                logger.error(
+                    "Exception during DLQ write",
+                    error=str(e),
+                    attempt=attempt,
+                    max_retries=max_retries,
+                )
+                if attempt < max_retries:
+                    time.sleep(retry_delay * attempt)
+                    continue
+                return False
+
+        return False
 
     def flush(self, timeout: float = 10.0) -> int:
         """Flush any pending messages. Returns number of messages still in queue."""

@@ -698,9 +698,10 @@ async def authenticate_jwt(token: str, request: Request) -> UserContext | None:
     if not payload:
         return None
 
-    # Check if token is revoked (optional - requires Redis/DB)
-    # if await is_token_revoked(payload.jti):
-    #     return None
+    # Check if token is revoked (uses distributed Valkey cache)
+    if await is_token_revoked(payload.jti):
+        logger.warning("Rejected revoked JWT token", jti=payload.jti, user_id=payload.sub)
+        return None
 
     return UserContext(
         user_id=payload.sub,
@@ -894,18 +895,102 @@ def require_scopes(*required_scopes: str):
 
 
 # =============================================================================
-# Token Revocation (requires Redis/DB)
+# Token Revocation (Distributed via Valkey/Redis)
 # =============================================================================
 
-_revoked_tokens: set[str] = set()  # In-memory for development
+# In-memory fallback for when distributed cache is unavailable
+_revoked_tokens: set[str] = set()
+
+# Key prefix for revoked tokens in distributed cache
+_REVOKED_TOKEN_PREFIX = "argus:revoked_token:"
+
+# Default TTL for revoked tokens (matches max token lifetime: 30 days for refresh tokens)
+_REVOKED_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 
-async def revoke_token(jti: str) -> None:
-    """Revoke a JWT token by its ID."""
+async def revoke_token(jti: str, ttl_seconds: int | None = None) -> None:
+    """Revoke a JWT token by its ID.
+
+    Stores the revoked token ID in Valkey (distributed) with fallback to in-memory.
+    TTL ensures revoked tokens are automatically cleaned up after they would have
+    expired anyway.
+
+    Args:
+        jti: The JWT ID (jti claim) to revoke
+        ttl_seconds: Optional TTL for the revocation entry. Defaults to 30 days
+                    (matching refresh token lifetime). For access tokens, you can
+                    pass JWT_EXPIRATION_HOURS * 3600 for shorter TTL.
+    """
+    from src.services.cache import get_valkey_client
+
+    ttl = ttl_seconds or _REVOKED_TOKEN_TTL_SECONDS
+    cache_key = f"{_REVOKED_TOKEN_PREFIX}{jti}"
+
+    # Try distributed cache first (Valkey)
+    valkey = get_valkey_client()
+    if valkey is not None:
+        try:
+            await valkey.set(cache_key, "1", ex=ttl)
+            logger.info("Token revoked in distributed cache", jti=jti, ttl=ttl)
+            return
+        except Exception as e:
+            logger.warning("Failed to revoke token in Valkey, using in-memory fallback", error=str(e))
+
+    # Fallback to in-memory (for development or when Valkey is unavailable)
     _revoked_tokens.add(jti)
-    logger.info("Token revoked", jti=jti)
+    logger.info("Token revoked in-memory (fallback)", jti=jti)
 
 
 async def is_token_revoked(jti: str) -> bool:
-    """Check if a token is revoked."""
-    return jti in _revoked_tokens
+    """Check if a token is revoked.
+
+    Checks Valkey (distributed) first, then falls back to in-memory set.
+    This ensures revocation works across all API instances in a cluster.
+
+    Args:
+        jti: The JWT ID (jti claim) to check
+
+    Returns:
+        True if the token has been revoked, False otherwise
+    """
+    from src.services.cache import get_valkey_client
+
+    cache_key = f"{_REVOKED_TOKEN_PREFIX}{jti}"
+
+    # Try distributed cache first (Valkey)
+    valkey = get_valkey_client()
+    if valkey is not None:
+        try:
+            result = await valkey.get(cache_key)
+            if result is not None:
+                logger.debug("Token found in distributed revocation list", jti=jti)
+                return True
+        except Exception as e:
+            logger.warning("Failed to check token revocation in Valkey", error=str(e))
+
+    # Fallback to in-memory check
+    if jti in _revoked_tokens:
+        logger.debug("Token found in in-memory revocation list", jti=jti)
+        return True
+
+    return False
+
+
+async def revoke_all_user_tokens(user_id: str, ttl_seconds: int | None = None) -> int:
+    """Revoke all tokens for a specific user.
+
+    This is useful for logout-all-devices or security incidents.
+    Note: This requires tracking active tokens per user, which is not currently
+    implemented. For now, this is a placeholder that logs the intent.
+
+    Args:
+        user_id: The user ID whose tokens should be revoked
+        ttl_seconds: Optional TTL for the revocation entries
+
+    Returns:
+        Number of tokens revoked (0 if tracking not implemented)
+    """
+    # TODO: Implement user token tracking if needed
+    # This would require storing jti -> user_id mapping when tokens are issued
+    logger.info("Bulk token revocation requested", user_id=user_id)
+    return 0

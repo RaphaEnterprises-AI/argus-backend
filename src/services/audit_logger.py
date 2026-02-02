@@ -72,6 +72,9 @@ class AuditAction(str, Enum):
     AUTH_MFA_ENABLE = "auth.mfa_enable"
     AUTH_MFA_DISABLE = "auth.mfa_disable"
     AUTH_PASSWORD_CHANGE = "auth.password_change"
+    SECURITY_PROMPT_INJECTION_BLOCKED = "security.prompt_injection_blocked"
+    SECURITY_INPUT_SANITIZED = "security.input_sanitized"
+    SECURITY_ADVERSARIAL_PATTERN_DETECTED = "security.adversarial_pattern_detected"
 
     # Organization actions
     ORG_CREATE = "org.create"
@@ -96,6 +99,7 @@ class ResourceType(str, Enum):
     HEALING_PATTERN = "healing_pattern"
     SETTINGS = "settings"
     SYSTEM = "system"
+    SECURITY = "security"
 
 
 class AuditStatus(str, Enum):

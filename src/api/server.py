@@ -76,6 +76,7 @@ from src.api.reports import router as reports_router
 from src.api.sast_analysis import router as sast_router
 from src.api.scheduling import router as scheduling_router
 from src.api.security.auth import UserContext, get_current_user
+from src.api.slo import router as slo_router
 from src.api.security.device_auth import router as device_auth_router
 from src.api.security.headers import SecurityHeadersMiddleware
 
@@ -101,7 +102,12 @@ from src.api.webhooks.github import router as vcs_github_webhook_router
 from src.api.webhooks.gitlab import router as vcs_gitlab_webhook_router
 from src.config import get_settings
 from src.integrations.reporter import create_report_from_state, create_reporter
-from src.orchestrator.checkpointer import setup_checkpointer, shutdown_checkpointer
+from src.orchestrator.checkpointer import (
+    setup_checkpointer,
+    shutdown_checkpointer,
+    start_checkpoint_cleanup_job,
+    stop_checkpoint_cleanup_job,
+)
 from src.orchestrator.graph import TestingOrchestrator
 from src.orchestrator.state import create_initial_state
 from src.services.supabase_client import get_supabase_client
@@ -282,11 +288,19 @@ Autonomous E2E testing powered by Claude AI.
 # =============================================================================
 
 # 1. Security Headers (OWASP) - Outermost layer
+# CSP strictness is controlled by environment setting (RAP-335)
+# - production/staging: Strict CSP (no unsafe-inline/unsafe-eval)
+# - development: Permissive CSP for dev tools compatibility
 app.add_middleware(
     SecurityHeadersMiddleware,
     enable_hsts=settings.enable_hsts,
     hsts_max_age=settings.hsts_max_age,
     enable_csp=settings.enable_csp,
+    csp_report_uri=settings.csp_report_uri,
+    environment=settings.environment,
+    csp_extra_script_sources=[s.strip() for s in settings.csp_extra_script_sources.split(",") if s.strip()] if settings.csp_extra_script_sources else [],
+    csp_extra_style_sources=[s.strip() for s in settings.csp_extra_style_sources.split(",") if s.strip()] if settings.csp_extra_style_sources else [],
+    csp_extra_connect_sources=[s.strip() for s in settings.csp_extra_connect_sources.split(",") if s.strip()] if settings.csp_extra_connect_sources else [],
 )
 
 # 2. Audit Logging - Log all requests for SOC2 compliance
@@ -442,6 +456,7 @@ app.include_router(events_router)
 app.include_router(accessibility_router)
 app.include_router(activity_router)
 app.include_router(performance_router)
+app.include_router(slo_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -2380,12 +2395,60 @@ async def startup():
         },
     )
 
+    # Security warning: CORS wildcard in production
+    if "*" in startup_settings.cors_allowed_origins:
+        if startup_settings.environment == "production":
+            logger.warning(
+                "SECURITY WARNING: CORS allows all origins (*) in production. "
+                "This is a security risk. Set CORS_ALLOWED_ORIGINS to specific domains "
+                "(e.g., 'https://app.example.com,https://www.example.com').",
+                cors_origins=startup_settings.cors_allowed_origins,
+                environment=startup_settings.environment,
+            )
+        elif startup_settings.environment == "staging":
+            logger.warning(
+                "CORS allows all origins (*) in staging environment. "
+                "Consider restricting to specific domains before production.",
+                cors_origins=startup_settings.cors_allowed_origins,
+                environment=startup_settings.environment,
+            )
+
+    # Security warning: Authentication disabled
+    if not startup_settings.enforce_authentication:
+        env = startup_settings.environment.lower()
+        if env not in ("development", "test", "local"):
+            logger.error(
+                "SECURITY WARNING: Authentication is DISABLED in a non-development environment! "
+                "This is a critical security risk. Set ENFORCE_AUTHENTICATION=true or "
+                "ENVIRONMENT=development if this is intentional for local testing.",
+                environment=env,
+                enforce_authentication=startup_settings.enforce_authentication,
+            )
+        else:
+            logger.warning(
+                "Authentication is disabled (development mode). "
+                "Ensure ENFORCE_AUTHENTICATION=true in production.",
+                environment=env,
+            )
+
     # Ensure output directory exists
     os.makedirs(settings.output_dir, exist_ok=True)
 
     # Initialize checkpointer for durable execution
     # This sets up PostgresSaver if DATABASE_URL is configured
     await setup_checkpointer()
+
+    # Start checkpoint cleanup job (RAP-338)
+    # Removes old checkpoints to prevent unbounded database growth
+    try:
+        await start_checkpoint_cleanup_job()
+        logger.info(
+            "Checkpoint cleanup job started",
+            retention_days=startup_settings.checkpoint_retention_days,
+            interval_hours=startup_settings.checkpoint_cleanup_interval_hours,
+        )
+    except Exception as e:
+        logger.warning("Failed to start checkpoint cleanup job", error=str(e))
 
     # Start background scheduler daemon for automatic cron-based test runs
     try:
@@ -2488,6 +2551,13 @@ async def shutdown():
         logger.info("CogneeConsumer stopped")
     except Exception as e:
         logger.warning("Failed to stop CogneeConsumer", error=str(e))
+
+    # Stop checkpoint cleanup job
+    try:
+        await stop_checkpoint_cleanup_job()
+        logger.info("Checkpoint cleanup job stopped")
+    except Exception as e:
+        logger.warning("Failed to stop checkpoint cleanup job", error=str(e))
 
     # Gracefully close database connection pool
     await shutdown_checkpointer()

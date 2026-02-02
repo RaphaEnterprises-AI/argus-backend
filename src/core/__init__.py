@@ -37,6 +37,21 @@ from .normalizer import (
     Severity,
     StackFrame,
 )
+from .retry import (
+    DEFAULT_RETRY_POLICY,
+    FAST_RETRY_POLICY,
+    LLM_RETRY_POLICY,
+    NETWORK_RETRY_POLICY,
+    JitterStrategy,
+    RetryMetrics,
+    RetryPolicy,
+    create_retry_policy,
+    is_rate_limit_error,
+    is_server_error,
+    is_transient_error,
+    retry_async,
+    retry_sync,
+)
 from .risk import (
     FileRisk,
     ProjectRisk,
@@ -95,4 +110,18 @@ __all__ = [
     "get_current_tenant",
     "set_current_tenant",
     "require_tenant",
+    # Retry Policy (RAP-333)
+    "RetryPolicy",
+    "RetryMetrics",
+    "JitterStrategy",
+    "retry_async",
+    "retry_sync",
+    "create_retry_policy",
+    "is_rate_limit_error",
+    "is_server_error",
+    "is_transient_error",
+    "DEFAULT_RETRY_POLICY",
+    "NETWORK_RETRY_POLICY",
+    "LLM_RETRY_POLICY",
+    "FAST_RETRY_POLICY",
 ]

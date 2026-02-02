@@ -58,6 +58,20 @@ from .corrective_rag_agent import (
     RetrievalAction,
     RetrievedDocument,
 )
+
+# Hallucination Detection - SelfCheckGPT pattern (RAP-330)
+from .hallucination_detector import (
+    create_hallucination_detector,
+    create_hallucination_middleware,
+    GroundingCheckResult,
+    HallucinationCheckMiddleware,
+    HallucinationDetectorAgent,
+    HallucinationResult,
+    HallucinationSeverity,
+    HallucinationType,
+    quick_hallucination_check,
+    SentenceScore,
+)
 from .db_tester import DBTesterAgent
 
 # Flaky Test Detection
@@ -286,4 +300,15 @@ __all__ = [
     "RetrievalAction",
     "AdaptiveRAGRouter",
     "AdaptiveRAGStrategy",
+    # Hallucination Detection (RAP-330) - SelfCheckGPT pattern
+    "HallucinationDetectorAgent",
+    "HallucinationResult",
+    "HallucinationSeverity",
+    "HallucinationType",
+    "SentenceScore",
+    "GroundingCheckResult",
+    "HallucinationCheckMiddleware",
+    "create_hallucination_detector",
+    "create_hallucination_middleware",
+    "quick_hallucination_check",
 ]

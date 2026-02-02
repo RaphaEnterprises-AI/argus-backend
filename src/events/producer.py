@@ -174,6 +174,7 @@ class EventProducer:
             ("event_version", event.event_version.encode()),
             ("org_id", event.tenant.org_id.encode()),
             ("timestamp", event.metadata.timestamp.isoformat().encode()),
+            ("idempotency_key", event.get_idempotency_key().encode()),
         ]
 
         if event.tenant.project_id:
@@ -230,19 +231,27 @@ class EventProducer:
         original_topic: str,
         retry_count: int = 0,
         max_retries: int = 3,
+        dlq_write_retries: int = 3,
+        dlq_retry_delay: float = 1.0,
     ) -> bool:
-        """Send a failed event to the dead letter queue.
+        """Send a failed event to the dead letter queue with retry logic.
+
+        This method ensures DLQ writes are verified and retried on failure.
+        If the DLQ write ultimately fails, the error is logged for alerting.
 
         Args:
             original_event: The event that failed processing
             error: The exception that caused the failure
             original_topic: Topic the event came from
-            retry_count: Number of retry attempts made
-            max_retries: Maximum retries configured
+            retry_count: Number of retry attempts made on original event
+            max_retries: Maximum retries configured for original event
+            dlq_write_retries: Number of retries for DLQ write itself
+            dlq_retry_delay: Base delay in seconds between DLQ write retries
 
         Returns:
-            True if sent to DLQ successfully
+            True if sent to DLQ successfully, False otherwise
         """
+        import asyncio
         import traceback
 
         dlq_event = DLQEvent(
@@ -265,7 +274,64 @@ class EventProducer:
             first_failed_at=datetime.utcnow(),
         )
 
-        return await self.send(dlq_event, topic=TOPIC_DLQ)
+        # Retry DLQ writes to handle transient failures
+        last_error: Exception | None = None
+        for attempt in range(1, dlq_write_retries + 1):
+            try:
+                success = await self.send(dlq_event, topic=TOPIC_DLQ)
+                if success:
+                    logger.info(
+                        "DLQ write successful",
+                        extra={
+                            "original_event_id": original_event.event_id,
+                            "original_event_type": original_event.event_type.value,
+                            "dlq_event_id": dlq_event.event_id,
+                            "attempt": attempt,
+                        }
+                    )
+                    return True
+                else:
+                    # send() returned False - Kafka error occurred
+                    logger.warning(
+                        "DLQ write returned False, retrying",
+                        extra={
+                            "original_event_id": original_event.event_id,
+                            "attempt": attempt,
+                            "max_attempts": dlq_write_retries,
+                        }
+                    )
+                    if attempt < dlq_write_retries:
+                        await asyncio.sleep(dlq_retry_delay * attempt)
+                        continue
+
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "DLQ write exception, retrying",
+                    extra={
+                        "original_event_id": original_event.event_id,
+                        "error": str(e),
+                        "attempt": attempt,
+                        "max_attempts": dlq_write_retries,
+                    }
+                )
+                if attempt < dlq_write_retries:
+                    await asyncio.sleep(dlq_retry_delay * attempt)
+                    continue
+
+        # All retries exhausted - log critical error for alerting
+        logger.error(
+            "CRITICAL: DLQ write failed after all retries - message may be lost",
+            extra={
+                "original_event_id": original_event.event_id,
+                "original_event_type": original_event.event_type.value,
+                "original_topic": original_topic,
+                "error_message": str(error),
+                "dlq_write_error": str(last_error) if last_error else "send returned False",
+                "attempts": dlq_write_retries,
+            }
+        )
+        return False
 
 
 def create_event_metadata(

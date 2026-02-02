@@ -84,6 +84,17 @@ class BaseEvent(BaseModel):
     """Base class for all Argus events.
 
     All events inherit from this and add their specific payload fields.
+
+    Idempotency:
+        The idempotency_key field enables exactly-once processing semantics.
+        If not provided, it defaults to the event_id. Consumers should use
+        this key to deduplicate events (e.g., store processed keys in Redis/DB
+        with TTL matching the event retention period).
+
+        Common patterns for idempotency keys:
+        - Test execution: f"{test_id}:{run_id}"
+        - Codebase analysis: f"{repo_id}:{commit_sha}"
+        - Healing requests: f"{failure_id}:{strategy}"
     """
 
     event_id: str = Field(
@@ -94,6 +105,15 @@ class BaseEvent(BaseModel):
     event_version: str = Field("1.0", description="Schema version (semver)")
     tenant: TenantInfo = Field(..., description="Tenant context")
     metadata: EventMetadata = Field(..., description="Event metadata")
+    idempotency_key: str | None = Field(
+        default=None,
+        description=(
+            "Client-provided idempotency key for exactly-once processing. "
+            "If not provided, defaults to event_id. Use deterministic keys "
+            "based on business context (e.g., test_id:run_id) to prevent "
+            "duplicate processing of the same logical event."
+        )
+    )
 
     def to_kafka_key(self) -> str:
         """Generate Kafka message key for partitioning.
@@ -104,6 +124,17 @@ class BaseEvent(BaseModel):
         if self.tenant.project_id:
             return f"{self.tenant.org_id}:{self.tenant.project_id}"
         return self.tenant.org_id
+
+    def get_idempotency_key(self) -> str:
+        """Get the effective idempotency key for deduplication.
+
+        Returns the client-provided idempotency_key if set,
+        otherwise falls back to event_id.
+
+        Returns:
+            Idempotency key string for deduplication checks.
+        """
+        return self.idempotency_key or self.event_id
 
     def to_dict(self) -> dict:
         """Convert to dict for Kafka serialization."""

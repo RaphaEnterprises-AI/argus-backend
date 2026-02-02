@@ -9,9 +9,12 @@ Production Features:
 - Automatic table creation
 - Connection health checks
 - Graceful shutdown
+- Automatic checkpoint cleanup (retention-based)
 """
 
+import asyncio
 import os
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Union
 
 import structlog
@@ -28,6 +31,10 @@ CheckpointerType = Union["AsyncPostgresSaver", MemorySaver]
 # Global checkpointer instance (singleton pattern)
 _checkpointer: CheckpointerType | None = None
 _checkpointer_cm = None  # Context manager for cleanup
+
+# Cleanup job control
+_cleanup_job_running = False
+_cleanup_job_task: asyncio.Task | None = None
 
 
 def get_checkpointer() -> CheckpointerType:
@@ -264,6 +271,321 @@ async def get_thread_state(
         logger.error("Failed to get thread state", thread_id=thread_id, error=str(e))
 
     return None
+
+
+# =============================================================================
+# Checkpoint Cleanup Job (RAP-338)
+# =============================================================================
+
+
+async def cleanup_old_checkpoints(
+    retention_days: int = 30,
+    batch_size: int = 1000,
+) -> dict:
+    """
+    Delete checkpoints older than the retention period.
+
+    This function directly queries the database to delete old checkpoints,
+    preventing unbounded growth of the langgraph_checkpoints table.
+
+    Args:
+        retention_days: Delete checkpoints older than this many days
+        batch_size: Maximum number of checkpoints to delete per call
+
+    Returns:
+        Dictionary with cleanup statistics
+    """
+    database_url = os.environ.get("DATABASE_URL")
+
+    if not database_url:
+        logger.debug("DATABASE_URL not set, skipping checkpoint cleanup")
+        return {
+            "success": True,
+            "skipped": True,
+            "reason": "DATABASE_URL not configured",
+            "checkpoints_deleted": 0,
+            "writes_deleted": 0,
+        }
+
+    try:
+        import psycopg
+
+        # Calculate cutoff time
+        cutoff_time = datetime.now(UTC) - timedelta(days=retention_days)
+        cutoff_iso = cutoff_time.isoformat()
+
+        # Connect and execute cleanup
+        async with await psycopg.AsyncConnection.connect(database_url) as conn:
+            async with conn.cursor() as cur:
+                # First, delete checkpoint writes for old checkpoints
+                # This respects referential integrity
+                await cur.execute(
+                    """
+                    DELETE FROM langgraph_checkpoint_writes
+                    WHERE (thread_id, checkpoint_id) IN (
+                        SELECT thread_id, checkpoint_id
+                        FROM langgraph_checkpoints
+                        WHERE created_at < %s
+                        LIMIT %s
+                    )
+                    """,
+                    (cutoff_iso, batch_size),
+                )
+                writes_deleted = cur.rowcount
+
+                # Then delete the old checkpoints
+                await cur.execute(
+                    """
+                    DELETE FROM langgraph_checkpoints
+                    WHERE created_at < %s
+                    AND ctid IN (
+                        SELECT ctid FROM langgraph_checkpoints
+                        WHERE created_at < %s
+                        LIMIT %s
+                    )
+                    """,
+                    (cutoff_iso, cutoff_iso, batch_size),
+                )
+                checkpoints_deleted = cur.rowcount
+
+                await conn.commit()
+
+        logger.info(
+            "Checkpoint cleanup completed",
+            retention_days=retention_days,
+            cutoff_time=cutoff_iso,
+            checkpoints_deleted=checkpoints_deleted,
+            writes_deleted=writes_deleted,
+        )
+
+        return {
+            "success": True,
+            "skipped": False,
+            "retention_days": retention_days,
+            "cutoff_time": cutoff_iso,
+            "checkpoints_deleted": checkpoints_deleted,
+            "writes_deleted": writes_deleted,
+        }
+
+    except ImportError:
+        logger.warning(
+            "psycopg not installed, cannot cleanup checkpoints",
+            hint="Install with: pip install psycopg[binary]",
+        )
+        return {
+            "success": False,
+            "error": "psycopg not installed",
+            "checkpoints_deleted": 0,
+            "writes_deleted": 0,
+        }
+
+    except Exception as e:
+        logger.error(
+            "Failed to cleanup checkpoints",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return {
+            "success": False,
+            "error": str(e),
+            "checkpoints_deleted": 0,
+            "writes_deleted": 0,
+        }
+
+
+async def get_checkpoint_stats() -> dict:
+    """
+    Get statistics about checkpoint storage.
+
+    Returns:
+        Dictionary with checkpoint count, oldest checkpoint, storage estimates
+    """
+    database_url = os.environ.get("DATABASE_URL")
+
+    if not database_url:
+        return {
+            "available": False,
+            "reason": "DATABASE_URL not configured",
+        }
+
+    try:
+        import psycopg
+
+        async with await psycopg.AsyncConnection.connect(database_url) as conn:
+            async with conn.cursor() as cur:
+                # Get checkpoint count and date range
+                await cur.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total_checkpoints,
+                        MIN(created_at) as oldest_checkpoint,
+                        MAX(created_at) as newest_checkpoint
+                    FROM langgraph_checkpoints
+                    """
+                )
+                row = await cur.fetchone()
+
+                # Get checkpoint writes count
+                await cur.execute("SELECT COUNT(*) FROM langgraph_checkpoint_writes")
+                writes_row = await cur.fetchone()
+
+                # Get approximate table sizes
+                await cur.execute(
+                    """
+                    SELECT
+                        pg_size_pretty(pg_total_relation_size('langgraph_checkpoints')) as checkpoints_size,
+                        pg_size_pretty(pg_total_relation_size('langgraph_checkpoint_writes')) as writes_size
+                    """
+                )
+                size_row = await cur.fetchone()
+
+        return {
+            "available": True,
+            "total_checkpoints": row[0] if row else 0,
+            "oldest_checkpoint": row[1].isoformat() if row and row[1] else None,
+            "newest_checkpoint": row[2].isoformat() if row and row[2] else None,
+            "total_checkpoint_writes": writes_row[0] if writes_row else 0,
+            "checkpoints_table_size": size_row[0] if size_row else "unknown",
+            "writes_table_size": size_row[1] if size_row else "unknown",
+        }
+
+    except Exception as e:
+        logger.error("Failed to get checkpoint stats", error=str(e))
+        return {
+            "available": False,
+            "error": str(e),
+        }
+
+
+async def _checkpoint_cleanup_loop(
+    interval_hours: int = 24,
+    retention_days: int = 30,
+    batch_size: int = 1000,
+) -> None:
+    """
+    Background loop that periodically cleans up old checkpoints.
+
+    Args:
+        interval_hours: How often to run cleanup (default: 24 hours)
+        retention_days: Delete checkpoints older than this
+        batch_size: Max checkpoints to delete per cycle
+    """
+    global _cleanup_job_running
+
+    logger.info(
+        "Checkpoint cleanup job started",
+        interval_hours=interval_hours,
+        retention_days=retention_days,
+        batch_size=batch_size,
+    )
+
+    _cleanup_job_running = True
+    interval_seconds = interval_hours * 3600
+
+    # Initial cleanup on startup
+    try:
+        result = await cleanup_old_checkpoints(retention_days, batch_size)
+        if result.get("checkpoints_deleted", 0) > 0:
+            logger.info(
+                "Initial checkpoint cleanup completed",
+                checkpoints_deleted=result.get("checkpoints_deleted"),
+                writes_deleted=result.get("writes_deleted"),
+            )
+    except Exception as e:
+        logger.error("Initial checkpoint cleanup failed", error=str(e))
+
+    # Periodic cleanup loop
+    while _cleanup_job_running:
+        try:
+            await asyncio.sleep(interval_seconds)
+
+            if not _cleanup_job_running:
+                break
+
+            result = await cleanup_old_checkpoints(retention_days, batch_size)
+
+            if result.get("checkpoints_deleted", 0) > 0:
+                logger.info(
+                    "Periodic checkpoint cleanup completed",
+                    checkpoints_deleted=result.get("checkpoints_deleted"),
+                    writes_deleted=result.get("writes_deleted"),
+                )
+
+        except asyncio.CancelledError:
+            logger.info("Checkpoint cleanup job cancelled")
+            break
+        except Exception as e:
+            logger.error("Checkpoint cleanup job error", error=str(e))
+
+    logger.info("Checkpoint cleanup job stopped")
+
+
+async def start_checkpoint_cleanup_job() -> None:
+    """
+    Start the background checkpoint cleanup job.
+
+    Reads configuration from settings. Should be called during application startup.
+    """
+    global _cleanup_job_task
+
+    # Avoid starting multiple cleanup jobs
+    if _cleanup_job_task is not None and not _cleanup_job_task.done():
+        logger.warning("Checkpoint cleanup job already running")
+        return
+
+    # Only start if DATABASE_URL is configured
+    if not os.environ.get("DATABASE_URL"):
+        logger.debug("DATABASE_URL not set, checkpoint cleanup job not starting")
+        return
+
+    # Load configuration
+    try:
+        from src.config import get_settings
+
+        settings = get_settings()
+        interval_hours = settings.checkpoint_cleanup_interval_hours
+        retention_days = settings.checkpoint_retention_days
+        batch_size = settings.checkpoint_cleanup_batch_size
+    except Exception:
+        # Use defaults if settings cannot be loaded
+        interval_hours = 24
+        retention_days = 30
+        batch_size = 1000
+
+    _cleanup_job_task = asyncio.create_task(
+        _checkpoint_cleanup_loop(
+            interval_hours=interval_hours,
+            retention_days=retention_days,
+            batch_size=batch_size,
+        )
+    )
+
+    logger.info(
+        "Checkpoint cleanup job scheduled",
+        interval_hours=interval_hours,
+        retention_days=retention_days,
+    )
+
+
+async def stop_checkpoint_cleanup_job() -> None:
+    """
+    Stop the background checkpoint cleanup job.
+
+    Should be called during application shutdown.
+    """
+    global _cleanup_job_running, _cleanup_job_task
+
+    _cleanup_job_running = False
+
+    if _cleanup_job_task is not None:
+        _cleanup_job_task.cancel()
+        try:
+            await _cleanup_job_task
+        except asyncio.CancelledError:
+            pass
+        _cleanup_job_task = None
+
+    logger.info("Checkpoint cleanup job stopped")
 
 
 class CheckpointManager:

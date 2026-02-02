@@ -65,6 +65,7 @@ class EvaluationCategory(str, Enum):
     MAINTAINABILITY = "maintainability"
     EDGE_CASES = "edge_cases"
     TEST_COVERAGE = "test_coverage"
+    HALLUCINATION = "hallucination"  # RAP-330: Added for hallucination detection
 
 
 class VerificationMethod(str, Enum):
@@ -73,6 +74,7 @@ class VerificationMethod(str, Enum):
     EXECUTION = "execution"
     GROUND_TRUTH = "ground_truth"
     HYBRID = "hybrid"
+    SELFCHECK_GPT = "selfcheck_gpt"  # RAP-330: SelfCheckGPT pattern
 
 
 @dataclass
@@ -593,6 +595,55 @@ Return as JSON:
             alternative_suggestions=result.get("alternative_suggestions", []),
             reasoning=result["reasoning"],
         )
+
+    async def check_hallucination(
+        self,
+        response: str,
+        query: str,
+        context: str | None = None,
+        num_samples: int = 3,
+    ) -> dict[str, Any]:
+        """Check a response for hallucinations using SelfCheckGPT.
+
+        RAP-330: Integrates the HallucinationDetectorAgent for comprehensive
+        hallucination detection.
+
+        Args:
+            response: The response to check
+            query: The original query
+            context: Optional grounding context
+            num_samples: Number of samples for consistency check
+
+        Returns:
+            Dict with hallucination detection results
+
+        Example:
+            ```python
+            judge = AgentAsJudge()
+            result = await judge.check_hallucination(
+                response="The API uses 256-bit encryption...",
+                query="How does the API secure data?",
+                context=api_docs,
+            )
+
+            if not result["is_reliable"]:
+                print(f"Hallucinated: {result['hallucinated_sentences']}")
+            ```
+        """
+        from .hallucination_detector import HallucinationDetectorAgent
+
+        detector = HallucinationDetectorAgent(
+            num_samples=num_samples,
+            enable_grounding=context is not None,
+        )
+
+        halluc_result = await detector.detect(
+            response=response,
+            query=query,
+            context=context,
+        )
+
+        return halluc_result.to_dict()
 
     # =========================================================================
     # Helper Methods

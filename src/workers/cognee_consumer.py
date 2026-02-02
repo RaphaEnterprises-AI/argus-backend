@@ -6,7 +6,8 @@ through Cognee's ECL (Extract-Cognify-Load) pipeline to build
 knowledge graphs in FalkorDB.
 
 Features:
-- Async Kafka consumer with auto-commit
+- Async Kafka consumer with manual offset commit for exactly-once semantics
+- Offset committed only after successful processing or DLQ write
 - Cognee integration for codebase analysis
 - FalkorDB graph storage
 - Dead letter queue for failed processing
@@ -371,14 +372,14 @@ class CogneeConsumer:
         # Initialize Cognee
         await self._init_cognee()
 
-        # Create consumer
+        # Create consumer with manual offset commit for exactly-once semantics
+        # Offsets are committed only after successful processing or DLQ write
         self._consumer = AIOKafkaConsumer(
             self.config.input_topic,
             bootstrap_servers=self.config.bootstrap_servers,
             group_id=self.config.consumer_group,
             auto_offset_reset=self.config.auto_offset_reset,
-            enable_auto_commit=True,
-            auto_commit_interval_ms=5000,
+            enable_auto_commit=False,  # Manual commit for exactly-once semantics
             value_deserializer=lambda m: json.loads(m.decode("utf-8")),
         )
 
@@ -495,10 +496,19 @@ class CogneeConsumer:
 
         return analysis_result
 
-    async def _send_to_dlq(self, event_data: dict, error: str) -> None:
-        """Send failed event to dead letter queue."""
+    async def _send_to_dlq(self, event_data: dict, error: str) -> bool:
+        """Send failed event to dead letter queue.
+
+        Args:
+            event_data: The event data that failed processing
+            error: Error message describing the failure
+
+        Returns:
+            True if successfully sent to DLQ, False otherwise
+        """
         if not self._producer:
-            return
+            logger.error("Cannot send to DLQ: producer not initialized")
+            return False
 
         dlq_message = {
             "original_event": event_data,
@@ -506,23 +516,40 @@ class CogneeConsumer:
             "consumer_group": self.config.consumer_group,
         }
 
-        await self._producer.send_and_wait(
-            self.config.dlq_topic,
-            value=dlq_message,
-        )
-        logger.warning("Event sent to DLQ", error=error[:100])
+        try:
+            await self._producer.send_and_wait(
+                self.config.dlq_topic,
+                value=dlq_message,
+            )
+            logger.warning("Event sent to DLQ", error=error[:100])
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to send event to DLQ",
+                error=str(e),
+                original_error=error[:100],
+            )
+            return False
 
     async def run(self) -> None:
-        """Main consumer loop."""
+        """Main consumer loop with manual offset commit.
+
+        Uses manual offset management to ensure exactly-once semantics:
+        - Offset is committed only after successful processing and output event publish
+        - On processing failure, offset is committed only after successful DLQ write
+        - If DLQ write fails, offset is NOT committed (message will be reprocessed)
+        """
         if not self._consumer:
             await self.start()
 
-        logger.info("Starting consumer loop")
+        logger.info("Starting consumer loop with manual offset commit")
 
         try:
             async for message in self._consumer:
                 if not self._running:
                     break
+
+                should_commit = False
 
                 try:
                     # Process the event
@@ -534,6 +561,9 @@ class CogneeConsumer:
                         value=result,
                     )
 
+                    # Processing and output succeeded - commit offset
+                    should_commit = True
+
                 except Exception as e:
                     logger.error(
                         "Failed to process event",
@@ -542,7 +572,42 @@ class CogneeConsumer:
                         partition=message.partition,
                         offset=message.offset,
                     )
-                    await self._send_to_dlq(message.value, str(e))
+                    # Send to DLQ - only commit if DLQ write succeeds
+                    dlq_success = await self._send_to_dlq(message.value, str(e))
+                    if dlq_success:
+                        should_commit = True
+                        logger.info(
+                            "DLQ write successful, will commit offset",
+                            topic=message.topic,
+                            partition=message.partition,
+                            offset=message.offset,
+                        )
+                    else:
+                        logger.error(
+                            "DLQ write failed, NOT committing offset - message will be reprocessed",
+                            topic=message.topic,
+                            partition=message.partition,
+                            offset=message.offset,
+                        )
+
+                # Manual offset commit
+                if should_commit:
+                    try:
+                        await self._consumer.commit()
+                        logger.debug(
+                            "Offset committed",
+                            topic=message.topic,
+                            partition=message.partition,
+                            offset=message.offset,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to commit offset",
+                            error=str(e),
+                            topic=message.topic,
+                            partition=message.partition,
+                            offset=message.offset,
+                        )
 
         except asyncio.CancelledError:
             logger.info("Consumer loop cancelled")

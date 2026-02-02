@@ -452,7 +452,7 @@ class Settings(BaseSettings):
 
     # Authentication
     enforce_authentication: bool = Field(
-        False,  # Set to True in production
+        True,  # Default enabled for security; set to False only for local development
         description="Enforce authentication on all endpoints"
     )
     jwt_secret_key: SecretStr | None = Field(
@@ -468,10 +468,12 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = Field(60, description="Rate limit window in seconds")
 
     # CORS Security - accepts comma-separated string or JSON array
+    # WARNING: Wildcard (*) allows any origin and is a security risk in production.
+    # Set specific domains for production (e.g., "https://app.example.com,https://www.example.com")
     cors_allowed_origins_raw: str = Field(
         default="*",
         alias="cors_allowed_origins",
-        description="Allowed CORS origins (comma-separated or JSON array)"
+        description="Allowed CORS origins (comma-separated or JSON array). Use specific domains in production."
     )
 
     @property
@@ -494,6 +496,33 @@ class Settings(BaseSettings):
     enable_hsts: bool = Field(True, description="Enable HSTS header")
     enable_csp: bool = Field(True, description="Enable Content-Security-Policy header")
     hsts_max_age: int = Field(31536000, description="HSTS max-age in seconds (1 year)")
+
+    # CSP Configuration (RAP-335: Remove unsafe directives in production)
+    # Set environment to "production" to remove unsafe-inline/unsafe-eval
+    environment: str = Field(
+        "development",
+        description="Environment: development, staging, production. Controls CSP strictness."
+    )
+    csp_report_uri: str | None = Field(
+        None,
+        description="URI to receive CSP violation reports"
+    )
+    csp_script_src_nonce_enabled: bool = Field(
+        False,
+        description="Enable nonce-based script loading (requires server-side nonce generation)"
+    )
+    csp_extra_script_sources: str = Field(
+        "",
+        description="Comma-separated list of additional script-src origins (e.g., 'https://cdn.example.com')"
+    )
+    csp_extra_style_sources: str = Field(
+        "",
+        description="Comma-separated list of additional style-src origins"
+    )
+    csp_extra_connect_sources: str = Field(
+        "",
+        description="Comma-separated list of additional connect-src origins (e.g., 'wss://realtime.example.com')"
+    )
 
     # Audit Logging
     audit_logging_enabled: bool = Field(True, description="Enable comprehensive audit logging")
@@ -593,6 +622,12 @@ class Settings(BaseSettings):
         description="32-byte key for encrypting OAuth tokens (base64 encoded). Generate with: openssl rand -base64 32"
     )
 
+    # API Key Encryption Key (AES-256-GCM) - Used by KeyEncryptionService
+    encryption_key: SecretStr | None = Field(
+        None,
+        description="32-byte key for encrypting API keys at rest (base64 encoded). Generate with: openssl rand -base64 32. REQUIRED in production/staging."
+    )
+
     # OAuth Redirect Base URL (for constructing callback URLs - must be backend URL)
     oauth_redirect_base_url: str = Field(
         "http://localhost:8000",
@@ -662,6 +697,25 @@ class Settings(BaseSettings):
     upstash_redis_rest_token: str | None = Field(
         None,
         description="Upstash Redis REST API token"
+    )
+
+    # ==========================================================================
+    # LangGraph Checkpoint Configuration
+    # ==========================================================================
+    # Checkpoints enable durable execution and time-travel debugging.
+    # Old checkpoints should be cleaned up to prevent unbounded database growth.
+
+    checkpoint_retention_days: int = Field(
+        30,
+        description="Retention period for LangGraph checkpoints in days (default: 30 days)"
+    )
+    checkpoint_cleanup_interval_hours: int = Field(
+        24,
+        description="How often to run checkpoint cleanup job in hours (default: daily)"
+    )
+    checkpoint_cleanup_batch_size: int = Field(
+        1000,
+        description="Maximum checkpoints to delete per cleanup cycle (prevents long transactions)"
     )
 
     # ==========================================================================

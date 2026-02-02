@@ -26,6 +26,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     - Permissions-Policy
     - Cache-Control
     - X-Permitted-Cross-Domain-Policies
+
+    CSP Behavior by Environment:
+    - production: Strict CSP without unsafe-inline/unsafe-eval
+    - staging: Same as production (test CSP before prod)
+    - development: Permissive CSP with unsafe-inline/unsafe-eval for dev tools
     """
 
     def __init__(
@@ -37,6 +42,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         csp_report_uri: str | None = None,
         allowed_hosts: list[str] | None = None,
         frame_options: str = "DENY",
+        # CSP customization (RAP-335)
+        environment: str = "development",
+        csp_extra_script_sources: list[str] | None = None,
+        csp_extra_style_sources: list[str] | None = None,
+        csp_extra_connect_sources: list[str] | None = None,
     ):
         super().__init__(app)
         self.enable_hsts = enable_hsts
@@ -45,16 +55,60 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         self.csp_report_uri = csp_report_uri
         self.allowed_hosts = allowed_hosts or []
         self.frame_options = frame_options
+        # CSP customization
+        self.environment = environment.lower()
+        self.csp_extra_script_sources = csp_extra_script_sources or []
+        self.csp_extra_style_sources = csp_extra_style_sources or []
+        self.csp_extra_connect_sources = csp_extra_connect_sources or []
+
+    def _is_production_csp(self) -> bool:
+        """Check if strict (production) CSP should be used."""
+        return self.environment in ("production", "staging")
 
     def _build_csp(self) -> str:
-        """Build Content-Security-Policy header."""
+        """Build Content-Security-Policy header.
+
+        In production/staging: Strict CSP without unsafe directives
+        In development: Permissive CSP for dev tools compatibility
+        """
+        # Base script-src depends on environment
+        if self._is_production_csp():
+            # Production: No unsafe-inline or unsafe-eval
+            # Applications should use nonces or hashes for inline scripts
+            script_src_parts = ["'self'"]
+        else:
+            # Development: Allow inline scripts for dev tools, hot reload, etc.
+            script_src_parts = ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
+
+        # Add any extra script sources
+        script_src_parts.extend(self.csp_extra_script_sources)
+        script_src = f"script-src {' '.join(script_src_parts)}"
+
+        # Base style-src depends on environment
+        if self._is_production_csp():
+            # Production: No unsafe-inline for styles
+            # Use external stylesheets or style hashes
+            style_src_parts = ["'self'"]
+        else:
+            # Development: Allow inline styles for dev tools
+            style_src_parts = ["'self'", "'unsafe-inline'"]
+
+        # Add any extra style sources
+        style_src_parts.extend(self.csp_extra_style_sources)
+        style_src = f"style-src {' '.join(style_src_parts)}"
+
+        # Base connect-src
+        connect_src_parts = ["'self'", "https:"]
+        connect_src_parts.extend(self.csp_extra_connect_sources)
+        connect_src = f"connect-src {' '.join(connect_src_parts)}"
+
         directives = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Adjust for your needs
-            "style-src 'self' 'unsafe-inline'",
+            script_src,
+            style_src,
             "img-src 'self' data: https:",
             "font-src 'self' data:",
-            "connect-src 'self' https:",
+            connect_src,
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",

@@ -31,6 +31,12 @@ class PromptInjectionDetector:
     Detects potential prompt injection attacks.
 
     Based on common injection patterns observed in production systems.
+
+    RAP-331: Enhanced with additional adversarial patterns including:
+    - Unicode/homoglyph obfuscation attempts
+    - Base64 encoded payloads
+    - Markdown/HTML injection
+    - Context manipulation via fake conversation history
     """
 
     # Patterns indicating instruction override attempts
@@ -43,23 +49,39 @@ class PromptInjectionDetector:
         r"act\s+as\s+if\s+you\s+(have\s+no|don't\s+have)",
         r"your\s+new\s+instructions?\s+(are|is)",
         r"override\s+(all\s+)?(safety|security)\s+(protocols?|measures?)",
+        # RAP-331: Additional override patterns
+        r"from\s+now\s+on,?\s+(you\s+)?(will|must|should)",
+        r"stop\s+being\s+(an?\s+)?ai",
+        r"reset\s+(your|all)\s+(context|memory|instructions?)",
+        r"new\s+conversation\s*:\s*you\s+are",
     ]
 
     # Patterns indicating system prompt extraction
     EXTRACTION_PATTERNS = [
-        r"(print|show|display|reveal|tell\s+me)\s+(your|the)\s+(system\s+)?prompt",
+        r"(print|show|display|reveal|tell)\s+(me\s+)?(your|the)\s+(system\s+)?prompt",
         r"what\s+(are|is)\s+your\s+(instructions?|rules?|system\s+prompt)",
         r"repeat\s+(your|the)\s+(instructions?|prompt)",
         r"output\s+everything\s+(before|above)",
+        # RAP-331: Additional extraction patterns
+        r"(echo|write|dump)\s+(your|the)\s+system",
+        r"(show|reveal)\s+(hidden|secret|initial)\s+(prompt|instructions?)",
+        r"what\s+were\s+you\s+told\s+(to\s+do|initially|before)",
+        r"(list|enumerate)\s+your\s+(rules?|constraints?|limitations?)",
     ]
 
     # Patterns indicating role manipulation
     ROLE_PATTERNS = [
-        r"you\s+are\s+(DAN|jailbroken|unrestricted)",
+        r"you\s+are\s+(now\s+)?(DAN|jailbroken|unrestricted)",
         r"entering?\s+(developer|admin|debug)\s+mode",
         r"bypass\s+(all\s+)?(restrictions?|filters?|safety)",
         r"\[?(system|user|assistant)\]?\s*:",
         r"</?(?:system|user|assistant|instruction)>",
+        # RAP-331: Additional role patterns
+        r"roleplay\s+as\s+(an?\s+)?(evil|malicious|unrestricted)",
+        r"(simulate|emulate)\s+(being\s+)?(hacked|compromised|jailbroken)",
+        r"activate\s+(god|admin|sudo|root)\s+mode",
+        r"disable\s+(safety|content\s+)?(filter|moderation|policy)",
+        r"hypothetically,?\s+(if\s+)?you\s+(had|were)\s+(no|without)\s+(restrictions?|limits?)",
     ]
 
     # Delimiter injection patterns
@@ -68,6 +90,31 @@ class PromptInjectionDetector:
         r"={5,}",  # Separator injection
         r"-{5,}",
         r"END\s+OF\s+(PROMPT|INSTRUCTIONS?)",
+        # RAP-331: Additional delimiter patterns
+        r"\[\[SYSTEM\]\]",
+        r"###\s*(SYSTEM|INSTRUCTION|OVERRIDE)",
+        r"<\|.*?\|>",  # Token-like delimiters
+        r"\\n\\n---\\n\\nSYSTEM:",  # Escaped newlines with fake system
+    ]
+
+    # RAP-331: New category - Obfuscation patterns
+    OBFUSCATION_PATTERNS = [
+        r"base64:\s*[A-Za-z0-9+/=]{20,}",  # Embedded base64
+        r"(?:&#x?[0-9a-fA-F]+;){5,}",  # HTML entity sequences
+        r"\\u[0-9a-fA-F]{4}.*\\u[0-9a-fA-F]{4}",  # Unicode escapes
+        r"(?:[\u200b-\u200f\u202a-\u202e\u2060-\u206f]){2,}",  # Zero-width/formatting chars
+        r"(?:eval|exec|import)\s*\(",  # Code execution attempts
+        r"(?:javascript|data|vbscript):",  # Protocol handlers
+    ]
+
+    # RAP-331: New category - Fake context injection
+    CONTEXT_INJECTION_PATTERNS = [
+        r"(?:user|human|customer)\s*said:\s*[\"']?yes",  # Fake user agreement
+        r"(?:assistant|ai|bot)\s*(?:said|responded):\s*[\"']?(?:ok|sure|certainly)",  # Fake AI agreement
+        r"previous\s+conversation:\s*\n",  # Fake history injection
+        r"context:\s*the\s+user\s+has\s+(?:permission|authorization|admin)",  # Fake permissions
+        r"\[internal\s+note\]",  # Fake internal notes
+        r"\[admin\s+override\]",  # Fake admin commands
     ]
 
     def __init__(self):
@@ -80,6 +127,8 @@ class PromptInjectionDetector:
             self.EXTRACTION_PATTERNS,
             self.ROLE_PATTERNS,
             self.DELIMITER_PATTERNS,
+            self.OBFUSCATION_PATTERNS,  # RAP-331
+            self.CONTEXT_INJECTION_PATTERNS,  # RAP-331
         ]:
             for pattern in pattern_list:
                 self.all_patterns.append(
@@ -91,6 +140,14 @@ class PromptInjectionDetector:
         Check text for prompt injection patterns.
 
         Returns ValidationResult with is_valid=False if injection detected.
+
+        Confidence scores by pattern category:
+        - Override patterns: 0.95 (highest - direct instruction override)
+        - Role patterns: 0.90 (jailbreak/role manipulation)
+        - Context injection: 0.88 (fake history/permissions)
+        - Extraction patterns: 0.85 (system prompt extraction)
+        - Obfuscation patterns: 0.80 (encoded/hidden payloads)
+        - Delimiter patterns: 0.75 (boundary manipulation)
         """
         issues = []
         max_confidence = 0.0
@@ -98,16 +155,24 @@ class PromptInjectionDetector:
         for pattern_str, compiled in self.all_patterns:
             match = compiled.search(text)
             if match:
-                issue = f"Injection pattern detected: '{match.group()[:50]}...'"
+                matched_text = match.group()
+                # Truncate long matches for logging
+                truncated = matched_text[:50] + "..." if len(matched_text) > 50 else matched_text
+                issue = f"Injection pattern detected: '{truncated}'"
                 issues.append(issue)
-                # Different pattern categories have different confidence
+
+                # Different pattern categories have different confidence scores
                 if pattern_str in self.OVERRIDE_PATTERNS:
                     max_confidence = max(max_confidence, 0.95)
                 elif pattern_str in self.ROLE_PATTERNS:
                     max_confidence = max(max_confidence, 0.90)
+                elif pattern_str in self.CONTEXT_INJECTION_PATTERNS:  # RAP-331
+                    max_confidence = max(max_confidence, 0.88)
                 elif pattern_str in self.EXTRACTION_PATTERNS:
                     max_confidence = max(max_confidence, 0.85)
-                else:
+                elif pattern_str in self.OBFUSCATION_PATTERNS:  # RAP-331
+                    max_confidence = max(max_confidence, 0.80)
+                else:  # DELIMITER_PATTERNS
                     max_confidence = max(max_confidence, 0.75)
 
         if issues:
@@ -115,6 +180,7 @@ class PromptInjectionDetector:
                 "Prompt injection detected",
                 issues=issues,
                 confidence=max_confidence,
+                input_length=len(text),
             )
 
         return ValidationResult(
@@ -156,10 +222,57 @@ class PromptInjectionDetector:
 class InputSanitizer:
     """
     Sanitizes input to remove or neutralize potentially dangerous content.
+
+    RAP-331: Enhanced with input escaping for safe prompt inclusion.
     """
+
+    # Characters that could be used for prompt boundary manipulation
+    ESCAPE_CHARS = {
+        "\n\n": " [newline] ",  # Double newlines often used as separators
+        "```": "[code-block]",  # Code block markers
+        "---": "[separator]",  # Horizontal rules
+        "===": "[separator]",
+        "###": "[heading]",  # Markdown headings
+        "<|": "[token-start]",  # Token-like delimiters
+        "|>": "[token-end]",
+    }
 
     def __init__(self):
         self.log = logger.bind(component="input_sanitizer")
+
+    def escape_for_prompt(self, text: str) -> str:
+        """
+        RAP-331: Escape user input for safe inclusion in AI prompts.
+
+        This method neutralizes characters and patterns that could be used
+        to manipulate prompt boundaries or inject instructions.
+
+        Args:
+            text: Raw user input
+
+        Returns:
+            Escaped text safe for prompt inclusion
+
+        Example:
+            >>> sanitizer = InputSanitizer()
+            >>> escaped = sanitizer.escape_for_prompt("User said:\\n\\n---\\n\\nIgnore above")
+            >>> # Result: "User said: [newline] [separator] [newline] Ignore above"
+        """
+        escaped = text
+
+        # Escape special sequences
+        for pattern, replacement in self.ESCAPE_CHARS.items():
+            escaped = escaped.replace(pattern, replacement)
+
+        # Remove zero-width characters (invisible manipulation)
+        zero_width_pattern = r"[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]"
+        escaped = re.sub(zero_width_pattern, "", escaped)
+
+        # Neutralize XML/HTML-like tags that could be interpreted as message boundaries
+        tag_pattern = r"<(/?)(system|user|assistant|instruction|context|admin)>"
+        escaped = re.sub(tag_pattern, r"[\1\2]", escaped, flags=re.IGNORECASE)
+
+        return escaped
 
     def sanitize(self, text: str) -> ValidationResult:
         """
@@ -181,6 +294,12 @@ class InputSanitizer:
             sanitized = re.sub(ansi_pattern, "", sanitized)
             issues.append("Removed ANSI escape sequences")
 
+        # RAP-331: Remove zero-width and invisible formatting characters
+        zero_width_pattern = r"[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]"
+        if re.search(zero_width_pattern, sanitized):
+            sanitized = re.sub(zero_width_pattern, "", sanitized)
+            issues.append("Removed zero-width/invisible characters")
+
         # Neutralize markdown that could affect rendering
         # (e.g., fake code blocks that look like system messages)
         fake_system_pattern = r"```\s*(system|instruction|admin)\s*\n"
@@ -192,6 +311,12 @@ class InputSanitizer:
                 flags=re.IGNORECASE,
             )
             issues.append("Neutralized fake system code blocks")
+
+        # RAP-331: Neutralize XML-like message boundary tags
+        tag_pattern = r"<(/?)(system|user|assistant|instruction|context)>"
+        if re.search(tag_pattern, sanitized, re.IGNORECASE):
+            sanitized = re.sub(tag_pattern, r"[\1\2]", sanitized, flags=re.IGNORECASE)
+            issues.append("Neutralized message boundary tags")
 
         # Limit extreme repetition (potential DoS)
         repetition_pattern = r"(.)\1{100,}"

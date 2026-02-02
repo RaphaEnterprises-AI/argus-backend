@@ -406,6 +406,11 @@ class A2AProtocol:
         await self._producer.start()
 
         # Initialize consumer for responses and broadcasts
+        # Note: A2A uses auto-commit because:
+        # 1. Messages are ephemeral request/response patterns with timeouts
+        # 2. Uses "latest" offset - doesn't process old messages on restart
+        # 3. Circuit breaker handles failures, not message replay
+        # For durable event processing, use RedpandaClient with manual commit instead
         consumer_group = f"a2a-{self.agent_id}"
         self._consumer = AIOKafkaConsumer(
             TOPIC_AGENT_RESPONSE,
@@ -414,7 +419,7 @@ class A2AProtocol:
             **config,
             group_id=consumer_group,
             auto_offset_reset="latest",
-            enable_auto_commit=True,
+            enable_auto_commit=True,  # OK for ephemeral A2A messaging
             key_deserializer=lambda k: k.decode("utf-8") if k else None,
             value_deserializer=lambda v: json.loads(v.decode("utf-8")),
         )

@@ -82,7 +82,11 @@ def robust_json_parse(content: str) -> dict:
 
 
 def _track_usage(state: TestingState, response: Any) -> TestingState:
-    """Track API usage and costs."""
+    """Track API usage and costs. Returns immutable state update."""
+    new_input_tokens = state.get("total_input_tokens", 0)
+    new_output_tokens = state.get("total_output_tokens", 0)
+    new_cost = state.get("total_cost", 0.0)
+
     if hasattr(response, "usage"):
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
@@ -94,12 +98,17 @@ def _track_usage(state: TestingState, response: Any) -> TestingState:
             output_tokens * pricing["output"] / 1_000_000
         )
 
-        state["total_input_tokens"] += input_tokens
-        state["total_output_tokens"] += output_tokens
-        state["total_cost"] += cost
+        new_input_tokens += input_tokens
+        new_output_tokens += output_tokens
+        new_cost += cost
 
-    state["iteration"] += 1
-    return state
+    return {
+        **state,
+        "total_input_tokens": new_input_tokens,
+        "total_output_tokens": new_output_tokens,
+        "total_cost": new_cost,
+        "iteration": state.get("iteration", 0) + 1,
+    }
 
 
 async def _emit_test_events(
@@ -295,12 +304,16 @@ async def analyze_code_node(state: TestingState) -> TestingState:
 
     except PermissionError as e:
         log.error("Consent not granted", error=str(e))
-        state["error"] = f"Consent required: {str(e)}"
-        return state
+        return {
+            **state,
+            "error": f"Consent required: {str(e)}",
+        }
     except Exception as e:
         log.error("Failed to read codebase", error=str(e))
-        state["error"] = f"Codebase reading failed: {str(e)}"
-        return state
+        return {
+            **state,
+            "error": f"Codebase reading failed: {str(e)}",
+        }
 
     # 2. Run analysis services for enhanced code understanding
     dependency_analysis = {}
@@ -650,7 +663,7 @@ Respond with JSON:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        state = _track_usage(state, response)
+        tracked_state = _track_usage(state, response)
 
         # Log AI response for audit
         audit.log_ai_response(
@@ -658,7 +671,7 @@ Respond with JSON:
             user_id=user_id,
             model=settings.default_model.value,
             output_tokens=response.usage.output_tokens if hasattr(response, 'usage') else 0,
-            cost_usd=state.get("total_cost", 0),
+            cost_usd=tracked_state.get("total_cost", 0),
             success=True,
         )
 
@@ -666,25 +679,28 @@ Respond with JSON:
         content = response.content[0].text
         result = robust_json_parse(content)
 
-        state["codebase_summary"] = result.get("summary", "")
-        state["testable_surfaces"] = result.get("testable_surfaces", [])
-
-        # Store security metadata
-        state["security_summary"] = {
-            "files_analyzed": file_summary["readable"],
-            "files_skipped": file_summary["skipped"],
-            "secrets_redacted": file_summary["secrets_redacted"],
-            "sensitivity_breakdown": file_summary["by_sensitivity"],
+        # Build state updates
+        state_updates = {
+            "codebase_summary": result.get("summary", ""),
+            "testable_surfaces": result.get("testable_surfaces", []),
+            "security_summary": {
+                "files_analyzed": file_summary["readable"],
+                "files_skipped": file_summary["skipped"],
+                "secrets_redacted": file_summary["secrets_redacted"],
+                "sensitivity_breakdown": file_summary["by_sensitivity"],
+            },
+            "dependency_analysis": dependency_analysis,
+            "git_analysis": git_analysis,
+            "source_analysis": source_analysis,
+            "total_input_tokens": tracked_state["total_input_tokens"],
+            "total_output_tokens": tracked_state["total_output_tokens"],
+            "total_cost": tracked_state["total_cost"],
+            "iteration": tracked_state["iteration"],
         }
-
-        # Store analysis service results for downstream nodes
-        state["dependency_analysis"] = dependency_analysis
-        state["git_analysis"] = git_analysis
-        state["source_analysis"] = source_analysis
 
         # Store impact analysis separately if available
         if impact_analysis:
-            state["impact_analysis"] = {
+            state_updates["impact_analysis"] = {
                 "affected_tests": impact_analysis.affected_tests,
                 "skipped_tests": impact_analysis.skipped_tests,
                 "affected_components": impact_analysis.affected_components,
@@ -695,12 +711,14 @@ Respond with JSON:
 
         log.info(
             "Analysis complete",
-            surfaces_found=len(state["testable_surfaces"]),
+            surfaces_found=len(state_updates["testable_surfaces"]),
             files_analyzed=file_summary["readable"],
             secrets_redacted=file_summary["secrets_redacted"],
             modules_analyzed=dependency_analysis.get("total_modules", 0) if dependency_analysis else 0,
             selectors_found=source_analysis.get("total_selectors_found", 0) if source_analysis else 0,
         )
+
+        return {**state, **state_updates}
 
     except Exception as e:
         log.error("Analysis failed", error=str(e))
@@ -713,9 +731,10 @@ Respond with JSON:
             success=False,
             error_message=str(e),
         )
-        state["error"] = f"Code analysis failed: {str(e)}"
-
-    return state
+        return {
+            **state,
+            "error": f"Code analysis failed: {str(e)}",
+        }
 
 
 async def plan_tests_node(state: TestingState) -> TestingState:
@@ -759,19 +778,8 @@ async def plan_tests_node(state: TestingState) -> TestingState:
                 key=lambda t: priority_order.get(t.get("priority", "low"), 3)
             )
 
-            state["test_plan"] = test_plan_dicts
-            state["test_priorities"] = {t["id"]: t["priority"] for t in test_plan_dicts}
-            state["current_test_index"] = 0
-            state["coverage_summary"] = test_plan.coverage_summary
-
             # Estimate session config for the entire plan
             session_config = agent.estimate_session_config_for_plan(test_plan)
-            state["session_config"] = session_config
-
-            # Track usage
-            state["total_input_tokens"] += result.input_tokens
-            state["total_output_tokens"] += result.output_tokens
-            state["total_cost"] += result.cost
 
             log.info(
                 "Test plan created",
@@ -779,15 +787,32 @@ async def plan_tests_node(state: TestingState) -> TestingState:
                 estimated_duration_ms=test_plan.total_estimated_duration_ms,
                 session_config=session_config,
             )
+
+            # Return immutable state update
+            return {
+                **state,
+                "test_plan": test_plan_dicts,
+                "test_priorities": {t["id"]: t["priority"] for t in test_plan_dicts},
+                "current_test_index": 0,
+                "coverage_summary": test_plan.coverage_summary,
+                "session_config": session_config,
+                "total_input_tokens": state.get("total_input_tokens", 0) + result.input_tokens,
+                "total_output_tokens": state.get("total_output_tokens", 0) + result.output_tokens,
+                "total_cost": state.get("total_cost", 0.0) + result.cost,
+            }
         else:
             log.error("TestPlannerAgent failed", error=result.error)
-            state["error"] = f"Test planning failed: {result.error}"
+            return {
+                **state,
+                "error": f"Test planning failed: {result.error}",
+            }
 
     except Exception as e:
         log.error("Planning failed", error=str(e))
-        state["error"] = f"Test planning failed: {str(e)}"
-
-    return state
+        return {
+            **state,
+            "error": f"Test planning failed: {str(e)}",
+        }
 
 
 async def execute_test_node(state: TestingState) -> TestingState:
@@ -808,11 +833,12 @@ async def execute_test_node(state: TestingState) -> TestingState:
 
     if current_idx >= len(test_plan):
         log.info("All tests completed")
-        state["should_continue"] = False
-        return state
+        return {
+            **state,
+            "should_continue": False,
+        }
 
     test = test_plan[current_idx]
-    state["current_test"] = test
 
     log = log.bind(test_id=test["id"], test_name=test["name"])
     log.info("Executing test")
@@ -830,34 +856,45 @@ async def execute_test_node(state: TestingState) -> TestingState:
         # Execute DB test or fall back to simulation
         test_result = await _execute_simulated_test(test, state, settings, log)
 
-    # Update state with result
-    state["test_results"].append(test_result.to_dict())
+    # Build immutable state update
+    new_test_results = [*state.get("test_results", []), test_result.to_dict()]
+    new_passed_count = state.get("passed_count", 0)
+    new_failed_count = state.get("failed_count", 0)
+    new_healing_queue = list(state.get("healing_queue", []))
+    new_failures = list(state.get("failures", []))
 
     if test_result.status == TestStatus.PASSED:
-        state["passed_count"] += 1
+        new_passed_count += 1
         log.info("Test passed", duration=test_result.duration_seconds)
     else:
-        state["failed_count"] += 1
+        new_failed_count += 1
         log.warning("Test failed", error=test_result.error_message)
 
-        # Queue for healing
-        state["healing_queue"].append(test["id"])
-        state["failures"].append(FailureAnalysis(
+        # Queue for healing (immutable)
+        new_healing_queue = [*new_healing_queue, test["id"]]
+        new_failures = [*new_failures, FailureAnalysis(
             test_id=test["id"],
             failure_type="unknown",
             root_cause=test_result.error_message or "Unknown",
             confidence=0.0,
             screenshot_at_failure=test_result.screenshots[-1] if test_result.screenshots else None,
-        ).to_dict())
+        ).to_dict()]
 
     # Emit test execution events to Redpanda for downstream processing
     await _emit_test_events(state, test, test_result, log)
 
-    # Move to next test
-    state["current_test_index"] = current_idx + 1
-    state["iteration"] += 1
-
-    return state
+    # Return immutable state update
+    return {
+        **state,
+        "current_test": test,
+        "test_results": new_test_results,
+        "passed_count": new_passed_count,
+        "failed_count": new_failed_count,
+        "healing_queue": new_healing_queue,
+        "failures": new_failures,
+        "current_test_index": current_idx + 1,
+        "iteration": state.get("iteration", 0) + 1,
+    }
 
 
 async def _execute_ui_test(
@@ -1258,8 +1295,10 @@ async def self_heal_node(state: TestingState) -> TestingState:
     # Check if healing is enabled
     if not settings.self_heal_enabled:
         log.info("Self-healing is disabled in settings")
-        state["healing_queue"] = []
-        return state
+        return {
+            **state,
+            "healing_queue": [],
+        }
 
     # Import the SelfHealerAgent
     from ..agents.self_healer import SelfHealerAgent
@@ -1279,15 +1318,23 @@ async def self_heal_node(state: TestingState) -> TestingState:
     healed_tests = []
     healed_test_specs = {}
 
+    # Build immutable copies for updates
+    new_failures = [dict(f) for f in state.get("failures", [])]
+    new_test_plan = [dict(t) for t in state.get("test_plan", [])]
+    new_test_results = [dict(r) for r in state.get("test_results", [])]
+    new_input_tokens = state.get("total_input_tokens", 0)
+    new_output_tokens = state.get("total_output_tokens", 0)
+    new_cost = state.get("total_cost", 0.0)
+
     # Process each failure in the healing queue
     for test_id in list(healing_queue):
         test_log = logger.bind(node="self_heal", test_id=test_id)
         test_log.info("Attempting to heal test")
 
         # Find the failed test and its result
-        test = next((t for t in state["test_plan"] if t["id"] == test_id), None)
-        failure = next((f for f in state["failures"] if f["test_id"] == test_id), None)
-        result = next((r for r in state["test_results"] if r["test_id"] == test_id), None)
+        test = next((t for t in new_test_plan if t["id"] == test_id), None)
+        failure = next((f for f in new_failures if f["test_id"] == test_id), None)
+        result = next((r for r in new_test_results if r["test_id"] == test_id), None)
 
         if not test:
             test_log.warning("Could not find test spec")
@@ -1339,23 +1386,23 @@ async def self_heal_node(state: TestingState) -> TestingState:
                 error_logs=error_logs,
             )
 
-            # Track token usage
+            # Track token usage (immutable)
             if heal_result.input_tokens or heal_result.output_tokens:
-                state["total_input_tokens"] += heal_result.input_tokens
-                state["total_output_tokens"] += heal_result.output_tokens
+                new_input_tokens += heal_result.input_tokens
+                new_output_tokens += heal_result.output_tokens
                 # Calculate cost
                 pricing = MODEL_PRICING.get(settings.default_model, MODEL_PRICING[settings.default_model])
                 cost = (
                     heal_result.input_tokens * pricing["input"] / 1_000_000 +
                     heal_result.output_tokens * pricing["output"] / 1_000_000
                 )
-                state["total_cost"] += cost
+                new_cost += cost
 
             if heal_result.success and heal_result.data:
                 healing_data = heal_result.data
 
-                # Update failure analysis
-                for f in state["failures"]:
+                # Update failure analysis (immutable - we're modifying copies)
+                for f in new_failures:
                     if f["test_id"] == test_id:
                         f["failure_type"] = healing_data.diagnosis.failure_type.value
                         f["root_cause"] = healing_data.diagnosis.explanation
@@ -1378,18 +1425,18 @@ async def self_heal_node(state: TestingState) -> TestingState:
                         confidence=healing_data.diagnosis.confidence,
                     )
 
-                    # Update test plan with healed spec
-                    for i, t in enumerate(state["test_plan"]):
+                    # Update test plan with healed spec (immutable - we're modifying copies)
+                    for i, t in enumerate(new_test_plan):
                         if t["id"] == test_id:
-                            state["test_plan"][i] = healing_data.healed_test_spec
+                            new_test_plan[i] = healing_data.healed_test_spec
                             break
 
                     # Mark for retry
                     healed_tests.append(test_id)
                     healed_test_specs[test_id] = healing_data.healed_test_spec
 
-                    # Update result to show healing was applied
-                    for r in state["test_results"]:
+                    # Update result to show healing was applied (immutable - we're modifying copies)
+                    for r in new_test_results:
                         if r["test_id"] == test_id:
                             if healing_data.suggested_fixes:
                                 r["healing_applied"] = healing_data.suggested_fixes[0].to_dict()
@@ -1418,25 +1465,30 @@ async def self_heal_node(state: TestingState) -> TestingState:
         except Exception as e:
             test_log.error("Healing failed", error=str(e))
 
-    # Update state with healing results
-    state["healing_queue"] = []  # Clear the queue
-    state["iteration"] += 1
-
-    # Store healed tests info for the graph to decide whether to re-run them
+    # Log healing results
     if healed_tests:
-        state["healed_tests"] = healed_tests
-        state["healed_test_specs"] = healed_test_specs
         log.info(
             "Healing complete",
             healed_count=len(healed_tests),
             healed_tests=healed_tests,
         )
     else:
-        state["healed_tests"] = []
-        state["healed_test_specs"] = {}
         log.info("No tests were auto-healed")
 
-    return state
+    # Return immutable state update
+    return {
+        **state,
+        "healing_queue": [],  # Clear the queue
+        "failures": new_failures,
+        "test_plan": new_test_plan,
+        "test_results": new_test_results,
+        "total_input_tokens": new_input_tokens,
+        "total_output_tokens": new_output_tokens,
+        "total_cost": new_cost,
+        "healed_tests": healed_tests,
+        "healed_test_specs": healed_test_specs,
+        "iteration": state.get("iteration", 0) + 1,
+    }
 
 
 async def prepare_healed_tests_node(state: TestingState) -> TestingState:
@@ -1470,18 +1522,10 @@ async def prepare_healed_tests_node(state: TestingState) -> TestingState:
 
     if not healed_indices:
         log.warning("Could not find healed tests in test plan")
-        state["healed_tests"] = []
-        return state
-
-    # Set up retry queue - we'll use a special field for retry
-    state["retry_queue"] = healed_tests.copy()
-
-    # Clear healed_tests to prevent re-processing
-    state["healed_tests"] = []
-
-    # Adjust counts - subtract the failed count since we're retrying
-    # The actual pass/fail will be updated when execute_test_node runs
-    state["failed_count"] = max(0, state["failed_count"] - len(healed_tests))
+        return {
+            **state,
+            "healed_tests": [],
+        }
 
     log.info(
         "Ready to retry healed tests",
@@ -1489,7 +1533,15 @@ async def prepare_healed_tests_node(state: TestingState) -> TestingState:
         retry_indices=healed_indices,
     )
 
-    return state
+    # Return immutable state update
+    return {
+        **state,
+        "retry_queue": list(healed_tests),
+        "healed_tests": [],
+        # Adjust counts - subtract the failed count since we're retrying
+        # The actual pass/fail will be updated when execute_test_node runs
+        "failed_count": max(0, state.get("failed_count", 0) - len(healed_tests)),
+    }
 
 
 async def execute_healed_test_node(state: TestingState) -> TestingState:
@@ -1508,7 +1560,7 @@ async def execute_healed_test_node(state: TestingState) -> TestingState:
 
     # Get the next test to retry
     test_id = retry_queue[0]
-    state["retry_queue"] = retry_queue[1:]
+    new_retry_queue = retry_queue[1:]
 
     # Find the test spec (should be the healed version)
     test_plan = state.get("test_plan", [])
@@ -1516,7 +1568,10 @@ async def execute_healed_test_node(state: TestingState) -> TestingState:
 
     if not test:
         log.warning("Could not find healed test spec", test_id=test_id)
-        return state
+        return {
+            **state,
+            "retry_queue": new_retry_queue,
+        }
 
     log = log.bind(test_id=test_id, test_name=test.get("name"))
     log.info("Retrying healed test")
@@ -1535,35 +1590,47 @@ async def execute_healed_test_node(state: TestingState) -> TestingState:
     result_dict = test_result.to_dict()
     result_dict["is_healed_retry"] = True
 
-    # Find and update the existing result for this test
+    # Build new test_results list immutably
+    new_test_results = []
     updated = False
-    for i, r in enumerate(state["test_results"]):
+    for r in state.get("test_results", []):
         if r.get("test_id") == test_id:
             # Keep track of the original result
             result_dict["original_result"] = r
-            state["test_results"][i] = result_dict
+            new_test_results.append(result_dict)
             updated = True
-            break
+        else:
+            new_test_results.append(r)
 
     if not updated:
-        state["test_results"].append(result_dict)
+        new_test_results.append(result_dict)
 
-    # Update counts
+    # Update counts immutably
+    new_passed_count = state.get("passed_count", 0)
+    new_failed_count = state.get("failed_count", 0)
+
     if test_result.status == TestStatus.PASSED:
-        state["passed_count"] += 1
+        new_passed_count += 1
         log.info("Healed test passed", duration=test_result.duration_seconds)
 
         # Record healing success for learning
         log.info("Healing verified successful", test_id=test_id)
     else:
-        state["failed_count"] += 1
+        new_failed_count += 1
         log.warning("Healed test still failing", error=test_result.error_message)
 
         # Don't re-queue for healing to prevent infinite loops
         # Just record that healing didn't work
 
-    state["iteration"] += 1
-    return state
+    # Return immutable state update
+    return {
+        **state,
+        "retry_queue": new_retry_queue,
+        "test_results": new_test_results,
+        "passed_count": new_passed_count,
+        "failed_count": new_failed_count,
+        "iteration": state.get("iteration", 0) + 1,
+    }
 
 
 async def report_node(state: TestingState) -> TestingState:
@@ -1581,9 +1648,12 @@ async def report_node(state: TestingState) -> TestingState:
 
     settings = get_settings()
 
+    # Build state updates immutably
+    state_updates = {}
+
     # Calculate summary
-    total_tests = state["passed_count"] + state["failed_count"] + state["skipped_count"]
-    pass_rate = state["passed_count"] / total_tests if total_tests > 0 else 0
+    total_tests = state.get("passed_count", 0) + state.get("failed_count", 0) + state.get("skipped_count", 0)
+    pass_rate = state.get("passed_count", 0) / total_tests if total_tests > 0 else 0
 
     # 1. Generate and save reports using the reporter module
     try:
@@ -1599,8 +1669,8 @@ async def report_node(state: TestingState) -> TestingState:
             html=str(report_paths.get("html")),
         )
 
-        # Store report paths in state
-        state["report_paths"] = {k: str(v) for k, v in report_paths.items()}
+        # Store report paths in state updates
+        state_updates["report_paths"] = {k: str(v) for k, v in report_paths.items()}
 
     except Exception as e:
         log.error("Report generation failed", error=str(e))
@@ -1622,12 +1692,12 @@ async def report_node(state: TestingState) -> TestingState:
             if owner and repo:
                 gh_summary = GHTestSummary(
                     total=total_tests,
-                    passed=state["passed_count"],
-                    failed=state["failed_count"],
-                    skipped=state["skipped_count"],
-                    duration_seconds=state["iteration"] * 2,  # Rough estimate
-                    cost_usd=state["total_cost"],
-                    failures=state["failures"],
+                    passed=state.get("passed_count", 0),
+                    failed=state.get("failed_count", 0),
+                    skipped=state.get("skipped_count", 0),
+                    duration_seconds=state.get("iteration", 0) * 2,  # Rough estimate
+                    cost_usd=state.get("total_cost", 0.0),
+                    failures=state.get("failures", []),
                     screenshots=[],
                 )
 
@@ -1651,12 +1721,12 @@ async def report_node(state: TestingState) -> TestingState:
 
         slack_summary = SlackTestSummary(
             total=total_tests,
-            passed=state["passed_count"],
-            failed=state["failed_count"],
-            skipped=state["skipped_count"],
-            duration_seconds=state["iteration"] * 2,
-            cost_usd=state["total_cost"],
-            failures=state["failures"],
+            passed=state.get("passed_count", 0),
+            failed=state.get("failed_count", 0),
+            skipped=state.get("skipped_count", 0),
+            duration_seconds=state.get("iteration", 0) * 2,
+            cost_usd=state.get("total_cost", 0.0),
+            failures=state.get("failures", []),
         )
 
         await slack.send_test_results(slack_summary)
@@ -1669,15 +1739,16 @@ async def report_node(state: TestingState) -> TestingState:
     try:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
 
+        failures = state.get("failures", [])
         prompt = f"""Generate a brief (3-4 sentences) executive summary of this test run.
 
 RESULTS:
-- Total: {total_tests}, Passed: {state["passed_count"]}, Failed: {state["failed_count"]}
+- Total: {total_tests}, Passed: {state.get("passed_count", 0)}, Failed: {state.get("failed_count", 0)}
 - Pass Rate: {pass_rate:.1%}
-- Cost: ${state["total_cost"]:.4f}
+- Cost: ${state.get("total_cost", 0.0):.4f}
 
 FAILURES:
-{json.dumps(state["failures"][:5], indent=2) if state["failures"] else "None"}
+{json.dumps(failures[:5], indent=2) if failures else "None"}
 
 Focus on: overall health, critical issues, and next steps.
 """
@@ -1688,23 +1759,32 @@ Focus on: overall health, critical issues, and next steps.
             messages=[{"role": "user", "content": prompt}],
         )
 
-        state = _track_usage(state, response)
-        state["executive_summary"] = response.content[0].text
+        # Track usage immutably
+        tracked_state = _track_usage(state, response)
+        state_updates["total_input_tokens"] = tracked_state["total_input_tokens"]
+        state_updates["total_output_tokens"] = tracked_state["total_output_tokens"]
+        state_updates["total_cost"] = tracked_state["total_cost"]
+        state_updates["iteration"] = tracked_state["iteration"]
+        state_updates["executive_summary"] = response.content[0].text
 
         log.info(
             "Report complete",
             total_tests=total_tests,
-            passed=state["passed_count"],
-            failed=state["failed_count"],
+            passed=state.get("passed_count", 0),
+            failed=state.get("failed_count", 0),
             pass_rate=f"{pass_rate:.1%}",
-            cost=f"${state['total_cost']:.4f}",
+            cost=f"${state_updates.get('total_cost', state.get('total_cost', 0.0)):.4f}",
         )
 
     except Exception as e:
         log.error("AI summary generation failed", error=str(e))
 
-    state["should_continue"] = False
-    return state
+    # Return immutable state update
+    return {
+        **state,
+        **state_updates,
+        "should_continue": False,
+    }
 
 
 # ============================================================================
