@@ -89,49 +89,64 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict] | None = None
 
 
+class APIKeyNotConfiguredError(Exception):
+    """Raised when user hasn't configured their API key (BYOK required)."""
+
+    def __init__(self, provider: str):
+        self.provider = provider
+        super().__init__(
+            f"No API key configured for {provider}. "
+            f"Please configure your API key in Settings → AI Configuration → Add Provider Key. "
+            f"Argus requires you to bring your own API key (BYOK) for AI features."
+        )
+
+
 async def _build_ai_config(
     ai_config_request: AIConfigRequest | None,
     user_id: str | None,
-) -> AIConfig | None:
+) -> AIConfig:
     """Build AI configuration for chat graph from user request.
 
-    This function:
-    1. Gets user's AI preferences if no model specified
-    2. Looks up and decrypts user's BYOK key if available
-    3. Returns config for chat graph to use
+    BYOK-Only Model:
+    - Users MUST configure their own API keys in Settings → AI Configuration
+    - No platform key fallback - keeps costs transparent with the user
+    - Supports: Anthropic, OpenAI, Google, Groq, Together
 
     Args:
         ai_config_request: AI config from frontend request
         user_id: User ID for BYOK key lookup
 
     Returns:
-        AIConfig dict for chat graph, or None to use defaults
+        AIConfig dict for chat graph
+
+    Raises:
+        APIKeyNotConfiguredError: If user hasn't configured their API key
     """
     # Use provided config or create default one
     if ai_config_request:
         model = ai_config_request.model
         provider = ai_config_request.provider
-        use_byok = ai_config_request.use_byok
     else:
         model = None
         provider = None
-        use_byok = True  # Default to using BYOK if available
 
     # If no model specified, use defaults from centralized registry
     if not model:
         model = get_default_api_model_id()
         provider = "anthropic"
 
+    provider = provider or "anthropic"
+
     # Build base config
     config: AIConfig = {
         "model": model,
-        "provider": provider or "anthropic",
+        "provider": provider,
         "api_key": None,
         "user_id": user_id,
         "track_usage": True,
     }
 
-    # Try to get user's API key (BYOK or platform fallback)
+    # Try to get user's BYOK API key
     if user_id:
         try:
             from src.services.provider_router import get_provider_router
@@ -140,48 +155,34 @@ async def _build_ai_config(
             ai_config_result = await router_instance.get_ai_config(
                 user_id=user_id,
                 model=model,
-                allow_platform_fallback=True,  # Always allow platform fallback
+                allow_platform_fallback=False,  # BYOK only - no platform fallback
             )
 
-            # Use the key (could be BYOK or platform)
             if ai_config_result.api_key:
                 config["api_key"] = ai_config_result.api_key
                 logger.info(
-                    "Got API key for chat",
+                    "Got BYOK API key for chat",
                     user_id=user_id,
-                    provider=config["provider"],
+                    provider=provider,
                     model=model,
-                    key_source=ai_config_result.key_source,
                 )
         except Exception as e:
-            # Log the error - will try platform fallback below
             logger.warning(
-                "Failed to get API key from provider router",
+                "Failed to get BYOK API key",
                 user_id=user_id,
-                provider=config["provider"],
+                provider=provider,
                 error=str(e),
             )
 
-    # If still no API key, try direct platform key fallback
+    # BYOK required - raise error if no key configured
     if not config["api_key"]:
-        import os
-        platform_key_vars = {
-            "anthropic": "ANTHROPIC_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "google": "GOOGLE_API_KEY",
-            "groq": "GROQ_API_KEY",
-            "together": "TOGETHER_API_KEY",
-        }
-        key_var = platform_key_vars.get(provider)
-        if key_var:
-            platform_key = os.environ.get(key_var)
-            if platform_key:
-                config["api_key"] = platform_key
-                logger.info(
-                    "Using platform API key directly",
-                    provider=config["provider"],
-                    model=model,
-                )
+        logger.warning(
+            "No API key configured",
+            user_id=user_id,
+            provider=provider,
+            model=model,
+        )
+        raise APIKeyNotConfiguredError(provider)
 
     return config
 
@@ -636,6 +637,7 @@ async def stream_message(
                 )
                 # AI SDK error format: 3:"error message"\n (must be a string, not object)
                 yield f'3:{json.dumps(str(e))}\n'
+                yield f'd:{json.dumps({"finishReason": "error"})}\n'
 
         finally:
             # Flush Langfuse to ensure cost tracking data is sent
