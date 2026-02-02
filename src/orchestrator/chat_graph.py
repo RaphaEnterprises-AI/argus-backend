@@ -12,7 +12,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.config import get_settings
-from src.core.model_registry import get_default_api_model_id
+from src.core.model_registry import get_api_model_id, get_default_api_model_id
 from src.services.audit_logger import AuditAction, AuditStatus, ResourceType, get_audit_logger
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
 from src.utils import safe_datetime
@@ -466,9 +466,19 @@ async def chat_node(state: ChatState, config) -> dict:
     # Get AI config from state (set by chat API based on user preferences)
     ai_config = state.get("ai_config") or {}
     # Use centralized model registry for default model ID
-    model_id = ai_config.get("model") or get_default_api_model_id()
+    # Convert short model key to full API model ID (e.g., "claude-haiku-4-5" -> "claude-haiku-4-5-20241022")
+    model_key = ai_config.get("model") or "claude-sonnet-4-5"
+    model_id = get_api_model_id(model_key)
     provider = ai_config.get("provider", "anthropic")
     user_api_key = ai_config.get("api_key")  # BYOK key (already decrypted)
+
+    logger.info(
+        "Chat node starting",
+        model_key=model_key,
+        model_id=model_id,
+        provider=provider,
+        has_api_key=bool(user_api_key),
+    )
 
     # Create LLM based on provider (BYOK only - no platform keys)
     llm = _create_llm_for_provider(
