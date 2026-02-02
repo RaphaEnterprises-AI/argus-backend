@@ -1,5 +1,6 @@
 """Tests for the PostgreSQL checkpointer."""
 
+import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,11 +8,15 @@ import pytest
 
 from src.orchestrator.checkpointer import (
     CheckpointManager,
+    cleanup_old_checkpoints,
+    get_checkpoint_stats,
     get_checkpointer,
     get_thread_state,
     list_pending_threads,
     reset_checkpointer,
     setup_checkpointer,
+    start_checkpoint_cleanup_job,
+    stop_checkpoint_cleanup_job,
 )
 
 
@@ -315,3 +320,80 @@ class TestCheckpointerIntegration:
 
         # Should have at least one checkpoint
         assert len(history) >= 1
+
+
+class TestCheckpointCleanup:
+    """Tests for checkpoint cleanup functionality (RAP-338)."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_skips_when_no_database_url(self):
+        """Should skip cleanup when DATABASE_URL is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            if "DATABASE_URL" in os.environ:
+                del os.environ["DATABASE_URL"]
+
+            result = await cleanup_old_checkpoints()
+
+            assert result["success"] is True
+            assert result["skipped"] is True
+            assert result["checkpoints_deleted"] == 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_handles_connection_error(self):
+        """Should handle database connection errors gracefully."""
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://invalid:invalid@localhost:9999/nonexistent"}):
+            result = await cleanup_old_checkpoints()
+
+            # Should fail gracefully without crashing
+            assert result["checkpoints_deleted"] == 0
+            # Either skipped or failed - both are acceptable
+            assert "success" in result
+
+    @pytest.mark.asyncio
+    async def test_cleanup_with_custom_retention_days(self):
+        """Should accept custom retention_days parameter."""
+        with patch.dict(os.environ, {}, clear=True):
+            if "DATABASE_URL" in os.environ:
+                del os.environ["DATABASE_URL"]
+
+            # Test with custom retention
+            result = await cleanup_old_checkpoints(retention_days=7, batch_size=500)
+
+            assert result["success"] is True
+            assert result["skipped"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_checkpoint_stats_when_no_database(self):
+        """Should return unavailable when DATABASE_URL is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            if "DATABASE_URL" in os.environ:
+                del os.environ["DATABASE_URL"]
+
+            stats = await get_checkpoint_stats()
+
+            assert stats["available"] is False
+            assert "reason" in stats
+
+
+class TestCheckpointCleanupJob:
+    """Tests for checkpoint cleanup background job."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_job_does_not_start_without_database(self):
+        """Should not start cleanup job when DATABASE_URL is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            if "DATABASE_URL" in os.environ:
+                del os.environ["DATABASE_URL"]
+
+            # Should complete without error
+            await start_checkpoint_cleanup_job()
+            await stop_checkpoint_cleanup_job()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_job_stop_is_idempotent(self):
+        """Should be safe to call stop multiple times."""
+        await stop_checkpoint_cleanup_job()
+        await stop_checkpoint_cleanup_job()
+        await stop_checkpoint_cleanup_job()
+
+        # Should not raise any errors

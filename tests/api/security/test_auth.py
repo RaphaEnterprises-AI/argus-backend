@@ -680,26 +680,142 @@ class TestEndpointChecks:
 # =============================================================================
 
 class TestTokenRevocation:
-    """Tests for token revocation."""
+    """Tests for token revocation (distributed via Valkey with in-memory fallback)."""
 
     @pytest.mark.asyncio
-    async def test_revoke_token(self):
-        """Test revoking a token."""
-        # Clear revoked tokens
+    async def test_revoke_token_in_memory_fallback(self):
+        """Test revoking a token using in-memory fallback (when Valkey unavailable)."""
+        # Clear revoked tokens and mock Valkey as unavailable
         import src.api.security.auth as auth_module
         from src.api.security.auth import is_token_revoked, revoke_token
         auth_module._revoked_tokens = set()
 
         jti = "test-jti-12345"
 
-        # Should not be revoked initially
-        assert await is_token_revoked(jti) is False
+        # Mock Valkey as unavailable
+        with patch("src.services.cache.get_valkey_client", return_value=None):
+            # Should not be revoked initially
+            assert await is_token_revoked(jti) is False
 
-        # Revoke the token
-        await revoke_token(jti)
+            # Revoke the token (uses in-memory fallback)
+            await revoke_token(jti)
 
-        # Should now be revoked
-        assert await is_token_revoked(jti) is True
+            # Should now be revoked (in memory)
+            assert await is_token_revoked(jti) is True
+            assert jti in auth_module._revoked_tokens
+
+    @pytest.mark.asyncio
+    async def test_revoke_token_with_valkey(self):
+        """Test revoking a token using Valkey distributed cache."""
+        import src.api.security.auth as auth_module
+        from src.api.security.auth import is_token_revoked, revoke_token
+        auth_module._revoked_tokens = set()
+
+        jti = "test-jti-distributed-12345"
+
+        # Mock Valkey client
+        mock_valkey = MagicMock()
+        mock_valkey.set = AsyncMock(return_value=True)
+        mock_valkey.get = AsyncMock(return_value=None)
+
+        with patch("src.services.cache.get_valkey_client", return_value=mock_valkey):
+            # Should not be revoked initially
+            assert await is_token_revoked(jti) is False
+
+            # Revoke the token (uses Valkey)
+            await revoke_token(jti)
+
+            # Verify Valkey.set was called with correct key and TTL
+            mock_valkey.set.assert_called_once()
+            call_args = mock_valkey.set.call_args
+            assert f"argus:revoked_token:{jti}" == call_args[0][0]
+            assert call_args[0][1] == "1"
+            # Default TTL is 30 days
+            assert call_args[1]["ex"] == 30 * 24 * 60 * 60
+
+            # Token should NOT be in in-memory set (Valkey succeeded)
+            assert jti not in auth_module._revoked_tokens
+
+    @pytest.mark.asyncio
+    async def test_is_token_revoked_checks_valkey_first(self):
+        """Test that is_token_revoked checks Valkey before in-memory."""
+        import src.api.security.auth as auth_module
+        from src.api.security.auth import is_token_revoked
+        auth_module._revoked_tokens = set()
+
+        jti = "test-jti-valkey-check"
+
+        # Mock Valkey client returning a revoked token
+        mock_valkey = MagicMock()
+        mock_valkey.get = AsyncMock(return_value="1")
+
+        with patch("src.services.cache.get_valkey_client", return_value=mock_valkey):
+            result = await is_token_revoked(jti)
+
+            # Should return True from Valkey
+            assert result is True
+            mock_valkey.get.assert_called_once_with(f"argus:revoked_token:{jti}")
+
+    @pytest.mark.asyncio
+    async def test_is_token_revoked_falls_back_to_memory(self):
+        """Test that is_token_revoked falls back to in-memory if Valkey fails."""
+        import src.api.security.auth as auth_module
+        from src.api.security.auth import is_token_revoked
+        auth_module._revoked_tokens = set()
+
+        jti = "test-jti-memory-fallback"
+
+        # Add to in-memory set
+        auth_module._revoked_tokens.add(jti)
+
+        # Mock Valkey client that raises an exception
+        mock_valkey = MagicMock()
+        mock_valkey.get = AsyncMock(side_effect=Exception("Connection error"))
+
+        with patch("src.services.cache.get_valkey_client", return_value=mock_valkey):
+            result = await is_token_revoked(jti)
+
+            # Should return True from in-memory fallback
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_revoke_token_with_custom_ttl(self):
+        """Test revoking a token with custom TTL."""
+        import src.api.security.auth as auth_module
+        from src.api.security.auth import revoke_token
+        auth_module._revoked_tokens = set()
+
+        jti = "test-jti-custom-ttl"
+        custom_ttl = 3600  # 1 hour
+
+        mock_valkey = MagicMock()
+        mock_valkey.set = AsyncMock(return_value=True)
+
+        with patch("src.services.cache.get_valkey_client", return_value=mock_valkey):
+            await revoke_token(jti, ttl_seconds=custom_ttl)
+
+            # Verify custom TTL was used
+            call_args = mock_valkey.set.call_args
+            assert call_args[1]["ex"] == custom_ttl
+
+    @pytest.mark.asyncio
+    async def test_revoke_token_valkey_failure_uses_memory(self):
+        """Test that Valkey failure falls back to in-memory storage."""
+        import src.api.security.auth as auth_module
+        from src.api.security.auth import revoke_token
+        auth_module._revoked_tokens = set()
+
+        jti = "test-jti-valkey-failure"
+
+        # Mock Valkey client that raises an exception
+        mock_valkey = MagicMock()
+        mock_valkey.set = AsyncMock(side_effect=Exception("Connection error"))
+
+        with patch("src.services.cache.get_valkey_client", return_value=mock_valkey):
+            await revoke_token(jti)
+
+            # Should be stored in in-memory fallback
+            assert jti in auth_module._revoked_tokens
 
     @pytest.mark.asyncio
     async def test_is_token_revoked_not_revoked(self):
@@ -709,8 +825,22 @@ class TestTokenRevocation:
         from src.api.security.auth import is_token_revoked
         auth_module._revoked_tokens = set()
 
-        result = await is_token_revoked("never-revoked-jti")
-        assert result is False
+        # Mock Valkey returning None (not found)
+        mock_valkey = MagicMock()
+        mock_valkey.get = AsyncMock(return_value=None)
+
+        with patch("src.services.cache.get_valkey_client", return_value=mock_valkey):
+            result = await is_token_revoked("never-revoked-jti")
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_revoke_all_user_tokens_placeholder(self):
+        """Test revoke_all_user_tokens placeholder function."""
+        from src.api.security.auth import revoke_all_user_tokens
+
+        # Currently returns 0 as tracking is not implemented
+        result = await revoke_all_user_tokens("user_123")
+        assert result == 0
 
 
 # =============================================================================
