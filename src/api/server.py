@@ -2444,6 +2444,15 @@ async def startup():
     # This sets up PostgresSaver if DATABASE_URL is configured
     await setup_checkpointer()
 
+    # Warm model discovery cache for dynamic model ID resolution
+    # This fetches available models from Anthropic API and caches them
+    try:
+        from src.core.model_discovery import warm_cache
+        await warm_cache()
+        logger.info("Model discovery cache warmed")
+    except Exception as e:
+        logger.warning("Failed to warm model discovery cache", error=str(e))
+
     # Start checkpoint cleanup job (RAP-338)
     # Removes old checkpoints to prevent unbounded database growth
     try:
