@@ -26,6 +26,7 @@ from enum import Enum
 
 import httpx
 
+from src.utils import safe_datetime
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -143,7 +144,7 @@ async def fetch_anthropic_models(api_key: str | None = None) -> list[DiscoveredM
                 if model_data.get("created_at"):
                     try:
                         created_at = datetime.fromisoformat(
-                            model_data["created_at"].replace("Z", "+00:00")
+                            safe_datetime(model_data["created_at"]).replace("Z", "+00:00")
                         )
                     except (ValueError, TypeError):
                         pass

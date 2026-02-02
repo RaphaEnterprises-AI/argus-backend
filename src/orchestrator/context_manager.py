@@ -19,6 +19,8 @@ from typing import Any
 
 import structlog
 
+from src.utils import safe_datetime
+
 logger = structlog.get_logger()
 
 
@@ -372,7 +374,8 @@ class SharedContextStore:
 
         # Check TTL
         if entry.get("ttl"):
-            age = (datetime.utcnow() - entry["set_at"]).total_seconds()
+            set_at = entry.get("set_at") or datetime.utcnow()
+            age = (datetime.utcnow() - set_at).total_seconds()
             if age > entry["ttl"]:
                 del self._store[namespace][key]
                 return default
@@ -389,7 +392,8 @@ class SharedContextStore:
 
         for key, entry in self._store[namespace].items():
             if entry.get("ttl"):
-                age = (datetime.utcnow() - entry["set_at"]).total_seconds()
+                set_at = entry.get("set_at") or datetime.utcnow()
+                age = (datetime.utcnow() - set_at).total_seconds()
                 if age > entry["ttl"]:
                     expired_keys.append(key)
                     continue

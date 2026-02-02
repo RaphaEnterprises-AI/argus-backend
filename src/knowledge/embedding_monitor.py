@@ -50,6 +50,8 @@ import numpy as np
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
+from src.utils import safe_datetime
+
 logger = structlog.get_logger(__name__)
 
 
@@ -204,8 +206,8 @@ class EmbeddingBaseline:
             embeddings=data["embeddings"],
             quality_metrics=EmbeddingQualityMetrics(**data["quality_metrics"]),
             metadata=data.get("metadata", {}),
-            created_at=data["created_at"],
-            updated_at=data["updated_at"],
+            created_at=safe_datetime(data.get("created_at")),
+            updated_at=safe_datetime(data.get("updated_at")),
         )
 
 

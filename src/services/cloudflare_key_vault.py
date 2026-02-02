@@ -57,6 +57,8 @@ from typing import Any
 import httpx
 import structlog
 
+from src.utils import safe_datetime
+
 logger = structlog.get_logger()
 
 
@@ -193,7 +195,7 @@ class CloudflareKeyVaultClient:
             key_suffix=data["key_suffix"],
             dek_version=data["dek_version"],
             encrypted_at=datetime.fromisoformat(
-                data["encrypted_at"].replace("Z", "+00:00")
+                safe_datetime(data["encrypted_at"]).replace("Z", "+00:00")
             ),
         )
 
@@ -310,7 +312,7 @@ class CloudflareKeyVaultClient:
             key_suffix=data["key_suffix"],
             dek_version=data["dek_version"],
             encrypted_at=datetime.fromisoformat(
-                data["encrypted_at"].replace("Z", "+00:00")
+                safe_datetime(data["encrypted_at"]).replace("Z", "+00:00")
             ),
         )
 

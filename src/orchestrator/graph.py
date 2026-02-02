@@ -25,6 +25,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import Command, Send, interrupt
 
 from ..config import Settings, get_settings
+from ..utils import safe_datetime
 from .checkpointer import get_checkpointer
 from .langfuse_integration import get_langfuse_handler, flush_langfuse, score_trace
 from .state import TestingState, TestType
@@ -996,7 +997,7 @@ class TestingOrchestrator:
 
         return {
             "run_id": state["run_id"],
-            "started_at": state["started_at"],
+            "started_at": safe_datetime(state.get("started_at")),
             "total_tests": total_tests,
             "passed": state["passed_count"],
             "failed": state["failed_count"],

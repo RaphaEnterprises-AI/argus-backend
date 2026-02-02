@@ -15,6 +15,7 @@ from src.config import get_settings
 from src.core.model_registry import get_default_api_model_id
 from src.services.audit_logger import AuditAction, AuditStatus, ResourceType, get_audit_logger
 from src.services.cloudflare_storage import get_cloudflare_client, is_cloudflare_configured
+from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 
@@ -1065,7 +1066,7 @@ async def tool_executor_node(state: ChatState, config) -> dict:
                         "name": schedule["name"],
                         "cron_expression": cron_expression,
                         "cron_readable": cron_to_readable(cron_expression),
-                        "next_run_at": schedule["next_run_at"],
+                        "next_run_at": safe_datetime(schedule.get("next_run_at")),
                         "timezone": schedule["timezone"],
                         "app_url": schedule["app_url_override"],
                         "_actions": ["edit_schedule", "pause_schedule", "delete_schedule"],
