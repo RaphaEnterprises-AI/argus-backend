@@ -36,24 +36,10 @@ logger = structlog.get_logger()
 
 
 # =============================================================================
-# Streaming Endpoint Detection
+# Streaming Endpoint Detection - Centralized in streaming.py
 # =============================================================================
 
-# Endpoints that return StreamingResponse - must skip body processing
-STREAMING_ENDPOINTS = {
-    "/api/v1/chat/stream",
-    "/api/v1/stream/test",
-    "/api/v1/browser/execute",  # May stream results
-}
-
-
-def _is_streaming_endpoint(path: str) -> bool:
-    """Check if the endpoint returns a StreamingResponse.
-
-    These endpoints must be handled carefully to avoid breaking the ASGI
-    lifecycle with BaseHTTPMiddleware.
-    """
-    return any(path.startswith(ep) for ep in STREAMING_ENDPOINTS)
+from src.api.middleware.streaming import is_streaming_endpoint as _is_streaming_endpoint
 
 
 def _get_cors_headers(request: Request) -> dict[str, str]:

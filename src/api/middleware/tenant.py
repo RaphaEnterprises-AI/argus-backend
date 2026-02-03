@@ -51,13 +51,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
     Usage:
         app.add_middleware(TenantMiddleware)
-    """
 
-    # Streaming endpoints - still process but don't block
-    STREAMING_ENDPOINTS = {
-        "/api/v1/chat/stream",
-        "/api/v1/stream/test",
-    }
+    Note:
+        This middleware doesn't read request body, so it works fine with
+        StreamingResponse. No bypass needed unlike body-reading middleware.
+    """
 
     async def dispatch(
         self,

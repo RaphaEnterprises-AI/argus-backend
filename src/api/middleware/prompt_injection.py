@@ -21,6 +21,7 @@ from fastapi import Depends, HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from src.api.middleware.streaming import is_streaming_endpoint
 from src.guardrails.validators import (
     InputSanitizer,
     PromptInjectionDetector,
@@ -318,13 +319,6 @@ class PromptInjectionMiddleware(BaseHTTPMiddleware):
         "/api/v1/healing/",
     ]
 
-    # Streaming endpoints that must bypass body reading
-    # BaseHTTPMiddleware doesn't work well with StreamingResponse
-    STREAMING_ENDPOINTS = {
-        "/api/v1/chat/stream",
-        "/api/v1/stream/test",
-    }
-
     async def dispatch(
         self,
         request: Request,
@@ -336,10 +330,11 @@ class PromptInjectionMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # CRITICAL: Skip body reading for streaming endpoints
-        # The streaming endpoint handles its own validation
-        if any(request.url.path.startswith(ep) for ep in self.STREAMING_ENDPOINTS):
+        # BaseHTTPMiddleware doesn't work well with StreamingResponse
+        # Uses centralized config from streaming.py
+        if is_streaming_endpoint(request.url.path):
             logger.debug(
-                "Skipping prompt injection middleware for streaming endpoint",
+                "prompt_injection_middleware.streaming_bypass",
                 path=request.url.path,
             )
             return await call_next(request)

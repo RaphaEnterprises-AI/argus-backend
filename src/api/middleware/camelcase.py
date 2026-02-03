@@ -19,6 +19,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import StreamingResponse
 
+from src.api.middleware.streaming import is_streaming_endpoint
+
 logger = structlog.get_logger()
 
 # Pre-compiled regex patterns for better performance
@@ -125,13 +127,6 @@ class CamelCaseMiddleware(BaseHTTPMiddleware):
         '/favicon.ico',
     }
 
-    # Streaming endpoints that must bypass all body processing
-    STREAMING_ENDPOINTS = {
-        '/api/v1/chat/stream',
-        '/api/v1/stream/test',
-        '/api/v1/browser/execute',
-    }
-
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Skip excluded paths
         if any(request.url.path.startswith(path) for path in self.EXCLUDED_PATHS):
@@ -139,11 +134,11 @@ class CamelCaseMiddleware(BaseHTTPMiddleware):
 
         # CRITICAL: Skip ALL processing for streaming endpoints
         # BaseHTTPMiddleware doesn't work well with StreamingResponse
-        if any(request.url.path.startswith(ep) for ep in self.STREAMING_ENDPOINTS):
+        # Uses centralized config from streaming.py
+        if is_streaming_endpoint(request.url.path):
             logger.debug(
                 "camelcase_middleware.streaming_bypass",
                 path=request.url.path,
-                note="Bypassing camelcase middleware for streaming endpoint",
             )
             return await call_next(request)
 

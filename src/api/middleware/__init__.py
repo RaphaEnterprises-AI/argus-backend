@@ -4,6 +4,7 @@ API Middleware
 Provides middleware components for request processing:
 - Tenant middleware: Extracts and validates tenant context from requests
 - Prompt injection middleware: Detects and blocks prompt injection attacks (RAP-331)
+- Streaming utilities: Centralized streaming endpoint detection (avoids BaseHTTPMiddleware issues)
 """
 
 from src.api.middleware.prompt_injection import (
@@ -12,6 +13,12 @@ from src.api.middleware.prompt_injection import (
     PromptProtectionResult,
     check_prompt_injection,
     validate_chat_messages,
+)
+from src.api.middleware.streaming import (
+    STREAMING_ENDPOINTS,
+    PureASGIMiddleware,
+    is_streaming_endpoint,
+    should_bypass_middleware,
 )
 from src.api.middleware.tenant import (
     OptionalTenantDep,
@@ -22,6 +29,11 @@ from src.api.middleware.tenant import (
 )
 
 __all__ = [
+    # Streaming utilities (centralized config)
+    "STREAMING_ENDPOINTS",
+    "is_streaming_endpoint",
+    "should_bypass_middleware",
+    "PureASGIMiddleware",
     # Tenant middleware
     "TenantMiddleware",
     "get_tenant_context",
