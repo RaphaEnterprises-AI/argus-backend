@@ -97,6 +97,18 @@ class EventProducer:
                 "sasl_plain_password": sasl_password,
             })
 
+            # Add SSL context if using SSL-based security protocol
+            if security_protocol in ("SSL", "SASL_SSL"):
+                import ssl
+                try:
+                    import certifi
+                    ssl_context = ssl.create_default_context(cafile=certifi.where())
+                except ImportError:
+                    ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                self._config["ssl_context"] = ssl_context
+
         self._producer: AIOKafkaProducer | None = None
         self._started = False
 

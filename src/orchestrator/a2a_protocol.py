@@ -373,18 +373,35 @@ class A2AProtocol:
 
     def _get_kafka_config(self) -> dict[str, Any]:
         """Build Kafka configuration dict."""
+        import os
+
         config = {
             "bootstrap_servers": self.bootstrap_servers,
             "client_id": self.client_id,
         }
 
         if self._sasl_username and self._sasl_password:
+            # Get security protocol from environment or default to SASL_SSL for cloud
+            security_protocol = os.environ.get("REDPANDA_SECURITY_PROTOCOL", "SASL_SSL")
+
             config.update({
-                "security_protocol": "SASL_PLAINTEXT",
+                "security_protocol": security_protocol,
                 "sasl_mechanism": "SCRAM-SHA-512",
                 "sasl_plain_username": self._sasl_username,
                 "sasl_plain_password": self._sasl_password,
             })
+
+            # Add SSL context if using SSL-based security protocol
+            if security_protocol in ("SSL", "SASL_SSL"):
+                import ssl
+                try:
+                    import certifi
+                    ssl_context = ssl.create_default_context(cafile=certifi.where())
+                except ImportError:
+                    ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                config["ssl_context"] = ssl_context
 
         return config
 

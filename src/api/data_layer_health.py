@@ -85,7 +85,22 @@ async def _check_redpanda_health() -> ComponentHealth:
 
     try:
         # Try to import and use aiokafka for health check
+        import ssl
         from aiokafka.admin import AIOKafkaAdminClient
+
+        security_protocol = os.environ.get("REDPANDA_SECURITY_PROTOCOL", "PLAINTEXT")
+
+        # Create SSL context if using SSL-based security protocol
+        ssl_context = None
+        if security_protocol in ("SSL", "SASL_SSL"):
+            try:
+                import certifi
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:
+                # Fallback if certifi not available
+                ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = True
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
 
         admin = AIOKafkaAdminClient(
             bootstrap_servers=brokers,
@@ -93,7 +108,8 @@ async def _check_redpanda_health() -> ComponentHealth:
             sasl_mechanism=os.environ.get("REDPANDA_SASL_MECHANISM"),
             sasl_plain_username=os.environ.get("REDPANDA_SASL_USERNAME"),
             sasl_plain_password=os.environ.get("REDPANDA_SASL_PASSWORD"),
-            security_protocol=os.environ.get("REDPANDA_SECURITY_PROTOCOL", "PLAINTEXT"),
+            security_protocol=security_protocol,
+            ssl_context=ssl_context,
         )
 
         await admin.start()

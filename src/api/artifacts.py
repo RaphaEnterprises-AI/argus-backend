@@ -361,7 +361,7 @@ async def list_recent_artifacts(
 
     # Also check memory store for any in-memory artifacts
     artifact_store = get_artifact_store()
-    for artifact_id, artifact in artifact_store._memory_store.items():
+    for artifact_id, artifact in artifact_store._memory_cache._store.items():
         if type and artifact.type != type:
             continue
         # Avoid duplicates
