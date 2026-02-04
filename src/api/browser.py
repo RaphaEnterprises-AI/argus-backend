@@ -124,6 +124,41 @@ class HealthResponse(BaseModel):
     pool_url: str = ""
 
 
+class ExtractRequest(BaseModel):
+    """Request to extract structured data from a page."""
+    url: str = Field(..., description="URL to extract data from")
+    instruction: str = Field(..., description="What data to extract")
+    schema: dict[str, str] = Field(default_factory=dict, description="Expected data schema")
+
+
+class ExtractResponse(BaseModel):
+    """Response from data extraction."""
+    success: bool
+    data: dict = Field(default_factory=dict)
+    url: str = ""
+    screenshot: str | None = None
+    error: str | None = None
+
+
+class AgentRequest(BaseModel):
+    """Request to run an autonomous agent task."""
+    url: str = Field(..., description="Starting URL")
+    instruction: str = Field(..., description="Task to complete")
+    maxSteps: int = Field(default=10, description="Maximum steps to take")
+    captureScreenshots: bool = Field(default=True, description="Capture screenshots")
+
+
+class AgentResponse(BaseModel):
+    """Response from agent execution."""
+    success: bool
+    completed: bool = False
+    message: str = ""
+    actions: list[dict] = Field(default_factory=list)
+    screenshots: list[str] = Field(default_factory=list)
+    usage: dict = Field(default_factory=dict)
+    error: str | None = None
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -829,4 +864,150 @@ async def execute_action(body: ActRequest, request: Request):
             success=False,
             url=body.url,
             error=f"Action failed: {str(e)}",
+        )
+
+
+@router.post("/extract", response_model=ExtractResponse)
+async def extract_data(body: ExtractRequest, request: Request):
+    """
+    Extract structured data from a web page.
+
+    Uses AI to intelligently extract data based on the provided schema.
+    """
+    logger.info("Extracting data", url=body.url, instruction=body.instruction)
+
+    try:
+        client = await _get_browser_client(request)
+        async with client:
+            result = await client.extract(
+                url=body.url,
+                schema=body.schema,
+                instruction=body.instruction,
+            )
+
+        return ExtractResponse(
+            success=result.success,
+            data=result.data,
+            url=result.url,
+            screenshot=_convert_screenshot(result.screenshot),
+            error=result.error,
+        )
+
+    except BrowserPoolError as e:
+        logger.error("Extraction failed", url=body.url, error=str(e))
+        return ExtractResponse(
+            success=False,
+            url=body.url,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.exception("Unexpected error in extraction", error=str(e))
+        return ExtractResponse(
+            success=False,
+            url=body.url,
+            error=f"Extraction failed: {str(e)}",
+        )
+
+
+@router.post("/agent", response_model=AgentResponse)
+async def run_agent(body: AgentRequest, request: Request):
+    """
+    Run an autonomous agent to complete a complex task.
+
+    The agent will observe the page, decide on actions, and execute them
+    until the task is complete or max_steps is reached.
+    """
+    logger.info("Running agent", url=body.url, instruction=body.instruction, max_steps=body.maxSteps)
+
+    actions = []
+    screenshots = []
+    current_url = body.url
+
+    try:
+        client = await _get_browser_client(request)
+        async with client:
+            for step in range(body.maxSteps):
+                # Observe current page state
+                observe_result = await client.observe(url=current_url)
+
+                if not observe_result.success:
+                    return AgentResponse(
+                        success=False,
+                        completed=False,
+                        message=f"Failed to observe page at step {step + 1}",
+                        actions=actions,
+                        screenshots=screenshots,
+                        error=observe_result.error,
+                    )
+
+                # Execute action based on instruction
+                act_result = await client.act(
+                    url=current_url,
+                    instruction=body.instruction,
+                    screenshot=body.captureScreenshots,
+                )
+
+                action_record = {
+                    "step": step + 1,
+                    "url": current_url,
+                    "success": act_result.success,
+                    "message": act_result.message,
+                }
+                actions.append(action_record)
+
+                if act_result.screenshot and body.captureScreenshots:
+                    screenshots.append(_convert_screenshot(act_result.screenshot) or "")
+
+                if not act_result.success:
+                    return AgentResponse(
+                        success=False,
+                        completed=False,
+                        message=f"Action failed at step {step + 1}: {act_result.message}",
+                        actions=actions,
+                        screenshots=screenshots,
+                        error=act_result.error,
+                    )
+
+                # Update URL if it changed
+                if act_result.url:
+                    current_url = act_result.url
+
+                # Check if task appears complete (no more actions possible)
+                if "complete" in act_result.message.lower() or "done" in act_result.message.lower():
+                    return AgentResponse(
+                        success=True,
+                        completed=True,
+                        message=f"Task completed in {step + 1} steps",
+                        actions=actions,
+                        screenshots=screenshots,
+                        usage={"steps": step + 1, "max_steps": body.maxSteps},
+                    )
+
+            # Max steps reached
+            return AgentResponse(
+                success=True,
+                completed=False,
+                message=f"Reached maximum steps ({body.maxSteps})",
+                actions=actions,
+                screenshots=screenshots,
+                usage={"steps": body.maxSteps, "max_steps": body.maxSteps},
+            )
+
+    except BrowserPoolError as e:
+        logger.error("Agent failed", url=body.url, error=str(e))
+        return AgentResponse(
+            success=False,
+            completed=False,
+            actions=actions,
+            screenshots=screenshots,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.exception("Unexpected error in agent", error=str(e))
+        return AgentResponse(
+            success=False,
+            completed=False,
+            actions=actions,
+            screenshots=screenshots,
+            error=f"Agent failed: {str(e)}",
         )
