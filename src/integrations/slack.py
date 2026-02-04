@@ -352,7 +352,7 @@ class SlackNotifier:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f":robot_face: Argus E2E Testing Agent | {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
+                    "text": f":robot_face: Argus Intelligence Agent | {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
                 }
             ]
         })
@@ -463,7 +463,7 @@ class SlackNotifier:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f":robot_face: Argus E2E Testing Agent | {datetime.now(UTC).strftime('%H:%M UTC')}"
+                    "text": f":robot_face: Argus Intelligence Agent | {datetime.now(UTC).strftime('%H:%M UTC')}"
                 }
             ]
         })
@@ -529,7 +529,7 @@ class SlackNotifier:
             {
                 "type": "context",
                 "elements": [
-                    {"type": "mrkdwn", "text": ":robot_face: Argus E2E Testing Agent"}
+                    {"type": "mrkdwn", "text": ":robot_face: Argus Intelligence Agent"}
                 ]
             },
         ]

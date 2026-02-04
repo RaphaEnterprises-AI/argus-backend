@@ -155,7 +155,7 @@ class BaseTemplate(ABC):
     def _generate_attribution(self) -> str:
         """Generate Argus attribution comment."""
         comment_prefix = self._get_comment_prefix()
-        return f"\n{comment_prefix} Generated with Argus E2E Testing Agent"
+        return f"\n{comment_prefix} Generated with Argus - Autonomous Intelligence Agent"
 
     def _get_comment_prefix(self) -> str:
         """Get comment prefix for this language."""

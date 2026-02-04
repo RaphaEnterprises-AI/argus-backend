@@ -216,7 +216,7 @@ class OpenRouterProvider(BaseProvider):
         # Load from environment if not provided
         self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self.referer = referer or os.environ.get("OPENROUTER_REFERER", "https://argus.dev")
-        self.app_name = app_name or os.environ.get("OPENROUTER_APP_NAME", "Argus E2E Testing Agent")
+        self.app_name = app_name or os.environ.get("OPENROUTER_APP_NAME", "Argus - Autonomous Intelligence Agent")
         self.timeout = timeout
 
         # Models cache with TTL

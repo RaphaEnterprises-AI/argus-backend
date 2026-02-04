@@ -245,9 +245,9 @@ def _filter_sentry_event(event: dict, hint: dict) -> dict | None:
 
 
 app = FastAPI(
-    title="Argus E2E Testing Agent API",
+    title="Argus - Autonomous Intelligence Agent API",
     description="""
-Autonomous E2E testing powered by Claude AI.
+Autonomous quality intelligence powered by Claude AI.
 
 ## Security Features (SOC2 Compliant)
 - **Authentication**: API Key and JWT Bearer token support

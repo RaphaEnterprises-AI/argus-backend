@@ -85,7 +85,7 @@ async def run_tests(
 def cli():
     """Command-line interface."""
     parser = argparse.ArgumentParser(
-        description="Autonomous E2E Testing Agent powered by Claude"
+        description="Argus - Autonomous Intelligence Agent powered by Claude"
     )
     parser.add_argument(
         "--codebase", "-c",

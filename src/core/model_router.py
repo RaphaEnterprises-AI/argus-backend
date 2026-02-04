@@ -1744,7 +1744,7 @@ class OpenRouterClient(BaseModelClient):
                 base_url="https://openrouter.ai/api/v1",
                 default_headers={
                     "HTTP-Referer": os.environ.get("OPENROUTER_REFERER", "https://argus.dev"),
-                    "X-Title": "Argus E2E Testing Agent",
+                    "X-Title": "Argus - Autonomous Intelligence Agent",
                 }
             )
         return self._client
