@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from src.api.teams import get_current_user
 from src.api.users import get_or_create_profile
 from src.core.model_registry import ModelRegistry, Provider, get_model_registry
+from src.core.model_discovery import get_available_models as get_discovered_models, DiscoveredModel
 from src.services.cloudflare_key_vault import (
     decrypt_api_key_secure,
     encrypt_api_key_secure,
@@ -1018,29 +1019,35 @@ async def get_available_models(request: Request):
         has_openrouter=has_openrouter,
     )
 
-    # Get models from registry
+    # Get models from dynamic model discovery (fetches from provider APIs)
     try:
-        registry = get_model_registry()
-        all_models = registry.list_all_models()
-        logger.info("Model registry loaded", total_models=len(all_models))
+        discovered_models = await get_discovered_models()
+        logger.info("Dynamic model discovery loaded", total_models=len(discovered_models))
     except Exception as e:
-        logger.error("Failed to get model registry", error=str(e))
+        logger.error("Failed to discover models", error=str(e))
         # Return empty list instead of crashing
         return AvailableModelsResponse(models=[], user_providers=list(user_providers))
 
     models = []
 
-    for model in all_models:
+    for model_id, model in discovered_models.items():
         try:
             provider = model.provider.value if hasattr(model.provider, "value") else str(model.provider)
 
+            # Build capabilities list
             capabilities = []
-            for cap in model.capabilities:
-                cap_name = cap.value if hasattr(cap, "value") else str(cap)
-                capabilities.append(cap_name)
+            if model.supports_vision:
+                capabilities.append("vision")
+            if model.supports_tools:
+                capabilities.append("tool_use")
+            if model.supports_computer_use:
+                capabilities.append("computer_use")
+            if model.supports_json_mode:
+                capabilities.append("json_mode")
 
-            # Determine tier based on price
-            output_price = getattr(model, "output_price", 0.0)
+            # Determine tier based on output price
+            output_price = model.output_price or 0.0
+            input_price = model.input_price or 0.0
             if output_price >= 50:
                 tier = "premium"
             elif output_price >= 10:
@@ -1050,10 +1057,6 @@ async def get_available_models(request: Request):
             else:
                 tier = "free"
 
-            # Check for vision and tool use capabilities
-            supports_vision = "vision" in capabilities or "VISION" in capabilities
-            supports_function_calling = "tool_use" in capabilities or "TOOL_USE" in capabilities
-
             # Model is available if:
             # 1. Its provider is in available_providers, OR
             # 2. OpenRouter key is available (gives access to ALL models)
@@ -1061,19 +1064,19 @@ async def get_available_models(request: Request):
 
             models.append(
                 ModelInfo(
-                    model_id=model.model_id,
+                    model_id=model.id,
                     display_name=model.display_name,
                     provider=provider,
-                    input_price=getattr(model, "input_price", 0.0),
+                    input_price=input_price,
                     output_price=output_price,
                     capabilities=capabilities,
                     is_available=model_available,
                     # Extended fields
-                    context_window=getattr(model, "context_window", None),
-                    max_output_tokens=getattr(model, "max_tokens", None),
-                    supports_vision=supports_vision,
-                    supports_function_calling=supports_function_calling,
-                    supports_streaming=getattr(model, "supports_streaming", True),
+                    context_window=model.context_length,
+                    max_output_tokens=model.max_output_tokens,
+                    supports_vision=model.supports_vision,
+                    supports_function_calling=model.supports_tools,
+                    supports_streaming=True,
                     tier=tier,
                 )
             )
