@@ -1008,7 +1008,15 @@ async def get_available_models(request: Request):
     if use_platform_fallback:
         available_providers.update(platform_providers)
 
-    logger.info("Final available providers", available_providers=list(available_providers))
+    # OpenRouter is a meta-router that provides access to ALL models
+    # If openrouter key is available, mark all models as available
+    has_openrouter = "openrouter" in available_providers
+
+    logger.info(
+        "Final available providers",
+        available_providers=list(available_providers),
+        has_openrouter=has_openrouter,
+    )
 
     # Get models from registry
     try:
@@ -1046,6 +1054,11 @@ async def get_available_models(request: Request):
             supports_vision = "vision" in capabilities or "VISION" in capabilities
             supports_function_calling = "tool_use" in capabilities or "TOOL_USE" in capabilities
 
+            # Model is available if:
+            # 1. Its provider is in available_providers, OR
+            # 2. OpenRouter key is available (gives access to ALL models)
+            model_available = provider in available_providers or has_openrouter
+
             models.append(
                 ModelInfo(
                     model_id=model.model_id,
@@ -1054,7 +1067,7 @@ async def get_available_models(request: Request):
                     input_price=getattr(model, "input_price", 0.0),
                     output_price=output_price,
                     capabilities=capabilities,
-                    is_available=provider in available_providers,
+                    is_available=model_available,
                     # Extended fields
                     context_window=getattr(model, "context_window", None),
                     max_output_tokens=getattr(model, "max_tokens", None),
