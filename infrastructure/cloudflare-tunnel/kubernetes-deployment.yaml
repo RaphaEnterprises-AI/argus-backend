@@ -1,0 +1,114 @@
+# Cloudflare Tunnel Deployment for Browser Infrastructure
+# This creates stable DNS endpoints that never change:
+#   - https://selenium-grid.heyargus.ai → Selenium Grid Hub
+#   - https://browser-pool.heyargus.ai → Browser Pool Manager
+#
+# Deploy with:
+#   kubectl apply -f kubernetes-deployment.yaml
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflare-tunnel
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tunnel-credentials
+  namespace: cloudflare-tunnel
+type: Opaque
+# Run this to create the secret from the credentials file:
+# kubectl create secret generic tunnel-credentials \
+#   --namespace cloudflare-tunnel \
+#   --from-file=credentials.json=/Users/bvk/.cloudflared/8c5b618d-b10d-47e3-bbb6-6624d7d417fd.json
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: cloudflare-tunnel
+data:
+  config.yaml: |
+    tunnel: 8c5b618d-b10d-47e3-bbb6-6624d7d417fd
+    credentials-file: /etc/cloudflared/creds/credentials.json
+
+    ingress:
+      # Selenium Grid Hub - for video recording sessions
+      - hostname: selenium-grid.heyargus.ai
+        service: http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444
+        originRequest:
+          noTLSVerify: true
+          connectTimeout: 30s
+
+      # Browser Pool Manager - primary browser automation
+      - hostname: browser-pool.heyargus.ai
+        service: http://browser-manager.browser-pool.svc.cluster.local:80
+        originRequest:
+          noTLSVerify: true
+          connectTimeout: 30s
+
+      # Catch-all rule (required)
+      - service: http_status:404
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflare-tunnel
+  labels:
+    app: cloudflared
+spec:
+  replicas: 2  # High availability
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:2024.1.5
+        args:
+        - tunnel
+        - --config
+        - /etc/cloudflared/config.yaml
+        - run
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: config
+          mountPath: /etc/cloudflared
+          readOnly: true
+        - name: creds
+          mountPath: /etc/cloudflared/creds
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: cloudflared-config
+      - name: creds
+        secret:
+          secretName: tunnel-credentials

@@ -1,0 +1,25 @@
+# Cloudflare Tunnel Configuration for Browser Infrastructure
+# Tunnel ID: 8c5b618d-b10d-47e3-bbb6-6624d7d417fd
+# Tunnel Name: argus-browser
+
+tunnel: 8c5b618d-b10d-47e3-bbb6-6624d7d417fd
+credentials-file: /etc/cloudflared/creds/credentials.json
+
+# Ingress rules - route requests to internal Kubernetes services
+ingress:
+  # Selenium Grid Hub - for video recording sessions
+  - hostname: selenium-grid.heyargus.ai
+    service: http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+
+  # Browser Pool Manager - primary browser automation
+  - hostname: browser-pool.heyargus.ai
+    service: http://browser-manager.browser-pool.svc.cluster.local:80
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+
+  # Catch-all rule (required)
+  - service: http_status:404
