@@ -1,9 +1,14 @@
 """Tests for the Chat API module (src/api/chat.py)."""
 
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+
+# Valid UUIDs for testing (RAP-292 requires UUID format)
+TEST_THREAD_ID = "12345678-1234-5678-1234-567812345678"
+TEST_THREAD_ID_2 = "87654321-4321-8765-4321-876543218765"
 
 # ============================================================================
 # Fixtures
@@ -59,6 +64,17 @@ def mock_graph_app():
     return mock_app
 
 
+@pytest.fixture
+def mock_ai_config():
+    """Mock AI config to bypass BYOK API key requirement."""
+    from src.api.chat import AIConfig
+    return AIConfig(
+        provider="anthropic",
+        model="claude-sonnet-4-5",
+        api_key="test-api-key-12345",
+    )
+
+
 # ============================================================================
 # Model Tests
 # ============================================================================
@@ -84,12 +100,12 @@ class TestRequestModels:
                 ChatMessage(role="user", content="Hello"),
                 ChatMessage(role="assistant", content="Hi there!"),
             ],
-            thread_id="thread-123",
+            thread_id="TEST_THREAD_ID",
             app_url="http://localhost:3000",
         )
 
         assert len(request.messages) == 2
-        assert request.thread_id == "thread-123"
+        assert request.thread_id == "TEST_THREAD_ID"
         assert request.app_url == "http://localhost:3000"
 
     def test_chat_request_minimal(self, mock_env_vars):
@@ -113,12 +129,12 @@ class TestResponseModels:
 
         response = ChatResponse(
             message="AI response",
-            thread_id="thread-123",
+            thread_id="TEST_THREAD_ID",
             tool_calls=[{"id": "call-1", "name": "search", "args": {}}],
         )
 
         assert response.message == "AI response"
-        assert response.thread_id == "thread-123"
+        assert response.thread_id == "TEST_THREAD_ID"
         assert len(response.tool_calls) == 1
 
     def test_chat_response_no_tool_calls(self, mock_env_vars):
@@ -127,7 +143,7 @@ class TestResponseModels:
 
         response = ChatResponse(
             message="Simple response",
-            thread_id="thread-123",
+            thread_id="TEST_THREAD_ID",
         )
 
         assert response.tool_calls is None
@@ -253,7 +269,7 @@ class TestSendMessageEndpoint:
         )
 
     @pytest.mark.asyncio
-    async def test_send_message_success(self, mock_env_vars, mock_ai_message, mock_user):
+    async def test_send_message_success(self, mock_env_vars, mock_ai_message, mock_user, mock_ai_config):
         """Test successful message send."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
 
@@ -267,18 +283,19 @@ class TestSendMessageEndpoint:
 
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
-            thread_id="thread-123",
+            thread_id=TEST_THREAD_ID,
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             response = await send_message(request, user=mock_user)
 
             assert response.message == "AI response"
-            assert response.thread_id == "thread-123"
+            assert response.thread_id == TEST_THREAD_ID
 
     @pytest.mark.asyncio
-    async def test_send_message_generates_thread_id(self, mock_env_vars, mock_ai_message, mock_user):
+    async def test_send_message_generates_thread_id(self, mock_env_vars, mock_ai_message, mock_user, mock_ai_config):
         """Test that thread_id is generated if not provided."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
 
@@ -295,15 +312,17 @@ class TestSendMessageEndpoint:
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             response = await send_message(request, user=mock_user)
 
             assert response.thread_id is not None
-            assert len(response.thread_id) > 0
+            # Verify it's a valid UUID
+            uuid.UUID(response.thread_id)
 
     @pytest.mark.asyncio
     async def test_send_message_with_tool_calls(
-        self, mock_env_vars, mock_ai_message_with_tool_calls, mock_user
+        self, mock_env_vars, mock_ai_message_with_tool_calls, mock_user, mock_ai_config
     ):
         """Test message response includes tool calls."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
@@ -321,14 +340,15 @@ class TestSendMessageEndpoint:
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             response = await send_message(request, user=mock_user)
 
             assert response.tool_calls is not None
             assert len(response.tool_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_send_message_no_response(self, mock_env_vars, mock_user):
+    async def test_send_message_no_response(self, mock_env_vars, mock_user, mock_ai_config):
         """Test message when no AI response is generated."""
         from langchain_core.messages import HumanMessage
 
@@ -347,13 +367,14 @@ class TestSendMessageEndpoint:
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             response = await send_message(request, user=mock_user)
 
             assert response.message == "No response generated"
 
     @pytest.mark.asyncio
-    async def test_send_message_with_app_url(self, mock_env_vars, mock_ai_message, mock_user):
+    async def test_send_message_with_app_url(self, mock_env_vars, mock_ai_message, mock_user, mock_ai_config):
         """Test message includes app_url in state."""
         from src.api.chat import ChatMessage, ChatRequest, send_message
 
@@ -376,7 +397,8 @@ class TestSendMessageEndpoint:
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             await send_message(request, user=mock_user)
 
             assert captured_state["app_url"] == "http://localhost:3000"
@@ -418,25 +440,26 @@ class TestStreamMessageEndpoint:
             assert response.media_type == "text/plain; charset=utf-8"
 
     @pytest.mark.asyncio
-    async def test_stream_message_headers(self, mock_env_vars, mock_user):
+    async def test_stream_message_headers(self, mock_env_vars, mock_user, mock_ai_config):
         """Test stream response includes correct headers."""
         from src.api.chat import ChatMessage, ChatRequest, stream_message
 
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
-            thread_id="thread-123",
+            thread_id=TEST_THREAD_ID,
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=MagicMock()):
+             patch("src.api.chat.create_chat_graph", return_value=MagicMock()), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             response = await stream_message(request, user=mock_user)
 
             assert "X-Thread-Id" in response.headers
-            assert response.headers["X-Thread-Id"] == "thread-123"
+            assert response.headers["X-Thread-Id"] == TEST_THREAD_ID
             assert response.headers["Cache-Control"] == "no-cache"
 
     @pytest.mark.asyncio
-    async def test_stream_generates_thread_id(self, mock_env_vars, mock_user):
+    async def test_stream_generates_thread_id(self, mock_env_vars, mock_user, mock_ai_config):
         """Test stream generates thread_id if not provided."""
         from src.api.chat import ChatMessage, ChatRequest, stream_message
 
@@ -445,11 +468,13 @@ class TestStreamMessageEndpoint:
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=MagicMock()):
+             patch("src.api.chat.create_chat_graph", return_value=MagicMock()), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             response = await stream_message(request, user=mock_user)
 
             assert "X-Thread-Id" in response.headers
-            assert len(response.headers["X-Thread-Id"]) > 0
+            # Verify it's a valid UUID
+            uuid.UUID(response.headers["X-Thread-Id"])
 
 
 # ============================================================================
@@ -479,9 +504,9 @@ class TestGetChatHistoryEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await get_chat_history("thread-123")
+            response = await get_chat_history(TEST_THREAD_ID)
 
-            assert response["thread_id"] == "thread-123"
+            assert response["thread_id"] == TEST_THREAD_ID
             assert len(response["messages"]) == 2
             assert response["messages"][0]["role"] == "user"
             assert response["messages"][1]["role"] == "assistant"
@@ -502,9 +527,9 @@ class TestGetChatHistoryEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await get_chat_history("thread-123")
+            response = await get_chat_history(TEST_THREAD_ID)
 
-            assert response["thread_id"] == "thread-123"
+            assert response["thread_id"] == TEST_THREAD_ID
             assert len(response["messages"]) == 0
 
     @pytest.mark.asyncio
@@ -520,9 +545,9 @@ class TestGetChatHistoryEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await get_chat_history("thread-123")
+            response = await get_chat_history(TEST_THREAD_ID)
 
-            assert response["thread_id"] == "thread-123"
+            assert response["thread_id"] == TEST_THREAD_ID
             assert len(response["messages"]) == 0
 
     @pytest.mark.asyncio
@@ -549,7 +574,7 @@ class TestGetChatHistoryEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await get_chat_history("thread-123")
+            response = await get_chat_history(TEST_THREAD_ID)
 
             assert len(response["messages"]) == 3
             assert response["messages"][2]["role"] == "tool"
@@ -568,7 +593,7 @@ class TestGetChatHistoryEndpoint:
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
             with pytest.raises(HTTPException) as exc_info:
-                await get_chat_history("thread-123")
+                await get_chat_history(TEST_THREAD_ID)
 
             assert exc_info.value.status_code == 404
 
@@ -604,9 +629,9 @@ class TestDeleteChatHistoryEndpoint:
         """Test delete chat history returns info about support."""
         from src.api.chat import delete_chat_history
 
-        response = await delete_chat_history("thread-123")
+        response = await delete_chat_history(TEST_THREAD_ID)
 
-        assert response["thread_id"] == "thread-123"
+        assert response["thread_id"] == TEST_THREAD_ID
         assert response["deleted"] is False
         assert "MemorySaver" in response["message"]
 
@@ -638,10 +663,10 @@ class TestCancelChatEndpoint:
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
-            response = await cancel_chat("thread-123")
+            response = await cancel_chat(TEST_THREAD_ID)
 
             assert response["success"] is True
-            assert response["thread_id"] == "thread-123"
+            assert response["thread_id"] == TEST_THREAD_ID
             assert "cancelled_at" in response
 
             # Verify state was updated
@@ -661,7 +686,7 @@ class TestCancelChatEndpoint:
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
             with pytest.raises(HTTPException) as exc_info:
-                await cancel_chat("nonexistent")
+                await cancel_chat(TEST_THREAD_ID_2)
 
             assert exc_info.value.status_code == 404
 
@@ -682,7 +707,7 @@ class TestCancelChatEndpoint:
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
             with pytest.raises(HTTPException) as exc_info:
-                await cancel_chat("thread-123")
+                await cancel_chat(TEST_THREAD_ID)
 
             assert exc_info.value.status_code == 404
 
@@ -704,7 +729,7 @@ class TestCancelChatEndpoint:
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
              patch("src.api.chat.create_chat_graph", return_value=mock_graph):
             with pytest.raises(HTTPException) as exc_info:
-                await cancel_chat("thread-123")
+                await cancel_chat(TEST_THREAD_ID)
 
             assert exc_info.value.status_code == 500
 
@@ -728,7 +753,7 @@ class TestChatIntegration:
 
     @pytest.mark.asyncio
     async def test_full_conversation_flow(
-        self, mock_env_vars, mock_human_message, mock_ai_message, mock_user
+        self, mock_env_vars, mock_human_message, mock_ai_message, mock_user, mock_ai_config
     ):
         """Test a complete conversation flow."""
         from src.api.chat import ChatMessage, ChatRequest, get_chat_history, send_message
@@ -748,23 +773,24 @@ class TestChatIntegration:
         mock_graph.compile = MagicMock(return_value=mock_app)
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             # Send a message
             request = ChatRequest(
                 messages=[ChatMessage(role="user", content="Hello")],
-                thread_id="thread-123",
+                thread_id=TEST_THREAD_ID,
             )
             send_response = await send_message(request, user=mock_user)
 
             assert send_response.message == "AI response"
 
             # Get history
-            history = await get_chat_history("thread-123")
+            history = await get_chat_history(TEST_THREAD_ID)
 
             assert len(history["messages"]) == 2
 
     @pytest.mark.asyncio
-    async def test_message_conversion(self, mock_env_vars, mock_user):
+    async def test_message_conversion(self, mock_env_vars, mock_user, mock_ai_config):
         """Test that messages are correctly converted to LangChain format."""
         from langchain_core.messages import AIMessage, HumanMessage
 
@@ -792,7 +818,8 @@ class TestChatIntegration:
         )
 
         with patch("src.api.chat.get_checkpointer", return_value=MagicMock()), \
-             patch("src.api.chat.create_chat_graph", return_value=mock_graph):
+             patch("src.api.chat.create_chat_graph", return_value=mock_graph), \
+             patch("src.api.chat._build_ai_config", return_value=mock_ai_config):
             await send_message(request, user=mock_user)
 
             # Verify messages were converted correctly
