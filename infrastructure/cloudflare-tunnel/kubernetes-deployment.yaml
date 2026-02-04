@@ -86,18 +86,8 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /ready
-            port: 2000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 2000
-          initialDelaySeconds: 5
-          periodSeconds: 5
+        # Note: cloudflared doesn't expose a health endpoint by default
+        # The tunnel connection itself is the health indicator
         volumeMounts:
         - name: config
           mountPath: /etc/cloudflared
