@@ -53,16 +53,21 @@ class AIPreferences(BaseModel):
 
 
 class UpdateAIPreferencesRequest(BaseModel):
-    """Request to update AI preferences."""
+    """Request to update AI preferences.
 
-    default_provider: str | None = None
-    default_model: str | None = None
-    cost_limit_per_day: float | None = Field(None, ge=0, le=1000)
-    cost_limit_per_message: float | None = Field(None, ge=0, le=100)
-    use_platform_key_fallback: bool | None = None
-    show_token_costs: bool | None = None
-    show_model_in_chat: bool | None = None
-    preferred_models_by_task: dict[str, str] | None = None
+    Accepts both camelCase (from frontend) and snake_case field names.
+    """
+
+    default_provider: str | None = Field(None, alias="defaultProvider")
+    default_model: str | None = Field(None, alias="defaultModel")
+    cost_limit_per_day: float | None = Field(None, ge=0, le=1000, alias="costLimitPerDay")
+    cost_limit_per_message: float | None = Field(None, ge=0, le=100, alias="costLimitPerMessage")
+    use_platform_key_fallback: bool | None = Field(None, alias="usePlatformKeyFallback")
+    show_token_costs: bool | None = Field(None, alias="showTokenCosts")
+    show_model_in_chat: bool | None = Field(None, alias="showModelInChat")
+    preferred_models_by_task: dict[str, str] | None = Field(None, alias="preferredModelsByTask")
+
+    model_config = {"populate_by_name": True}  # Accept both alias and field name
 
 
 class ProviderKeyInfo(BaseModel):
@@ -242,10 +247,21 @@ async def update_ai_preferences(
     user = await get_current_user(request)
     profile = await get_or_create_profile(user["user_id"], user.get("email"))
 
+    # Debug: Log what we received
+    logger.info(
+        "Updating AI preferences",
+        user_id=user["user_id"],
+        received_provider=body.default_provider,
+        received_model=body.default_model,
+        body_dict=body.model_dump(exclude_none=True),
+    )
+
     supabase = get_supabase_client()
 
     # Get current preferences
     current_prefs = profile.get("ai_preferences") or get_default_ai_preferences()
+
+    logger.info("Current preferences before update", prefs=current_prefs)
 
     # Merge updates
     if body.default_provider is not None:
@@ -282,7 +298,12 @@ async def update_ai_preferences(
         )
         raise HTTPException(status_code=500, detail="Failed to update preferences")
 
-    logger.info("AI preferences updated", user_id=user["user_id"])
+    logger.info(
+        "AI preferences updated successfully",
+        user_id=user["user_id"],
+        new_model=current_prefs.get("default_model"),
+        new_provider=current_prefs.get("default_provider"),
+    )
 
     return AIPreferences(**current_prefs)
 
