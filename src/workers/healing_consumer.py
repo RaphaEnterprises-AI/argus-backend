@@ -247,10 +247,14 @@ class HealingConsumer:
         failure_details = await self._fetch_failure_details(event.failure_id)
 
         # Initialize healer
+        # NOTE: Code-aware healing is disabled in production workers because:
+        # 1. Workers run in Railway/Docker without access to customer's codebase
+        # 2. Git analyzer requires local repo access which isn't available
+        # 3. We rely on memory store (Cognee) + LLM fallback for healing
         healer = SelfHealerAgent(
             auto_heal_threshold=0.85,
-            enable_code_aware=True,
-            enable_memory_store=True,
+            enable_code_aware=False,  # Disabled - no codebase access in production
+            enable_memory_store=True,  # Uses Cognee for semantic pattern matching
             org_id=event.org_id,
             project_id=event.project_id,
         )
@@ -298,15 +302,24 @@ class HealingConsumer:
                     duration_ms=duration_ms,
                 )
 
+                # Extract selectors - try code_context first, then suggested_fixes
+                original_selector = None
+                healed_selector = None
+
+                if healing_result.diagnosis.code_context:
+                    original_selector = healing_result.diagnosis.code_context.old_selector
+                    healed_selector = healing_result.diagnosis.code_context.new_selector
+                elif healing_result.suggested_fixes:
+                    # LLM-based healing stores selectors in fixes
+                    first_fix = healing_result.suggested_fixes[0]
+                    original_selector = first_fix.old_value
+                    healed_selector = first_fix.new_value
+
                 return {
                     "success": True,
                     "strategy_used": healing_result.diagnosis.failure_type.value,
-                    "original_selector": healing_result.diagnosis.code_context.old_selector
-                    if healing_result.diagnosis.code_context
-                    else None,
-                    "healed_selector": healing_result.diagnosis.code_context.new_selector
-                    if healing_result.diagnosis.code_context
-                    else None,
+                    "original_selector": original_selector or event.failed_selector,
+                    "healed_selector": healed_selector,
                     "auto_healed": healing_result.auto_healed,
                     "confidence": healing_result.suggested_fixes[0].confidence
                     if healing_result.suggested_fixes
