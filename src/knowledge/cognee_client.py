@@ -29,9 +29,76 @@ from typing import Any, Optional
 
 import structlog
 
+# =============================================================================
+# CRITICAL: Configure embedding environment BEFORE importing Cognee!
+# =============================================================================
+# Cognee's EmbeddingConfig uses pydantic_settings with @lru_cache, which means
+# the config is read from environment variables at first access and then cached.
+# If we set env vars AFTER importing cognee, the cache already has wrong values.
+# We MUST set embedding env vars here, BEFORE the cognee import below.
+
+_early_logger = structlog.get_logger("cognee_early_config")
+
+def _configure_embedding_early() -> None:
+    """Configure embedding provider BEFORE cognee import.
+
+    This must run before 'import cognee' because Cognee's EmbeddingConfig
+    uses @lru_cache and reads env vars on first access.
+    """
+    cohere_key = os.environ.get("COHERE_API_KEY")
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+
+    if cohere_key:
+        os.environ["EMBEDDING_PROVIDER"] = "cohere"
+        os.environ["EMBEDDING_MODEL"] = os.environ.get("EMBEDDING_MODEL", "embed-multilingual-v3.0")
+        os.environ["EMBEDDING_API_KEY"] = cohere_key
+        os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("EMBEDDING_DIMENSIONS", "1024")
+        _early_logger.info(
+            "Pre-import: Embedding configured for Cohere",
+            model=os.environ["EMBEDDING_MODEL"],
+            dimensions=os.environ["EMBEDDING_DIMENSIONS"],
+        )
+    elif openai_key:
+        os.environ["EMBEDDING_PROVIDER"] = "openai"
+        os.environ["EMBEDDING_MODEL"] = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+        os.environ["EMBEDDING_API_KEY"] = openai_key
+        os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("EMBEDDING_DIMENSIONS", "1536")
+        _early_logger.info(
+            "Pre-import: Embedding configured for OpenAI",
+            model=os.environ["EMBEDDING_MODEL"],
+        )
+    elif openrouter_key:
+        # OpenRouter supports OpenAI-compatible embedding endpoint
+        os.environ["EMBEDDING_PROVIDER"] = "openai"
+        os.environ["EMBEDDING_MODEL"] = "text-embedding-3-small"
+        os.environ["EMBEDDING_ENDPOINT"] = "https://openrouter.ai/api/v1"
+        os.environ["EMBEDDING_API_KEY"] = openrouter_key
+        os.environ["EMBEDDING_DIMENSIONS"] = "1536"
+        _early_logger.info(
+            "Pre-import: Embedding configured for OpenRouter (OpenAI-compatible)",
+        )
+    else:
+        _early_logger.error(
+            "CRITICAL: No embedding API key found! "
+            "Set COHERE_API_KEY or OPENAI_API_KEY. "
+            "Cognee storage will FAIL without embeddings."
+        )
+
+# Execute early configuration BEFORE importing cognee
+_configure_embedding_early()
+
 # Cognee is a REQUIRED dependency - fail fast if not installed
 try:
     import cognee
+    # Clear the embedding config cache in case it was already loaded
+    # This ensures our env vars are picked up
+    try:
+        from cognee.infrastructure.databases.vector.embeddings.config import get_embedding_config
+        get_embedding_config.cache_clear()
+        _early_logger.info("Cleared Cognee embedding config cache")
+    except Exception:
+        pass  # Cache clear is best-effort
 except ImportError as e:
     raise ImportError(
         "The cognee package is required for Argus. "
@@ -81,40 +148,27 @@ def _configure_cognee() -> None:
             "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
         )
 
-    # CRITICAL: Embedding Configuration
-    # Cognee defaults to OpenAI embeddings if not configured, which fails without OPENAI_API_KEY
-    # This causes "int() argument must be a string...NoneType" errors
-    cohere_key = os.environ.get("COHERE_API_KEY")
-    openai_key = os.environ.get("OPENAI_API_KEY")
-
-    if cohere_key:
-        # Preferred: Use Cohere embed-multilingual-v3.0 (1024-dim)
-        os.environ["EMBEDDING_PROVIDER"] = "cohere"
-        os.environ["EMBEDDING_MODEL"] = os.environ.get("EMBEDDING_MODEL", "embed-multilingual-v3.0")
-        os.environ["EMBEDDING_API_KEY"] = cohere_key
-        os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("EMBEDDING_DIMENSIONS", "1024")
-        logger.info("Cognee configured with Cohere embeddings", model=os.environ["EMBEDDING_MODEL"])
-    elif openai_key:
-        # Fallback: Use OpenAI text-embedding-3-small
-        os.environ["EMBEDDING_PROVIDER"] = "openai"
-        os.environ["EMBEDDING_MODEL"] = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-        os.environ["EMBEDDING_API_KEY"] = openai_key
-        os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("EMBEDDING_DIMENSIONS", "1536")
-        logger.info("Cognee configured with OpenAI embeddings", model=os.environ["EMBEDDING_MODEL"])
-    elif openrouter_key:
-        # Last resort: Try OpenRouter's OpenAI-compatible endpoint
-        os.environ["EMBEDDING_PROVIDER"] = "custom"
-        os.environ["EMBEDDING_MODEL"] = "openai/text-embedding-3-small"
-        os.environ["EMBEDDING_ENDPOINT"] = "https://openrouter.ai/api/v1/embeddings"
-        os.environ["EMBEDDING_API_KEY"] = openrouter_key
-        os.environ["EMBEDDING_DIMENSIONS"] = "1536"
-        logger.info("Cognee configured with OpenRouter embeddings (OpenAI compatible)")
-    else:
-        logger.error(
-            "CRITICAL: No embedding API key found for Cognee! "
-            "Semantic search and pattern learning will NOT work. "
-            "Set COHERE_API_KEY or OPENAI_API_KEY."
+    # Embedding configuration is done early (before import) via _configure_embedding_early()
+    # Verify the config is correct and clear cache to ensure fresh values
+    try:
+        from cognee.infrastructure.databases.vector.embeddings.config import get_embedding_config
+        get_embedding_config.cache_clear()  # Force reload with our env vars
+        embed_config = get_embedding_config()
+        logger.info(
+            "Embedding configuration verified",
+            provider=embed_config.embedding_provider,
+            model=embed_config.embedding_model,
+            dimensions=embed_config.embedding_dimensions,
+            has_api_key=bool(embed_config.embedding_api_key),
         )
+        if not embed_config.embedding_api_key:
+            logger.error(
+                "CRITICAL: Embedding API key not configured! "
+                "Set COHERE_API_KEY or OPENAI_API_KEY environment variable. "
+                "Cognee storage will FAIL without embeddings."
+            )
+    except Exception as e:
+        logger.warning(f"Could not verify embedding config: {e}")
 
     # Database Configuration
     # Railway has ephemeral filesystem, so we MUST use PostgreSQL for persistence
