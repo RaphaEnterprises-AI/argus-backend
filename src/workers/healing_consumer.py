@@ -45,6 +45,9 @@ class HealingEvent(BaseModel):
     screenshot_url: str | None = None
     strategy: str = "auto"
     priority: str = "normal"
+    test_name: str | None = None  # Optional - for logging/display purposes
+
+    model_config = {"extra": "ignore"}  # Ignore extra fields from event payload
 
 
 class HealingConfig(BaseModel):
@@ -460,15 +463,17 @@ class HealingConsumer:
         """
         try:
             # Handle ArgusEvent wrapper format from EventGateway
-            # ArgusEvent has org_id/project_id at top level, healing data in "data" field
+            # ArgusEvent has org_id/project_id/event_id at top level, healing data in "data" field
             if "data" in event_data and "event_type" in event_data:
                 # This is an ArgusEvent wrapper - extract and merge fields
                 healing_data = event_data.get("data", {})
-                # Merge top-level org_id/project_id if not in data
+                # Merge top-level fields if not in data
                 if "org_id" not in healing_data:
                     healing_data["org_id"] = event_data.get("org_id")
                 if "project_id" not in healing_data:
                     healing_data["project_id"] = event_data.get("project_id")
+                if "event_id" not in healing_data:
+                    healing_data["event_id"] = event_data.get("event_id")
                 event = HealingEvent(**healing_data)
             else:
                 # Direct HealingEvent format (for testing or direct publishing)
@@ -602,11 +607,11 @@ class HealingConsumer:
                     break
 
                 event_data = message.value
-                topic_partition = message.topic_partition
 
                 logger.debug(
                     "Received message",
-                    partition=topic_partition.partition,
+                    topic=message.topic,
+                    partition=message.partition,
                     offset=message.offset,
                 )
 
