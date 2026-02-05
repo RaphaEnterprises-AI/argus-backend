@@ -241,12 +241,22 @@ class HealingConsumer:
         )
 
         try:
-            # Run healing
-            result = await healer.heal_test(
+            # Build failure_details dict for SelfHealerAgent.execute()
+            # The execute method expects: selector/target, type, message/error
+            merged_failure_details = {
+                "selector": event.failed_selector,
+                "target": event.failed_selector,
+                "type": event.error_type,
+                "message": event.error_message,
+                "error": event.error_message,
+                "page_url": event.page_url,
+                **(failure_details or {}),  # Merge any DB failure details
+            }
+
+            # Run healing using the correct method name: execute()
+            result = await healer.execute(
                 test_spec=test_spec,
-                failure_details=failure_details or {},
-                error_message=event.error_message,
-                error_type=event.error_type,
+                failure_details=merged_failure_details,
             )
 
             duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)

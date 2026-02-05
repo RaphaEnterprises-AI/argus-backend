@@ -160,7 +160,7 @@ class TestHealingConsumer:
                     mock_healing_result.data.diagnosis.code_context.new_selector = "#new-submit-btn"
                     mock_healing_result.data.suggested_fixes = [MagicMock(confidence=0.95)]
 
-                    mock_healer_instance.heal_test = AsyncMock(return_value=mock_healing_result)
+                    mock_healer_instance.execute = AsyncMock(return_value=mock_healing_result)
                     MockHealer.return_value = mock_healer_instance
 
                     result = await consumer._run_healing(HealingEvent(**sample_healing_event))
