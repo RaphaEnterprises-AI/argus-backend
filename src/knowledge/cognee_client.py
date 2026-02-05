@@ -39,12 +39,22 @@ import structlog
 
 _early_logger = structlog.get_logger("cognee_early_config")
 
-def _configure_embedding_early() -> None:
-    """Configure embedding provider BEFORE cognee import.
 
-    This must run before 'import cognee' because Cognee's EmbeddingConfig
-    uses @lru_cache and reads env vars on first access.
+def _configure_cognee_early() -> None:
+    """Configure ALL Cognee settings BEFORE cognee import.
+
+    This must run before 'import cognee' because Cognee's configs use
+    @lru_cache and read env vars on first access. If we set env vars
+    AFTER importing cognee, the caches already have wrong values.
+
+    Configures:
+    - Embedding provider (Cohere/OpenAI)
+    - Database provider (PostgreSQL/SQLite)
+    - Vector DB provider (pgvector/lancedb)
     """
+    # =========================================================================
+    # 1. EMBEDDING CONFIGURATION
+    # =========================================================================
     cohere_key = os.environ.get("COHERE_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
@@ -69,7 +79,6 @@ def _configure_embedding_early() -> None:
             model=os.environ["EMBEDDING_MODEL"],
         )
     elif openrouter_key:
-        # OpenRouter supports OpenAI-compatible embedding endpoint
         os.environ["EMBEDDING_PROVIDER"] = "openai"
         os.environ["EMBEDDING_MODEL"] = "text-embedding-3-small"
         os.environ["EMBEDDING_ENDPOINT"] = "https://openrouter.ai/api/v1"
@@ -85,13 +94,67 @@ def _configure_embedding_early() -> None:
             "Cognee storage will FAIL without embeddings."
         )
 
+    # =========================================================================
+    # 2. DATABASE CONFIGURATION (RelationalConfig + VectorConfig)
+    # =========================================================================
+    # Cognee's RelationalConfig also uses @lru_cache - must set env vars early!
+    database_url = os.environ.get("DATABASE_URL")
+
+    if database_url and "postgresql" in database_url:
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(database_url)
+
+            # Set env vars that Cognee's RelationalConfig reads
+            os.environ["DB_PROVIDER"] = "postgres"
+            os.environ["DB_HOST"] = parsed.hostname or "localhost"
+            os.environ["DB_PORT"] = str(parsed.port) if parsed.port else "5432"
+            os.environ["DB_NAME"] = parsed.path.lstrip("/") if parsed.path else "cognee"
+            os.environ["DB_USERNAME"] = parsed.username or ""
+            os.environ["DB_PASSWORD"] = parsed.password or ""
+
+            # Use pgvector for vector storage (not lancedb)
+            os.environ["VECTOR_DB_PROVIDER"] = "pgvector"
+
+            _early_logger.info(
+                "Pre-import: Database configured for PostgreSQL + pgvector",
+                host=parsed.hostname,
+                port=os.environ["DB_PORT"],
+                db=os.environ["DB_NAME"],
+            )
+        except Exception as e:
+            _early_logger.error(f"Pre-import: Failed to parse DATABASE_URL: {e}")
+            # Fall back to in-memory/local storage
+            os.environ["VECTOR_DB_PROVIDER"] = "lancedb"
+            os.environ["DB_PROVIDER"] = "sqlite"
+    else:
+        # Local development - use embedded databases
+        os.environ["VECTOR_DB_PROVIDER"] = "lancedb"
+        os.environ["DB_PROVIDER"] = "sqlite"
+        _early_logger.info("Pre-import: Database configured for SQLite + LanceDB (local mode)")
+
+    # =========================================================================
+    # 3. GRAPH DATABASE CONFIGURATION
+    # =========================================================================
+    falkordb_host = os.environ.get("FALKORDB_HOST")
+    if falkordb_host:
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "falkordb"
+        os.environ["GRAPH_DATABASE_URL"] = f"redis://{falkordb_host}:{os.environ.get('FALKORDB_PORT', '6379')}"
+        if os.environ.get("FALKORDB_PASSWORD"):
+            os.environ["GRAPH_DATABASE_PASSWORD"] = os.environ["FALKORDB_PASSWORD"]
+        _early_logger.info("Pre-import: Graph DB configured for FalkorDB")
+    else:
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
+        _early_logger.info("Pre-import: Graph DB configured for Kuzu (local mode)")
+
+
 # Execute early configuration BEFORE importing cognee
-_configure_embedding_early()
+_configure_cognee_early()
 
 # Cognee is a REQUIRED dependency - fail fast if not installed
 try:
     import cognee
-    # Clear the embedding config cache in case it was already loaded
+    # Clear ALL config caches in case they were already loaded
     # This ensures our env vars are picked up
     try:
         from cognee.infrastructure.databases.vector.embeddings.config import get_embedding_config
@@ -99,6 +162,21 @@ try:
         _early_logger.info("Cleared Cognee embedding config cache")
     except Exception:
         pass  # Cache clear is best-effort
+
+    try:
+        from cognee.infrastructure.databases.relational.config import get_relational_config
+        get_relational_config.cache_clear()
+        _early_logger.info("Cleared Cognee relational config cache")
+    except Exception:
+        pass  # Cache clear is best-effort
+
+    try:
+        from cognee.infrastructure.databases.vector.config import get_vectordb_config
+        get_vectordb_config.cache_clear()
+        _early_logger.info("Cleared Cognee vector DB config cache")
+    except Exception:
+        pass  # Cache clear is best-effort
+
 except ImportError as e:
     raise ImportError(
         "The cognee package is required for Argus. "
@@ -116,9 +194,12 @@ _cognee_configured = False
 
 
 def _configure_cognee() -> None:
-    """Configure Cognee with LLM and database settings.
+    """Configure Cognee with LLM settings and verify all configs.
 
-    This reads from environment variables and configures Cognee once.
+    NOTE: Database, embedding, and vector DB configs are now set early
+    (before import) in _configure_cognee_early(). This function only
+    handles LLM config via Cognee API and verifies all settings.
+
     Called lazily on first client instantiation.
     """
     global _cognee_configured
@@ -126,6 +207,7 @@ def _configure_cognee() -> None:
         return
 
     # LLM Configuration - prefer Anthropic, fall back to OpenRouter
+    # This must use Cognee's API since LLM config isn't just env vars
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 
@@ -148,11 +230,9 @@ def _configure_cognee() -> None:
             "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
         )
 
-    # Embedding configuration is done early (before import) via _configure_embedding_early()
-    # Verify the config is correct and clear cache to ensure fresh values
+    # Verify embedding config (set early in _configure_cognee_early)
     try:
         from cognee.infrastructure.databases.vector.embeddings.config import get_embedding_config
-        get_embedding_config.cache_clear()  # Force reload with our env vars
         embed_config = get_embedding_config()
         logger.info(
             "Embedding configuration verified",
@@ -170,56 +250,30 @@ def _configure_cognee() -> None:
     except Exception as e:
         logger.warning(f"Could not verify embedding config: {e}")
 
-    # Database Configuration
-    # Railway has ephemeral filesystem, so we MUST use PostgreSQL for persistence
-    # Cognee reads from environment variables, so we set them directly
-    database_url = os.environ.get("DATABASE_URL")
+    # Verify relational DB config (set early in _configure_cognee_early)
+    try:
+        from cognee.infrastructure.databases.relational.config import get_relational_config
+        rel_config = get_relational_config()
+        logger.info(
+            "Relational DB configuration verified",
+            provider=rel_config.db_provider,
+            host=rel_config.db_host,
+            port=rel_config.db_port,
+            db=rel_config.db_name,
+        )
+    except Exception as e:
+        logger.warning(f"Could not verify relational config: {e}")
 
-    if database_url and "postgresql" in database_url:
-        # Parse DATABASE_URL to extract components for Cognee env vars
-        # Format: postgresql://user:pass@host:port/dbname
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(database_url)
-
-            # Set env vars that Cognee reads
-            os.environ["DB_PROVIDER"] = "postgres"
-            os.environ["DB_HOST"] = parsed.hostname or "localhost"
-            os.environ["DB_PORT"] = str(parsed.port or 5432)
-            os.environ["DB_NAME"] = parsed.path.lstrip("/") if parsed.path else "cognee"
-            os.environ["DB_USERNAME"] = parsed.username or ""
-            os.environ["DB_PASSWORD"] = parsed.password or ""
-
-            # Use pgvector for vector storage
-            os.environ["VECTOR_DB_PROVIDER"] = "pgvector"
-
-            logger.info(
-                "Cognee configured with PostgreSQL",
-                host=parsed.hostname,
-                db=os.environ["DB_NAME"],
-            )
-        except Exception as e:
-            logger.error(f"Failed to parse DATABASE_URL for Cognee: {e}")
-            # Fall back to in-memory/local storage
-            os.environ["VECTOR_DB_PROVIDER"] = "lancedb"
-            os.environ["DB_PROVIDER"] = "sqlite"
-    else:
-        # Local development - use embedded databases
-        os.environ["VECTOR_DB_PROVIDER"] = "lancedb"
-        os.environ["DB_PROVIDER"] = "sqlite"
-        logger.info("Cognee configured with LanceDB/SQLite (local mode)")
-
-    # Graph database - use Kuzu by default, FalkorDB if configured
-    falkordb_host = os.environ.get("FALKORDB_HOST")
-    if falkordb_host:
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "falkordb"
-        os.environ["GRAPH_DATABASE_URL"] = f"redis://{falkordb_host}:{os.environ.get('FALKORDB_PORT', '6379')}"
-        if os.environ.get("FALKORDB_PASSWORD"):
-            os.environ["GRAPH_DATABASE_PASSWORD"] = os.environ["FALKORDB_PASSWORD"]
-        logger.info("Cognee configured with FalkorDB graph database")
-    else:
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
-        logger.info("Cognee configured with Kuzu graph database (local mode)")
+    # Verify vector DB config (set early in _configure_cognee_early)
+    try:
+        from cognee.infrastructure.databases.vector.config import get_vectordb_config
+        vec_config = get_vectordb_config()
+        logger.info(
+            "Vector DB configuration verified",
+            provider=vec_config.vector_db_provider,
+        )
+    except Exception as e:
+        logger.warning(f"Could not verify vector DB config: {e}")
 
     _cognee_configured = True
     logger.info("Cognee configuration complete")
