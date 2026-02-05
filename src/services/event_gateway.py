@@ -626,27 +626,57 @@ async def emit_test_executed(
 
 
 async def emit_healing_requested(
-    test_id: str,
     failure_id: str,
-    failure_type: str,
-    original_selector: str | None,
+    test_id: str,
+    test_name: str,
+    error_message: str,
+    error_type: str,
     org_id: str,
     project_id: str | None = None,
     user_id: str | None = None,
+    failed_selector: str | None = None,
+    page_url: str | None = None,
+    screenshot_url: str | None = None,
+    strategy: str = "auto",
+    priority: str = "normal",
     correlation_id: str | None = None,
-    context: dict[str, Any] | None = None,
 ) -> ArgusEvent | None:
-    """Emit a HEALING_REQUESTED event."""
+    """
+    Emit a HEALING_REQUESTED event to trigger autonomous self-healing.
+
+    The event data matches the HealingEvent schema expected by HealingConsumer:
+    - event_id: Auto-generated UUID
+    - failure_id: Unique identifier for this failure instance
+    - test_id: The test that failed
+    - test_name: Human-readable test name
+    - error_message: The error message from the failure
+    - error_type: Classification (selector, timeout, assertion, api, unknown)
+    - failed_selector: The selector that failed (if applicable)
+    - page_url: URL where the failure occurred
+    - strategy: Healing strategy (auto, code_aware, dom_based)
+    - priority: Processing priority (high, normal, low)
+    """
     gateway = get_event_gateway()
+
+    # Build event data matching HealingEvent schema for HealingConsumer
     data = {
-        "test_id": test_id,
+        "event_id": str(uuid4()),
         "failure_id": failure_id,
-        "failure_type": failure_type,
+        "test_id": test_id,
+        "test_name": test_name,
+        "error_message": error_message,
+        "error_type": error_type,
+        "strategy": strategy,
+        "priority": priority,
     }
-    if original_selector:
-        data["original_selector"] = original_selector
-    if context:
-        data["context"] = context
+
+    # Optional fields
+    if failed_selector:
+        data["failed_selector"] = failed_selector
+    if page_url:
+        data["page_url"] = page_url
+    if screenshot_url:
+        data["screenshot_url"] = screenshot_url
 
     return await gateway.publish(
         event_type=EventType.HEALING_REQUESTED,

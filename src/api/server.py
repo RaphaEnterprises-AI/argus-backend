@@ -113,12 +113,17 @@ from src.orchestrator.state import create_initial_state
 from src.services.supabase_client import get_supabase_client
 from src.utils import safe_datetime
 from src.workers.cognee_consumer import CogneeConsumer
+from src.workers.healing_consumer import HealingConsumer
 
 logger = structlog.get_logger()
 
 # Module-level reference to CogneeConsumer for graceful shutdown
 _cognee_consumer: CogneeConsumer | None = None
 _cognee_consumer_task: asyncio.Task | None = None
+
+# Module-level reference to HealingConsumer for autonomous healing
+_healing_consumer: HealingConsumer | None = None
+_healing_consumer_task: asyncio.Task | None = None
 
 # =============================================================================
 # Frontend Alias Models
@@ -174,17 +179,13 @@ if settings.sentry_dsn:
         dsn=settings.sentry_dsn,
         environment=settings.sentry_environment,
         release=f"argus-backend@{API_VERSION}",
-
         # Performance Monitoring
         traces_sample_rate=settings.sentry_traces_sample_rate,
         profiles_sample_rate=settings.sentry_profiles_sample_rate,
-
         # Privacy
         send_default_pii=settings.sentry_send_default_pii,
-
         # Debug mode for troubleshooting
         debug=settings.sentry_debug,
-
         # Integrations
         integrations=[
             FastApiIntegration(transaction_style="endpoint"),
@@ -194,7 +195,6 @@ if settings.sentry_dsn:
                 event_level=None,  # Don't send logs as events (use structlog)
             ),
         ],
-
         # Filter sensitive data from being sent to Sentry
         before_send=lambda event, hint: _filter_sentry_event(event, hint),
     )
@@ -214,9 +214,18 @@ def _filter_sentry_event(event: dict, hint: dict) -> dict | None:
     """
     # List of sensitive keys to redact
     sensitive_keys = {
-        "authorization", "x-api-key", "api_key", "apikey",
-        "password", "secret", "token", "jwt", "bearer",
-        "anthropic_api_key", "openai_api_key", "supabase_service_key",
+        "authorization",
+        "x-api-key",
+        "api_key",
+        "apikey",
+        "password",
+        "secret",
+        "token",
+        "jwt",
+        "bearer",
+        "anthropic_api_key",
+        "openai_api_key",
+        "supabase_service_key",
     }
 
     def redact_dict(d: dict) -> dict:
@@ -224,9 +233,7 @@ def _filter_sentry_event(event: dict, hint: dict) -> dict | None:
         if not isinstance(d, dict):
             return d
         return {
-            k: "[REDACTED]" if k.lower() in sensitive_keys else (
-                redact_dict(v) if isinstance(v, dict) else v
-            )
+            k: "[REDACTED]" if k.lower() in sensitive_keys else (redact_dict(v) if isinstance(v, dict) else v)
             for k, v in d.items()
         }
 
@@ -291,6 +298,7 @@ Autonomous quality intelligence powered by Claude AI.
 # 0. CamelCase Response Conversion - Converts snake_case to camelCase for JS clients
 # Added FIRST so it's outermost - processes response LAST before sending to client
 from src.api.middleware.camelcase import CamelCaseMiddleware
+
 app.add_middleware(CamelCaseMiddleware)
 
 # 1. Security Headers (OWASP) - Outermost layer
@@ -304,9 +312,15 @@ app.add_middleware(
     enable_csp=settings.enable_csp,
     csp_report_uri=settings.csp_report_uri,
     environment=settings.environment,
-    csp_extra_script_sources=[s.strip() for s in settings.csp_extra_script_sources.split(",") if s.strip()] if settings.csp_extra_script_sources else [],
-    csp_extra_style_sources=[s.strip() for s in settings.csp_extra_style_sources.split(",") if s.strip()] if settings.csp_extra_style_sources else [],
-    csp_extra_connect_sources=[s.strip() for s in settings.csp_extra_connect_sources.split(",") if s.strip()] if settings.csp_extra_connect_sources else [],
+    csp_extra_script_sources=[s.strip() for s in settings.csp_extra_script_sources.split(",") if s.strip()]
+    if settings.csp_extra_script_sources
+    else [],
+    csp_extra_style_sources=[s.strip() for s in settings.csp_extra_style_sources.split(",") if s.strip()]
+    if settings.csp_extra_style_sources
+    else [],
+    csp_extra_connect_sources=[s.strip() for s in settings.csp_extra_connect_sources.split(",") if s.strip()]
+    if settings.csp_extra_connect_sources
+    else [],
 )
 
 # 2. Audit Logging - Log all requests for SOC2 compliance
@@ -392,8 +406,8 @@ async def limit_request_size(request: Request, call_next):
                 return JSONResponse(
                     status_code=413,
                     content={
-                        "detail": f"Request payload too large. Maximum size: {MAX_REQUEST_SIZE_BYTES // (1024*1024)}MB"
-                    }
+                        "detail": f"Request payload too large. Maximum size: {MAX_REQUEST_SIZE_BYTES // (1024 * 1024)}MB"
+                    },
                 )
         except ValueError:
             # Invalid Content-Length header, let it through for other validation
@@ -732,9 +746,7 @@ async def get_current_user_info(request: Request):
             "auth_method": user.auth_method,
             "session_id": user.session_id,
             "ip_address": user.ip_address,
-            "authenticated_at": user.authenticated_at.isoformat()
-            if user.authenticated_at
-            else None,
+            "authenticated_at": user.authenticated_at.isoformat() if user.authenticated_at else None,
         }
     except HTTPException as e:
         raise e
@@ -756,10 +768,7 @@ async def debug_jwt_token(request: Request):
     # SECURITY: Only allow in development environments
     environment = os.getenv("ENVIRONMENT", "development")
     if environment not in ("development", "test", "local"):
-        raise HTTPException(
-            status_code=403, detail="Debug endpoint is only available in development environments"
-        )
-
+        raise HTTPException(status_code=403, detail="Debug endpoint is only available in development environments")
 
     from src.api.security.auth import verify_clerk_jwt
 
@@ -800,8 +809,7 @@ async def debug_jwt_token(request: Request):
         return {
             "token_type": "unknown_jwt",
             "claims": {
-                k: "[REDACTED]" if k not in ("sub", "iss", "aud", "exp", "iat") else v
-                for k, v in unverified.items()
+                k: "[REDACTED]" if k not in ("sub", "iss", "aud", "exp", "iat") else v for k, v in unverified.items()
             },
             "available_keys": list(unverified.keys()),
             "warning": "Token signature not verified - values redacted",
@@ -971,8 +979,13 @@ async def run_tests_background(
         summary = orchestrator.get_run_summary(final_state)
 
         completed_at = datetime.now(UTC).isoformat()
-        duration_ms = int((datetime.fromisoformat(completed_at.replace("Z", "+00:00")) -
-                          datetime.fromisoformat(started_at.replace("Z", "+00:00"))).total_seconds() * 1000)
+        duration_ms = int(
+            (
+                datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+                - datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            ).total_seconds()
+            * 1000
+        )
 
         # Determine final status based on results
         total_tests = summary.get("total_tests", 0)
@@ -1018,6 +1031,7 @@ async def run_tests_background(
         try:
             from src.api.tests import get_project_org_id
             from src.services.event_gateway import EventType, get_event_gateway
+
             event_gateway = get_event_gateway()
             if event_gateway.is_running:
                 org_id = await get_project_org_id(project_id)
@@ -1137,22 +1151,26 @@ async def create_test_from_nlp(body: NLPTestRequest, request: Request):
         # Prepare steps in the format expected by the tests table
         steps = []
         for step in test_dict.get("steps", []):
-            steps.append({
-                "action": step.get("action", ""),
-                "target": step.get("target"),
-                "value": step.get("value"),
-                "description": step.get("description", ""),
-            })
+            steps.append(
+                {
+                    "action": step.get("action", ""),
+                    "target": step.get("target"),
+                    "value": step.get("value"),
+                    "description": step.get("description", ""),
+                }
+            )
 
         # Add assertions as additional verification steps
         for assertion in test_dict.get("assertions", []):
-            steps.append({
-                "action": "assert",
-                "target": assertion.get("target", ""),
-                "value": assertion.get("expected", ""),
-                "description": assertion.get("description", ""),
-                "assertion_type": assertion.get("type", ""),
-            })
+            steps.append(
+                {
+                    "action": "assert",
+                    "target": assertion.get("target", ""),
+                    "value": assertion.get("expected", ""),
+                    "description": assertion.get("description", ""),
+                    "assertion_type": assertion.get("type", ""),
+                }
+            )
 
         # Persist to database
         supabase = get_supabase_client()
@@ -1178,6 +1196,7 @@ async def create_test_from_nlp(body: NLPTestRequest, request: Request):
 
         # Audit log
         from src.api.tests import get_project_org_id
+
         org_id = await get_project_org_id(body.project_id)
         await log_audit(
             organization_id=org_id,
@@ -1206,6 +1225,7 @@ async def create_test_from_nlp(body: NLPTestRequest, request: Request):
         # Emit TEST_CREATED event to Redpanda for downstream processing
         try:
             from src.services.event_gateway import emit_test_created, get_event_gateway
+
             event_gateway = get_event_gateway()
             if event_gateway.is_running:
                 await emit_test_created(
@@ -1452,13 +1472,7 @@ async def frontend_quality_score(project_id: str):
                 },
                 "risk_mitigation": {
                     "score": 100
-                    - (
-                        50
-                        if result.get("risk_level") == "high"
-                        else 25
-                        if result.get("risk_level") == "medium"
-                        else 0
-                    ),
+                    - (50 if result.get("risk_level") == "high" else 25 if result.get("risk_level") == "medium" else 0),
                     "label": "Risk Mitigation",
                     "description": "How well high-risk areas are addressed",
                 },
@@ -1475,8 +1489,7 @@ async def frontend_quality_score(project_id: str):
             },
             "metrics": {
                 "total_events": result.get("total_events", 0),
-                "unresolved_events": result.get("total_events", 0)
-                - result.get("approved_tests", 0),
+                "unresolved_events": result.get("total_events", 0) - result.get("approved_tests", 0),
                 "tests_generated": result.get("total_tests", 0),
                 "tests_approved": result.get("approved_tests", 0),
                 "avg_confidence": 0.85,
@@ -1545,9 +1558,7 @@ async def semantic_search(request: SemanticSearchRequest):
     # Try Cognee first (semantic search)
     try:
         cognee = get_cognee_client(org_id="default", project_id="default")
-        cognee_results = await cognee.find_similar_failures(
-            error_message=request.error_text, limit=request.limit
-        )
+        cognee_results = await cognee.find_similar_failures(error_message=request.error_text, limit=request.limit)
 
         for failure in cognee_results:
             if failure.similarity >= request.min_score:
@@ -1606,9 +1617,7 @@ async def semantic_search(request: SemanticSearchRequest):
         "patterns": similar_patterns,
         "count": len(similar_patterns),
         "has_solutions": any(p.get("known_solutions") for p in similar_patterns),
-        "search_method": "vectorize"
-        if similar_patterns and len(similar_patterns) > 0
-        else "jaccard",
+        "search_method": "vectorize" if similar_patterns and len(similar_patterns) > 0 else "jaccard",
     }
 
 
@@ -1626,6 +1635,11 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
     6. learning - Learn from results
     """
     from src.services.supabase_client import get_supabase_client
+    from src.agents.auto_discovery import AutoDiscoveryAgent
+    from src.agents.visual_ai import VisualAI
+    from src.agents.nlp_test_creator import NLPTestCreator
+    from src.agents.self_healer import SelfHealerAgent
+    from src.knowledge import get_cognee_client
 
     job_id = str(uuid.uuid4())
 
@@ -1649,31 +1663,225 @@ async def autonomous_loop(request: AutonomousLoopRequest, background_tasks: Back
 
     # Run stages in background
     async def run_autonomous_loop():
-        results = {"stages_completed": [], "stages_failed": []}
+        results = {"stages_completed": [], "stages_failed": [], "generated_tests": [], "healed_tests": []}
+        discovered_flows = []
+        generated_tests = []
 
         try:
             for stage in request.stages:
                 logger.info(f"Running autonomous loop stage: {stage}", job_id=job_id)
 
                 if stage == "discovery":
-                    # Would call auto-discovery agent
-                    results["stages_completed"].append({"stage": stage, "status": "completed"})
+                    # Run auto-discovery agent to find test scenarios
+                    try:
+                        discovery_agent = AutoDiscoveryAgent(
+                            org_id=request.project_id,  # Use project_id as org_id for now
+                            project_id=request.project_id,
+                        )
+                        discovery_result = await discovery_agent.discover(
+                            start_url=request.url,
+                            max_depth=request.discovery_depth or 3,
+                        )
+                        discovered_flows = discovery_result.get("flows", [])
+                        results["stages_completed"].append(
+                            {
+                                "stage": stage,
+                                "status": "completed",
+                                "flows_discovered": len(discovered_flows),
+                            }
+                        )
+                    except Exception as e:
+                        logger.error("Discovery stage failed", error=str(e), job_id=job_id)
+                        results["stages_failed"].append({"stage": stage, "error": str(e)})
+
                 elif stage == "visual":
-                    # Would run visual regression
-                    results["stages_completed"].append({"stage": stage, "status": "completed"})
+                    # Run visual regression tests
+                    try:
+                        visual_agent = VisualAI(
+                            org_id=request.project_id,
+                            project_id=request.project_id,
+                        )
+                        # Take baseline screenshots
+                        visual_result = await visual_agent.capture_baselines(
+                            urls=[request.url],
+                        )
+                        results["stages_completed"].append(
+                            {
+                                "stage": stage,
+                                "status": "completed",
+                                "screenshots_captured": len(visual_result.get("screenshots", [])),
+                            }
+                        )
+                    except Exception as e:
+                        logger.error("Visual stage failed", error=str(e), job_id=job_id)
+                        results["stages_failed"].append({"stage": stage, "error": str(e)})
+
                 elif stage == "generation":
-                    # Would generate tests from errors
-                    results["stages_completed"].append({"stage": stage, "status": "completed"})
+                    # Generate tests from production errors and discovered flows
+                    try:
+                        nlp_creator = NLPTestCreator(
+                            org_id=request.project_id,
+                            project_id=request.project_id,
+                        )
+
+                        # Get production errors
+                        errors_result = await supabase.request(
+                            f"/production_events?project_id=eq.{request.project_id}&select=*&order=occurrence_count.desc&limit=10"
+                        )
+                        production_errors = errors_result.get("data", [])
+
+                        # Generate tests from errors
+                        for error in production_errors:
+                            try:
+                                test_spec = await nlp_creator.create_test_from_error(
+                                    error_description=f"{error.get('title', '')}: {error.get('message', '')}",
+                                    url=error.get("url", request.url),
+                                )
+                                if test_spec:
+                                    generated_tests.append(test_spec)
+                            except Exception as e:
+                                logger.warning("Failed to generate test from error", error=str(e))
+
+                        # Generate tests from discovered flows
+                        for flow in discovered_flows[:5]:  # Limit to top 5 flows
+                            try:
+                                test_spec = await nlp_creator.create_test_from_flow(
+                                    flow=flow,
+                                    base_url=request.url,
+                                )
+                                if test_spec:
+                                    generated_tests.append(test_spec)
+                            except Exception as e:
+                                logger.warning("Failed to generate test from flow", error=str(e))
+
+                        results["stages_completed"].append(
+                            {
+                                "stage": stage,
+                                "status": "completed",
+                                "tests_generated": len(generated_tests),
+                            }
+                        )
+                        results["generated_tests"] = [t.get("name", "unnamed") for t in generated_tests]
+
+                    except Exception as e:
+                        logger.error("Generation stage failed", error=str(e), job_id=job_id)
+                        results["stages_failed"].append({"stage": stage, "error": str(e)})
+
                 elif stage == "verification":
-                    # Would verify generated tests
-                    results["stages_completed"].append({"stage": stage, "status": "completed"})
+                    # Verify generated tests work
+                    try:
+                        healer = SelfHealerAgent(
+                            org_id=request.project_id,
+                            project_id=request.project_id,
+                        )
+                        verified_tests = []
+
+                        for test_spec in generated_tests:
+                            try:
+                                # Run the test
+                                test_result = await healer.verify_test(test_spec)
+                                if test_result.get("success"):
+                                    verified_tests.append(test_spec)
+                                else:
+                                    # Try to heal the test
+                                    healing_result = await healer.heal_test(
+                                        test_spec=test_spec,
+                                        failure_details=test_result,
+                                        error_message=test_result.get("error", ""),
+                                    )
+                                    if (
+                                        healing_result.success
+                                        and healing_result.data
+                                        and healing_result.data.auto_healed
+                                    ):
+                                        results["healed_tests"].append(test_spec.get("name", "unnamed"))
+                                        verified_tests.append(healing_result.data.healed_test_spec)
+                            except Exception as e:
+                                logger.warning("Failed to verify test", test_name=test_spec.get("name"), error=str(e))
+
+                        # Store verified tests
+                        for test in verified_tests:
+                            await supabase.insert(
+                                "tests",
+                                {
+                                    "project_id": request.project_id,
+                                    "name": test.get("name", "Auto-generated test"),
+                                    "spec": test,
+                                    "source": "autonomous_loop",
+                                    "created_at": datetime.now(UTC).isoformat(),
+                                },
+                            )
+
+                        results["stages_completed"].append(
+                            {
+                                "stage": stage,
+                                "status": "completed",
+                                "tests_verified": len(verified_tests),
+                            }
+                        )
+
+                    except Exception as e:
+                        logger.error("Verification stage failed", error=str(e), job_id=job_id)
+                        results["stages_failed"].append({"stage": stage, "error": str(e)})
+
                 elif stage == "pr":
                     if request.auto_create_pr and request.github_config:
-                        results["stages_completed"].append({"stage": stage, "status": "completed"})
+                        try:
+                            # Create GitHub PR with generated tests
+                            from src.integrations.github import create_pr_with_tests
+
+                            pr_result = await create_pr_with_tests(
+                                project_id=request.project_id,
+                                tests=generated_tests,
+                                github_config=request.github_config,
+                            )
+                            results["stages_completed"].append(
+                                {
+                                    "stage": stage,
+                                    "status": "completed",
+                                    "pr_url": pr_result.get("pr_url"),
+                                }
+                            )
+                        except Exception as e:
+                            logger.error("PR creation failed", error=str(e), job_id=job_id)
+                            results["stages_failed"].append({"stage": stage, "error": str(e)})
                     else:
                         results["stages_completed"].append({"stage": stage, "status": "skipped"})
+
                 elif stage == "learning":
-                    results["stages_completed"].append({"stage": stage, "status": "completed"})
+                    # Store learnings in Cognee
+                    try:
+                        cognee = get_cognee_client(
+                            org_id=request.project_id,
+                            project_id=request.project_id,
+                        )
+
+                        # Store discovered patterns
+                        for flow in discovered_flows:
+                            await cognee.put(
+                                key=f"flow_{flow.get('id', 'unknown')}",
+                                value=flow,
+                                namespace=f"org_{request.project_id}_project_{request.project_id}_flows",
+                                embeddings=True,
+                            )
+
+                        # Store generation results
+                        await cognee.put(
+                            key=f"autonomous_loop_{job_id}",
+                            value={
+                                "job_id": job_id,
+                                "stages": results["stages_completed"],
+                                "tests_generated": len(generated_tests),
+                                "timestamp": datetime.now(UTC).isoformat(),
+                            },
+                            namespace=f"org_{request.project_id}_project_{request.project_id}_autonomous_runs",
+                            embeddings=True,
+                        )
+
+                        results["stages_completed"].append({"stage": stage, "status": "completed"})
+                    except Exception as e:
+                        logger.error("Learning stage failed", error=str(e), job_id=job_id)
+                        results["stages_failed"].append({"stage": stage, "error": str(e)})
 
             # Update job as completed
             await supabase.update(
@@ -1746,18 +1954,10 @@ async def predictive_quality(
                     "prediction_score": min(100, risk.get("overall_risk_score", 0) + 10),
                     "predicted_timeframe": timeframe,
                     "risk_factors": [
-                        "High error frequency"
-                        if risk.get("factors", {}).get("error_frequency", 0) > 50
-                        else None,
-                        "Critical severity errors"
-                        if risk.get("factors", {}).get("error_severity", 0) > 70
-                        else None,
-                        "Low test coverage"
-                        if risk.get("factors", {}).get("test_coverage", 100) > 80
-                        else None,
-                        "High user impact"
-                        if risk.get("factors", {}).get("user_impact", 0) > 50
-                        else None,
+                        "High error frequency" if risk.get("factors", {}).get("error_frequency", 0) > 50 else None,
+                        "Critical severity errors" if risk.get("factors", {}).get("error_severity", 0) > 70 else None,
+                        "Low test coverage" if risk.get("factors", {}).get("test_coverage", 100) > 80 else None,
+                        "High user impact" if risk.get("factors", {}).get("user_impact", 0) > 50 else None,
                     ],
                     "recommendations": [
                         "Add more test coverage for this component",
@@ -1815,9 +2015,7 @@ class SupervisorStartRequest(BaseModel):
     app_url: str = Field(..., description="URL of the application to test")
     pr_number: int | None = Field(None, description="PR number for GitHub integration")
     changed_files: list[str] | None = Field(None, description="Specific files to focus on")
-    initial_message: str | None = Field(
-        None, description="Custom initial message to the supervisor"
-    )
+    initial_message: str | None = Field(None, description="Custom initial message to the supervisor")
 
 
 class SupervisorStartResponse(BaseModel):
@@ -1855,9 +2053,7 @@ supervisor_jobs: dict[str, dict] = {}
     response_model=SupervisorStartResponse,
     tags=["Supervisor"],
 )
-async def start_supervised_test_run(
-    request: SupervisorStartRequest, background_tasks: BackgroundTasks
-):
+async def start_supervised_test_run(request: SupervisorStartRequest, background_tasks: BackgroundTasks):
     """
     Start a new supervised test run using the multi-agent supervisor pattern.
 
@@ -1927,8 +2123,7 @@ async def start_supervised_test_run(
                     "result": summary,
                     "progress": {
                         "phase": "completed",
-                        "tests_completed": final_state.get("passed_count", 0)
-                        + final_state.get("failed_count", 0),
+                        "tests_completed": final_state.get("passed_count", 0) + final_state.get("failed_count", 0),
                         "passed": final_state.get("passed_count", 0),
                         "failed": final_state.get("failed_count", 0),
                     },
@@ -2086,8 +2281,7 @@ async def get_orchestrator_status(thread_id: str):
     # Not found in any source
     raise HTTPException(
         status_code=404,
-        detail=f"Orchestrator run not found for thread_id: {thread_id}. "
-               "The thread may have expired or never existed."
+        detail=f"Orchestrator run not found for thread_id: {thread_id}. The thread may have expired or never existed.",
     )
 
 
@@ -2432,8 +2626,7 @@ async def startup():
             )
         else:
             logger.warning(
-                "Authentication is disabled (development mode). "
-                "Ensure ENFORCE_AUTHENTICATION=true in production.",
+                "Authentication is disabled (development mode). Ensure ENFORCE_AUTHENTICATION=true in production.",
                 environment=env,
             )
 
@@ -2448,6 +2641,7 @@ async def startup():
     # This fetches available models from Anthropic API and caches them
     try:
         from src.core.model_discovery import warm_cache
+
         await warm_cache()
         logger.info("Model discovery cache warmed")
     except Exception as e:
@@ -2468,6 +2662,7 @@ async def startup():
     # Start background scheduler daemon for automatic cron-based test runs
     try:
         from src.api.schedule_daemon import start_scheduler
+
         await start_scheduler()
         logger.info("Background scheduler daemon started")
     except Exception as e:
@@ -2476,6 +2671,7 @@ async def startup():
     # Start stale run cleanup checker (marks stuck runs as timeout)
     try:
         from src.api.scheduling import start_stale_run_checker
+
         asyncio.create_task(start_stale_run_checker(check_interval_seconds=300))
         logger.info("Stale run checker started (checks every 5 minutes)")
     except Exception as e:
@@ -2484,6 +2680,7 @@ async def startup():
     # Start integration sync daemon for connected observability integrations
     try:
         from src.api.integration_sync_daemon import start_integration_sync_daemon
+
         await start_integration_sync_daemon()
         logger.info("Integration sync daemon started")
     except Exception as e:
@@ -2492,6 +2689,7 @@ async def startup():
     # Start event gateway for publishing events to Redpanda
     try:
         from src.services.event_gateway import get_event_gateway
+
         event_gateway = get_event_gateway()
         await event_gateway.start()
         logger.info("Event gateway started", brokers=startup_settings.redpanda_brokers)
@@ -2513,6 +2711,20 @@ async def startup():
         # CogneeConsumer is optional - don't fail startup if Kafka/Cognee is not configured
         logger.warning("Failed to start CogneeConsumer (Kafka/Cognee may not be configured)", error=str(e))
 
+    # Start HealingConsumer as background worker for autonomous self-healing
+    global _healing_consumer, _healing_consumer_task
+    try:
+        _healing_consumer = HealingConsumer()
+        _healing_consumer_task = asyncio.create_task(_healing_consumer.run())
+        logger.info(
+            "HealingConsumer started",
+            input_topic=_healing_consumer.config.input_topic,
+            consumer_group=_healing_consumer.config.consumer_group,
+        )
+    except Exception as e:
+        # HealingConsumer is optional - don't fail startup if Kafka is not configured
+        logger.warning("Failed to start HealingConsumer (Kafka may not be configured)", error=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -2522,6 +2734,7 @@ async def shutdown():
     # Stop background scheduler daemon
     try:
         from src.api.schedule_daemon import stop_scheduler
+
         await stop_scheduler()
         logger.info("Background scheduler daemon stopped")
     except Exception as e:
@@ -2530,6 +2743,7 @@ async def shutdown():
     # Stop stale run checker
     try:
         from src.api.scheduling import stop_stale_run_checker
+
         stop_stale_run_checker()
         logger.info("Stale run checker stopped")
     except Exception as e:
@@ -2538,6 +2752,7 @@ async def shutdown():
     # Stop integration sync daemon
     try:
         from src.api.integration_sync_daemon import stop_integration_sync_daemon
+
         await stop_integration_sync_daemon()
         logger.info("Integration sync daemon stopped")
     except Exception as e:
@@ -2546,6 +2761,7 @@ async def shutdown():
     # Stop event gateway
     try:
         from src.services.event_gateway import get_event_gateway
+
         event_gateway = get_event_gateway()
         await event_gateway.stop()
         logger.info("Event gateway stopped")
@@ -2566,6 +2782,21 @@ async def shutdown():
         logger.info("CogneeConsumer stopped")
     except Exception as e:
         logger.warning("Failed to stop CogneeConsumer", error=str(e))
+
+    # Stop HealingConsumer gracefully
+    global _healing_consumer, _healing_consumer_task
+    try:
+        if _healing_consumer:
+            await _healing_consumer.stop()
+        if _healing_consumer_task:
+            _healing_consumer_task.cancel()
+            try:
+                await _healing_consumer_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("HealingConsumer stopped")
+    except Exception as e:
+        logger.warning("Failed to stop HealingConsumer", error=str(e))
 
     # Stop checkpoint cleanup job
     try:

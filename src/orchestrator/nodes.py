@@ -47,11 +47,11 @@ def robust_json_parse(content: str) -> dict:
         pass
 
     # Remove trailing commas before ] or }
-    content = re.sub(r',\s*([}\]])', r'\1', content)
+    content = re.sub(r",\s*([}\]])", r"\1", content)
 
     # Remove JavaScript-style comments
-    content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    content = re.sub(r"//.*?$", "", content, flags=re.MULTILINE)
+    content = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
 
     try:
         return json.loads(content)
@@ -59,20 +59,20 @@ def robust_json_parse(content: str) -> dict:
         pass
 
     # Try to find the first { and last } to extract just the JSON object
-    start = content.find('{')
-    end = content.rfind('}')
+    start = content.find("{")
+    end = content.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(content[start:end+1])
+            return json.loads(content[start : end + 1])
         except json.JSONDecodeError:
             pass
 
     # Try to find array
-    start = content.find('[')
-    end = content.rfind(']')
+    start = content.find("[")
+    end = content.rfind("]")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(content[start:end+1])
+            return json.loads(content[start : end + 1])
         except json.JSONDecodeError:
             pass
 
@@ -93,10 +93,7 @@ def _track_usage(state: TestingState, response: Any) -> TestingState:
 
         settings = get_settings()
         pricing = MODEL_PRICING[settings.default_model]
-        cost = (
-            input_tokens * pricing["input"] / 1_000_000 +
-            output_tokens * pricing["output"] / 1_000_000
-        )
+        cost = input_tokens * pricing["input"] / 1_000_000 + output_tokens * pricing["output"] / 1_000_000
 
         new_input_tokens += input_tokens
         new_output_tokens += output_tokens
@@ -122,6 +119,7 @@ async def _emit_test_events(
     Emits:
     - TEST_EXECUTED for all test completions (pass/fail)
     - TEST_FAILED for failures (triggers self-healing pipeline)
+    - HEALING_REQUESTED to trigger autonomous healing via HealingConsumer
     """
     # Skip event emission if no org_id is configured
     org_id = state.get("org_id")
@@ -132,6 +130,7 @@ async def _emit_test_events(
     try:
         from ..services.event_gateway import (
             EventType,
+            emit_healing_requested,
             emit_test_executed,
             emit_test_failed,
             get_event_gateway,
@@ -168,7 +167,7 @@ async def _emit_test_events(
         )
         log.debug("Emitted TEST_EXECUTED event", test_id=test["id"], status=test_result.status.value)
 
-        # Emit TEST_FAILED event for failures (triggers self-healing pipeline)
+        # Emit TEST_FAILED event and HEALING_REQUESTED for failures
         if test_result.status == TestStatus.FAILED:
             # Determine failure type based on error message
             error_msg = test_result.error_message or "Unknown error"
@@ -193,6 +192,40 @@ async def _emit_test_events(
                 },
             )
             log.debug("Emitted TEST_FAILED event", test_id=test["id"], failure_type=failure_type)
+
+            # Emit HEALING_REQUESTED to trigger autonomous healing via HealingConsumer
+            # This starts the AI learning loop:
+            # 1. HealingConsumer picks up the event
+            # 2. SelfHealerAgent analyzes and fixes the test
+            # 3. Test is verified and updated in Supabase
+            # 4. Pattern is stored in Cognee for future learning
+            try:
+                await emit_healing_requested(
+                    failure_id=f"failure_{test['id']}_{run_id}",
+                    test_id=test["id"],
+                    test_name=test.get("name", "Unknown"),
+                    error_message=error_msg,
+                    error_type=failure_type,
+                    failed_selector=_extract_failed_selector(test_result.actions_taken),
+                    page_url=state.get("app_url"),
+                    org_id=org_id,
+                    project_id=project_id,
+                    user_id=user_id,
+                    priority="high" if test.get("priority") == "critical" else "normal",
+                    strategy="auto",
+                )
+                log.info(
+                    "Emitted HEALING_REQUESTED event - autonomous healing triggered",
+                    test_id=test["id"],
+                    failure_type=failure_type,
+                )
+            except Exception as healing_error:
+                # Healing request is non-critical - log but don't fail test execution
+                log.warning(
+                    "Failed to emit healing request",
+                    error=str(healing_error),
+                    test_id=test["id"],
+                )
 
     except ImportError as e:
         log.warning("Event gateway module not available", error=str(e))
@@ -224,6 +257,37 @@ def _get_failed_step(actions_taken: list[dict]) -> int | None:
     for action in actions_taken:
         if action.get("result") == "failure":
             return action.get("step")
+    return None
+
+
+def _extract_failed_selector(actions_taken: list[dict]) -> str | None:
+    """Extract the selector that failed from actions taken."""
+    for action in actions_taken:
+        if action.get("result") == "failure":
+            # Try to extract selector from action details
+            details = action.get("details", {})
+            if isinstance(details, dict):
+                # Check for selector in various fields
+                for key in ["selector", "target", "element", "locator"]:
+                    if key in details and details[key]:
+                        return str(details[key])
+            # Try to parse from error message if available
+            error_msg = action.get("error", "")
+            if error_msg and "selector" in error_msg.lower():
+                # Extract selector from error message patterns like:
+                # "Element not found: #submit-btn"
+                # "Timeout waiting for selector .nav-menu"
+                import re
+
+                patterns = [
+                    r'selector\s*[`\'"]?([^`\'"\s]+)',
+                    r'element\s*[`\'"]?([^`\'"\s]+)',
+                    r"not found:\s*([#\.\w\-_]+)",
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, error_msg, re.IGNORECASE)
+                    if match:
+                        return match.group(1)
     return None
 
 
@@ -292,6 +356,7 @@ async def analyze_code_node(state: TestingState) -> TestingState:
             changed_results = []
             for cf in state["changed_files"]:
                 from pathlib import Path
+
                 cf_path = Path(state["codebase_path"]) / cf
                 if cf_path.exists():
                     result = reader.read_file(cf_path)
@@ -347,13 +412,19 @@ async def analyze_code_node(state: TestingState) -> TestingState:
 
         # Find key components (most dependents)
         components_with_dependents = [
-            (name, len(dep_analyzer.modules.get(comp.file_path, DependencyAnalyzer).dependents if dep_analyzer.modules.get(comp.file_path) else []))
+            (
+                name,
+                len(
+                    dep_analyzer.modules.get(comp.file_path, DependencyAnalyzer).dependents
+                    if dep_analyzer.modules.get(comp.file_path)
+                    else []
+                ),
+            )
             for name, comp in list(dep_analyzer.components.items())[:50]
         ]
         components_with_dependents.sort(key=lambda x: x[1], reverse=True)
         dependency_analysis["dependency_graph_summary"]["key_components"] = [
-            {"name": name, "dependents": count}
-            for name, count in components_with_dependents[:10]
+            {"name": name, "dependents": count} for name, count in components_with_dependents[:10]
         ]
 
         # 2b. If we have changed files, do impact analysis
@@ -406,9 +477,7 @@ async def analyze_code_node(state: TestingState) -> TestingState:
                 for c in recent_commits[:10]
             ],
             "contributors": list(set(c.author for c in recent_commits)),
-            "files_changed_recently": list(set(
-                f for c in recent_commits for f in c.files_changed
-            ))[:30],
+            "files_changed_recently": list(set(f for c in recent_commits for f in c.files_changed))[:30],
         }
 
         # If we have changed files, find selector changes
@@ -481,12 +550,14 @@ async def analyze_code_node(state: TestingState) -> TestingState:
         for selector in low_stability[:10]:
             mapping = source_analyzer.get_selector_mapping(selector.selector)
             if mapping and mapping.recommendation:
-                source_analysis["selector_recommendations"].append({
-                    "selector": selector.selector,
-                    "file": selector.file_path,
-                    "recommendation": mapping.recommendation,
-                    "stability_score": mapping.stability_score,
-                })
+                source_analysis["selector_recommendations"].append(
+                    {
+                        "selector": selector.selector,
+                        "file": selector.file_path,
+                        "recommendation": mapping.recommendation,
+                        "stability_score": mapping.stability_score,
+                    }
+                )
 
         log.info(
             "Source analysis complete",
@@ -517,7 +588,8 @@ async def analyze_code_node(state: TestingState) -> TestingState:
                 "dependency_analysis": dependency_analysis,
                 "git_analysis": git_analysis,
                 "source_analysis": {
-                    k: v for k, v in source_analysis.items()
+                    k: v
+                    for k, v in source_analysis.items()
                     if k != "component_selector_map"  # Too large for embedding
                 },
             }
@@ -541,46 +613,46 @@ async def analyze_code_node(state: TestingState) -> TestingState:
     if dependency_analysis and "error" not in dependency_analysis:
         analysis_context += f"""
 ## DEPENDENCY ANALYSIS
-- Total modules: {dependency_analysis.get('total_modules', 0)}
-- Total components: {dependency_analysis.get('total_components', 0)}
-- Total routes: {dependency_analysis.get('total_routes', 0)}
-- Modules by type: {json.dumps(dependency_analysis.get('dependency_graph_summary', {}).get('modules_by_type', {}), indent=2)}
-- Key components (most dependencies): {json.dumps(dependency_analysis.get('dependency_graph_summary', {}).get('key_components', [])[:5], indent=2)}
+- Total modules: {dependency_analysis.get("total_modules", 0)}
+- Total components: {dependency_analysis.get("total_components", 0)}
+- Total routes: {dependency_analysis.get("total_routes", 0)}
+- Modules by type: {json.dumps(dependency_analysis.get("dependency_graph_summary", {}).get("modules_by_type", {}), indent=2)}
+- Key components (most dependencies): {json.dumps(dependency_analysis.get("dependency_graph_summary", {}).get("key_components", [])[:5], indent=2)}
 """
         if "impact_analysis" in dependency_analysis:
             ia = dependency_analysis["impact_analysis"]
             analysis_context += f"""
 ### TEST IMPACT ANALYSIS (for changed files)
-- Affected components: {len(ia.get('affected_components', []))}
-- Affected routes: {ia.get('affected_routes', [])}
-- Tests to run: {len(ia.get('affected_tests', []))}
-- Tests to skip: {len(ia.get('skipped_tests', []))}
-- Explanation: {ia.get('explanation', 'N/A')}
+- Affected components: {len(ia.get("affected_components", []))}
+- Affected routes: {ia.get("affected_routes", [])}
+- Tests to run: {len(ia.get("affected_tests", []))}
+- Tests to skip: {len(ia.get("skipped_tests", []))}
+- Explanation: {ia.get("explanation", "N/A")}
 """
 
     # Add git analysis context
     if git_analysis and "error" not in git_analysis:
         analysis_context += f"""
 ## GIT HISTORY ANALYSIS
-- Recent commits (7 days): {git_analysis.get('recent_commits_count', 0)}
-- Contributors: {', '.join(git_analysis.get('contributors', [])[:5])}
-- Recently changed files: {', '.join(git_analysis.get('files_changed_recently', [])[:10])}
+- Recent commits (7 days): {git_analysis.get("recent_commits_count", 0)}
+- Contributors: {", ".join(git_analysis.get("contributors", [])[:5])}
+- Recently changed files: {", ".join(git_analysis.get("files_changed_recently", [])[:10])}
 """
         if git_analysis.get("recent_selector_changes"):
-            analysis_context += f"""- Selectors changed recently: {', '.join(git_analysis['recent_selector_changes'][:10])}
+            analysis_context += f"""- Selectors changed recently: {", ".join(git_analysis["recent_selector_changes"][:10])}
 """
 
     # Add source analysis context
     if source_analysis and "error" not in source_analysis:
         analysis_context += f"""
 ## SOURCE CODE ANALYSIS
-- Components analyzed: {source_analysis.get('total_components_analyzed', 0)}
-- Total selectors found: {source_analysis.get('total_selectors_found', 0)}
+- Components analyzed: {source_analysis.get("total_components_analyzed", 0)}
+- Total selectors found: {source_analysis.get("total_selectors_found", 0)}
 - Selector breakdown:
-  - data-testid selectors: {source_analysis.get('selector_breakdown', {}).get('testid', 0)}
-  - aria selectors: {source_analysis.get('selector_breakdown', {}).get('aria', 0)}
-  - High stability selectors: {source_analysis.get('selector_breakdown', {}).get('high_stability', 0)}
-  - Low stability selectors: {source_analysis.get('selector_breakdown', {}).get('low_stability', 0)}
+  - data-testid selectors: {source_analysis.get("selector_breakdown", {}).get("testid", 0)}
+  - aria selectors: {source_analysis.get("selector_breakdown", {}).get("aria", 0)}
+  - High stability selectors: {source_analysis.get("selector_breakdown", {}).get("high_stability", 0)}
+  - Low stability selectors: {source_analysis.get("selector_breakdown", {}).get("low_stability", 0)}
 """
         if source_analysis.get("testable_elements"):
             analysis_context += """
@@ -594,7 +666,9 @@ async def analyze_code_node(state: TestingState) -> TestingState:
 ### SELECTOR STABILITY RECOMMENDATIONS
 """
             for rec in source_analysis["selector_recommendations"][:5]:
-                analysis_context += f"- {rec['selector']}: {rec['recommendation']} (stability: {rec['stability_score']:.2f})\n"
+                analysis_context += (
+                    f"- {rec['selector']}: {rec['recommendation']} (stability: {rec['stability_score']:.2f})\n"
+                )
 
     prompt = f"""Analyze this codebase and identify testable surfaces.
 
@@ -653,7 +727,7 @@ Respond with JSON:
         metadata={
             "files_analyzed": file_summary["readable"],
             "secrets_redacted": file_summary["secrets_redacted"],
-        }
+        },
     )
 
     try:
@@ -670,7 +744,7 @@ Respond with JSON:
             request_id=prompt_hash,
             user_id=user_id,
             model=settings.default_model.value,
-            output_tokens=response.usage.output_tokens if hasattr(response, 'usage') else 0,
+            output_tokens=response.usage.output_tokens if hasattr(response, "usage") else 0,
             cost_usd=tracked_state.get("total_cost", 0),
             success=True,
         )
@@ -774,9 +848,7 @@ async def plan_tests_node(state: TestingState) -> TestingState:
 
             # Sort by priority
             priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-            test_plan_dicts.sort(
-                key=lambda t: priority_order.get(t.get("priority", "low"), 3)
-            )
+            test_plan_dicts.sort(key=lambda t: priority_order.get(t.get("priority", "low"), 3))
 
             # Estimate session config for the entire plan
             session_config = agent.estimate_session_config_for_plan(test_plan)
@@ -872,13 +944,16 @@ async def execute_test_node(state: TestingState) -> TestingState:
 
         # Queue for healing (immutable)
         new_healing_queue = [*new_healing_queue, test["id"]]
-        new_failures = [*new_failures, FailureAnalysis(
-            test_id=test["id"],
-            failure_type="unknown",
-            root_cause=test_result.error_message or "Unknown",
-            confidence=0.0,
-            screenshot_at_failure=test_result.screenshots[-1] if test_result.screenshots else None,
-        ).to_dict()]
+        new_failures = [
+            *new_failures,
+            FailureAnalysis(
+                test_id=test["id"],
+                failure_type="unknown",
+                root_cause=test_result.error_message or "Unknown",
+                confidence=0.0,
+                screenshot_at_failure=test_result.screenshots[-1] if test_result.screenshots else None,
+            ).to_dict(),
+        ]
 
     # Emit test execution events to Redpanda for downstream processing
     await _emit_test_events(state, test, test_result, log)
@@ -926,10 +1001,7 @@ async def _execute_ui_test(
         from ..browser.e2e_client import E2EBrowserClient
 
         # Connect to Cloudflare Worker
-        worker_url = os.environ.get(
-            "E2E_WORKER_URL",
-            "https://e2e-testing-agent.samuelvinay-kumar.workers.dev"
-        )
+        worker_url = os.environ.get("E2E_WORKER_URL", "https://e2e-testing-agent.samuelvinay-kumar.workers.dev")
 
         async with E2EBrowserClient(endpoint=worker_url) as client:
             # Create page and navigate
@@ -943,7 +1015,7 @@ async def _execute_ui_test(
                 value = step.get("value")
                 description = step.get("description", "")
 
-                log.debug(f"Executing step {i+1}", action=action_type, target=target)
+                log.debug(f"Executing step {i + 1}", action=action_type, target=target)
 
                 try:
                     # Convert structured steps to natural language for AI execution
@@ -962,8 +1034,9 @@ async def _execute_ui_test(
                         result = await page.act(instruction)
                     elif action_type == "wait":
                         import asyncio
+
                         await asyncio.sleep(int(value or 1000) / 1000)
-                        result = type('Result', (), {'success': True})()
+                        result = type("Result", (), {"success": True})()
                     elif action_type == "wait_for_selector":
                         result = await page.observe(f"Wait for {target} to appear")
                     elif action_type == "press":
@@ -979,33 +1052,37 @@ async def _execute_ui_test(
                         screenshot_bytes = await page.screenshot()
                         if screenshot_bytes:
                             screenshots.append(base64.b64encode(screenshot_bytes).decode())
-                        result = type('Result', (), {'success': True})()
+                        result = type("Result", (), {"success": True})()
                     else:
                         # For unknown actions, try natural language
                         instruction = description or f"{action_type} {target} {value or ''}".strip()
                         result = await page.act(instruction)
 
-                    if not getattr(result, 'success', True):
-                        raise Exception(getattr(result, 'error', f"Step failed: {action_type}"))
+                    if not getattr(result, "success", True):
+                        raise Exception(getattr(result, "error", f"Step failed: {action_type}"))
 
-                    actions_taken.append({
-                        "step": i + 1,
-                        "action": action_type,
-                        "target": target,
-                        "result": "success",
-                        "duration_ms": (time.time() - step_start) * 1000,
-                        "cached": getattr(result, 'cached', False),
-                        "healed": getattr(result, 'healed', False),
-                    })
+                    actions_taken.append(
+                        {
+                            "step": i + 1,
+                            "action": action_type,
+                            "target": target,
+                            "result": "success",
+                            "duration_ms": (time.time() - step_start) * 1000,
+                            "cached": getattr(result, "cached", False),
+                            "healed": getattr(result, "healed", False),
+                        }
+                    )
 
                 except Exception as step_error:
-                    actions_taken.append({
-                        "step": i + 1,
-                        "action": action_type,
-                        "target": target,
-                        "result": "failure",
-                        "error": str(step_error),
-                    })
+                    actions_taken.append(
+                        {
+                            "step": i + 1,
+                            "action": action_type,
+                            "target": target,
+                            "result": "failure",
+                            "error": str(step_error),
+                        }
+                    )
                     # Capture screenshot on failure
                     try:
                         screenshot_bytes = await page.screenshot()
@@ -1107,7 +1184,7 @@ async def _execute_api_test(
                     body = step.get("value")
                     headers = step.get("headers", {})
 
-                    log.debug(f"API call {i+1}", method=method, url=url)
+                    log.debug(f"API call {i + 1}", method=method, url=url)
 
                     try:
                         if method == "GET":
@@ -1123,27 +1200,31 @@ async def _execute_api_test(
                         else:
                             raise ValueError(f"Unsupported HTTP method: {method}")
 
-                        actions_taken.append({
-                            "step": i + 1,
-                            "action": action,
-                            "method": method,
-                            "url": url,
-                            "status_code": response.status_code,
-                            "result": "success" if response.is_success else "failure",
-                        })
+                        actions_taken.append(
+                            {
+                                "step": i + 1,
+                                "action": action,
+                                "method": method,
+                                "url": url,
+                                "status_code": response.status_code,
+                                "result": "success" if response.is_success else "failure",
+                            }
+                        )
 
                         # Store response for assertions
                         step["_response"] = response
 
                     except Exception as e:
-                        actions_taken.append({
-                            "step": i + 1,
-                            "action": action,
-                            "method": method,
-                            "url": url,
-                            "result": "failure",
-                            "error": str(e),
-                        })
+                        actions_taken.append(
+                            {
+                                "step": i + 1,
+                                "action": action,
+                                "method": method,
+                                "url": url,
+                                "result": "failure",
+                                "error": str(e),
+                            }
+                        )
                         raise
 
             # Execute assertions
@@ -1174,9 +1255,7 @@ async def _execute_api_test(
                         data = response.json()
                         value = data.get(target)
                         if str(value) != str(expected):
-                            raise AssertionError(
-                                f"JSON value mismatch at {target}: expected {expected}, got {value}"
-                            )
+                            raise AssertionError(f"JSON value mismatch at {target}: expected {expected}, got {value}")
 
                     assertions_passed += 1
 
@@ -1364,6 +1443,7 @@ async def self_heal_node(state: TestingState) -> TestingState:
         screenshot = None
         if failure and failure.get("screenshot_at_failure"):
             import base64
+
             try:
                 screenshot = base64.b64decode(failure["screenshot_at_failure"])
             except Exception:
@@ -1393,8 +1473,8 @@ async def self_heal_node(state: TestingState) -> TestingState:
                 # Calculate cost
                 pricing = MODEL_PRICING.get(settings.default_model, MODEL_PRICING[settings.default_model])
                 cost = (
-                    heal_result.input_tokens * pricing["input"] / 1_000_000 +
-                    heal_result.output_tokens * pricing["output"] / 1_000_000
+                    heal_result.input_tokens * pricing["input"] / 1_000_000
+                    + heal_result.output_tokens * pricing["output"] / 1_000_000
                 )
                 new_cost += cost
 
@@ -1443,7 +1523,7 @@ async def self_heal_node(state: TestingState) -> TestingState:
                             r["status"] = "healed"
 
                     # Record successful healing outcome if pattern was from memory
-                    if hasattr(healing_data, '_memory_pattern_id'):
+                    if hasattr(healing_data, "_memory_pattern_id"):
                         await healer._record_memory_outcome(
                             healing_data._memory_pattern_id,
                             success=True,  # Will be verified after retry
@@ -1823,7 +1903,9 @@ async def accessibility_check_node(state: TestingState) -> TestingState:
             accessibility_data = {
                 "url": result.data.url,
                 "score": result.data.score,
-                "wcag_level_achieved": result.data.wcag_level_achieved.value if result.data.wcag_level_achieved else None,
+                "wcag_level_achieved": result.data.wcag_level_achieved.value
+                if result.data.wcag_level_achieved
+                else None,
                 "passes_wcag_aa": result.data.passes_wcag_aa(),
                 "issues_count": len(result.data.issues),
                 "critical_count": result.data.critical_count,
@@ -2206,10 +2288,10 @@ async def detect_flaky_tests_node(state: TestingState) -> TestingState:
         # Create detector with configurable thresholds
         settings = get_settings()
         config = QuarantineConfig(
-            auto_quarantine_threshold=getattr(settings, 'flaky_quarantine_threshold', 0.3),
-            auto_restore_threshold=getattr(settings, 'flaky_restore_threshold', 0.95),
-            min_runs_for_decision=getattr(settings, 'flaky_min_runs', 10),
-            retry_on_failure=getattr(settings, 'flaky_retry_count', 3),
+            auto_quarantine_threshold=getattr(settings, "flaky_quarantine_threshold", 0.3),
+            auto_restore_threshold=getattr(settings, "flaky_restore_threshold", 0.95),
+            min_runs_for_decision=getattr(settings, "flaky_min_runs", 10),
+            retry_on_failure=getattr(settings, "flaky_retry_count", 3),
         )
         detector = FlakyTestDetector(config=config)
 
@@ -2217,15 +2299,17 @@ async def detect_flaky_tests_node(state: TestingState) -> TestingState:
         historical_runs = state.get("test_history", {})
         for test_id, runs in historical_runs.items():
             for run_data in runs:
-                detector.record_run(TestRun(
-                    test_id=test_id,
-                    passed=run_data.get("passed", False),
-                    duration_ms=run_data.get("duration_ms", 0),
-                    timestamp=datetime.fromisoformat(run_data.get("timestamp", datetime.utcnow().isoformat())),
-                    error_message=run_data.get("error_message"),
-                    environment=run_data.get("environment"),
-                    retry_number=run_data.get("retry_number", 0),
-                ))
+                detector.record_run(
+                    TestRun(
+                        test_id=test_id,
+                        passed=run_data.get("passed", False),
+                        duration_ms=run_data.get("duration_ms", 0),
+                        timestamp=datetime.fromisoformat(run_data.get("timestamp", datetime.utcnow().isoformat())),
+                        error_message=run_data.get("error_message"),
+                        environment=run_data.get("environment"),
+                        retry_number=run_data.get("retry_number", 0),
+                    )
+                )
 
         # Record current test results
         test_results = state.get("test_results", [])
@@ -2233,16 +2317,18 @@ async def detect_flaky_tests_node(state: TestingState) -> TestingState:
 
         for result in test_results:
             test_id = result.get("test_id", "")
-            detector.record_run(TestRun(
-                test_id=test_id,
-                passed=result.get("status") == "passed",
-                duration_ms=result.get("duration_seconds", 0) * 1000,
-                timestamp=now,
-                error_message=result.get("error_message"),
-                environment=state.get("environment", "ci"),
-                retry_number=result.get("retry_number", 0),
-                ci_run_id=state.get("run_id"),
-            ))
+            detector.record_run(
+                TestRun(
+                    test_id=test_id,
+                    passed=result.get("status") == "passed",
+                    duration_ms=result.get("duration_seconds", 0) * 1000,
+                    timestamp=now,
+                    error_message=result.get("error_message"),
+                    environment=state.get("environment", "ci"),
+                    retry_number=result.get("retry_number", 0),
+                    ci_run_id=state.get("run_id"),
+                )
+            )
 
         # Analyze each test for flakiness
         flaky_analysis = []
@@ -2412,8 +2498,8 @@ async def analyze_test_impact_node(state: TestingState) -> TestingState:
         # Use SmartTestSelector for intelligent test selection
         selector = SmartTestSelector(analyzer)
         settings = get_settings()
-        time_budget = getattr(settings, 'test_time_budget', None)
-        risk_tolerance = getattr(settings, 'test_risk_tolerance', 'medium')
+        time_budget = getattr(settings, "test_time_budget", None)
+        risk_tolerance = getattr(settings, "test_risk_tolerance", "medium")
 
         selection = await selector.select_tests(
             change=change,
@@ -2437,11 +2523,8 @@ async def analyze_test_impact_node(state: TestingState) -> TestingState:
             must_run_ids = set(selection["must_run"] + selection["should_run"])
 
             # Filter test plan to only run affected tests
-            if getattr(settings, 'use_test_impact_filtering', True):
-                state["test_plan"] = [
-                    t for t in state["test_plan"]
-                    if t.get("id") in must_run_ids
-                ]
+            if getattr(settings, "use_test_impact_filtering", True):
+                state["test_plan"] = [t for t in state["test_plan"] if t.get("id") in must_run_ids]
                 state["skipped_tests_by_impact"] = selection["can_skip"]
 
                 log.info(

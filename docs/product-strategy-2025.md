@@ -1,15 +1,22 @@
 # Argus Product Strategy 2025
+
 ## Full Stack Quality Intelligence Platform
 
 ---
 
 ## Executive Summary
 
-Argus is evolving from an "E2E Testing Agent" into a **Full Stack Quality Intelligence Platform** that provides predictive quality assurance across the entire software development lifecycle (SDLC), including DevSecOps and AIOps.
+Argus is pivoting from a "Generalist E2E Testing Agent" to an **Autonomous Quality Intelligence Platform** designed for Enterprise Confidence.
+We address the #1 blocker to AI adoption in QA: **Trust**.
 
-**Vision**: Every code change is analyzed, every risk is predicted, every quality issue is prevented before it reaches production.
+**The Argus Difference: "Confidence through Control"**
+Unlike "Magic Box" agents that guess at DOM elements, Argus builds trust through:
 
-**Mission**: Replace reactive testing with proactive quality intelligence.
+1. **Code-Aware Determinism**: We read the Git History + Source Code to heal tests with 99.9% accuracy (vs 95% DOM guesses).
+2. **3-Zone Architecture**: Strict isolation between Dashboard (Zone 1), AI Agents (Zone 2), and Shared Data (Zone 3) ensures Enterprise Security.
+3. **Production Loop**: The *only* platform that auto-generates tests directly from Sentry/Datadog errors, closing the feedback loop.
+
+**Mission**: Transform QA from "Flaky Gatekeeper" to "Predictive Intelligence Layer".
 
 ---
 
@@ -23,6 +30,7 @@ Argus is evolving from an "E2E Testing Agent" into a **Full Stack Quality Intell
 | **Total** | **$100B+** | Multi-segment leader |
 
 ### Why Now?
+
 1. **AI Maturity**: LLMs can now understand code semantically
 2. **Tool Fatigue**: Teams use 15+ disconnected tools
 3. **Shift-Left Demand**: Catching bugs earlier saves 100x cost
@@ -33,15 +41,19 @@ Argus is evolving from an "E2E Testing Agent" into a **Full Stack Quality Intell
 ## Product Pillars
 
 ### Pillar 1: Unified Quality Platform
+
 Single platform replacing fragmented tools across the SDLC.
 
 ### Pillar 2: Predictive Intelligence
+
 AI that predicts failures before they happen, not just detects them after.
 
 ### Pillar 3: Autonomous Execution
+
 Agents that run tests, fix issues, and improve themselves without human intervention.
 
 ### Pillar 4: Cross-Correlation Engine
+
 Connecting data from requirements → code → tests → deploys → incidents for full traceability.
 
 ---
@@ -92,6 +104,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 ## Implementation Roadmap
 
 ### Phase 1: Foundation (Weeks 1-4)
+
 **Goal**: Solidify core platform and complete existing features
 
 | Component | Status | Work Needed |
@@ -105,19 +118,21 @@ Connecting data from requirements → code → tests → deploys → incidents f
 | E2E Test Agent | ✅ Working | Enhance |
 | Dashboard UI | ✅ Working | Add correlation views |
 
-### Phase 2: Commit Intelligence (Weeks 5-8)
-**Goal**: Launch Commit Impact Predictor
+### Phase 2: Confidence & Commit Intelligence (Weeks 5-8)
+
+**Goal**: Build unwavering trust in the AI's decisions ("Why did it do that?").
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| Test Impact Graph | 🆕 New | Map files → tests |
-| Failure Pattern Store | 🆕 New | Learn from history |
-| GitHub Webhook Handler | 🆕 New | Ingest commits |
-| Prediction Engine | 🆕 New | ML-based predictions |
-| PR Comment Bot | 🆕 New | Post analysis to PRs |
-| Learning Feedback Loop | 🆕 New | Track accuracy, improve |
+| **Commit Impact Predictor** | 🆕 P0 | "Don't run 100 tests. Run the 3 that matter." (Efficiency + Trust) |
+| **"Why?" Engine** | 🆕 P0 | Explain *why* a test was healed (e.g., "Linked to Commit `a1b2c` by `Sarah`") |
+| **Visual Proof Engine** | 🆕 P1 | Embed Playwright Traces & Video in every report for manual verification |
+| **Production Loop** | 🆕 P0 | Auto-generate tests from Sentry/Datadog errors (Unique Differentiator) |
+| GitHub Webhook Handler | 🆕 New | Ingest commits to feed Impact Predictor |
+| PR Comment Bot | 🆕 New | Post "Propose Mode" plans to PRs (Human-in-the-loop gate) |
 
 ### Phase 3: Test Pyramid Agents (Weeks 9-14)
+
 **Goal**: Cover entire testing pyramid
 
 | Agent | Priority | Complexity |
@@ -131,6 +146,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 | Data Validation Agent | P2 | Medium |
 
 ### Phase 4: DevSecOps (Weeks 15-18)
+
 **Goal**: Security scanning and compliance
 
 | Component | Priority | Description |
@@ -142,6 +158,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 | Compliance Engine | P2 | SOC2, HIPAA checks |
 
 ### Phase 5: AIOps (Weeks 19-24)
+
 **Goal**: Predictive operations
 
 | Component | Priority | Description |
@@ -153,6 +170,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 | Cost Optimizer | P2 | Cloud spend analysis |
 
 ### Phase 6: Enterprise (Weeks 25-30)
+
 **Goal**: Enterprise-grade features
 
 | Feature | Description |
@@ -169,6 +187,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 ## Success Metrics
 
 ### Platform Metrics
+
 | Metric | Target | Timeframe |
 |--------|--------|-----------|
 | Test Prediction Accuracy | >80% | 6 months |
@@ -177,6 +196,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 | Incident Prevention | >50% | 12 months |
 
 ### Business Metrics
+
 | Metric | Target | Timeframe |
 |--------|--------|-----------|
 | Active Projects | 1,000 | 6 months |
@@ -203,16 +223,19 @@ Connecting data from requirements → code → tests → deploys → incidents f
 ## Team Requirements
 
 ### Current: 1-2 Engineers
+
 - Focus on Phase 1-2
 - Prioritize high-impact features
 - Leverage AI for acceleration
 
 ### Growth: 5-8 Engineers (6 months)
+
 - Dedicated agents team
 - Platform/infrastructure team
 - DevSecOps specialist
 
 ### Scale: 15-20 Engineers (18 months)
+
 - Full agent coverage
 - Enterprise features
 - 24/7 operations
