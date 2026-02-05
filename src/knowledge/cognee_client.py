@@ -81,6 +81,41 @@ def _configure_cognee() -> None:
             "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
         )
 
+    # CRITICAL: Embedding Configuration
+    # Cognee defaults to OpenAI embeddings if not configured, which fails without OPENAI_API_KEY
+    # This causes "int() argument must be a string...NoneType" errors
+    cohere_key = os.environ.get("COHERE_API_KEY")
+    openai_key = os.environ.get("OPENAI_API_KEY")
+
+    if cohere_key:
+        # Preferred: Use Cohere embed-multilingual-v3.0 (1024-dim)
+        os.environ["EMBEDDING_PROVIDER"] = "cohere"
+        os.environ["EMBEDDING_MODEL"] = os.environ.get("EMBEDDING_MODEL", "embed-multilingual-v3.0")
+        os.environ["EMBEDDING_API_KEY"] = cohere_key
+        os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("EMBEDDING_DIMENSIONS", "1024")
+        logger.info("Cognee configured with Cohere embeddings", model=os.environ["EMBEDDING_MODEL"])
+    elif openai_key:
+        # Fallback: Use OpenAI text-embedding-3-small
+        os.environ["EMBEDDING_PROVIDER"] = "openai"
+        os.environ["EMBEDDING_MODEL"] = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+        os.environ["EMBEDDING_API_KEY"] = openai_key
+        os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("EMBEDDING_DIMENSIONS", "1536")
+        logger.info("Cognee configured with OpenAI embeddings", model=os.environ["EMBEDDING_MODEL"])
+    elif openrouter_key:
+        # Last resort: Try OpenRouter's OpenAI-compatible endpoint
+        os.environ["EMBEDDING_PROVIDER"] = "custom"
+        os.environ["EMBEDDING_MODEL"] = "openai/text-embedding-3-small"
+        os.environ["EMBEDDING_ENDPOINT"] = "https://openrouter.ai/api/v1/embeddings"
+        os.environ["EMBEDDING_API_KEY"] = openrouter_key
+        os.environ["EMBEDDING_DIMENSIONS"] = "1536"
+        logger.info("Cognee configured with OpenRouter embeddings (OpenAI compatible)")
+    else:
+        logger.error(
+            "CRITICAL: No embedding API key found for Cognee! "
+            "Semantic search and pattern learning will NOT work. "
+            "Set COHERE_API_KEY or OPENAI_API_KEY."
+        )
+
     # Database Configuration
     # Railway has ephemeral filesystem, so we MUST use PostgreSQL for persistence
     # Cognee reads from environment variables, so we set them directly
