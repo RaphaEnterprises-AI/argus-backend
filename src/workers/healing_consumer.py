@@ -617,12 +617,16 @@ class HealingConsumer:
             from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
             # Build base consumer config
+            # Note: LLM healing can take 30-60s, so we need longer poll intervals
             consumer_config = {
                 "bootstrap_servers": self.config.bootstrap_servers,
                 "group_id": self.config.consumer_group,
                 "auto_offset_reset": self.config.auto_offset_reset,
                 "enable_auto_commit": False,  # Manual commit for exactly-once
                 "value_deserializer": lambda m: json.loads(m.decode("utf-8")),
+                "max_poll_interval_ms": 600000,  # 10 min - healing with LLM can be slow
+                "session_timeout_ms": 60000,  # 60s session timeout
+                "heartbeat_interval_ms": 10000,  # 10s heartbeat
             }
 
             # Build base producer config
@@ -736,9 +740,25 @@ class HealingConsumer:
                 except Exception as e:
                     logger.exception("Error processing message", error=str(e))
                     await self._send_to_dlq(event_data, str(e))
-                    await self._consumer.commit()
+                    try:
+                        await self._consumer.commit()
+                    except Exception as commit_error:
+                        # CommitFailedError usually means rebalance - log and continue
+                        logger.warning(
+                            "Commit failed after error, will continue",
+                            error=str(commit_error)[:100],
+                        )
 
         except Exception as e:
+            error_str = str(e)
+            # Check if this is a rebalance error - if so, try to recover
+            if "rebalanced" in error_str.lower() or "CommitFailedError" in error_str:
+                logger.warning(
+                    "Consumer group rebalanced, will rejoin",
+                    error=error_str[:200],
+                )
+                # Don't re-raise - let the consumer restart
+                return
             logger.exception("Consumer loop error", error=str(e))
             raise
 
