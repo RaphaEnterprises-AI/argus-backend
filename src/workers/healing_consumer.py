@@ -227,11 +227,22 @@ class HealingConsumer:
         # Fetch test spec and failure details
         test_spec = await self._fetch_test_spec(event.test_id, event.project_id)
         if not test_spec:
+            logger.warning(
+                "Test spec not found for healing",
+                test_id=event.test_id,
+                project_id=event.project_id,
+            )
             return {
                 "success": False,
                 "failure_reason": "Test spec not found",
                 "duration_ms": int((datetime.now(UTC) - start_time).total_seconds() * 1000),
             }
+
+        logger.info(
+            "Fetched test spec for healing",
+            test_id=event.test_id,
+            test_name=test_spec.get("name"),
+        )
 
         failure_details = await self._fetch_failure_details(event.failure_id)
 
@@ -279,6 +290,14 @@ class HealingConsumer:
                         },
                     )
 
+                logger.info(
+                    "Healing succeeded",
+                    test_id=event.test_id,
+                    strategy=healing_result.diagnosis.failure_type.value,
+                    auto_healed=healing_result.auto_healed,
+                    duration_ms=duration_ms,
+                )
+
                 return {
                     "success": True,
                     "strategy_used": healing_result.diagnosis.failure_type.value,
@@ -295,6 +314,12 @@ class HealingConsumer:
                     "duration_ms": duration_ms,
                 }
             else:
+                logger.warning(
+                    "Healing did not succeed",
+                    test_id=event.test_id,
+                    error=result.error,
+                    duration_ms=duration_ms,
+                )
                 return {
                     "success": False,
                     "failure_reason": result.error or "Healing failed",
@@ -329,7 +354,14 @@ class HealingConsumer:
         Supabase: For API queries and dashboard display
         Cognee: For semantic search and pattern learning
         """
+        logger.info(
+            "Attempting to store healing pattern",
+            test_id=event.test_id,
+            healing_success=healing_result.get("success"),
+        )
+
         if not healing_result.get("success"):
+            logger.debug("Skipping pattern storage - healing was not successful")
             return None
 
         import hashlib
@@ -363,7 +395,7 @@ class HealingConsumer:
                     await supabase.request(
                         f"/healing_patterns?id=eq.{pattern_id}",
                         method="PATCH",
-                        json={
+                        body={
                             "success_count": new_count,
                             "healed_selector": healed_selector,
                         },
@@ -374,7 +406,7 @@ class HealingConsumer:
                     result = await supabase.request(
                         "/healing_patterns",
                         method="POST",
-                        json={
+                        body={
                             "fingerprint": fingerprint,
                             "original_selector": original_selector,
                             "healed_selector": healed_selector,
