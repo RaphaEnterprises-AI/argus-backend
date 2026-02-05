@@ -273,6 +273,12 @@ class HybridRetriever:
             # Extract content from row
             content = self._build_content_from_row(row)
 
+            # Handle potential null values safely
+            success_rate = row["success_rate"]
+            bm25_score = row["bm25_score"]
+            vector_score = row["vector_score"]
+            hybrid_score = row["hybrid_score"]
+
             result = RetrievalResult(
                 id=str(row["id"]),
                 content=content,
@@ -282,14 +288,14 @@ class HybridRetriever:
                     "selector": row["selector"],
                     "healed_selector": row["healed_selector"],
                     "healing_method": row["healing_method"],
-                    "success_count": row["success_count"],
-                    "failure_count": row["failure_count"],
-                    "success_rate": float(row["success_rate"]),
+                    "success_count": row["success_count"] or 0,
+                    "failure_count": row["failure_count"] or 0,
+                    "success_rate": float(success_rate) if success_rate is not None else 0.0,
                 },
-                bm25_score=float(row["bm25_score"]),
-                vector_score=float(row["vector_score"]),
-                hybrid_score=float(row["hybrid_score"]),
-                final_score=float(row["hybrid_score"]),
+                bm25_score=float(bm25_score) if bm25_score is not None else 0.0,
+                vector_score=float(vector_score) if vector_score is not None else 0.0,
+                hybrid_score=float(hybrid_score) if hybrid_score is not None else 0.0,
+                final_score=float(hybrid_score) if hybrid_score is not None else 0.0,
                 source=RetrievalSource.HYBRID,
             )
             results.append(result)
