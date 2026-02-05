@@ -53,8 +53,12 @@ class HealingEvent(BaseModel):
 class HealingConfig(BaseModel):
     """Configuration for Healing worker."""
 
-    # Kafka/Redpanda
-    bootstrap_servers: str = Field(default_factory=lambda: os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"))
+    # Kafka/Redpanda - Check REDPANDA_BROKERS first (consistent with EventGateway)
+    bootstrap_servers: str = Field(
+        default_factory=lambda: os.getenv(
+            "REDPANDA_BROKERS", os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+        )
+    )
     consumer_group: str = Field(
         default_factory=lambda: os.getenv("KAFKA_HEALING_CONSUMER_GROUP", "argus-healing-workers")
     )

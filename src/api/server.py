@@ -642,6 +642,60 @@ async def service_health_check():
     }
 
 
+@app.get("/health/workers", tags=["Health"])
+async def worker_health_check():
+    """Check status of background workers (HealingConsumer, CogneeConsumer)."""
+    workers = {}
+
+    # Check HealingConsumer
+    if _healing_consumer is not None:
+        workers["healing_consumer"] = {
+            "status": "running" if _healing_consumer._running else "stopped",
+            "input_topic": _healing_consumer.config.input_topic,
+            "consumer_group": _healing_consumer.config.consumer_group,
+            "bootstrap_servers": _healing_consumer.config.bootstrap_servers[:50] + "..."
+            if len(_healing_consumer.config.bootstrap_servers) > 50
+            else _healing_consumer.config.bootstrap_servers,
+        }
+    else:
+        workers["healing_consumer"] = {
+            "status": "not_initialized",
+            "message": "HealingConsumer failed to start or is not configured",
+        }
+
+    # Check CogneeConsumer
+    if _cognee_consumer is not None:
+        workers["cognee_consumer"] = {
+            "status": "running" if _cognee_consumer._running else "stopped",
+            "input_topic": _cognee_consumer.config.input_topic,
+            "consumer_group": _cognee_consumer.config.consumer_group,
+            "bootstrap_servers": _cognee_consumer.config.bootstrap_servers[:50] + "..."
+            if len(_cognee_consumer.config.bootstrap_servers) > 50
+            else _cognee_consumer.config.bootstrap_servers,
+        }
+    else:
+        workers["cognee_consumer"] = {
+            "status": "not_initialized",
+            "message": "CogneeConsumer failed to start or is not configured",
+        }
+
+    # Check task status
+    if _healing_consumer_task is not None:
+        workers["healing_consumer"]["task_done"] = _healing_consumer_task.done()
+        if _healing_consumer_task.done() and _healing_consumer_task.exception():
+            workers["healing_consumer"]["error"] = str(_healing_consumer_task.exception())
+
+    if _cognee_consumer_task is not None:
+        workers["cognee_consumer"]["task_done"] = _cognee_consumer_task.done()
+        if _cognee_consumer_task.done() and _cognee_consumer_task.exception():
+            workers["cognee_consumer"]["error"] = str(_cognee_consumer_task.exception())
+
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "workers": workers,
+    }
+
+
 @app.get("/health/selenium-test", tags=["Health"])
 async def test_selenium_session():
     """Test Selenium Grid session creation and video recording.
