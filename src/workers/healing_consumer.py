@@ -57,6 +57,12 @@ class HealingConfig(BaseModel):
     )
     auto_offset_reset: str = Field(default_factory=lambda: os.getenv("KAFKA_AUTO_OFFSET_RESET", "earliest"))
 
+    # SASL Authentication (for Redpanda Cloud)
+    sasl_username: str | None = Field(default_factory=lambda: os.getenv("REDPANDA_SASL_USERNAME"))
+    sasl_password: str | None = Field(default_factory=lambda: os.getenv("REDPANDA_SASL_PASSWORD"))
+    sasl_mechanism: str = Field(default_factory=lambda: os.getenv("KAFKA_SASL_MECHANISM", "SCRAM-SHA-256"))
+    security_protocol: str = Field(default_factory=lambda: os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL"))
+
     # Topics
     input_topic: str = "argus.healing.requested"
     output_topic: str = "argus.healing.completed"
@@ -503,19 +509,53 @@ class HealingConsumer:
         try:
             from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
+            # Build base consumer config
+            consumer_config = {
+                "bootstrap_servers": self.config.bootstrap_servers,
+                "group_id": self.config.consumer_group,
+                "auto_offset_reset": self.config.auto_offset_reset,
+                "enable_auto_commit": False,  # Manual commit for exactly-once
+                "value_deserializer": lambda m: json.loads(m.decode("utf-8")),
+            }
+
+            # Build base producer config
+            producer_config = {
+                "bootstrap_servers": self.config.bootstrap_servers,
+                "value_serializer": lambda m: json.dumps(m).encode("utf-8"),
+            }
+
+            # Add SASL authentication if configured (for Redpanda Cloud)
+            if self.config.sasl_username and self.config.sasl_password:
+                import ssl
+
+                # Create SSL context for secure connection
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+                sasl_config = {
+                    "security_protocol": self.config.security_protocol,
+                    "sasl_mechanism": self.config.sasl_mechanism,
+                    "sasl_plain_username": self.config.sasl_username,
+                    "sasl_plain_password": self.config.sasl_password,
+                    "ssl_context": ssl_context,
+                }
+
+                consumer_config.update(sasl_config)
+                producer_config.update(sasl_config)
+
+                logger.info(
+                    "HealingConsumer configured with SASL authentication",
+                    mechanism=self.config.sasl_mechanism,
+                    protocol=self.config.security_protocol,
+                )
+
             self._consumer = AIOKafkaConsumer(
                 self.config.input_topic,
-                bootstrap_servers=self.config.bootstrap_servers,
-                group_id=self.config.consumer_group,
-                auto_offset_reset=self.config.auto_offset_reset,
-                enable_auto_commit=False,  # Manual commit for exactly-once
-                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+                **consumer_config,
             )
 
-            self._producer = AIOKafkaProducer(
-                bootstrap_servers=self.config.bootstrap_servers,
-                value_serializer=lambda m: json.dumps(m).encode("utf-8"),
-            )
+            self._producer = AIOKafkaProducer(**producer_config)
 
             await self._consumer.start()
             await self._producer.start()
