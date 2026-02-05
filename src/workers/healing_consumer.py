@@ -310,10 +310,24 @@ class HealingConsumer:
                     original_selector = healing_result.diagnosis.code_context.old_selector
                     healed_selector = healing_result.diagnosis.code_context.new_selector
                 elif healing_result.suggested_fixes:
-                    # LLM-based healing stores selectors in fixes
-                    first_fix = healing_result.suggested_fixes[0]
-                    original_selector = first_fix.old_value
-                    healed_selector = first_fix.new_value
+                    # Only extract selectors from UPDATE_SELECTOR fixes
+                    # Other fix types (add_wait, increase_timeout) have different values
+                    from src.agents.self_healer import FixType
+
+                    for fix in healing_result.suggested_fixes:
+                        if fix.fix_type == FixType.UPDATE_SELECTOR and fix.old_value and fix.new_value:
+                            original_selector = fix.old_value
+                            healed_selector = fix.new_value
+                            break
+
+                    # Log what fix type was used if not a selector fix
+                    if not healed_selector and healing_result.suggested_fixes:
+                        first_fix = healing_result.suggested_fixes[0]
+                        logger.info(
+                            "Healing suggested non-selector fix",
+                            fix_type=first_fix.fix_type.value if hasattr(first_fix.fix_type, 'value') else str(first_fix.fix_type),
+                            confidence=first_fix.confidence,
+                        )
 
                 return {
                     "success": True,
@@ -383,6 +397,17 @@ class HealingConsumer:
         original_selector = healing_result.get("original_selector") or event.failed_selector or ""
         healed_selector = healing_result.get("healed_selector") or ""
         error_type = event.error_type or "unknown"
+        strategy_used = healing_result.get("strategy_used", "unknown")
+
+        # Only store patterns for selector-based fixes
+        # Other fixes like add_wait, increase_timeout aren't selector patterns
+        if not healed_selector or healed_selector == original_selector:
+            logger.info(
+                "Skipping pattern storage - no selector change to store",
+                strategy_used=strategy_used,
+                original_selector=original_selector[:50] if original_selector else None,
+            )
+            return None
 
         # Use HealingService for centralized storage logic
         service = get_healing_service(
