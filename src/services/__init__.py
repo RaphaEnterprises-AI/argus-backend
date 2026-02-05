@@ -84,6 +84,12 @@ from src.services.source_analyzer import (
     get_source_analyzer,
 )
 from src.services.supabase_client import SupabaseClient, get_supabase_client
+from src.services.healing_service import (
+    HealingService,
+    HealingPatternCreate,
+    HealingPatternResult,
+    get_healing_service,
+)
 
 # Cloudflare Storage (RAP-248 Enhanced)
 from src.services.cloudflare_storage import (
@@ -100,6 +106,11 @@ __all__ = [
     # Supabase
     "SupabaseClient",
     "get_supabase_client",
+    # Healing Service
+    "HealingService",
+    "HealingPatternCreate",
+    "HealingPatternResult",
+    "get_healing_service",
     # AI Cost Tracking
     "AICostTracker",
     "get_cost_tracker",

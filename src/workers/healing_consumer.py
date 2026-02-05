@@ -349,10 +349,11 @@ class HealingConsumer:
         event: HealingEvent,
         healing_result: dict[str, Any],
     ) -> str | None:
-        """Store successful healing pattern in both Supabase and Cognee.
+        """Store successful healing pattern using the HealingService.
 
-        Supabase: For API queries and dashboard display
-        Cognee: For semantic search and pattern learning
+        The HealingService handles storage to both:
+        - Supabase: For API queries and dashboard display
+        - Cognee: For semantic search and pattern learning
         """
         logger.info(
             "Attempting to store healing pattern",
@@ -364,100 +365,51 @@ class HealingConsumer:
             logger.debug("Skipping pattern storage - healing was not successful")
             return None
 
-        import hashlib
-        from src.services.supabase_client import get_supabase_client
+        from src.services.healing_service import HealingPatternCreate, get_healing_service
 
         original_selector = healing_result.get("original_selector") or event.failed_selector or ""
         healed_selector = healing_result.get("healed_selector") or ""
         error_type = event.error_type or "unknown"
 
-        # Generate fingerprint for deduplication
-        fingerprint = hashlib.sha256(
-            f"{original_selector}:{error_type}".encode()
-        ).hexdigest()[:32]
+        # Use HealingService for centralized storage logic
+        service = get_healing_service(
+            org_id=event.org_id,
+            project_id=event.project_id,
+        )
 
-        pattern_id = None
-
-        # 1. Store in Supabase (for API queries)
-        try:
-            supabase = get_supabase_client()
-            if supabase.is_configured:
-                # Check if pattern exists (upsert logic)
-                existing = await supabase.request(
-                    f"/healing_patterns?fingerprint=eq.{fingerprint}&select=id,success_count"
-                )
-                existing_data = existing.get("data", [])
-
-                if existing_data:
-                    # Update existing pattern
-                    pattern_id = existing_data[0]["id"]
-                    new_count = existing_data[0].get("success_count", 0) + 1
-                    await supabase.request(
-                        f"/healing_patterns?id=eq.{pattern_id}",
-                        method="PATCH",
-                        body={
-                            "success_count": new_count,
-                            "healed_selector": healed_selector,
-                        },
-                    )
-                    logger.info("Updated existing healing pattern in Supabase", pattern_id=pattern_id)
-                else:
-                    # Insert new pattern
-                    result = await supabase.request(
-                        "/healing_patterns",
-                        method="POST",
-                        body={
-                            "fingerprint": fingerprint,
-                            "original_selector": original_selector,
-                            "healed_selector": healed_selector,
-                            "error_type": error_type,
-                            "project_id": event.project_id,
-                            "page_url": event.page_url,
-                            "element_context": healing_result.get("element_context", {}),
-                            "metadata": {
-                                "failure_id": event.failure_id,
-                                "test_id": event.test_id,
-                                "auto_healed": healing_result.get("auto_healed", False),
-                                "confidence": healing_result.get("confidence", 0.0),
-                                "strategy_used": healing_result.get("strategy_used", "unknown"),
-                            },
-                        },
-                    )
-                    if result.get("data"):
-                        pattern_id = result["data"][0]["id"]
-                        logger.info("Stored new healing pattern in Supabase", pattern_id=pattern_id)
-        except Exception as e:
-            logger.error("Failed to store healing pattern in Supabase", error=str(e))
-
-        # 2. Store in Cognee (for semantic search)
-        try:
-            from src.knowledge import get_cognee_client
-
-            cognee = get_cognee_client(
-                org_id=event.org_id,
+        result = await service.store_pattern(
+            pattern=HealingPatternCreate(
+                original_selector=original_selector,
+                healed_selector=healed_selector,
+                error_type=error_type,
                 project_id=event.project_id,
+                page_url=event.page_url,
+                element_context=healing_result.get("element_context"),
+                metadata={
+                    "failure_id": event.failure_id,
+                    "test_id": event.test_id,
+                    "auto_healed": healing_result.get("auto_healed", False),
+                    "confidence": healing_result.get("confidence", 0.0),
+                    "strategy_used": healing_result.get("strategy_used", "unknown"),
+                    "error_message": event.error_message,
+                },
+            ),
+            store_in_cognee=True,
+        )
+
+        if result.success:
+            logger.info(
+                "Healing pattern stored via service",
+                pattern_id=result.pattern_id,
+                is_new=result.is_new,
             )
-
-            if cognee:
-                cognee_pattern_id = await cognee.store_failure_pattern(
-                    error_message=event.error_message,
-                    error_type=error_type,
-                    original_selector=original_selector,
-                    healed_selector=healed_selector,
-                    healing_method=healing_result.get("strategy_used", "unknown"),
-                    test_id=event.test_id,
-                    metadata={
-                        "failure_id": event.failure_id,
-                        "auto_healed": healing_result.get("auto_healed", False),
-                        "confidence": healing_result.get("confidence", 0.0),
-                        "supabase_pattern_id": pattern_id,  # Link to Supabase record
-                    },
-                )
-                logger.info("Stored healing pattern in Cognee", cognee_pattern_id=cognee_pattern_id)
-        except Exception as e:
-            logger.error("Failed to store healing pattern in Cognee", error=str(e))
-
-        return pattern_id
+            return result.pattern_id
+        else:
+            logger.error(
+                "HealingService failed to store pattern",
+                error=result.error,
+            )
+            return None
 
     async def _generate_test_from_error(
         self,

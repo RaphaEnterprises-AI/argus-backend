@@ -389,6 +389,109 @@ async def list_healing_patterns(
     ]
 
 
+class HealingPatternCreateRequest(BaseModel):
+    """Request model for creating a healing pattern via API."""
+
+    original_selector: str = Field(..., description="The original/broken selector")
+    healed_selector: str = Field(..., description="The fixed selector")
+    error_type: str = Field(..., description="Type of error (selector_not_found, etc.)")
+    project_id: str = Field(..., description="Project ID the pattern belongs to")
+    page_url: str | None = Field(None, description="Page URL where failure occurred")
+    element_context: dict | None = Field(None, description="DOM context around element")
+    metadata: dict | None = Field(None, description="Additional metadata")
+    store_in_cognee: bool = Field(True, description="Also store in Cognee for semantic search")
+
+
+class HealingPatternCreateResponse(BaseModel):
+    """Response model for pattern creation."""
+
+    success: bool
+    pattern_id: str | None = None
+    fingerprint: str | None = None
+    is_new: bool = False
+    message: str | None = None
+
+
+@router.post("/organizations/{org_id}/patterns", response_model=HealingPatternCreateResponse)
+async def create_healing_pattern(
+    org_id: str,
+    body: HealingPatternCreateRequest,
+    request: Request,
+):
+    """Create or update a healing pattern.
+
+    Uses the HealingService to store patterns in both Supabase (for API queries)
+    and optionally Cognee (for semantic search and learning).
+
+    If a pattern with the same fingerprint (original_selector + error_type) exists,
+    its success_count is incremented instead of creating a duplicate.
+    """
+    # RAP-292: UUID Validation
+    validate_uuid(org_id, "org_id")
+    validate_uuid(body.project_id, "project_id")
+
+    user = await get_current_user(request)
+    _, supabase_org_id = await verify_org_access(
+        org_id, user["user_id"], user_email=user.get("email"), request=request
+    )
+
+    # Verify project belongs to this org
+    supabase = get_supabase_client()
+    project = await supabase.request(
+        f"/projects?id=eq.{body.project_id}&organization_id=eq.{supabase_org_id}&select=id"
+    )
+    if not project.get("data"):
+        raise HTTPException(status_code=404, detail="Project not found in organization")
+
+    # Use HealingService for storage
+    from src.services.healing_service import HealingPatternCreate, get_healing_service
+
+    service = get_healing_service(
+        org_id=supabase_org_id,
+        project_id=body.project_id,
+    )
+
+    result = await service.store_pattern(
+        pattern=HealingPatternCreate(
+            original_selector=body.original_selector,
+            healed_selector=body.healed_selector,
+            error_type=body.error_type,
+            project_id=body.project_id,
+            page_url=body.page_url,
+            element_context=body.element_context,
+            metadata=body.metadata,
+        ),
+        store_in_cognee=body.store_in_cognee,
+    )
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error or "Failed to store pattern")
+
+    # Audit log
+    await log_audit(
+        organization_id=supabase_org_id,
+        user_id=user["user_id"],
+        user_email=user["email"],
+        action="healing.create" if result.is_new else "healing.update",
+        resource_type="healing_pattern",
+        resource_id=result.pattern_id,
+        description=f"{'Created' if result.is_new else 'Updated'} healing pattern",
+        metadata={
+            "original_selector": body.original_selector[:100],
+            "error_type": body.error_type,
+        },
+        request=request,
+    )
+
+    return HealingPatternCreateResponse(
+        success=True,
+        pattern_id=result.pattern_id,
+        fingerprint=result.fingerprint,
+        is_new=result.is_new,
+        message=result.message,
+    )
+
+
 @router.delete("/organizations/{org_id}/patterns/{pattern_id}")
 async def delete_healing_pattern(org_id: str, pattern_id: str, request: Request):
     """Delete a healing pattern."""
