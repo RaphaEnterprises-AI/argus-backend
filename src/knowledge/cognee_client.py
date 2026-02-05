@@ -536,18 +536,27 @@ class CogneeKnowledgeClient:
         Raises:
             CogneeStorageError: If storing the pattern fails
         """
+        # Ensure no None values - Cognee's internal processing fails on None
+        # Convert None to empty strings for string fields
+        safe_error_message = error_message or ""
+        safe_error_type = error_type or "unknown"
+        safe_original_selector = original_selector or ""
+        safe_healed_selector = healed_selector or ""
+        safe_healing_method = healing_method or "unknown"
+        safe_test_id = test_id or ""
+
         pattern_id = hashlib.sha256(
-            f"{error_message}:{original_selector}:{healed_selector}".encode()
+            f"{safe_error_message}:{safe_original_selector}:{safe_healed_selector}".encode()
         ).hexdigest()[:32]
 
         pattern = {
             "pattern_id": pattern_id,
-            "error_message": error_message,
-            "error_type": error_type,
-            "original_selector": original_selector,
-            "healed_selector": healed_selector,
-            "healing_method": healing_method,
-            "test_id": test_id,
+            "error_message": safe_error_message,
+            "error_type": safe_error_type,
+            "original_selector": safe_original_selector,
+            "healed_selector": safe_healed_selector,
+            "healing_method": safe_healing_method,
+            "test_id": safe_test_id,
             "success_count": 1,
             "failure_count": 0,
             "metadata": metadata or {},
@@ -558,7 +567,7 @@ class CogneeKnowledgeClient:
             namespace=["failure_patterns"],
             key=pattern_id,
             value=pattern,
-            embed_text=f"{error_message} {error_type or ''} {original_selector or ''}",
+            embed_text=f"{safe_error_message} {safe_error_type} {safe_original_selector}",
         )
 
         self._log.info(
