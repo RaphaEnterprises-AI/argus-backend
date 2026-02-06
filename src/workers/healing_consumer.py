@@ -238,26 +238,29 @@ class HealingConsumer:
 
         start_time = datetime.now(UTC)
 
-        # Fetch test spec to verify test exists and get metadata
+        # Fetch test spec for metadata (optional - healing can proceed without it)
         test_spec = await self._fetch_test_spec(event.test_id, event.project_id)
-        if not test_spec:
+        if test_spec:
+            logger.info(
+                "Starting healing via HealingService",
+                test_id=event.test_id,
+                test_name=test_spec.get("name"),
+                error_type=event.error_type,
+            )
+        else:
+            # Proceed with healing even without test spec - use event data
             logger.warning(
-                "Test spec not found for healing",
+                "Test spec not found - proceeding with event data only",
                 test_id=event.test_id,
                 project_id=event.project_id,
+                error_type=event.error_type,
             )
-            return {
-                "success": False,
-                "failure_reason": "Test spec not found",
-                "duration_ms": int((datetime.now(UTC) - start_time).total_seconds() * 1000),
+            # Create minimal test spec from event data for healing
+            test_spec = {
+                "id": event.test_id,
+                "name": f"Test {event.test_id}",
+                "healing_count": 0,
             }
-
-        logger.info(
-            "Starting healing via HealingService",
-            test_id=event.test_id,
-            test_name=test_spec.get("name"),
-            error_type=event.error_type,
-        )
 
         try:
             # Use the unified HealingService for the full healing flow
