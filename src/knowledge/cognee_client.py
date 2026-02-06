@@ -137,49 +137,30 @@ def _configure_cognee_early() -> None:
     # =========================================================================
     # 3. GRAPH DATABASE CONFIGURATION
     # =========================================================================
-    # CRITICAL: FalkorDB is NOT supported by Cognee!
-    # - Backend access control supports: ['neo4j_aura_dev', 'lancedb', 'pgvector', 'kuzu']
-    # - ECL graph pipeline supports: ['neo4j', 'kuzu', 'kuzu-remote', 'neptune']
+    # FalkorDB is the primary graph database for Argus, accessed via the
+    # cognee-community-hybrid-adapter-falkor package. It provides both graph
+    # and vector storage capabilities.
     #
-    # We use Neo4j Aura (cloud) when NEO4J_URI is configured, otherwise kuzu (local).
-    #
-    # IMPORTANT: Remove FALKORDB_* env vars so Cognee doesn't detect FalkorDB
-    # and try to use it (Cognee reads these before our GRAPH_DATABASE_PROVIDER).
-    import sys
-    falkordb_vars = [k for k in os.environ.keys() if "FALKOR" in k.upper()]
-    print(f"[COGNEE DEBUG] Found FALKOR env vars: {falkordb_vars}", file=sys.stderr)
-    for key in list(os.environ.keys()):
-        if "FALKOR" in key.upper():
-            del os.environ[key]
-            print(f"[COGNEE DEBUG] Removed {key}", file=sys.stderr)
-
-    # Check graph database provider - FalkorDB is the primary choice
+    # We read FALKORDB_* env vars and store them for later use when calling
+    # cognee.config.set_graph_db_config() / set_vector_db_config() after
+    # the cognee import (env vars alone aren't enough for FalkorDB).
     explicit_provider = os.environ.get("GRAPH_DATABASE_PROVIDER", "").lower()
     falkordb_host = os.environ.get("FALKORDB_HOST")
     falkordb_port = os.environ.get("FALKORDB_PORT", "6379")
     falkordb_password = os.environ.get("FALKORDB_PASSWORD", "")
 
     if explicit_provider == "falkor" or falkordb_host:
-        # FalkorDB configured - use it for both graph and vector
+        # FalkorDB configured - store settings for post-import config
         os.environ["GRAPH_DATABASE_PROVIDER"] = "falkor"
-        os.environ["GRAPH_DATABASE_URL"] = falkordb_host or "localhost"
-        os.environ["GRAPH_DATABASE_PORT"] = falkordb_port
-        if falkordb_password:
-            os.environ["GRAPH_DATABASE_PASSWORD"] = falkordb_password
-        # Also use FalkorDB for vector storage (hybrid mode)
-        os.environ["VECTOR_DB_PROVIDER"] = "falkor"
-        os.environ["VECTOR_DB_URL"] = f"redis://:{falkordb_password}@{falkordb_host or 'localhost'}:{falkordb_port}"
         _early_logger.info(
-            "Pre-import: Graph + Vector DB configured for FalkorDB",
+            "Pre-import: FalkorDB will be configured after cognee import",
             host=falkordb_host or "localhost",
             port=falkordb_port,
         )
     elif explicit_provider == "kuzu":
-        # Kuzu explicitly requested - use embedded graph DB
         os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
         _early_logger.info("Pre-import: Graph DB configured for Kuzu (embedded)")
     else:
-        # Default to FalkorDB if available, else kuzu
         os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
         _early_logger.info("Pre-import: Graph DB configured for Kuzu (default)")
 
@@ -194,9 +175,34 @@ try:
     # Register FalkorDB adapter if using FalkorDB
     if os.environ.get("GRAPH_DATABASE_PROVIDER", "").lower() == "falkor":
         try:
-            from cognee_community_hybrid_adapter_falkor import register
-            register()
-            _early_logger.info("FalkorDB adapter registered successfully")
+            # Side-effect import: registers the FalkorDB adapter with Cognee
+            import cognee_community_hybrid_adapter_falkor.register  # noqa: F401
+
+            # Configure graph and vector DB via Cognee's config API
+            falkordb_host = os.environ.get("FALKORDB_HOST", "localhost")
+            falkordb_port = int(os.environ.get("FALKORDB_PORT", "6379"))
+            falkordb_password = os.environ.get("FALKORDB_PASSWORD", "")
+
+            cognee.config.set_graph_db_config(
+                {
+                    "graph_database_provider": "falkor",
+                    "graph_database_url": falkordb_host,
+                    "graph_database_port": falkordb_port,
+                    **({"graph_database_password": falkordb_password} if falkordb_password else {}),
+                }
+            )
+            cognee.config.set_vector_db_config(
+                {
+                    "vector_db_provider": "falkor",
+                    "vector_db_url": falkordb_host,
+                    "vector_db_port": falkordb_port,
+                }
+            )
+            _early_logger.info(
+                "FalkorDB adapter registered and configured",
+                host=falkordb_host,
+                port=falkordb_port,
+            )
         except ImportError:
             _early_logger.warning(
                 "cognee-community-hybrid-adapter-falkor not installed. "
@@ -225,7 +231,7 @@ try:
     except Exception:
         pass  # Cache clear is best-effort
 
-    # CRITICAL: Clear graph database config cache to prevent FalkorDB detection
+    # Clear graph database config cache to ensure our FalkorDB config is applied
     try:
         from cognee.infrastructure.databases.graph.config import get_graph_config
         get_graph_config.cache_clear()
