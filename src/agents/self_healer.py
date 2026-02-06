@@ -1662,10 +1662,22 @@ Output must be valid JSON."""
                 "Recommended: Set timeout to at least 2x the observed maximum duration for safety margin.",
             ])
 
+        # Add selector replacement guidance if DOM snapshot is available
+        if failure_details.get("dom_snapshot"):
+            prompt_parts.extend([
+                "",
+                "DOM SNAPSHOT ANALYSIS:",
+                "A DOM snapshot is provided in the failure details. Use it to find replacement selectors:",
+                "1. The original selector failed - search the DOM for similar elements",
+                "2. Look for elements with similar roles (buttons, inputs, links)",
+                "3. Suggest the most specific and stable selector (prefer data-testid, id, or unique classes)",
+                "4. If found, set fix_type='update_selector' with HIGH confidence (0.9+)",
+            ])
+
         prompt_parts.extend([
             "",
             "FAILURE TYPE GUIDANCE:",
-            "- selector_changed: Element's CSS selector or XPath changed (look for git_diff, html_context)",
+            "- selector_changed: Element's CSS selector or XPath changed (look for dom_snapshot, html_context)",
             "- timing_issue: Element not ready in time (look for network_logs, timeout data, intermittent failures)",
             "- ui_changed: Layout or visual changes (look for screenshot comparisons)",
             "- data_changed: Test data no longer valid (look for assertion mismatches)",

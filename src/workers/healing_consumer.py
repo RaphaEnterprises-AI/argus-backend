@@ -48,6 +48,8 @@ class HealingEvent(BaseModel):
     failed_selector: str | None = None
     page_url: str | None = None
     screenshot_url: str | None = None
+    dom_snapshot: str | None = None  # DOM snapshot for LLM analysis
+    step_index: int | None = None  # Step index where failure occurred
     strategy: str = "auto"
     priority: str = "normal"
     test_name: str | None = None  # Optional - for logging/display purposes
@@ -276,6 +278,8 @@ class HealingConsumer:
                     page_url=event.page_url,
                     test_id=event.test_id,
                     failure_id=event.failure_id,
+                    dom_snapshot=event.dom_snapshot,
+                    step_index=event.step_index,
                 ),
             )
 

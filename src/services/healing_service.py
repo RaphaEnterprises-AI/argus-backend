@@ -667,6 +667,7 @@ class HealingService:
                 "error": failure.error_message,
                 "url": failure.page_url,
                 "step_index": failure.step_index,
+                "dom_snapshot": failure.dom_snapshot,
             }
 
             # Decode screenshot if provided
