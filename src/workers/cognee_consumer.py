@@ -344,12 +344,15 @@ class CogneeConsumer:
             cognee.config.data_root_directory(data_dir)
             cognee.config.system_root_directory(system_dir)
 
-            # Configure Cognee to use FalkorDB for graph storage
-            cognee.config.set_graph_database_provider("falkordb")
-            cognee.config.set_graph_db_config({
-                "graph_database_url": f"redis://{self.config.falkordb_host}:{self.config.falkordb_port}",
-                "graph_database_password": self.config.falkordb_password or "",
-            })
+            # Configure Cognee graph storage - Neo4j if configured, else skip
+            # (cognee_client.py already configures Neo4j via env vars)
+            neo4j_uri = os.getenv("NEO4J_URI") or os.getenv("GRAPH_DATABASE_URL")
+            if neo4j_uri and "neo4j" in neo4j_uri:
+                # Neo4j is configured via env vars in cognee_client.py
+                # Don't override here - let the early config handle it
+                logger.info("Using Neo4j for graph storage", uri=neo4j_uri[:40] + "...")
+            else:
+                logger.warning("No Neo4j configured, graph storage may be limited")
 
             # Configure vector storage to use pgvector (Supabase)
             if os.getenv("DATABASE_URL"):
@@ -363,7 +366,7 @@ class CogneeConsumer:
             logger.info("Cognee initialized successfully (LLM configured per-event)")
 
         except ImportError:
-            logger.error("Cognee not installed. Install with: pip install cognee[postgres,falkordb]")
+            logger.error("Cognee not installed. Install with: pip install cognee[postgres,neo4j]")
             raise
         except Exception as e:
             logger.error("Failed to initialize Cognee", error=str(e))
