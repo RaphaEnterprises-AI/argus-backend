@@ -1,0 +1,8 @@
+# Nixpacks configuration for Railway deployment
+# Forces fresh dependency installation
+
+[phases.install]
+cmds = ["pip install --no-cache-dir -e ."]
+
+[phases.build]
+cmds = ["python -c 'import neo4j; print(f\"neo4j driver {neo4j.__version__} installed\")'"]
