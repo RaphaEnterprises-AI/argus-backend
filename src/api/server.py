@@ -159,8 +159,8 @@ class AutonomousLoopRequest(BaseModel):
 settings = get_settings()
 
 # API Version - x-release-please-version
-API_VERSION = "2.15.0"  # x-release-please-version
-API_VERSION_DATE = "2026-02-02"
+API_VERSION = "2.16.0"  # x-release-please-version
+API_VERSION_DATE = "2026-02-06"
 
 # ============================================================================
 # Sentry Initialization (MUST be before FastAPI app creation)
