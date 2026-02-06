@@ -1509,15 +1509,31 @@ Output must be valid JSON."""
             ]
 
         try:
+            self.log.info(
+                "Making Claude API call for LLM healing",
+                model=self.model.value,
+                has_screenshot=screenshot is not None,
+            )
+
             response = self._call_claude(
                 messages=messages,
                 max_tokens=2048,
+            )
+
+            self.log.info(
+                "Claude API call succeeded",
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
             )
 
             content = self._extract_text_response(response)
             result_data = self._parse_json_response(content)
 
             if not result_data:
+                self.log.warning(
+                    "Failed to parse Claude response as JSON",
+                    content_preview=content[:200] if content else "empty",
+                )
                 return AgentResult(
                     success=False,
                     error="Failed to parse healing analysis",

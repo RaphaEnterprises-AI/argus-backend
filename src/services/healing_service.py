@@ -675,6 +675,8 @@ class HealingService:
                 import base64
                 screenshot_bytes = base64.b64decode(failure.screenshot_base64)
 
+            log.info("Starting LLM-based healing via SelfHealerAgent")
+
             result = await agent.execute(
                 test_spec=test_spec,
                 failure_details=failure_details,
@@ -682,21 +684,28 @@ class HealingService:
             )
 
             if not result.success or not result.data:
-                log.debug("LLM healing did not produce a fix")
+                log.warning(
+                    "LLM healing did not produce a fix",
+                    success=result.success,
+                    has_data=result.data is not None,
+                    error=result.error,
+                )
                 return None
 
             healing_result = result.data
 
             # Check if we got a viable fix
             if not healing_result.suggested_fixes:
+                log.warning("LLM healing returned no suggested fixes")
                 return None
 
             best_fix = healing_result.suggested_fixes[0]
             if best_fix.confidence < auto_heal_threshold:
-                log.debug(
+                log.warning(
                     "LLM fix below threshold",
                     confidence=best_fix.confidence,
                     threshold=auto_heal_threshold,
+                    fix_type=best_fix.fix_type.value,
                 )
                 return None
 
