@@ -442,6 +442,27 @@ def _configure_cognee() -> None:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 
+    # Configure Graph Database FIRST (before LLM) via Cognee API
+    # This is more reliable than just setting env vars
+    neo4j_uri = os.environ.get("NEO4J_URI") or os.environ.get("GRAPH_DATABASE_URL")
+    if neo4j_uri and "neo4j" in neo4j_uri:
+        try:
+            cognee.config.set_graph_database_provider("neo4j")
+            cognee.config.set_graph_database_config({
+                "graph_database_url": neo4j_uri,
+                "graph_database_username": os.environ.get("NEO4J_USERNAME", "neo4j"),
+                "graph_database_password": os.environ.get("NEO4J_PASSWORD", ""),
+            })
+            logger.info("Cognee graph DB configured for Neo4j Aura via API", uri=neo4j_uri[:40])
+        except Exception as e:
+            logger.warning(f"Could not set graph DB via API: {e}, falling back to env vars")
+    else:
+        try:
+            cognee.config.set_graph_database_provider("kuzu")
+            logger.info("Cognee graph DB configured for Kuzu via API")
+        except Exception as e:
+            logger.warning(f"Could not set graph DB via API: {e}")
+
     if anthropic_key:
         cognee.config.set_llm_provider("anthropic")
         cognee.config.set_llm_api_key(anthropic_key)
