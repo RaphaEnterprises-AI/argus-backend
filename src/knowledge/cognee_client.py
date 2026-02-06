@@ -145,12 +145,16 @@ def _configure_cognee_early() -> None:
     #
     # IMPORTANT: Remove FALKORDB_* env vars so Cognee doesn't detect FalkorDB
     # and try to use it (Cognee reads these before our GRAPH_DATABASE_PROVIDER).
+    import sys
+    falkordb_vars = [k for k in os.environ.keys() if "FALKOR" in k.upper()]
+    print(f"[COGNEE DEBUG] Found FALKOR env vars: {falkordb_vars}", file=sys.stderr)
     for key in list(os.environ.keys()):
-        if key.startswith("FALKORDB"):
+        if "FALKOR" in key.upper():
             del os.environ[key]
-            _early_logger.info(f"Pre-import: Removed {key} to prevent FalkorDB detection")
+            print(f"[COGNEE DEBUG] Removed {key}", file=sys.stderr)
 
     neo4j_uri = os.environ.get("NEO4J_URI") or os.environ.get("GRAPH_DATABASE_URL")
+    print(f"[COGNEE DEBUG] NEO4J_URI={neo4j_uri}", file=sys.stderr)
     if neo4j_uri and "neo4j" in neo4j_uri:
         # Neo4j Aura is configured - use it
         os.environ["GRAPH_DATABASE_PROVIDER"] = "neo4j"
@@ -195,6 +199,23 @@ try:
         from cognee.infrastructure.databases.vector.config import get_vectordb_config
         get_vectordb_config.cache_clear()
         _early_logger.info("Cleared Cognee vector DB config cache")
+    except Exception:
+        pass  # Cache clear is best-effort
+
+    # CRITICAL: Clear graph database config cache to prevent FalkorDB detection
+    try:
+        from cognee.infrastructure.databases.graph.config import get_graph_config
+        get_graph_config.cache_clear()
+        _early_logger.info("Cleared Cognee graph DB config cache")
+    except Exception as e:
+        _early_logger.warning(f"Could not clear graph config cache: {e}")
+
+    # Also try the alternative graph config location
+    try:
+        from cognee.infrastructure.databases.graph import get_graph_engine
+        if hasattr(get_graph_engine, 'cache_clear'):
+            get_graph_engine.cache_clear()
+            _early_logger.info("Cleared Cognee graph engine cache")
     except Exception:
         pass  # Cache clear is best-effort
 
