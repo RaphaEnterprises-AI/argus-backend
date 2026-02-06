@@ -23,6 +23,7 @@ is not installed, the application will fail with a clear error message.
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timezone
 from typing import Any, Optional
@@ -185,6 +186,195 @@ except ImportError as e:
     ) from e
 
 logger = structlog.get_logger(__name__)
+
+
+# =============================================================================
+# Selector Classification (RAP-355)
+# =============================================================================
+
+
+def classify_selector_type(selector: str) -> str:
+    """Classify a selector into an anonymous type for SOC2-compliant storage.
+
+    This function anonymizes selectors by categorizing them into types rather than
+    storing actual selector values. This is crucial for:
+    - SOC2 compliance (no customer-specific data in patterns)
+    - Cross-project learning (patterns transfer between projects)
+    - Privacy (no PII or sensitive data in the learning loop)
+
+    Args:
+        selector: The CSS selector, XPath, or Playwright locator string
+
+    Returns:
+        Anonymized selector type string. One of:
+        - "data_testid": data-testid attribute selectors
+        - "data_cy": Cypress-style data-cy attributes
+        - "data_test": Generic data-test attributes
+        - "id_attribute": ID-based selectors (#id or [id="..."])
+        - "aria_label": aria-label attribute selectors
+        - "aria_labelledby": aria-labelledby attribute selectors
+        - "role": role attribute selectors
+        - "class_single": Single class selectors (.class)
+        - "class_multiple": Multiple class selectors (.class1.class2)
+        - "xpath_id": XPath with ID
+        - "xpath_text": XPath with text()
+        - "xpath_attribute": XPath with other attributes
+        - "xpath_positional": XPath with positional indices [n]
+        - "css_attribute": CSS attribute selectors [attr="value"]
+        - "css_pseudo": CSS pseudo-selectors (:nth-child, etc.)
+        - "text_exact": Exact text match (Playwright text=)
+        - "text_partial": Partial text match (Playwright *text=)
+        - "name_attribute": name attribute selectors
+        - "placeholder": placeholder attribute selectors
+        - "tag_only": Tag-only selectors (button, input, etc.)
+        - "unknown": Could not classify
+
+    Examples:
+        >>> classify_selector_type('[data-testid="login-button"]')
+        'data_testid'
+        >>> classify_selector_type('#submit-btn')
+        'id_attribute'
+        >>> classify_selector_type('.btn.btn-primary')
+        'class_multiple'
+        >>> classify_selector_type('//button[text()="Submit"]')
+        'xpath_text'
+    """
+    if not selector or not isinstance(selector, str):
+        return "unknown"
+
+    selector = selector.strip()
+
+    # -------------------------------------------------------------------------
+    # 1. XPath selectors (check first as they're distinctive)
+    # -------------------------------------------------------------------------
+    if selector.startswith("//") or selector.startswith("(//"):
+        if "@id" in selector or "[@id=" in selector:
+            return "xpath_id"
+        if "text()" in selector or "contains(text()" in selector:
+            return "xpath_text"
+        if re.search(r"\[\d+\]", selector):
+            return "xpath_positional"
+        if "@" in selector:
+            return "xpath_attribute"
+        return "xpath_positional"  # Generic XPath
+
+    # -------------------------------------------------------------------------
+    # 2. Playwright-specific locators
+    # -------------------------------------------------------------------------
+    # Playwright text locators
+    if selector.startswith("text=") or selector.startswith('"') or selector.startswith("'"):
+        return "text_exact"
+    if selector.startswith("*text=") or selector.startswith("has-text="):
+        return "text_partial"
+
+    # Playwright getBy* style (role, label, etc.)
+    if "role=" in selector.lower() or selector.startswith("role="):
+        return "role"
+
+    # -------------------------------------------------------------------------
+    # 3. Data attributes (most stable for testing)
+    # -------------------------------------------------------------------------
+    data_testid_patterns = [
+        r"\[data-testid[=~\|\^\$\*]",  # CSS attribute selector
+        r'data-testid\s*=\s*["\']',  # HTML attribute with quotes
+        r'^data-testid\s*=',  # Bare data-testid= at start (e.g., "data-testid=submit")
+        r"getByTestId",  # Playwright/RTL
+        r"findByTestId",  # RTL
+        r"queryByTestId",  # RTL
+    ]
+    for pattern in data_testid_patterns:
+        if re.search(pattern, selector, re.IGNORECASE):
+            return "data_testid"
+
+    # Cypress data-cy
+    if re.search(r"\[data-cy[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "data_cy"
+
+    # Generic data-test
+    if re.search(r"\[data-test[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "data_test"
+
+    # -------------------------------------------------------------------------
+    # 4. ARIA attributes (accessible selectors)
+    # -------------------------------------------------------------------------
+    if re.search(r"\[aria-label[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "aria_label"
+    if re.search(r"\[aria-labelledby[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "aria_labelledby"
+    if re.search(r"\[role[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "role"
+    if "getByRole" in selector or "findByRole" in selector:
+        return "role"
+    if "getByLabelText" in selector or "findByLabelText" in selector:
+        return "aria_label"
+
+    # -------------------------------------------------------------------------
+    # 5. ID selectors
+    # -------------------------------------------------------------------------
+    # CSS ID selector: #id-name
+    if re.match(r"^#[a-zA-Z_][a-zA-Z0-9_-]*$", selector):
+        return "id_attribute"
+    # Attribute selector: [id="..."]
+    if re.search(r"\[id[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "id_attribute"
+    # getElementById
+    if "getElementById" in selector:
+        return "id_attribute"
+
+    # -------------------------------------------------------------------------
+    # 6. Class selectors
+    # -------------------------------------------------------------------------
+    # Single class: .class-name
+    if re.match(r"^\.[a-zA-Z_][a-zA-Z0-9_-]*$", selector):
+        return "class_single"
+    # Multiple classes: .class1.class2 or .class1 .class2
+    if re.match(r"^\.[a-zA-Z_][a-zA-Z0-9_-]*(\s*\.[a-zA-Z_][a-zA-Z0-9_-]*)+$", selector):
+        return "class_multiple"
+    # Class attribute: [class="..."] or [class~="..."]
+    if re.search(r"\[class[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "class_single"
+
+    # -------------------------------------------------------------------------
+    # 7. Name and placeholder attributes
+    # -------------------------------------------------------------------------
+    if re.search(r"\[name[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "name_attribute"
+    if re.search(r"\[placeholder[=~\|\^\$\*]", selector, re.IGNORECASE):
+        return "placeholder"
+    if "getByPlaceholderText" in selector or "findByPlaceholderText" in selector:
+        return "placeholder"
+
+    # -------------------------------------------------------------------------
+    # 8. CSS pseudo-selectors
+    # -------------------------------------------------------------------------
+    if re.search(r":(nth-child|nth-of-type|first-child|last-child|first-of-type|last-of-type)", selector):
+        return "css_pseudo"
+    if ":has(" in selector or ":is(" in selector or ":where(" in selector:
+        return "css_pseudo"
+
+    # -------------------------------------------------------------------------
+    # 9. Generic CSS attribute selectors
+    # -------------------------------------------------------------------------
+    if re.search(r"\[[a-zA-Z_][a-zA-Z0-9_-]*[=~\|\^\$\*]", selector):
+        return "css_attribute"
+
+    # -------------------------------------------------------------------------
+    # 10. Tag-only selectors
+    # -------------------------------------------------------------------------
+    html_tags = {
+        "button", "input", "a", "div", "span", "form", "select", "textarea",
+        "label", "img", "table", "tr", "td", "th", "ul", "ol", "li", "p",
+        "h1", "h2", "h3", "h4", "h5", "h6", "header", "footer", "nav", "main",
+        "section", "article", "aside", "dialog", "menu", "summary", "details",
+    }
+    if selector.lower() in html_tags:
+        return "tag_only"
+
+    # -------------------------------------------------------------------------
+    # 11. Fallback
+    # -------------------------------------------------------------------------
+    return "unknown"
+
 
 # =============================================================================
 # Cognee Configuration (runs once at module load)
@@ -825,6 +1015,377 @@ class CogneeKnowledgeClient:
             pattern_id=pattern_id,
             success=success,
         )
+
+    # =========================================================================
+    # Cognee Learning Loop Methods (RAP-353, RAP-354)
+    # =========================================================================
+
+    async def store_successful_heal(
+        self,
+        org_id: str,
+        test_id: str,
+        failure_context: dict,
+        fix_applied: dict,
+    ) -> str:
+        """Store a successful healing pattern with anonymized data for cross-project learning.
+
+        This is the primary entry point for the Cognee Learning Loop. When a test is
+        successfully healed, this method stores the ANONYMIZED pattern for future use.
+
+        CRITICAL FOR SOC2 COMPLIANCE:
+        - Stores selector_type NOT actual selectors
+        - Stores error_category NOT specific error messages
+        - No customer-specific data in the patterns
+
+        Args:
+            org_id: Organization ID for namespacing
+            test_id: Test ID that was healed
+            failure_context: Context about the failure, should include:
+                - error_type: Type of error (selector_not_found, timeout, etc.)
+                - error_message: Original error message (will be anonymized)
+                - failed_selector: The selector that failed (will be classified)
+                - page_url: URL where failure occurred (domain extracted only)
+                - dom_context: Optional DOM context around failure
+            fix_applied: Details about the fix, should include:
+                - new_selector: The selector that worked (will be classified)
+                - fix_type: Type of fix (selector_update, wait_added, etc.)
+                - confidence: Confidence score of the fix
+                - healing_method: Method used (cached, memory_store, code_aware, llm)
+
+        Returns:
+            Pattern ID for the stored pattern
+
+        Raises:
+            CogneeStorageError: If storing the pattern fails
+
+        Example:
+            ```python
+            pattern_id = await client.store_successful_heal(
+                org_id="org_123",
+                test_id="test_456",
+                failure_context={
+                    "error_type": "selector_not_found",
+                    "error_message": "Element not found: #login-btn",
+                    "failed_selector": "#login-btn",
+                    "page_url": "https://app.example.com/login",
+                },
+                fix_applied={
+                    "new_selector": "[data-testid='login-button']",
+                    "fix_type": "selector_update",
+                    "confidence": 0.95,
+                    "healing_method": "code_aware",
+                },
+            )
+            ```
+        """
+        # Extract and anonymize failure context
+        error_type = failure_context.get("error_type", "unknown")
+        failed_selector = failure_context.get("failed_selector", "")
+        page_url = failure_context.get("page_url", "")
+
+        # Classify selectors (anonymization)
+        original_selector_type = classify_selector_type(failed_selector)
+
+        # Extract domain from URL (anonymization)
+        page_domain = ""
+        if page_url:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(page_url)
+                # Only store TLD pattern, not full domain
+                domain_parts = (parsed.netloc or "").split(".")
+                if len(domain_parts) >= 2:
+                    page_domain = f"*.{domain_parts[-1]}"  # e.g., "*.com"
+                else:
+                    page_domain = "unknown"
+            except Exception:
+                page_domain = "unknown"
+
+        # Anonymize error message - extract error category, not specifics
+        error_message = failure_context.get("error_message", "")
+        error_category = self._categorize_error_message(error_message)
+
+        # Extract and anonymize fix details
+        new_selector = fix_applied.get("new_selector", "")
+        new_selector_type = classify_selector_type(new_selector)
+        fix_type = fix_applied.get("fix_type", "unknown")
+        confidence = fix_applied.get("confidence", 0.0)
+        healing_method = fix_applied.get("healing_method", "unknown")
+
+        # Generate pattern ID based on anonymized components
+        pattern_key = f"{error_type}:{original_selector_type}:{new_selector_type}:{fix_type}"
+        pattern_id = hashlib.sha256(pattern_key.encode()).hexdigest()[:32]
+
+        # Build anonymized pattern for storage
+        anonymized_pattern = {
+            "pattern_id": pattern_id,
+            # Anonymized failure context
+            "error_type": error_type,
+            "error_category": error_category,
+            "original_selector_type": original_selector_type,
+            "page_domain_pattern": page_domain,
+            # Anonymized fix details
+            "new_selector_type": new_selector_type,
+            "fix_type": fix_type,
+            "confidence": confidence,
+            "healing_method": healing_method,
+            # Transition pattern (key for learning)
+            "selector_transition": f"{original_selector_type} -> {new_selector_type}",
+            # Statistics
+            "success_count": 1,
+            "failure_count": 0,
+            "total_applications": 1,
+            # Metadata
+            "first_seen_at": datetime.now(UTC).isoformat(),
+            "last_success_at": datetime.now(UTC).isoformat(),
+            "org_id": org_id,  # For audit trail only
+        }
+
+        # Build embedding text for semantic search
+        embed_text = (
+            f"Error type: {error_type}. "
+            f"Error category: {error_category}. "
+            f"Selector changed from {original_selector_type} to {new_selector_type}. "
+            f"Fix type: {fix_type}. "
+            f"Healing method: {healing_method}."
+        )
+
+        # Store in Cognee with embeddings
+        await self.put(
+            namespace=["healing_patterns", "successful"],
+            key=pattern_id,
+            value=anonymized_pattern,
+            embed_text=embed_text,
+        )
+
+        self._log.info(
+            "Stored successful healing pattern (anonymized)",
+            pattern_id=pattern_id,
+            error_type=error_type,
+            selector_transition=f"{original_selector_type} -> {new_selector_type}",
+            healing_method=healing_method,
+            test_id=test_id,
+        )
+
+        return pattern_id
+
+    async def search_similar_fixes(
+        self,
+        org_id: str,
+        error_type: str,
+        selector_type: str | None = None,
+        top_k: int = 5,
+    ) -> list[dict]:
+        """Search for similar past fixes using semantic search on anonymized patterns.
+
+        This is the query side of the Cognee Learning Loop. When a test fails,
+        this method finds similar past failures and their successful fixes.
+
+        Args:
+            org_id: Organization ID (for logging/audit only, search is cross-org)
+            error_type: Type of error (selector_not_found, timeout, assertion_failed, etc.)
+            selector_type: Optional selector type to filter by (from classify_selector_type)
+            top_k: Maximum number of results to return
+
+        Returns:
+            List of similar fix patterns, each containing:
+                - pattern_id: Unique pattern identifier
+                - error_type: Type of error that was fixed
+                - error_category: Category of the error
+                - original_selector_type: Type of selector that failed
+                - new_selector_type: Type of selector that worked
+                - selector_transition: "original -> new" transition pattern
+                - fix_type: Type of fix applied
+                - healing_method: Method used for healing
+                - confidence: Original fix confidence
+                - success_rate: Rate of successful applications
+                - total_applications: Number of times this pattern was applied
+                - similarity: Semantic similarity score (0-1)
+
+        Example:
+            ```python
+            fixes = await client.search_similar_fixes(
+                org_id="org_123",
+                error_type="selector_not_found",
+                selector_type="id_attribute",
+                top_k=5,
+            )
+            for fix in fixes:
+                print(f"Pattern: {fix['selector_transition']}")
+                print(f"Success rate: {fix['success_rate']:.0%}")
+                print(f"Suggested fix type: {fix['fix_type']}")
+            ```
+        """
+        # Build search query
+        query_parts = [f"Error type: {error_type}"]
+
+        if selector_type:
+            query_parts.append(f"Original selector type: {selector_type}")
+
+        query = ". ".join(query_parts)
+
+        self._log.debug(
+            "Searching for similar fixes",
+            org_id=org_id,
+            error_type=error_type,
+            selector_type=selector_type,
+            query=query,
+        )
+
+        try:
+            # Search in the healing patterns namespace
+            results = await self.search(
+                namespace=["healing_patterns", "successful"],
+                query=query,
+                limit=top_k * 2,  # Get more to filter
+                threshold=0.5,  # Lower threshold for broader search
+            )
+
+            # Process and filter results
+            fixes = []
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+
+                # Skip deleted patterns
+                if result.get("_deleted"):
+                    continue
+
+                # Filter by selector type if specified
+                if selector_type and result.get("original_selector_type") != selector_type:
+                    # Still include if it's a good match on error type
+                    if result.get("error_type") != error_type:
+                        continue
+
+                # Calculate success rate
+                success_count = result.get("success_count", 0)
+                failure_count = result.get("failure_count", 0)
+                total = success_count + failure_count
+                success_rate = success_count / total if total > 0 else 0.0
+
+                # Only include patterns with reasonable success rate
+                if total > 0 and success_rate < 0.3:
+                    continue
+
+                fixes.append({
+                    "pattern_id": result.get("pattern_id", ""),
+                    "error_type": result.get("error_type", ""),
+                    "error_category": result.get("error_category", ""),
+                    "original_selector_type": result.get("original_selector_type", ""),
+                    "new_selector_type": result.get("new_selector_type", ""),
+                    "selector_transition": result.get("selector_transition", ""),
+                    "fix_type": result.get("fix_type", ""),
+                    "healing_method": result.get("healing_method", ""),
+                    "confidence": result.get("confidence", 0.0),
+                    "success_rate": success_rate,
+                    "success_count": success_count,
+                    "failure_count": failure_count,
+                    "total_applications": result.get("total_applications", total),
+                    "similarity": result.get("similarity", 0.0),
+                    "last_success_at": result.get("last_success_at"),
+                })
+
+            # Sort by success rate * similarity (weighted relevance)
+            fixes.sort(
+                key=lambda x: x["success_rate"] * x["similarity"],
+                reverse=True,
+            )
+
+            # Return top_k results
+            fixes = fixes[:top_k]
+
+            self._log.info(
+                "Found similar fixes",
+                org_id=org_id,
+                error_type=error_type,
+                selector_type=selector_type,
+                results_count=len(fixes),
+            )
+
+            return fixes
+
+        except CogneeSearchError:
+            # Re-raise search errors
+            raise
+        except Exception as e:
+            self._log.error(
+                "Failed to search similar fixes",
+                error_type=error_type,
+                selector_type=selector_type,
+                error=str(e),
+            )
+            raise CogneeSearchError(
+                f"Failed to search similar fixes for error_type={error_type}: {e}"
+            ) from e
+
+    def _categorize_error_message(self, error_message: str) -> str:
+        """Categorize an error message into an anonymous category.
+
+        This anonymizes error messages by extracting the general category
+        rather than storing specific details that might contain sensitive data.
+
+        Args:
+            error_message: The original error message
+
+        Returns:
+            Anonymized error category string
+        """
+        if not error_message:
+            return "unknown"
+
+        error_lower = error_message.lower()
+
+        # Selector/element errors
+        if any(term in error_lower for term in ["not found", "no element", "cannot find", "unable to locate"]):
+            return "element_not_found"
+        if any(term in error_lower for term in ["multiple elements", "more than one", "ambiguous"]):
+            return "multiple_elements"
+        if "stale" in error_lower:
+            return "stale_element"
+        if "detached" in error_lower:
+            return "detached_element"
+
+        # Timeout errors
+        if any(term in error_lower for term in ["timeout", "timed out", "exceeded"]):
+            if "navigation" in error_lower:
+                return "navigation_timeout"
+            if "wait" in error_lower:
+                return "wait_timeout"
+            return "general_timeout"
+
+        # Visibility/interaction errors
+        if any(term in error_lower for term in ["not visible", "hidden", "display: none"]):
+            return "element_not_visible"
+        if any(term in error_lower for term in ["not clickable", "not interactable", "intercepted"]):
+            return "element_not_interactable"
+        if "disabled" in error_lower:
+            return "element_disabled"
+
+        # Navigation errors
+        if any(term in error_lower for term in ["navigation", "page load", "net::"]):
+            return "navigation_error"
+        if "404" in error_lower or "not found" in error_lower:
+            return "page_not_found"
+
+        # Assertion errors
+        if any(term in error_lower for term in ["assert", "expect", "should", "to be", "to equal"]):
+            if "text" in error_lower or "content" in error_lower:
+                return "text_assertion_failed"
+            if "visible" in error_lower:
+                return "visibility_assertion_failed"
+            if "count" in error_lower or "length" in error_lower:
+                return "count_assertion_failed"
+            return "general_assertion_failed"
+
+        # Network errors
+        if any(term in error_lower for term in ["network", "connection", "refused", "unreachable"]):
+            return "network_error"
+
+        # Frame/context errors
+        if any(term in error_lower for term in ["frame", "iframe", "context"]):
+            return "frame_context_error"
+
+        return "other"
 
     # =========================================================================
     # Graph Reasoning Interface (replaces GraphStore)

@@ -2,15 +2,20 @@
 Healing Consumer Worker - Autonomous Self-Healing Pipeline
 
 Consumes healing request events from Redpanda and processes them through
-the SelfHealerAgent to automatically fix broken tests.
+the unified HealingService to automatically fix broken tests.
+
+The HealingService orchestrates the full healing flow:
+1. Search Cognee for similar patterns (fastest, highest accuracy)
+2. Use code analyzer (git history for selector changes via GitHub/GitLab API)
+3. Fall back to LLM analysis (most flexible, slowest)
+4. On success, store the pattern in Cognee for learning
 
 Features:
 - Async Kafka consumer with manual offset commit for exactly-once semantics
-- SelfHealerAgent integration for intelligent test fixing
+- Unified HealingService integration for intelligent test fixing
 - Automatic verification of healed tests
-- Knowledge graph pattern storage in Cognee
+- Knowledge graph pattern storage in Cognee (handled by HealingService)
 - Test generation from production errors
-- GitHub PR creation for new tests
 - Dead letter queue for failed processing
 """
 
@@ -93,16 +98,19 @@ class HealingConfig(BaseModel):
 
 class HealingConsumer:
     """
-    Kafka consumer that processes healing requests through SelfHealerAgent.
+    Kafka consumer that processes healing requests through the unified HealingService.
 
     The consumer:
     1. Listens to argus.healing.requested topic
     2. Fetches test spec from Supabase
-    3. Runs SelfHealerAgent to fix the test
+    3. Runs HealingService.heal() which orchestrates:
+       - Cognee pattern search (semantic similarity)
+       - Code analyzer (GitHub/GitLab API for git history)
+       - LLM fallback (SelfHealerAgent)
+       - Pattern storage on success (learning loop)
     4. Verifies the healed test works
-    5. Stores healing pattern in Cognee
-    6. Optionally generates new test from production error
-    7. Publishes completion events to argus.healing.completed
+    5. Optionally generates new test from production error
+    6. Publishes completion events to argus.healing.completed
     """
 
     def __init__(self, config: HealingConfig | None = None):
@@ -212,7 +220,13 @@ class HealingConsumer:
 
     async def _run_healing(self, event: HealingEvent) -> dict[str, Any]:
         """
-        Run the healing process using SelfHealerAgent.
+        Run the healing process using the unified HealingService.
+
+        The HealingService orchestrates the full healing flow:
+        1. Search Cognee for similar patterns (fastest, highest accuracy)
+        2. Use code analyzer (git history for selector changes)
+        3. Fall back to LLM analysis (most flexible, slowest)
+        4. On success, store the pattern in Cognee for learning
 
         Args:
             event: The healing request event
@@ -220,11 +234,11 @@ class HealingConsumer:
         Returns:
             Healing result with success status and details
         """
-        from src.agents.self_healer import SelfHealerAgent
+        from src.services.healing_service import HealingService, TestFailure
 
         start_time = datetime.now(UTC)
 
-        # Fetch test spec and failure details
+        # Fetch test spec to verify test exists and get metadata
         test_spec = await self._fetch_test_spec(event.test_id, event.project_id)
         if not test_spec:
             logger.warning(
@@ -239,105 +253,67 @@ class HealingConsumer:
             }
 
         logger.info(
-            "Fetched test spec for healing",
+            "Starting healing via HealingService",
             test_id=event.test_id,
             test_name=test_spec.get("name"),
-        )
-
-        failure_details = await self._fetch_failure_details(event.failure_id)
-
-        # Initialize healer
-        # NOTE: Code-aware healing is disabled in production workers because:
-        # 1. Workers run in Railway/Docker without access to customer's codebase
-        # 2. Git analyzer requires local repo access which isn't available
-        # 3. We rely on memory store (Cognee) + LLM fallback for healing
-        healer = SelfHealerAgent(
-            auto_heal_threshold=0.85,
-            enable_code_aware=False,  # Disabled - no codebase access in production
-            enable_memory_store=True,  # Uses Cognee for semantic pattern matching
-            org_id=event.org_id,
-            project_id=event.project_id,
+            error_type=event.error_type,
         )
 
         try:
-            # Build failure_details dict for SelfHealerAgent.execute()
-            # The execute method expects: selector/target, type, message/error
-            merged_failure_details = {
-                "selector": event.failed_selector,
-                "target": event.failed_selector,
-                "type": event.error_type,
-                "message": event.error_message,
-                "error": event.error_message,
-                "page_url": event.page_url,
-                **(failure_details or {}),  # Merge any DB failure details
-            }
-
-            # Run healing using the correct method name: execute()
-            result = await healer.execute(
-                test_spec=test_spec,
-                failure_details=merged_failure_details,
+            # Use the unified HealingService for the full healing flow
+            healing_service = HealingService()
+            result = await healing_service.heal(
+                test_id=event.test_id,
+                org_id=event.org_id,
+                project_id=event.project_id,
+                failure=TestFailure(
+                    error_type=event.error_type,
+                    selector=event.failed_selector,
+                    error_message=event.error_message,
+                    page_url=event.page_url,
+                    test_id=event.test_id,
+                    failure_id=event.failure_id,
+                ),
             )
 
             duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
-            if result.success and result.data:
-                healing_result = result.data
+            if result.success:
+                # Extract selectors from the fix
+                original_selector = event.failed_selector
+                healed_selector = None
 
-                # If auto-healed, update the test spec
-                if healing_result.auto_healed and healing_result.healed_test_spec:
+                if result.fix_applied:
+                    original_selector = result.fix_applied.get("old_value") or event.failed_selector
+                    healed_selector = result.fix_applied.get("new_value")
+
+                # If auto-healed with a new selector, update the test spec
+                if healed_selector and healed_selector != original_selector:
                     await self._update_test_spec(
                         event.test_id,
                         {
-                            "spec": healing_result.healed_test_spec,
                             "last_healed_at": datetime.now(UTC).isoformat(),
                             "healing_count": test_spec.get("healing_count", 0) + 1,
                         },
                     )
 
                 logger.info(
-                    "Healing succeeded",
+                    "Healing succeeded via HealingService",
                     test_id=event.test_id,
-                    strategy=healing_result.diagnosis.failure_type.value,
-                    auto_healed=healing_result.auto_healed,
+                    strategy_used=result.strategy_used,
+                    confidence=result.confidence,
+                    pattern_id=result.pattern_id,
                     duration_ms=duration_ms,
                 )
 
-                # Extract selectors - try code_context first, then suggested_fixes
-                original_selector = None
-                healed_selector = None
-
-                if healing_result.diagnosis.code_context:
-                    original_selector = healing_result.diagnosis.code_context.old_selector
-                    healed_selector = healing_result.diagnosis.code_context.new_selector
-                elif healing_result.suggested_fixes:
-                    # Only extract selectors from UPDATE_SELECTOR fixes
-                    # Other fix types (add_wait, increase_timeout) have different values
-                    from src.agents.self_healer import FixType
-
-                    for fix in healing_result.suggested_fixes:
-                        if fix.fix_type == FixType.UPDATE_SELECTOR and fix.old_value and fix.new_value:
-                            original_selector = fix.old_value
-                            healed_selector = fix.new_value
-                            break
-
-                    # Log what fix type was used if not a selector fix
-                    if not healed_selector and healing_result.suggested_fixes:
-                        first_fix = healing_result.suggested_fixes[0]
-                        logger.info(
-                            "Healing suggested non-selector fix",
-                            fix_type=first_fix.fix_type.value if hasattr(first_fix.fix_type, 'value') else str(first_fix.fix_type),
-                            confidence=first_fix.confidence,
-                        )
-
                 return {
                     "success": True,
-                    "strategy_used": healing_result.diagnosis.failure_type.value,
-                    "original_selector": original_selector or event.failed_selector,
+                    "strategy_used": result.strategy_used or "unknown",
+                    "original_selector": original_selector,
                     "healed_selector": healed_selector,
-                    "auto_healed": healing_result.auto_healed,
-                    "confidence": healing_result.suggested_fixes[0].confidence
-                    if healing_result.suggested_fixes
-                    else 0.0,
+                    "auto_healed": healed_selector is not None,
+                    "confidence": result.confidence,
+                    "pattern_id": result.pattern_id,
                     "duration_ms": duration_ms,
                 }
             else:
@@ -370,84 +346,6 @@ class HealingConsumer:
         # For now, return True (verification is async via test runs)
         logger.info("Test verification scheduled", test_id=test_id)
         return True
-
-    async def _store_healing_pattern(
-        self,
-        event: HealingEvent,
-        healing_result: dict[str, Any],
-    ) -> str | None:
-        """Store successful healing pattern using the HealingService.
-
-        The HealingService handles storage to both:
-        - Supabase: For API queries and dashboard display
-        - Cognee: For semantic search and pattern learning
-        """
-        logger.info(
-            "Attempting to store healing pattern",
-            test_id=event.test_id,
-            healing_success=healing_result.get("success"),
-        )
-
-        if not healing_result.get("success"):
-            logger.debug("Skipping pattern storage - healing was not successful")
-            return None
-
-        from src.services.healing_service import HealingPatternCreate, get_healing_service
-
-        original_selector = healing_result.get("original_selector") or event.failed_selector or ""
-        healed_selector = healing_result.get("healed_selector") or ""
-        error_type = event.error_type or "unknown"
-        strategy_used = healing_result.get("strategy_used", "unknown")
-
-        # Only store patterns for selector-based fixes
-        # Other fixes like add_wait, increase_timeout aren't selector patterns
-        if not healed_selector or healed_selector == original_selector:
-            logger.info(
-                "Skipping pattern storage - no selector change to store",
-                strategy_used=strategy_used,
-                original_selector=original_selector[:50] if original_selector else None,
-            )
-            return None
-
-        # Use HealingService for centralized storage logic
-        service = get_healing_service(
-            org_id=event.org_id,
-            project_id=event.project_id,
-        )
-
-        result = await service.store_pattern(
-            pattern=HealingPatternCreate(
-                original_selector=original_selector,
-                healed_selector=healed_selector,
-                error_type=error_type,
-                project_id=event.project_id,
-                page_url=event.page_url,
-                element_context=healing_result.get("element_context"),
-                metadata={
-                    "failure_id": event.failure_id,
-                    "test_id": event.test_id,
-                    "auto_healed": healing_result.get("auto_healed", False),
-                    "confidence": healing_result.get("confidence", 0.0),
-                    "strategy_used": healing_result.get("strategy_used", "unknown"),
-                    "error_message": event.error_message,
-                },
-            ),
-            store_in_cognee=True,
-        )
-
-        if result.success:
-            logger.info(
-                "Healing pattern stored via service",
-                pattern_id=result.pattern_id,
-                is_new=result.is_new,
-            )
-            return result.pattern_id
-        else:
-            logger.error(
-                "HealingService failed to store pattern",
-                error=result.error,
-            )
-            return None
 
     async def _generate_test_from_error(
         self,
@@ -588,15 +486,16 @@ class HealingConsumer:
                 error_type=event.error_type,
             )
 
-            # Run healing
+            # Run healing via HealingService (handles pattern storage internally)
             healing_result = await self._run_healing(event)
 
             # Verify if successful
             if healing_result.get("success"):
                 await self._verify_healed_test(event.test_id, event.project_id)
 
-            # Store pattern in Cognee
-            pattern_id = await self._store_healing_pattern(event, healing_result)
+            # HealingService.heal() already stores patterns internally.
+            # Use the pattern_id from the result for completion event.
+            pattern_id = healing_result.get("pattern_id")
 
             # Generate test from error if appropriate
             if healing_result.get("success"):

@@ -132,44 +132,35 @@ class TestHealingConsumer:
 
     @pytest.mark.asyncio
     async def test_run_healing_success(self, healing_config, sample_healing_event, sample_test_spec):
-        """Test successful healing flow."""
+        """Test successful healing flow via HealingService."""
         consumer = HealingConsumer(healing_config)
 
         # Mock dependencies
         with patch.object(consumer, "_fetch_test_spec", return_value=sample_test_spec):
-            with patch.object(consumer, "_fetch_failure_details", return_value={}):
-                with patch("src.agents.self_healer.SelfHealerAgent") as MockHealer:
-                    # Mock successful healing
-                    mock_healer_instance = AsyncMock()
-                    mock_healing_result = MagicMock()
-                    mock_healing_result.success = True
-                    mock_healing_result.data = MagicMock()
-                    mock_healing_result.data.auto_healed = True
-                    mock_healing_result.data.healed_test_spec = {
-                        "name": "Login Test",
-                        "steps": [
-                            {"action": "goto", "target": "/login"},
-                            {"action": "click", "target": "#new-submit-btn"},  # Fixed selector
-                        ],
-                    }
-                    mock_healing_result.data.diagnosis = MagicMock()
-                    mock_healing_result.data.diagnosis.failure_type = MagicMock()
-                    mock_healing_result.data.diagnosis.failure_type.value = "selector_changed"
-                    mock_healing_result.data.diagnosis.code_context = MagicMock()
-                    mock_healing_result.data.diagnosis.code_context.old_selector = "#submit-btn"
-                    mock_healing_result.data.diagnosis.code_context.new_selector = "#new-submit-btn"
-                    mock_healing_result.data.suggested_fixes = [MagicMock(confidence=0.95)]
+            with patch("src.services.healing_service.HealingService") as MockHealingService:
+                # Mock successful healing via HealingService
+                mock_service_instance = MagicMock()
+                mock_healing_result = MagicMock()
+                mock_healing_result.success = True
+                mock_healing_result.strategy_used = "selector_changed"
+                mock_healing_result.confidence = 0.95
+                mock_healing_result.pattern_id = "pattern-123"
+                mock_healing_result.fix_applied = {
+                    "old_value": "#submit-btn",
+                    "new_value": "#new-submit-btn",
+                }
+                mock_healing_result.error = None
 
-                    mock_healer_instance.execute = AsyncMock(return_value=mock_healing_result)
-                    MockHealer.return_value = mock_healer_instance
+                mock_service_instance.heal = AsyncMock(return_value=mock_healing_result)
+                MockHealingService.return_value = mock_service_instance
 
-                    result = await consumer._run_healing(HealingEvent(**sample_healing_event))
+                result = await consumer._run_healing(HealingEvent(**sample_healing_event))
 
-                    assert result["success"] is True
-                    assert result["auto_healed"] is True
-                    assert result["original_selector"] == "#submit-btn"
-                    assert result["healed_selector"] == "#new-submit-btn"
-                    assert result["strategy_used"] == "selector_changed"
+                assert result["success"] is True
+                assert result["auto_healed"] is True
+                assert result["original_selector"] == "#submit-btn"
+                assert result["healed_selector"] == "#new-submit-btn"
+                assert result["strategy_used"] == "selector_changed"
 
     @pytest.mark.asyncio
     async def test_run_healing_no_test_spec(self, healing_config, sample_healing_event):
@@ -183,52 +174,66 @@ class TestHealingConsumer:
             assert "not found" in result["failure_reason"].lower()
 
     @pytest.mark.asyncio
-    async def test_store_healing_pattern_success(self, healing_config, sample_healing_event):
-        """Test storing healing pattern in Cognee."""
+    async def test_healing_service_stores_pattern(self, healing_config, sample_healing_event, sample_test_spec):
+        """Test that HealingService stores patterns and returns pattern_id."""
+        # This test verifies that pattern storage is handled by HealingService
+        # which returns pattern_id in the result
         consumer = HealingConsumer(healing_config)
 
-        healing_result = {
-            "success": True,
-            "strategy_used": "selector_changed",
-            "original_selector": "#submit-btn",
-            "healed_selector": "#new-submit-btn",
-            "auto_healed": True,
-            "confidence": 0.95,
-        }
+        with patch.object(consumer, "_fetch_test_spec", return_value=sample_test_spec):
+            with patch("src.services.healing_service.HealingService") as MockHealingService:
+                mock_service_instance = MagicMock()
+                mock_healing_result = MagicMock()
+                mock_healing_result.success = True
+                mock_healing_result.strategy_used = "selector_changed"
+                mock_healing_result.confidence = 0.95
+                # HealingService now handles pattern storage and returns pattern_id
+                mock_healing_result.pattern_id = "pattern-123"
+                mock_healing_result.fix_applied = {
+                    "old_value": "#submit-btn",
+                    "new_value": "#new-submit-btn",
+                }
+                mock_healing_result.error = None
 
-        with patch("src.knowledge.get_cognee_client") as mock_get_cognee:
-            mock_cognee = AsyncMock()
-            mock_cognee.store_failure_pattern = AsyncMock(return_value="pattern-123")
-            mock_get_cognee.return_value = mock_cognee
+                mock_service_instance.heal = AsyncMock(return_value=mock_healing_result)
+                MockHealingService.return_value = mock_service_instance
 
-            pattern_id = await consumer._store_healing_pattern(
-                HealingEvent(**sample_healing_event),
-                healing_result,
-            )
+                result = await consumer._run_healing(HealingEvent(**sample_healing_event))
 
-            assert pattern_id == "pattern-123"
-            mock_cognee.store_failure_pattern.assert_called_once()
+                assert result["success"] is True
+                assert result["pattern_id"] == "pattern-123"
 
     @pytest.mark.asyncio
-    async def test_store_healing_pattern_no_cognee(self, healing_config, sample_healing_event):
-        """Test storing pattern when Cognee is not available."""
+    async def test_healing_service_no_pattern_on_failure(self, healing_config, sample_healing_event, sample_test_spec):
+        """Test that no pattern is stored when healing fails."""
         consumer = HealingConsumer(healing_config)
 
-        healing_result = {"success": True}
+        with patch.object(consumer, "_fetch_test_spec", return_value=sample_test_spec):
+            with patch("src.services.healing_service.HealingService") as MockHealingService:
+                mock_service_instance = MagicMock()
+                mock_healing_result = MagicMock()
+                mock_healing_result.success = False
+                mock_healing_result.strategy_used = None
+                mock_healing_result.confidence = 0.0
+                mock_healing_result.pattern_id = None
+                mock_healing_result.fix_applied = None
+                mock_healing_result.error = "Could not find fix"
 
-        with patch("src.knowledge.get_cognee_client", return_value=None):
-            pattern_id = await consumer._store_healing_pattern(
-                HealingEvent(**sample_healing_event),
-                healing_result,
-            )
+                mock_service_instance.heal = AsyncMock(return_value=mock_healing_result)
+                MockHealingService.return_value = mock_service_instance
 
-            assert pattern_id is None
+                result = await consumer._run_healing(HealingEvent(**sample_healing_event))
+
+                assert result["success"] is False
+                assert result.get("pattern_id") is None
 
     @pytest.mark.asyncio
     async def test_process_event_success(self, healing_config, sample_healing_event):
         """Test full event processing flow."""
         consumer = HealingConsumer(healing_config)
 
+        # Pattern storage is now handled internally by HealingService.heal()
+        # and pattern_id is returned in the result
         with patch.object(
             consumer,
             "_run_healing",
@@ -237,21 +242,22 @@ class TestHealingConsumer:
                 "auto_healed": True,
                 "strategy_used": "selector_changed",
                 "duration_ms": 1500,
+                "pattern_id": "pattern-123",  # Returned by HealingService
             },
         ):
             with patch.object(consumer, "_verify_healed_test", return_value=True):
-                with patch.object(consumer, "_store_healing_pattern", return_value="pattern-123"):
-                    with patch.object(consumer, "_generate_test_from_error", return_value=None):
-                        with patch.object(consumer, "_send_completion_event", return_value=True):
-                            result = await consumer._process_event(sample_healing_event)
+                with patch.object(consumer, "_generate_test_from_error", return_value=None):
+                    with patch.object(consumer, "_send_completion_event", return_value=True):
+                        result = await consumer._process_event(sample_healing_event)
 
-                            assert result is True
+                        assert result is True
 
     @pytest.mark.asyncio
     async def test_process_event_argus_wrapper(self, healing_config, sample_argus_event_wrapper):
         """Test processing ArgusEvent wrapper format (as published by EventGateway)."""
         consumer = HealingConsumer(healing_config)
 
+        # Pattern storage is now handled internally by HealingService.heal()
         with patch.object(
             consumer,
             "_run_healing",
@@ -260,22 +266,24 @@ class TestHealingConsumer:
                 "auto_healed": True,
                 "strategy_used": "selector_changed",
                 "duration_ms": 1500,
+                "pattern_id": "pattern-123",  # Returned by HealingService
             },
         ):
             with patch.object(consumer, "_verify_healed_test", return_value=True):
-                with patch.object(consumer, "_store_healing_pattern", return_value="pattern-123"):
-                    with patch.object(consumer, "_generate_test_from_error", return_value=None):
-                        with patch.object(consumer, "_send_completion_event", return_value=True):
-                            # Pass ArgusEvent wrapper - should extract data correctly
-                            result = await consumer._process_event(sample_argus_event_wrapper)
+                with patch.object(consumer, "_generate_test_from_error", return_value=None):
+                    with patch.object(consumer, "_send_completion_event", return_value=True):
+                        # Pass ArgusEvent wrapper - should extract data correctly
+                        result = await consumer._process_event(sample_argus_event_wrapper)
 
-                            assert result is True
+                        assert result is True
 
     @pytest.mark.asyncio
     async def test_process_event_failure(self, healing_config, sample_healing_event):
         """Test event processing when healing fails."""
         consumer = HealingConsumer(healing_config)
 
+        # Pattern storage is now handled internally by HealingService.heal()
+        # No pattern_id when healing fails
         with patch.object(
             consumer,
             "_run_healing",
@@ -283,13 +291,13 @@ class TestHealingConsumer:
                 "success": False,
                 "failure_reason": "Could not identify fix",
                 "duration_ms": 500,
+                "pattern_id": None,  # No pattern on failure
             },
         ):
-            with patch.object(consumer, "_store_healing_pattern", return_value=None):
-                with patch.object(consumer, "_send_completion_event", return_value=True):
-                    result = await consumer._process_event(sample_healing_event)
+            with patch.object(consumer, "_send_completion_event", return_value=True):
+                result = await consumer._process_event(sample_healing_event)
 
-                    assert result is False
+                assert result is False
 
 
 class TestHealingEventEmission:

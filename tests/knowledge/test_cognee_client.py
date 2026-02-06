@@ -615,3 +615,433 @@ class TestCogneeExceptions:
             result = await client.get(namespace=["test"], key="missing-key")
 
             assert result is None
+
+
+class TestClassifySelectorType:
+    """Tests for classify_selector_type function (RAP-355)."""
+
+    def test_classify_data_testid_attribute_selector(self, mock_env_vars):
+        """Test classification of data-testid attribute selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type('[data-testid="login-button"]') == "data_testid"
+            assert classify_selector_type("[data-testid='submit']") == "data_testid"
+            assert classify_selector_type('[data-testid^="prefix-"]') == "data_testid"
+
+    def test_classify_data_cy_selector(self, mock_env_vars):
+        """Test classification of Cypress data-cy selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type('[data-cy="login"]') == "data_cy"
+
+    def test_classify_id_selectors(self, mock_env_vars):
+        """Test classification of ID-based selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type("#login-button") == "id_attribute"
+            assert classify_selector_type("#submit_btn") == "id_attribute"
+            assert classify_selector_type('[id="main-content"]') == "id_attribute"
+
+    def test_classify_class_selectors(self, mock_env_vars):
+        """Test classification of class-based selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type(".btn-primary") == "class_single"
+            assert classify_selector_type(".btn.btn-primary") == "class_multiple"
+
+    def test_classify_aria_selectors(self, mock_env_vars):
+        """Test classification of ARIA-based selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type('[aria-label="Submit form"]') == "aria_label"
+            assert classify_selector_type('[aria-labelledby="header"]') == "aria_labelledby"
+
+    def test_classify_xpath_selectors(self, mock_env_vars):
+        """Test classification of XPath selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type('//button[@id="submit"]') == "xpath_id"
+            assert classify_selector_type('//button[text()="Submit"]') == "xpath_text"
+            assert classify_selector_type('//div[@class="container"]') == "xpath_attribute"
+            assert classify_selector_type("//div[3]") == "xpath_positional"
+
+    def test_classify_role_selectors(self, mock_env_vars):
+        """Test classification of role-based selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type('[role="button"]') == "role"
+
+    def test_classify_playwright_text_selectors(self, mock_env_vars):
+        """Test classification of Playwright text selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type('text="Submit"') == "text_exact"
+            assert classify_selector_type("*text=Submit") == "text_partial"
+
+    def test_classify_empty_and_none(self, mock_env_vars):
+        """Test classification handles empty/None values."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type("") == "unknown"
+            assert classify_selector_type(None) == "unknown"
+
+    def test_classify_tag_only(self, mock_env_vars):
+        """Test classification of tag-only selectors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import classify_selector_type
+
+            assert classify_selector_type("button") == "tag_only"
+            assert classify_selector_type("input") == "tag_only"
+
+
+class TestStoreSuccessfulHeal:
+    """Tests for store_successful_heal method (RAP-353)."""
+
+    @pytest.mark.asyncio
+    async def test_store_successful_heal_basic(self, mock_env_vars):
+        """Test storing a successful heal pattern."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.add = AsyncMock()
+        mock_cognee_module.cognify = AsyncMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            pattern_id = await client.store_successful_heal(
+                org_id="org1",
+                test_id="test-123",
+                failure_context={
+                    "error_type": "selector_not_found",
+                    "error_message": "Element not found: #login-btn",
+                    "failed_selector": "#login-btn",
+                    "page_url": "https://app.example.com/login",
+                },
+                fix_applied={
+                    "new_selector": "[data-testid='login-button']",
+                    "fix_type": "selector_update",
+                    "confidence": 0.95,
+                    "healing_method": "code_aware",
+                },
+            )
+
+            assert pattern_id is not None
+            assert len(pattern_id) == 32  # SHA256 truncated to 32 chars
+            mock_cognee_module.add.assert_called_once()
+            mock_cognee_module.cognify.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_store_successful_heal_anonymizes_selector(self, mock_env_vars):
+        """Test that store_successful_heal anonymizes selectors."""
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.add = AsyncMock()
+        mock_cognee_module.cognify = AsyncMock()
+
+        stored_data = {}
+
+        async def capture_add(data, dataset_name):
+            import json
+
+            stored_data["content"] = json.loads(data)
+            stored_data["dataset"] = dataset_name
+
+        mock_cognee_module.add = AsyncMock(side_effect=capture_add)
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            await client.store_successful_heal(
+                org_id="org1",
+                test_id="test-123",
+                failure_context={
+                    "error_type": "selector_not_found",
+                    "error_message": "Element not found: #login-btn",
+                    "failed_selector": "#login-btn",
+                    "page_url": "https://app.example.com/login",
+                },
+                fix_applied={
+                    "new_selector": "[data-testid='login-button']",
+                    "fix_type": "selector_update",
+                    "confidence": 0.95,
+                    "healing_method": "code_aware",
+                },
+            )
+
+            # Verify the stored data has anonymized selectors
+            content = stored_data.get("content", {})
+            # Should NOT contain actual selector values
+            assert "#login-btn" not in str(content)
+            assert "login-button" not in str(content)
+            # Should contain selector TYPES
+            assert content.get("original_selector_type") == "id_attribute"
+            assert content.get("new_selector_type") == "data_testid"
+
+
+class TestSearchSimilarFixes:
+    """Tests for search_similar_fixes method (RAP-354)."""
+
+    @pytest.mark.asyncio
+    async def test_search_similar_fixes_returns_results(self, mock_env_vars):
+        """Test searching for similar fixes returns properly formatted results."""
+        mock_results = [
+            {
+                "pattern_id": "abc123",
+                "error_type": "selector_not_found",
+                "error_category": "element_not_found",
+                "original_selector_type": "id_attribute",
+                "new_selector_type": "data_testid",
+                "selector_transition": "id_attribute -> data_testid",
+                "fix_type": "selector_update",
+                "healing_method": "code_aware",
+                "confidence": 0.95,
+                "success_count": 10,
+                "failure_count": 1,
+                "total_applications": 11,
+                "similarity": 0.92,
+            }
+        ]
+
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.search = AsyncMock(return_value=mock_results)
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            fixes = await client.search_similar_fixes(
+                org_id="org1",
+                error_type="selector_not_found",
+                selector_type="id_attribute",
+                top_k=5,
+            )
+
+            assert len(fixes) == 1
+            assert fixes[0]["pattern_id"] == "abc123"
+            assert fixes[0]["selector_transition"] == "id_attribute -> data_testid"
+            assert fixes[0]["success_rate"] > 0.9  # 10/11 = 0.909
+
+    @pytest.mark.asyncio
+    async def test_search_similar_fixes_filters_low_success_rate(self, mock_env_vars):
+        """Test that search_similar_fixes filters patterns with low success rate."""
+        mock_results = [
+            {
+                "pattern_id": "abc123",
+                "error_type": "selector_not_found",
+                "success_count": 2,
+                "failure_count": 8,  # Only 20% success rate
+                "similarity": 0.9,
+            }
+        ]
+
+        mock_cognee_module = MagicMock()
+        mock_cognee_module.search = AsyncMock(return_value=mock_results)
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            fixes = await client.search_similar_fixes(
+                org_id="org1",
+                error_type="selector_not_found",
+                top_k=5,
+            )
+
+            # Should be filtered out due to low success rate (< 30%)
+            assert len(fixes) == 0
+
+
+class TestCategorizeErrorMessage:
+    """Tests for _categorize_error_message private method."""
+
+    def test_categorize_element_not_found(self, mock_env_vars):
+        """Test categorization of element not found errors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            assert client._categorize_error_message("Element not found: #button") == "element_not_found"
+            assert client._categorize_error_message("Unable to locate element") == "element_not_found"
+            assert client._categorize_error_message("Cannot find selector") == "element_not_found"
+
+    def test_categorize_timeout_errors(self, mock_env_vars):
+        """Test categorization of timeout errors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            assert client._categorize_error_message("Navigation timeout exceeded") == "navigation_timeout"
+            assert client._categorize_error_message("Wait timed out") == "wait_timeout"
+            assert client._categorize_error_message("Request timeout") == "general_timeout"
+
+    def test_categorize_visibility_errors(self, mock_env_vars):
+        """Test categorization of visibility errors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            assert client._categorize_error_message("Element not visible") == "element_not_visible"
+            assert client._categorize_error_message("Element is hidden") == "element_not_visible"
+
+    def test_categorize_assertion_errors(self, mock_env_vars):
+        """Test categorization of assertion errors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            assert client._categorize_error_message("Assertion failed: expected text") == "text_assertion_failed"
+            assert client._categorize_error_message("Expected element to be visible") == "visibility_assertion_failed"
+            assert client._categorize_error_message("Expected count to equal 5") == "count_assertion_failed"
+
+    def test_categorize_unknown(self, mock_env_vars):
+        """Test categorization returns 'other' for unknown errors."""
+        mock_cognee_module = MagicMock()
+
+        with patch.dict("sys.modules", {"cognee": mock_cognee_module}):
+            import importlib
+
+            import src.knowledge.cognee_client
+
+            importlib.reload(src.knowledge.cognee_client)
+            from src.knowledge.cognee_client import CogneeKnowledgeClient
+
+            client = CogneeKnowledgeClient(org_id="org1", project_id="proj1")
+
+            assert client._categorize_error_message("Some random error") == "other"
+            assert client._categorize_error_message("") == "unknown"
+            assert client._categorize_error_message(None) == "unknown"

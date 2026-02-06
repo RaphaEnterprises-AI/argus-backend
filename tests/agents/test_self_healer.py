@@ -785,3 +785,219 @@ class TestSelfHealerAgent:
             results = await agent.batch_analyze(failures)
 
             assert len(results) == 2
+
+
+class TestSelfHealerAgentCogneePatterns:
+    """Tests for SelfHealerAgent cognee_patterns parameter."""
+
+    def test_cognee_patterns_default_empty_list(self, mock_env_vars):
+        """Test cognee_patterns defaults to empty list."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            agent = SelfHealerAgent()
+            assert agent.cognee_patterns == []
+
+    def test_cognee_patterns_accepts_list(self, mock_env_vars):
+        """Test cognee_patterns accepts a list of patterns."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            patterns = [
+                {"selector": "#old-btn", "healed_selector": "#new-btn", "confidence": 0.9}
+            ]
+            agent = SelfHealerAgent(cognee_patterns=patterns)
+            assert agent.cognee_patterns == patterns
+
+    def test_cognee_patterns_none_becomes_empty_list(self, mock_env_vars):
+        """Test cognee_patterns=None is converted to empty list."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            agent = SelfHealerAgent(cognee_patterns=None)
+            assert agent.cognee_patterns == []
+            assert isinstance(agent.cognee_patterns, list)
+
+    def test_lookup_prefetched_patterns_returns_none_for_empty(self, mock_env_vars):
+        """Test _lookup_prefetched_cognee_patterns returns None for empty patterns."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            agent = SelfHealerAgent()
+            agent.log = MagicMock()
+            result = agent._lookup_prefetched_cognee_patterns(
+                original_selector="#button",
+                error_type="selector_not_found",
+                error_message="Element not found"
+            )
+            assert result is None
+
+    def test_lookup_prefetched_patterns_finds_match(self, mock_env_vars):
+        """Test _lookup_prefetched_cognee_patterns finds matching pattern."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import FixType, SelfHealerAgent
+
+            patterns = [
+                {
+                    "selector": "#old-button",
+                    "healed_selector": "#new-button",
+                    "error_type": "selector_not_found",
+                    "confidence": 0.95
+                }
+            ]
+            agent = SelfHealerAgent(cognee_patterns=patterns, auto_heal_threshold=0.9)
+            agent.log = MagicMock()
+
+            result = agent._lookup_prefetched_cognee_patterns(
+                original_selector="#old-button",
+                error_type="selector_not_found",
+                error_message="Element not found"
+            )
+
+            assert result is not None
+            fix, pattern_id = result
+            assert fix.fix_type == FixType.UPDATE_SELECTOR
+            assert fix.old_value == "#old-button"
+            assert fix.new_value == "#new-button"
+            assert fix.confidence > 0.8
+
+    def test_lookup_prefetched_patterns_filters_low_confidence(self, mock_env_vars):
+        """Test patterns with low confidence are filtered out."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            patterns = [
+                {
+                    "selector": "#old-button",
+                    "healed_selector": "#new-button",
+                    "confidence": 0.5  # Below 0.8 threshold
+                }
+            ]
+            agent = SelfHealerAgent(cognee_patterns=patterns)
+            agent.log = MagicMock()
+
+            result = agent._lookup_prefetched_cognee_patterns(
+                original_selector="#old-button",
+                error_type=None,
+                error_message="Element not found"
+            )
+            assert result is None
+
+    def test_lookup_prefetched_patterns_uses_similarity(self, mock_env_vars):
+        """Test similarity is used as fallback for confidence."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            patterns = [
+                {
+                    "selector": "#old-button",
+                    "healed_selector": "#new-button",
+                    "similarity": 0.9  # Using similarity instead of confidence
+                }
+            ]
+            agent = SelfHealerAgent(cognee_patterns=patterns, auto_heal_threshold=0.9)
+            agent.log = MagicMock()
+
+            result = agent._lookup_prefetched_cognee_patterns(
+                original_selector="#old-button",
+                error_type=None,
+                error_message="Element not found"
+            )
+            assert result is not None
+            fix, _ = result
+            assert fix.confidence > 0.8
+
+    def test_lookup_prefetched_patterns_caps_confidence(self, mock_env_vars):
+        """Test confidence is capped at 0.95."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            patterns = [
+                {
+                    "selector": "#button",
+                    "healed_selector": "#new-button",
+                    "confidence": 1.0  # Full confidence
+                }
+            ]
+            agent = SelfHealerAgent(cognee_patterns=patterns, auto_heal_threshold=0.9)
+            agent.log = MagicMock()
+
+            result = agent._lookup_prefetched_cognee_patterns(
+                original_selector="#button",
+                error_type=None,
+                error_message="Element not found"
+            )
+            assert result is not None
+            fix, _ = result
+            assert fix.confidence <= 0.95
+
+    def test_lookup_prefetched_patterns_requires_healed_selector(self, mock_env_vars):
+        """Test patterns without healed_selector are skipped."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            patterns = [
+                {
+                    "selector": "#old-button",
+                    # No healed_selector
+                    "confidence": 0.95
+                }
+            ]
+            agent = SelfHealerAgent(cognee_patterns=patterns)
+            agent.log = MagicMock()
+
+            result = agent._lookup_prefetched_cognee_patterns(
+                original_selector="#old-button",
+                error_type=None,
+                error_message="Element not found"
+            )
+            assert result is None
+
+
+class TestSelfHealerAgentLLMProvider:
+    """Tests for SelfHealerAgent llm_provider parameter."""
+
+    def test_llm_provider_default_anthropic(self, mock_env_vars):
+        """Test llm_provider defaults to anthropic."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            agent = SelfHealerAgent()
+            assert agent.llm_provider == "anthropic"
+
+    @pytest.mark.parametrize(
+        "provider",
+        ["anthropic", "ollama", "openai", "openrouter", "azure"],
+    )
+    def test_llm_provider_accepts_various_values(self, mock_env_vars, provider):
+        """Test llm_provider accepts various provider values."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            agent = SelfHealerAgent(llm_provider=provider)
+            assert agent.llm_provider == provider
+
+
+class TestSelfHealerAgentCodeAnalyzer:
+    """Tests for SelfHealerAgent code_analyzer parameter."""
+
+    def test_code_analyzer_param_is_optional(self, mock_env_vars):
+        """Test code_analyzer parameter is optional."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            agent = SelfHealerAgent(enable_code_aware=False)
+            assert agent.git_analyzer is None
+
+    def test_code_analyzer_accepts_external_analyzer(self, mock_env_vars):
+        """Test code_analyzer accepts an external analyzer instance."""
+        with patch('src.agents.self_healer.BaseAgent.__init__', return_value=None):
+            from src.agents.self_healer import SelfHealerAgent
+
+            class MockAnalyzer:
+                pass
+
+            mock_analyzer = MockAnalyzer()
+            agent = SelfHealerAgent(code_analyzer=mock_analyzer)
+            assert agent.git_analyzer is mock_analyzer
+            assert agent.source_analyzer is None  # Source analyzer requires local access

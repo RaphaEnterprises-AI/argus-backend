@@ -88,7 +88,29 @@ from src.services.healing_service import (
     HealingService,
     HealingPatternCreate,
     HealingPatternResult,
+    TestFailure,
+    HealingResult,
+    DeploymentMode,
     get_healing_service,
+)
+
+# GitHub Code Analyzer (Remote code-aware healing)
+from src.services.github_code_analyzer import (
+    GitHubCodeAnalyzer,
+    GitHubCommit,
+    SelectorChange as GitHubSelectorChange,
+    get_github_analyzer_for_project,
+)
+
+# Code Analyzer Factory (Multi-source support - RAP-350, RAP-351, RAP-352)
+from src.services.code_analyzer_factory import (
+    AnalyzerType,
+    CachedAnalysis,
+    CachedAnalyzer,
+    CodeAnalyzerFactory,
+    CodeAnalyzerProtocol,
+    RateLimitState,
+    get_code_analyzer_factory,
 )
 
 # Cloudflare Storage (RAP-248 Enhanced)
@@ -110,6 +132,9 @@ __all__ = [
     "HealingService",
     "HealingPatternCreate",
     "HealingPatternResult",
+    "TestFailure",
+    "HealingResult",
+    "DeploymentMode",
     "get_healing_service",
     # AI Cost Tracking
     "AICostTracker",
@@ -193,4 +218,17 @@ __all__ = [
     "VectorSearchResult",
     "get_cloudflare_client",
     "is_cloudflare_configured",
+    # GitHub Code Analyzer (Remote code-aware healing)
+    "GitHubCodeAnalyzer",
+    "GitHubCommit",
+    "GitHubSelectorChange",
+    "get_github_analyzer_for_project",
+    # Code Analyzer Factory (Multi-source support - RAP-350, RAP-351, RAP-352)
+    "AnalyzerType",
+    "CachedAnalysis",
+    "CachedAnalyzer",
+    "CodeAnalyzerFactory",
+    "CodeAnalyzerProtocol",
+    "RateLimitState",
+    "get_code_analyzer_factory",
 ]

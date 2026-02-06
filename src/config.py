@@ -6,6 +6,16 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class DeploymentMode(str, Enum):
+    """Deployment mode for the application (RAP-360).
+
+    Determines which features are available and how external services are accessed.
+    """
+    CLOUD = "cloud"           # Full SaaS features - all external APIs enabled
+    ENTERPRISE = "enterprise"  # Self-hosted with external APIs - customizable integrations
+    AIRGAPPED = "airgapped"   # No external network calls - fully isolated deployment
+
+
 class ModelProvider(str, Enum):
     """Supported model providers."""
     # Primary providers
@@ -34,6 +44,7 @@ class ModelProvider(str, Enum):
 
     # Local/Air-gap providers (RAP-299)
     OLLAMA = "ollama"  # Local LLM inference
+    VLLM = "vllm"  # vLLM local inference (RAP-361)
 
 
 class ModelName(str, Enum):
@@ -67,6 +78,19 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True
+    )
+
+    # ==========================================================================
+    # Deployment Mode (RAP-360: Air-Gap Foundation)
+    # ==========================================================================
+    # Controls which external services are available based on deployment type.
+    # - CLOUD: Full SaaS features, all external APIs enabled (default)
+    # - ENTERPRISE: Self-hosted with configurable external integrations
+    # - AIRGAPPED: No external network calls, fully isolated deployment
+
+    deployment_mode: DeploymentMode = Field(
+        DeploymentMode.CLOUD,
+        description="Deployment mode: cloud (full features), enterprise (customizable), airgapped (isolated)"
     )
 
     # ==========================================================================
@@ -336,6 +360,68 @@ class Settings(BaseSettings):
         description="Ollama context window size override (num_ctx option)"
     )
 
+    # ==========================================================================
+    # vLLM Configuration (RAP-361: Air-Gap Foundation - High-Performance Local LLM)
+    # ==========================================================================
+    # vLLM provides high-throughput LLM serving with continuous batching.
+    # Recommended for production air-gapped deployments requiring high concurrency.
+
+    vllm_base_url: str = Field(
+        "http://localhost:8000",
+        description="vLLM server URL (OpenAI-compatible API endpoint)"
+    )
+    vllm_model: str = Field(
+        "meta-llama/Llama-3.1-70B-Instruct",
+        description="Default vLLM model for inference"
+    )
+    vllm_api_key: SecretStr | None = Field(
+        None,
+        description="vLLM API key (if authentication is enabled)"
+    )
+    vllm_timeout: int = Field(
+        120,
+        description="vLLM request timeout in seconds"
+    )
+
+    # ==========================================================================
+    # Deployment Mode Configuration (RAP-360, RAP-362: Air-Gapped Support)
+    # ==========================================================================
+    # Controls which features and external services are enabled.
+    # - CLOUD: Full SaaS features with all external APIs
+    # - ENTERPRISE: Self-hosted with configurable external integrations
+    # - AIRGAPPED: No external network calls, uses local services only
+
+    deployment_mode: DeploymentMode = Field(
+        DeploymentMode.CLOUD,
+        description="Deployment mode: cloud, enterprise, airgapped"
+    )
+
+    # LLM Provider Selection (RAP-361)
+    # Determines which LLM backend to use for AI operations.
+    llm_provider: str = Field(
+        "anthropic",
+        description="LLM provider: anthropic, azure, bedrock, ollama, vllm"
+    )
+    llm_base_url: str | None = Field(
+        None,
+        description="Base URL for local LLM endpoints (Ollama, vLLM). Overrides provider-specific URLs."
+    )
+
+    # Code Repository Configuration (RAP-362)
+    # For air-gapped deployments without GitHub/GitLab access.
+    github_enabled: bool = Field(
+        True,
+        description="Enable GitHub integration (disable for air-gapped)"
+    )
+    gitlab_enabled: bool = Field(
+        True,
+        description="Enable GitLab integration (disable for air-gapped)"
+    )
+    local_repos_path: str | None = Field(
+        None,
+        description="Path to local repositories for air-gapped deployments (e.g., /data/repos)"
+    )
+
     # Notifications (optional)
     slack_webhook_url: str | None = Field(None, description="Slack webhook for notifications")
 
@@ -508,6 +594,85 @@ class Settings(BaseSettings):
                 pass
         # Otherwise treat as comma-separated
         return [origin.strip() for origin in v.split(",") if origin.strip()]
+
+    @classmethod
+    def for_airgapped(
+        cls,
+        local_repos_path: str = "/data/repos",
+        ollama_host: str = "http://ollama:11434",
+        ollama_model: str = "llama3.1:70b",
+        storage_provider: str = "minio",
+        **kwargs,
+    ) -> "Settings":
+        """Configuration factory for air-gapped deployment (RAP-362).
+
+        Creates a Settings instance preconfigured for deployments without
+        external network access. Uses local services for all operations.
+
+        Args:
+            local_repos_path: Path to local git repositories
+            ollama_host: URL of local Ollama server
+            ollama_model: Default Ollama model to use
+            storage_provider: Storage backend (minio recommended for air-gapped)
+            **kwargs: Additional settings overrides
+
+        Returns:
+            Settings configured for air-gapped operation
+
+        Example:
+            settings = Settings.for_airgapped(
+                local_repos_path="/mnt/repos",
+                ollama_host="http://ollama.local:11434",
+                minio_endpoint="minio.local:9000",
+                minio_access_key="minioadmin",
+                minio_secret_key="minioadmin",
+            )
+        """
+        defaults = {
+            # Deployment mode
+            "deployment_mode": DeploymentMode.AIRGAPPED,
+
+            # LLM configuration - use Ollama
+            "llm_provider": "ollama",
+            "ollama_host": ollama_host,
+            "ollama_model": ollama_model,
+
+            # Disable external integrations
+            "github_enabled": False,
+            "gitlab_enabled": False,
+            "local_repos_path": local_repos_path,
+
+            # Storage - use MinIO
+            "storage_provider": storage_provider,
+
+            # Disable cloud-dependent features
+            "inference_gateway": InferenceGateway.DIRECT,
+            "use_vertex_ai": False,
+
+            # Cache - use local Valkey
+            "cache_enabled": True,
+            "rate_limit_backend": "memory",  # Fallback if no Redis available
+        }
+
+        # Merge with user-provided kwargs (user values take precedence)
+        defaults.update(kwargs)
+
+        return cls(**defaults)
+
+    @property
+    def is_airgapped(self) -> bool:
+        """Check if running in air-gapped mode."""
+        return self.deployment_mode == DeploymentMode.AIRGAPPED
+
+    @property
+    def is_enterprise(self) -> bool:
+        """Check if running in enterprise mode."""
+        return self.deployment_mode == DeploymentMode.ENTERPRISE
+
+    @property
+    def is_cloud(self) -> bool:
+        """Check if running in cloud mode."""
+        return self.deployment_mode == DeploymentMode.CLOUD
 
     # Security Headers
     enable_hsts: bool = Field(True, description="Enable HSTS header")

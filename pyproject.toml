@@ -1,6 +1,6 @@
 [project]
 name = "e2e-testing-agent"
-version = "2.15.0"
+version = "2.16.0"
 description = "Autonomous E2E Full-Stack Testing Agent powered by Claude"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -136,6 +136,10 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
+    "evaluation: marks tests as evaluation tests for agent capabilities",
+    "benchmark: marks tests as benchmark tests for performance measurement",
+    "airgap: marks tests for air-gapped deployment scenarios",
+    "timeout: marks tests with custom timeout values",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

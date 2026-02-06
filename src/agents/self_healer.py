@@ -235,6 +235,9 @@ class SelfHealerAgent(BaseAgent):
         embeddings: object | None = None,
         org_id: str | None = None,
         project_id: str | None = None,
+        code_analyzer: object | None = None,
+        cognee_patterns: list[dict] | None = None,
+        llm_provider: str = "anthropic",
         **kwargs,
     ):
         """Initialize healer with configuration.
@@ -248,6 +251,9 @@ class SelfHealerAgent(BaseAgent):
             org_id: Organization ID for multi-tenant knowledge isolation
             project_id: Project ID for multi-tenant knowledge isolation
             embeddings: Optional embeddings instance for semantic search
+            code_analyzer: Optional external code analyzer (GitHubCodeAnalyzer for remote repos)
+            cognee_patterns: Pre-fetched Cognee patterns for healing (used before code-aware/LLM)
+            llm_provider: LLM provider to use for fallback healing (default: anthropic)
         """
         super().__init__(**kwargs)
         self.auto_heal_threshold = auto_heal_threshold
@@ -255,9 +261,17 @@ class SelfHealerAgent(BaseAgent):
         self.enable_code_aware = enable_code_aware
         self.enable_memory_store = enable_memory_store
         self.enable_hybrid_retrieval = enable_hybrid_retrieval
+        self.cognee_patterns = cognee_patterns if cognee_patterns is not None else []
+        self.llm_provider = llm_provider
 
         # Initialize code-aware analyzers
-        if enable_code_aware:
+        # Priority: external code_analyzer > local git_analyzer
+        if code_analyzer is not None:
+            # Use externally provided analyzer (e.g., GitHubCodeAnalyzer for remote repos)
+            self.git_analyzer = code_analyzer
+            self.source_analyzer = None  # Source analyzer requires local access
+            logger.info("Using external code analyzer for code-aware healing")
+        elif enable_code_aware:
             self.git_analyzer = get_git_analyzer(repo_path)
             self.source_analyzer = get_source_analyzer(repo_path)
         else:
@@ -546,6 +560,96 @@ class SelfHealerAgent(BaseAgent):
                 requires_review=False,
             )
         return None
+
+    def _lookup_prefetched_cognee_patterns(
+        self,
+        original_selector: str | None,
+        error_type: str | None,
+        error_message: str | None,
+    ) -> tuple[FixSuggestion, str] | None:
+        """Look up a fix from pre-fetched Cognee patterns.
+
+        This method checks the pre-fetched cognee_patterns passed to __init__
+        for a high-confidence match. Pre-fetched patterns are checked FIRST
+        in the healing strategy for optimal performance.
+
+        Args:
+            original_selector: The broken selector
+            error_type: Type of error (e.g., "selector_changed")
+            error_message: The error message from the failure
+
+        Returns:
+            Tuple of (FixSuggestion, pattern_id) if found with high confidence, None otherwise
+        """
+        if not self.cognee_patterns:
+            return None
+
+        # Find the best matching pattern with confidence > 0.8
+        best_match = None
+        best_confidence = 0.0
+
+        for pattern in self.cognee_patterns:
+            confidence = pattern.get("confidence", 0.0)
+            similarity = pattern.get("similarity", 0.0)
+
+            # Use similarity as confidence if confidence not provided
+            effective_confidence = max(confidence, similarity)
+
+            # Skip patterns below threshold
+            if effective_confidence < 0.8:
+                continue
+
+            # Check for selector match or error type match
+            pattern_selector = pattern.get("selector") or pattern.get("original_selector")
+            pattern_error_type = pattern.get("error_type")
+
+            # Prioritize exact selector matches
+            selector_match = original_selector and pattern_selector == original_selector
+            error_type_match = error_type and pattern_error_type == error_type
+
+            # Calculate match score
+            match_score = effective_confidence
+            if selector_match:
+                match_score += 0.1  # Boost for selector match
+            if error_type_match:
+                match_score += 0.05  # Boost for error type match
+
+            if match_score > best_confidence and pattern.get("healed_selector"):
+                best_match = pattern
+                best_confidence = match_score
+
+        if not best_match:
+            return None
+
+        # Build the fix suggestion
+        healed_selector = best_match.get("healed_selector")
+        pattern_id = best_match.get("id") or best_match.get("pattern_id") or "prefetched"
+
+        # Cap confidence at 0.95
+        final_confidence = min(0.95, best_confidence)
+
+        self.log.info(
+            "Found fix from pre-fetched Cognee patterns",
+            pattern_id=pattern_id,
+            confidence=final_confidence,
+            original_selector=original_selector,
+            healed_selector=healed_selector,
+        )
+
+        fix = FixSuggestion(
+            fix_type=FixType.UPDATE_SELECTOR,
+            old_value=original_selector or best_match.get("selector"),
+            new_value=healed_selector,
+            confidence=final_confidence,
+            explanation=(
+                f"Using pre-fetched Cognee pattern "
+                f"(confidence: {final_confidence:.0%}, "
+                f"method: {best_match.get('healing_method', 'cognee_prefetch')})"
+            ),
+            requires_review=final_confidence < self.auto_heal_threshold,
+        )
+
+        return fix, pattern_id
 
     async def _lookup_hybrid_retrieval(
         self,
@@ -1169,6 +1273,59 @@ Output must be valid JSON."""
                     input_tokens=0,  # No LLM call made
                     output_tokens=0,
                 )
+
+        # =====================================================================
+        # PRE-FETCHED COGNEE PATTERNS (RAP-358)
+        # Check pre-fetched Cognee patterns FIRST before memory store lookup
+        # These patterns were fetched by the HealingConsumer for efficiency
+        # =====================================================================
+        if self.cognee_patterns:
+            cognee_result = self._lookup_prefetched_cognee_patterns(
+                original_selector=original_selector,
+                error_type=error_type if error_type != "unknown" else None,
+                error_message=error_message,
+            )
+
+            if cognee_result:
+                cognee_fix, pattern_id = cognee_result
+
+                if cognee_fix.confidence >= self.auto_heal_threshold:
+                    diagnosis = FailureDiagnosis(
+                        failure_type=FailureType.SELECTOR_CHANGED,
+                        confidence=cognee_fix.confidence,
+                        explanation="Using pre-fetched Cognee pattern with high confidence match",
+                        evidence=[
+                            "Pre-fetched Cognee pattern matched",
+                            f"Pattern ID: {pattern_id}",
+                        ],
+                    )
+
+                    healed_spec = await self._apply_fix(test_spec, cognee_fix, failure_details)
+
+                    self.log.info(
+                        "Applied pre-fetched Cognee pattern",
+                        test_id=test_id,
+                        pattern_id=pattern_id,
+                        original_selector=original_selector,
+                        healed_selector=cognee_fix.new_value,
+                    )
+
+                    # Store pattern_id for outcome tracking
+                    result = HealingResult(
+                        test_id=test_id,
+                        diagnosis=diagnosis,
+                        suggested_fixes=[cognee_fix],
+                        auto_healed=True,
+                        healed_test_spec=healed_spec,
+                    )
+                    result._cognee_pattern_id = pattern_id  # type: ignore
+
+                    return AgentResult(
+                        success=True,
+                        data=result,
+                        input_tokens=0,  # No LLM call made
+                        output_tokens=0,
+                    )
 
         # =====================================================================
         # LONG-TERM MEMORY STORE LOOKUP (Cross-Session Learning)
