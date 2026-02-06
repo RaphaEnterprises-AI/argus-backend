@@ -137,16 +137,16 @@ def _configure_cognee_early() -> None:
     # =========================================================================
     # 3. GRAPH DATABASE CONFIGURATION
     # =========================================================================
-    falkordb_host = os.environ.get("FALKORDB_HOST")
-    if falkordb_host:
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "falkordb"
-        os.environ["GRAPH_DATABASE_URL"] = f"redis://{falkordb_host}:{os.environ.get('FALKORDB_PORT', '6379')}"
-        if os.environ.get("FALKORDB_PASSWORD"):
-            os.environ["GRAPH_DATABASE_PASSWORD"] = os.environ["FALKORDB_PASSWORD"]
-        _early_logger.info("Pre-import: Graph DB configured for FalkorDB")
-    else:
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
-        _early_logger.info("Pre-import: Graph DB configured for Kuzu (local mode)")
+    # NOTE: FalkorDB is NOT supported by Cognee's backend access control.
+    # Supported handlers: ['neo4j_aura_dev', 'lancedb', 'pgvector', 'kuzu']
+    # We use kuzu as the default graph database since it works locally and
+    # doesn't require external infrastructure. FalkorDB caused errors:
+    # "The selected graph dataset to database handler does not work with
+    # the configured graph database provider"
+    #
+    # If you need a production graph DB, use Neo4j Aura instead of FalkorDB.
+    os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
+    _early_logger.info("Pre-import: Graph DB configured for Kuzu (works with access control)")
 
 
 # Execute early configuration BEFORE importing cognee
