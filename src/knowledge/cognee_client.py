@@ -472,20 +472,14 @@ def _configure_cognee() -> None:
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 
     # Configure Graph Database FIRST (before LLM) via Cognee API
-    # This is more reliable than just setting env vars
-    neo4j_uri = os.environ.get("NEO4J_URI") or os.environ.get("GRAPH_DATABASE_URL")
-    if neo4j_uri and "neo4j" in neo4j_uri:
-        try:
-            cognee.config.set_graph_database_provider("neo4j")
-            cognee.config.set_graph_database_config({
-                "graph_database_url": neo4j_uri,
-                "graph_database_username": os.environ.get("NEO4J_USERNAME", "neo4j"),
-                "graph_database_password": os.environ.get("NEO4J_PASSWORD", ""),
-            })
-            logger.info("Cognee graph DB configured for Neo4j Aura via API", uri=neo4j_uri[:40])
-        except Exception as e:
-            logger.warning(f"Could not set graph DB via API: {e}, falling back to env vars")
+    # FalkorDB is already configured at import time (lines 175-210),
+    # so we only need to handle non-FalkorDB providers here.
+    graph_provider = os.environ.get("GRAPH_DATABASE_PROVIDER", "").lower()
+    if graph_provider == "falkor":
+        # FalkorDB already configured via side-effect import + cognee.config API
+        logger.info("Graph DB: FalkorDB (configured at import time)")
     else:
+        # Fallback to Kuzu for local/dev environments
         try:
             cognee.config.set_graph_database_provider("kuzu")
             logger.info("Cognee graph DB configured for Kuzu via API")
