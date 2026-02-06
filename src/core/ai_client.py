@@ -91,11 +91,29 @@ def _get_langfuse():
 
     try:
         from langfuse import Langfuse
+        import httpx
+
+        # Build custom headers for Cloudflare Access (if configured)
+        cf_headers = {}
+        cf_client_id = os.environ.get("CF_ACCESS_CLIENT_ID")
+        cf_client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET")
+        if cf_client_id and cf_client_secret:
+            cf_headers = {
+                "CF-Access-Client-Id": cf_client_id,
+                "CF-Access-Client-Secret": cf_client_secret,
+            }
+            logger.info("Langfuse configured with Cloudflare Access headers")
+
+        # Create custom httpx client with CF Access headers if needed
+        httpx_client = None
+        if cf_headers:
+            httpx_client = httpx.Client(headers=cf_headers, timeout=30.0)
 
         _langfuse_client = Langfuse(
             public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
             secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
             host=os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+            httpx_client=httpx_client,
         )
 
         logger.info(
