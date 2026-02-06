@@ -137,24 +137,21 @@ def _configure_cognee_early() -> None:
     # =========================================================================
     # 3. GRAPH DATABASE CONFIGURATION
     # =========================================================================
-    # NOTE: FalkorDB is NOT supported by Cognee's backend access control.
-    # Supported handlers: ['neo4j_aura_dev', 'lancedb', 'pgvector', 'kuzu']
+    # CRITICAL: FalkorDB is NOT supported by Cognee!
+    # - Backend access control only supports: ['neo4j_aura_dev', 'lancedb', 'pgvector', 'kuzu']
+    # - ECL graph pipeline only supports: ['neo4j', 'kuzu', 'kuzu-remote', 'neptune', 'neptune_analytics']
     #
-    # We use pgvector for graph storage since:
-    # 1. Already configured via Supabase PostgreSQL
-    # 2. Consistent with vector storage (also pgvector)
-    # 3. Production-grade, no additional infrastructure
+    # We MUST use kuzu for graph storage. pgvector is only for vector storage!
     #
-    # FalkorDB caused errors:
-    # "The selected graph dataset to database handler does not work with
-    # the configured graph database provider"
-    if database_url and "postgresql" in database_url:
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "pgvector"
-        _early_logger.info("Pre-import: Graph DB configured for pgvector (Supabase PostgreSQL)")
-    else:
-        # Fallback to kuzu for local development without PostgreSQL
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
-        _early_logger.info("Pre-import: Graph DB configured for Kuzu (local mode)")
+    # Also, we MUST remove FALKORDB_* env vars so Cognee doesn't detect FalkorDB
+    # and try to use it (ignoring our GRAPH_DATABASE_PROVIDER setting).
+    for key in list(os.environ.keys()):
+        if key.startswith("FALKORDB"):
+            del os.environ[key]
+            _early_logger.info(f"Pre-import: Removed {key} to prevent FalkorDB detection")
+
+    os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
+    _early_logger.info("Pre-import: Graph DB configured for Kuzu (embedded, works everywhere)")
 
 
 # Execute early configuration BEFORE importing cognee
