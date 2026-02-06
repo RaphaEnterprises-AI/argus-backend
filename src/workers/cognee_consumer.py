@@ -344,20 +344,18 @@ class CogneeConsumer:
             cognee.config.data_root_directory(data_dir)
             cognee.config.system_root_directory(system_dir)
 
-            # Configure Cognee graph storage - Neo4j if configured, else skip
-            # (cognee_client.py already configures Neo4j via env vars)
-            neo4j_uri = os.getenv("NEO4J_URI") or os.getenv("GRAPH_DATABASE_URL")
-            if neo4j_uri and "neo4j" in neo4j_uri:
-                # Neo4j is configured via env vars in cognee_client.py
-                # Don't override here - let the early config handle it
-                logger.info("Using Neo4j for graph storage", uri=neo4j_uri[:40] + "...")
+            # Configure Cognee graph storage - FalkorDB or fallback
+            # (cognee_client.py handles early config via env vars)
+            graph_provider = os.getenv("GRAPH_DATABASE_PROVIDER", "").lower()
+            falkordb_host = os.getenv("FALKORDB_HOST")
+            if graph_provider == "falkor" or falkordb_host:
+                logger.info(
+                    "Using FalkorDB for graph + vector storage",
+                    host=falkordb_host,
+                    port=os.getenv("FALKORDB_PORT", "6379"),
+                )
             else:
-                logger.warning("No Neo4j configured, graph storage may be limited")
-
-            # Configure vector storage to use pgvector (Supabase)
-            if os.getenv("DATABASE_URL"):
-                cognee.config.set_vector_db_provider("pgvector")
-                cognee.config.set_vector_db_url(os.getenv("DATABASE_URL"))
+                logger.info("Using default graph storage (kuzu embedded)")
 
             # Note: LLM is configured per-event in _configure_llm_for_org()
             # to support BYOK (Bring Your Own Key) per organization
@@ -366,7 +364,7 @@ class CogneeConsumer:
             logger.info("Cognee initialized successfully (LLM configured per-event)")
 
         except ImportError:
-            logger.error("Cognee not installed. Install with: pip install cognee[postgres,neo4j]")
+            logger.error("Cognee not installed. Install with: pip install cognee[postgres] cognee-community-hybrid-adapter-falkor")
             raise
         except Exception as e:
             logger.error("Failed to initialize Cognee", error=str(e))

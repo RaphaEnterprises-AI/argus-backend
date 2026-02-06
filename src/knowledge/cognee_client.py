@@ -153,28 +153,33 @@ def _configure_cognee_early() -> None:
             del os.environ[key]
             print(f"[COGNEE DEBUG] Removed {key}", file=sys.stderr)
 
-    # Check if graph provider is explicitly set (e.g., to kuzu)
+    # Check graph database provider - FalkorDB is the primary choice
     explicit_provider = os.environ.get("GRAPH_DATABASE_PROVIDER", "").lower()
-    neo4j_uri = os.environ.get("NEO4J_URI") or os.environ.get("GRAPH_DATABASE_URL")
+    falkordb_host = os.environ.get("FALKORDB_HOST")
+    falkordb_port = os.environ.get("FALKORDB_PORT", "6379")
+    falkordb_password = os.environ.get("FALKORDB_PASSWORD", "")
 
-    if explicit_provider == "kuzu":
-        # Kuzu explicitly requested - use embedded graph DB (no external service)
+    if explicit_provider == "falkor" or falkordb_host:
+        # FalkorDB configured - use it for both graph and vector
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "falkor"
+        os.environ["GRAPH_DATABASE_URL"] = falkordb_host or "localhost"
+        os.environ["GRAPH_DATABASE_PORT"] = falkordb_port
+        if falkordb_password:
+            os.environ["GRAPH_DATABASE_PASSWORD"] = falkordb_password
+        # Also use FalkorDB for vector storage (hybrid mode)
+        os.environ["VECTOR_DB_PROVIDER"] = "falkor"
+        os.environ["VECTOR_DB_URL"] = f"redis://:{falkordb_password}@{falkordb_host or 'localhost'}:{falkordb_port}"
+        _early_logger.info(
+            "Pre-import: Graph + Vector DB configured for FalkorDB",
+            host=falkordb_host or "localhost",
+            port=falkordb_port,
+        )
+    elif explicit_provider == "kuzu":
+        # Kuzu explicitly requested - use embedded graph DB
         os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
         _early_logger.info("Pre-import: Graph DB configured for Kuzu (embedded)")
-    elif neo4j_uri and "neo4j" in neo4j_uri:
-        # Neo4j Aura is configured - use it
-        os.environ["GRAPH_DATABASE_PROVIDER"] = "neo4j"
-        os.environ["GRAPH_DATABASE_URL"] = neo4j_uri
-        if os.environ.get("NEO4J_USERNAME"):
-            os.environ["GRAPH_DATABASE_USERNAME"] = os.environ["NEO4J_USERNAME"]
-        if os.environ.get("NEO4J_PASSWORD"):
-            os.environ["GRAPH_DATABASE_PASSWORD"] = os.environ["NEO4J_PASSWORD"]
-        _early_logger.info(
-            "Pre-import: Graph DB configured for Neo4j Aura",
-            uri=neo4j_uri[:40] + "..." if len(neo4j_uri) > 40 else neo4j_uri,
-        )
     else:
-        # Default to kuzu (no external service needed)
+        # Default to FalkorDB if available, else kuzu
         os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
         _early_logger.info("Pre-import: Graph DB configured for Kuzu (default)")
 
@@ -185,6 +190,18 @@ _configure_cognee_early()
 # Cognee is a REQUIRED dependency - fail fast if not installed
 try:
     import cognee
+
+    # Register FalkorDB adapter if using FalkorDB
+    if os.environ.get("GRAPH_DATABASE_PROVIDER", "").lower() == "falkor":
+        try:
+            from cognee_community_hybrid_adapter_falkor import register
+            register()
+            _early_logger.info("FalkorDB adapter registered successfully")
+        except ImportError:
+            _early_logger.warning(
+                "cognee-community-hybrid-adapter-falkor not installed. "
+                "Install with: pip install cognee-community-hybrid-adapter-falkor"
+            )
     # Clear ALL config caches in case they were already loaded
     # This ensures our env vars are picked up
     try:

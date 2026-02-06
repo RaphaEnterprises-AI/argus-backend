@@ -80,8 +80,8 @@ dependencies = [
     # Event Streaming (Redpanda/Kafka)
     "aiokafka>=0.10.0",  # Async Kafka client for event gateway
     # AI Memory & Knowledge Graphs
-    "cognee[postgres,neo4j]>=0.1.0",  # ECL pipeline with pgvector + Neo4j Aura support
-    "neo4j>=5.20.0",  # Neo4j driver (explicit - required for Cognee graph storage)
+    "cognee[postgres]>=0.1.0",  # ECL pipeline with pgvector
+    "cognee-community-hybrid-adapter-falkor>=0.1.0",  # FalkorDB graph + vector adapter
     # LLM Observability
     "langfuse>=2.0.0,<3.0.0",  # LangGraph/LangChain tracing (v2 uses REST API)
 ]
