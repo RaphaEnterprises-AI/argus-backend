@@ -138,20 +138,35 @@ def _configure_cognee_early() -> None:
     # 3. GRAPH DATABASE CONFIGURATION
     # =========================================================================
     # CRITICAL: FalkorDB is NOT supported by Cognee!
-    # - Backend access control only supports: ['neo4j_aura_dev', 'lancedb', 'pgvector', 'kuzu']
-    # - ECL graph pipeline only supports: ['neo4j', 'kuzu', 'kuzu-remote', 'neptune', 'neptune_analytics']
+    # - Backend access control supports: ['neo4j_aura_dev', 'lancedb', 'pgvector', 'kuzu']
+    # - ECL graph pipeline supports: ['neo4j', 'kuzu', 'kuzu-remote', 'neptune']
     #
-    # We MUST use kuzu for graph storage. pgvector is only for vector storage!
+    # We use Neo4j Aura (cloud) when NEO4J_URI is configured, otherwise kuzu (local).
     #
-    # Also, we MUST remove FALKORDB_* env vars so Cognee doesn't detect FalkorDB
-    # and try to use it (ignoring our GRAPH_DATABASE_PROVIDER setting).
+    # IMPORTANT: Remove FALKORDB_* env vars so Cognee doesn't detect FalkorDB
+    # and try to use it (Cognee reads these before our GRAPH_DATABASE_PROVIDER).
     for key in list(os.environ.keys()):
         if key.startswith("FALKORDB"):
             del os.environ[key]
             _early_logger.info(f"Pre-import: Removed {key} to prevent FalkorDB detection")
 
-    os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
-    _early_logger.info("Pre-import: Graph DB configured for Kuzu (embedded, works everywhere)")
+    neo4j_uri = os.environ.get("NEO4J_URI") or os.environ.get("GRAPH_DATABASE_URL")
+    if neo4j_uri and "neo4j" in neo4j_uri:
+        # Neo4j Aura is configured - use it
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "neo4j"
+        os.environ["GRAPH_DATABASE_URL"] = neo4j_uri
+        if os.environ.get("NEO4J_USERNAME"):
+            os.environ["GRAPH_DATABASE_USERNAME"] = os.environ["NEO4J_USERNAME"]
+        if os.environ.get("NEO4J_PASSWORD"):
+            os.environ["GRAPH_DATABASE_PASSWORD"] = os.environ["NEO4J_PASSWORD"]
+        _early_logger.info(
+            "Pre-import: Graph DB configured for Neo4j Aura",
+            uri=neo4j_uri[:40] + "..." if len(neo4j_uri) > 40 else neo4j_uri,
+        )
+    else:
+        # Fallback to kuzu for local development
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
+        _early_logger.info("Pre-import: Graph DB configured for Kuzu (local mode)")
 
 
 # Execute early configuration BEFORE importing cognee
