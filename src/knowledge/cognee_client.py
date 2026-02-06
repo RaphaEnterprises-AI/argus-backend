@@ -153,9 +153,15 @@ def _configure_cognee_early() -> None:
             del os.environ[key]
             print(f"[COGNEE DEBUG] Removed {key}", file=sys.stderr)
 
+    # Check if graph provider is explicitly set (e.g., to kuzu)
+    explicit_provider = os.environ.get("GRAPH_DATABASE_PROVIDER", "").lower()
     neo4j_uri = os.environ.get("NEO4J_URI") or os.environ.get("GRAPH_DATABASE_URL")
-    print(f"[COGNEE DEBUG] NEO4J_URI={neo4j_uri}", file=sys.stderr)
-    if neo4j_uri and "neo4j" in neo4j_uri:
+
+    if explicit_provider == "kuzu":
+        # Kuzu explicitly requested - use embedded graph DB (no external service)
+        os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
+        _early_logger.info("Pre-import: Graph DB configured for Kuzu (embedded)")
+    elif neo4j_uri and "neo4j" in neo4j_uri:
         # Neo4j Aura is configured - use it
         os.environ["GRAPH_DATABASE_PROVIDER"] = "neo4j"
         os.environ["GRAPH_DATABASE_URL"] = neo4j_uri
@@ -168,9 +174,9 @@ def _configure_cognee_early() -> None:
             uri=neo4j_uri[:40] + "..." if len(neo4j_uri) > 40 else neo4j_uri,
         )
     else:
-        # Fallback to kuzu for local development
+        # Default to kuzu (no external service needed)
         os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
-        _early_logger.info("Pre-import: Graph DB configured for Kuzu (local mode)")
+        _early_logger.info("Pre-import: Graph DB configured for Kuzu (default)")
 
 
 # Execute early configuration BEFORE importing cognee
