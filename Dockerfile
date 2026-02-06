@@ -1,83 +1,30 @@
-# E2E Testing Agent - Railway Optimized Dockerfile
+# Railway deployment Dockerfile
 FROM python:3.12-slim
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    git \
     curl \
-    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files first (for caching)
-COPY pyproject.toml ./
+# Copy project files
+COPY pyproject.toml .
+COPY src/ ./src/
 
-# Install Python dependencies (v2.3.0 - Cognee Knowledge Layer)
-RUN pip install --upgrade pip && \
-    pip install -e . || pip install \
-    "anthropic>=0.75.0" \
-    "langgraph>=1.0.5" \
-    "langchain-anthropic>=1.3.0" \
-    "langchain-core>=1.2.5" \
-    "langgraph-checkpoint>=2.0.0" \
-    "langgraph-checkpoint-postgres>=2.0.0" \
-    "psycopg[binary]>=3.1.0" \
-    "psycopg-pool>=3.2.0" \
-    "asyncpg>=0.29.0" \
-    "sqlalchemy>=2.0.0" \
-    "httpx>=0.27.0" \
-    "websockets>=13.0" \
-    "pydantic>=2.9.0" \
-    "pydantic-settings>=2.5.0" \
-    "email-validator>=2.1.0" \
-    "fastapi>=0.115.0" \
-    "uvicorn>=0.32.0" \
-    "sse-starlette>=2.0.0" \
-    "structlog>=24.4.0" \
-    "python-dotenv>=1.0.0" \
-    "rich>=13.9.0" \
-    "pillow>=10.4.0" \
-    "numpy>=1.26.0" \
-    "tiktoken>=0.8.0" \
-    "python-multipart>=0.0.6" \
-    "supabase>=2.0.0" \
-    "aiohttp>=3.9.0" \
-    "openai>=1.0.0" \
-    "PyJWT[crypto]>=2.8.0" \
-    "aiosmtplib>=3.0.0" \
-    "sentry-sdk[fastapi]>=2.0.0" \
-    "cognee[postgres,falkordb]>=0.1.0" \
-    "falkordb>=1.0.0" \
-    "aiokafka>=0.10.0" \
-    "redis>=5.0.0" \
-    "prometheus-client>=0.21.0" \
-    "langfuse>=2.0.0,<3.0.0" \
-    "langchain>=0.3.0"
+# Install Python dependencies with no cache
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir . && \
+    pip install --no-cache-dir "neo4j>=5.20.0" && \
+    python -c "import neo4j; print(f'neo4j {neo4j.__version__} installed successfully')"
 
-# Copy application code
-COPY src/ /app/src/
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Create output directories and non-root user
-RUN mkdir -p /app/test-results /app/baselines && \
-    groupadd -r argus && useradd -r -g argus argus && \
-    chown -R argus:argus /app
-
-# Create startup script that handles PORT properly
-RUN echo '#!/bin/sh\necho "Starting Argus Backend on port ${PORT:-8000}"\nexec uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-8000}' > /app/start.sh && chmod +x /app/start.sh
-
-# Switch to non-root user
-USER argus
-
-# Expose port (Railway sets PORT env var)
+# Expose port
 EXPOSE 8000
 
-# Use exec form with shell for variable expansion
-CMD ["/bin/sh", "/app/start.sh"]
+# Run the application
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
