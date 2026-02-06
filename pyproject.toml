@@ -26,7 +26,7 @@ dependencies = [
     "websockets>=13.0",
     # Cloud storage (S3-compatible)
     "boto3>=1.34.0",  # AWS S3
-    "minio>=8.0.0",  # MinIO for air-gap deployments (RAP-297)
+    "minio>=7.2.0",  # MinIO for air-gap deployments (RAP-297)
     # Data validation
     "pydantic>=2.9.0",
     "pydantic-settings>=2.5.0",
