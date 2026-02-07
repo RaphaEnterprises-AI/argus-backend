@@ -815,6 +815,9 @@ class CogneeKnowledgeClient:
             # Not found - this is a valid case, return None
             return None
 
+        except (IndexError, KeyError):
+            # Empty dataset - key doesn't exist yet
+            return None
         except json.JSONDecodeError as e:
             self._log.error(
                 "Failed to parse Cognee result as JSON",
@@ -908,6 +911,17 @@ class CogneeKnowledgeClient:
                 parsed_results.append(parsed)
 
             return parsed_results
+
+        except (IndexError, KeyError) as e:
+            # Empty dataset or no results - normal condition, not an error.
+            # Cognee's internal search raises IndexError when the dataset
+            # has no data yet (e.g., first use before any patterns stored).
+            self._log.debug(
+                "Search returned no results (dataset may be empty)",
+                namespace=namespace,
+                error_type=type(e).__name__,
+            )
+            return []
 
         except Exception as e:
             self._log.error(
