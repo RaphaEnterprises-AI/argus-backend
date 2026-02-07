@@ -196,6 +196,7 @@ try:
                     "vector_db_provider": "falkor",
                     "vector_db_url": falkordb_host,
                     "vector_db_port": falkordb_port,
+                    **({"vector_db_password": falkordb_password} if falkordb_password else {}),
                 }
             )
             _early_logger.info(

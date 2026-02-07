@@ -124,6 +124,7 @@ spec:
               kubernetes.io/metadata.name: argus-data
 ---
 # FalkorDB network policy - allow connections from argus-data namespace
+# and external access via LoadBalancer (password-protected)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -155,6 +156,15 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: falkordb
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow external access via LoadBalancer (Railway backend, etc.)
+    # With externalTrafficPolicy: Local, source IP is the LB's forwarding IP
+    # FalkorDB is password-protected (requirepass in REDIS_ARGS)
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 6379

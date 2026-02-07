@@ -1,0 +1,115 @@
+# UFW Forward Policy Fix for Kubernetes
+#
+# ROOT CAUSE: Vultr VKE nodes have UFW enabled with DEFAULT_FORWARD_POLICY="DROP".
+# This blocks cross-node pod traffic (via Calico BGP routing) and cross-node
+# NodePort/LoadBalancer traffic, because forwarded packets hit the FORWARD chain
+# and get dropped by UFW before reaching the default policy.
+#
+# FIX: Add UFW rules to allow forwarding for the pod CIDR (10.244.0.0/16)
+# and the internal node network (10.46.96.0/20). This DaemonSet runs on all
+# nodes at startup and ensures the rules persist across node restarts.
+#
+# References:
+# - https://github.com/kubernetes/kubernetes/issues/39823
+# - https://github.com/kubernetes/kubernetes/issues/59656
+# - https://github.com/kubernetes/kubernetes/issues/58908
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ufw-forward-fix
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: ufw-forward-fix
+    app.kubernetes.io/part-of: argus
+    app.kubernetes.io/component: networking
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ufw-forward-fix
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ufw-forward-fix
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - operator: Exists
+      initContainers:
+      - name: fix-forward
+        image: alpine:3.19
+        securityContext:
+          privileged: true
+        command:
+        - nsenter
+        - -t
+        - "1"
+        - -m
+        - -u
+        - -i
+        - -n
+        - -p
+        - --
+        - sh
+        - -c
+        - |
+          set -e
+          echo "[ufw-forward-fix] Checking UFW forward policy..."
+
+          # Check current forward policy
+          POLICY=$(iptables -L FORWARD -n | head -1 | grep -oP 'policy \K\w+')
+          echo "[ufw-forward-fix] Current FORWARD policy: $POLICY"
+
+          # Add iptables rules to allow forwarding for pod and service CIDRs
+          # These are inserted at the TOP of the ufw-before-forward chain
+          # so they're evaluated before UFW's default drop
+
+          # Pod CIDR (Calico BGP routes)
+          if ! iptables -C ufw-before-forward -s 10.244.0.0/16 -j ACCEPT 2>/dev/null; then
+            iptables -I ufw-before-forward 1 -s 10.244.0.0/16 -j ACCEPT
+            echo "[ufw-forward-fix] Added: ACCEPT src 10.244.0.0/16"
+          fi
+          if ! iptables -C ufw-before-forward -d 10.244.0.0/16 -j ACCEPT 2>/dev/null; then
+            iptables -I ufw-before-forward 2 -d 10.244.0.0/16 -j ACCEPT
+            echo "[ufw-forward-fix] Added: ACCEPT dst 10.244.0.0/16"
+          fi
+
+          # Service CIDR (ClusterIP range)
+          if ! iptables -C ufw-before-forward -s 10.96.0.0/12 -j ACCEPT 2>/dev/null; then
+            iptables -I ufw-before-forward 3 -s 10.96.0.0/12 -j ACCEPT
+            echo "[ufw-forward-fix] Added: ACCEPT src 10.96.0.0/12"
+          fi
+          if ! iptables -C ufw-before-forward -d 10.96.0.0/12 -j ACCEPT 2>/dev/null; then
+            iptables -I ufw-before-forward 4 -d 10.96.0.0/12 -j ACCEPT
+            echo "[ufw-forward-fix] Added: ACCEPT dst 10.96.0.0/12"
+          fi
+
+          # Also persist in UFW config for reboot survival
+          UFW_BEFORE="/etc/ufw/before.rules"
+          if [ -f "$UFW_BEFORE" ]; then
+            if ! grep -q "ufw-forward-fix" "$UFW_BEFORE" 2>/dev/null; then
+              # Insert rules before the COMMIT in the filter table
+              sed -i '/*filter/a \
+          # [ufw-forward-fix] Allow Kubernetes pod and service CIDR forwarding\
+          -A ufw-before-forward -s 10.244.0.0/16 -j ACCEPT\
+          -A ufw-before-forward -d 10.244.0.0/16 -j ACCEPT\
+          -A ufw-before-forward -s 10.96.0.0/12 -j ACCEPT\
+          -A ufw-before-forward -d 10.96.0.0/12 -j ACCEPT' "$UFW_BEFORE"
+              echo "[ufw-forward-fix] Persisted rules in $UFW_BEFORE"
+            else
+              echo "[ufw-forward-fix] Rules already in $UFW_BEFORE"
+            fi
+          fi
+
+          echo "[ufw-forward-fix] Done. Cross-node forwarding enabled."
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9
+        resources:
+          requests:
+            cpu: 1m
+            memory: 4Mi
+          limits:
+            cpu: 10m
+            memory: 16Mi

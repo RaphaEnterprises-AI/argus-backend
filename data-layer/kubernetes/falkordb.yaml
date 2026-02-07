@@ -154,6 +154,33 @@ spec:
   selector:
     app.kubernetes.io/name: falkordb
 ---
+# External LoadBalancer for Railway/external access
+# FalkorDB is password-protected (requirepass in REDIS_ARGS)
+# The ufw-forward-fix DaemonSet ensures cross-node forwarding works
+apiVersion: v1
+kind: Service
+metadata:
+  name: falkordb-external
+  namespace: argus-data
+  labels:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/component: graph-database
+    app.kubernetes.io/part-of: argus
+  annotations:
+    service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+    service.beta.kubernetes.io/vultr-loadbalancer-proxy-protocol: "false"
+    service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-protocol: "tcp"
+spec:
+  type: LoadBalancer
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: falkordb
+    app.kubernetes.io/component: graph-database
+---
 # PodDisruptionBudget for high availability
 apiVersion: policy/v1
 kind: PodDisruptionBudget
