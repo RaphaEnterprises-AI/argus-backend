@@ -957,7 +957,10 @@ class TestEdgeCases:
             }
             for i in range(5)
         ]
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        # 5 concurrent LLM calls contend for server resources; allow 300s
+        # so the last-in-queue request has enough headroom.
+        concurrent_timeout = httpx.Timeout(300.0, connect=15.0)
+        async with httpx.AsyncClient(timeout=concurrent_timeout) as client:
             tasks = [
                 client.post(SUGGEST_URL, headers=HEADERS, json=p) for p in payloads
             ]
