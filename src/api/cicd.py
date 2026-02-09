@@ -599,7 +599,7 @@ async def rollback_deployment(
         "environment": original_deployment.get("environment", "production"),
         "status": "rolled_back",
         "version": previous_version or original_deployment.get("version"),
-        "commit_sha": previous_commit or original_deployment.get("commit_sha"),
+        "commit_sha": previous_commit or original_deployment.get("commit_sha") or f"rollback-{deployment_id}",
         "deployed_by": user.get("email") or user.get("user_id"),
         "deployment_url": original_deployment.get("deployment_url"),
         "preview_url": original_deployment.get("preview_url"),
@@ -1964,18 +1964,30 @@ async def _store_analysis_in_cognee(
         # Create unique key for this analysis
         analysis_key = f"{analysis_type}_{data.get('commit_sha', 'unknown')}_{uuid.uuid4().hex[:8]}"
 
-        # Store with multi-tenant namespace
-        namespace = f"org_{org_id}_project_{project_id}_{analysis_type}"
+        # Store with multi-tenant namespace (must be list per CogneeClient.put() signature)
+        namespace = ["org", org_id, "project", project_id, analysis_type]
+
+        value = {
+            "type": analysis_type,
+            "timestamp": datetime.now(UTC).isoformat(),
+            **data,
+        }
+
+        # Build searchable embed text from key analysis fields
+        embed_parts = [analysis_type]
+        if data.get("changed_files"):
+            embed_parts.append(f"changed files: {', '.join(str(f) for f in data['changed_files'][:20])}")
+        if data.get("commit_sha"):
+            embed_parts.append(f"commit: {data['commit_sha']}")
+        if data.get("branch"):
+            embed_parts.append(f"branch: {data['branch']}")
+        embed_text = " | ".join(embed_parts)
 
         await cognee.put(
-            key=analysis_key,
-            value={
-                "type": analysis_type,
-                "timestamp": datetime.now(UTC).isoformat(),
-                **data,
-            },
             namespace=namespace,
-            embeddings=True,  # Enable semantic search
+            key=analysis_key,
+            value=value,
+            embed_text=embed_text,
         )
 
         logger.info(
@@ -2008,8 +2020,8 @@ async def get_cicd_stats(
     """Get aggregated CI/CD statistics for a project.
 
     Aggregates data from:
-    - ci_events table (pipelines/builds)
-    - deployment_events table (deployments)
+    - ci_pipelines table (pipelines/builds)
+    - ci_deployments table (deployments)
     - quality_scores table (risk score)
     - test_impact_graph table (impacted tests)
     """
@@ -2023,9 +2035,9 @@ async def get_cicd_stats(
     yesterday_iso = yesterday.isoformat()
 
     try:
-        # Get CI events (pipelines)
+        # Get pipelines (actual table: ci_pipelines, column: duration_ms)
         ci_result = await supabase.request(
-            f"/ci_events?project_id=eq.{project_id}&select=id,status,duration_seconds,created_at"
+            f"/ci_pipelines?project_id=eq.{project_id}&select=id,status,duration_ms,created_at"
         )
         ci_events = ci_result.get("data") or []
 
@@ -2040,13 +2052,13 @@ async def get_cicd_stats(
             (successful_pipelines / total_pipelines * 100) if total_pipelines > 0 else 0.0, 1
         )
 
-        # Average duration (convert seconds to ms)
-        durations = [e.get("duration_seconds", 0) or 0 for e in ci_events if e.get("duration_seconds")]
-        avg_duration_ms = int((sum(durations) / len(durations) * 1000) if durations else 0)
+        # Average duration (already in ms)
+        durations = [e.get("duration_ms", 0) or 0 for e in ci_events if e.get("duration_ms")]
+        avg_duration_ms = int((sum(durations) / len(durations)) if durations else 0)
 
-        # Get deployment events
+        # Get deployments (actual table: ci_deployments, column: duration_ms)
         deploy_result = await supabase.request(
-            f"/deployment_events?project_id=eq.{project_id}&select=id,status,duration_seconds,created_at"
+            f"/ci_deployments?project_id=eq.{project_id}&select=id,status,duration_ms,created_at"
         )
         deployments = deploy_result.get("data") or []
 
@@ -2055,13 +2067,13 @@ async def get_cicd_stats(
             1 for d in deployments
             if d.get("created_at", "") > yesterday_iso
         )
-        successful_deployments = sum(1 for d in deployments if d.get("status") == "ready")
+        successful_deployments = sum(1 for d in deployments if d.get("status") == "success")
         deployment_success_rate = round(
             (successful_deployments / total_deployments * 100) if total_deployments > 0 else 0.0, 1
         )
 
-        deploy_durations = [d.get("duration_seconds", 0) or 0 for d in deployments if d.get("duration_seconds")]
-        avg_deploy_duration_ms = int((sum(deploy_durations) / len(deploy_durations) * 1000) if deploy_durations else 0)
+        deploy_durations = [d.get("duration_ms", 0) or 0 for d in deployments if d.get("duration_ms")]
+        avg_deploy_duration_ms = int((sum(deploy_durations) / len(deploy_durations)) if deploy_durations else 0)
 
         # Get quality/risk score
         quality_result = await supabase.request(
@@ -2168,7 +2180,7 @@ async def get_test_impact(
             total_tests_impacted=analysis.get("total_tests_impacted", 0),
             recommended_tests=analysis.get("recommended_tests") or [],
             skip_candidates=analysis.get("skip_candidates") or [],
-            confidence_score=float(analysis.get("confidence_score", 0.5)),
+            confidence_score=float(analysis.get("confidence_score", 50)) / 100,  # DB stores 0-100, API returns 0-1
             analysis_time_ms=analysis.get("analysis_time_ms", 0),
             created_at=safe_datetime(analysis.get("created_at")),
         )
@@ -2206,14 +2218,78 @@ async def analyze_test_impact(
         # Use provided changed files or create placeholder
         changed_files = body.changed_files or []
 
-        # If no files provided, we'd typically fetch from git
-        # For now, create a placeholder analysis
+        # If no files provided, use conservative fallback immediately
+        # (no point calling the AI with zero files)
         if not changed_files:
             logger.info(
-                "No changed files provided for analysis",
+                "No changed files provided — using conservative fallback",
                 project_id=body.project_id,
                 commit_sha=body.commit_sha,
             )
+
+            # Get all tests so we can recommend running everything
+            tests_result = await supabase.request(
+                f"/tests?project_id=eq.{body.project_id}&is_active=eq.true&select=id,name,steps,tags,priority"
+            )
+            tests = tests_result.get("data") or []
+
+            impacted_tests = [
+                ImpactedTest(
+                    test_id=t["id"],
+                    test_name=t.get("name", ""),
+                    impact_reason="No changed files provided - conservative selection",
+                    confidence=0.5,
+                    priority=t.get("priority", "medium"),
+                )
+                for t in tests
+            ]
+            recommended_tests = [t["id"] for t in tests]
+
+            analysis_time_ms = int((time.time() - start_time) * 1000)
+            analysis_id = str(uuid.uuid4())
+            now = datetime.now(UTC).isoformat()
+
+            analysis = TestImpactAnalysis(
+                id=analysis_id,
+                project_id=body.project_id,
+                commit_sha=body.commit_sha,
+                branch=body.branch,
+                base_sha=body.base_sha,
+                changed_files=[],
+                impacted_tests=impacted_tests,
+                total_files_changed=0,
+                total_tests_impacted=len(impacted_tests),
+                recommended_tests=recommended_tests,
+                skip_candidates=[],
+                confidence_score=0.5,
+                analysis_time_ms=analysis_time_ms,
+                created_at=now,
+            )
+
+            # Persist
+            analysis_data = {
+                "id": analysis_id,
+                "project_id": body.project_id,
+                "commit_sha": body.commit_sha,
+                "branch": body.branch,
+                "base_sha": body.base_sha,
+                "changed_files": [],
+                "impacted_tests": [t.model_dump() for t in impacted_tests],
+                "total_files_changed": 0,
+                "total_tests_impacted": len(impacted_tests),
+                "recommended_tests": recommended_tests,
+                "skip_candidates": [],
+                "confidence_score": 50,  # DB uses 0-100 scale
+                "analysis_time_ms": analysis_time_ms,
+                "created_at": now,
+            }
+            insert_result = await supabase.insert("ci_test_impact", analysis_data)
+            if insert_result.get("error"):
+                error_msg = str(insert_result.get("error", ""))
+                if "does not exist" not in error_msg and "42P01" not in error_msg:
+                    logger.error("Failed to store conservative analysis", error=insert_result.get("error"))
+
+            return analysis
 
         # Set impact scores for each file (simple heuristic for display only)
         for cf in changed_files:
@@ -2371,11 +2447,9 @@ async def analyze_test_impact(
             "total_tests_impacted": len(impacted_tests),
             "recommended_tests": recommended_tests,
             "skip_candidates": skip_candidates[:50],  # Limit size
-            "confidence_score": round(overall_confidence, 2),
+            "confidence_score": round(overall_confidence * 100, 1),  # DB uses 0-100 scale
             "analysis_time_ms": analysis_time_ms,
             "created_at": now,
-            # RAP-250: Track source for performance monitoring
-            "metadata": {"impact_source": impact_source},
         }
 
         # Store analysis (handle missing table gracefully)
@@ -2383,7 +2457,13 @@ async def analyze_test_impact(
         if insert_result.get("error"):
             error_msg = str(insert_result.get("error", ""))
             if "does not exist" not in error_msg and "42P01" not in error_msg:
-                logger.warning("Failed to store test impact analysis", error=insert_result.get("error"))
+                logger.error(
+                    "Failed to persist test impact analysis — result returned but not stored",
+                    error=insert_result.get("error"),
+                    analysis_id=analysis_id,
+                    project_id=body.project_id,
+                    commit_sha=body.commit_sha,
+                )
 
         # Log audit event
         try:
@@ -2428,6 +2508,29 @@ async def analyze_test_impact(
             )
         except Exception as cognee_error:
             logger.debug("Cognee storage skipped", error=str(cognee_error))
+
+        # =====================================================================
+        # AI Learning Loop: Emit Kafka events for downstream processing
+        # =====================================================================
+        try:
+            # Emit test_executed event so Cognee worker can build knowledge graph
+            await _emit_test_event(
+                event_type="test_executed",
+                org_id=org_id or "",
+                project_id=body.project_id,
+                test_id=analysis_id,
+                test_name=f"impact_analysis_{body.commit_sha[:8]}",
+                status="completed",
+                duration_ms=analysis_time_ms,
+                metadata={
+                    "source": "test_impact_analysis",
+                    "impact_source": impact_source,
+                    "files_changed": len(changed_files),
+                    "tests_impacted": len(impacted_tests),
+                },
+            )
+        except Exception as event_error:
+            logger.debug("Event emission skipped", error=str(event_error))
 
         logger.info(
             "Test impact analysis completed",
@@ -2498,12 +2601,12 @@ async def get_deployment_risk(
 
         # Factor 1: Recent CI/CD failure rate (0-25 points)
         ci_result = await supabase.request(
-            f"/ci_events?project_id=eq.{project_id}"
+            f"/ci_pipelines?project_id=eq.{project_id}"
             f"&created_at=gte.{week_ago}&select=status"
         )
         ci_events = ci_result.get("data") or []
         if ci_events:
-            failures = sum(1 for e in ci_events if e.get("status") in ("failure", "error"))
+            failures = sum(1 for e in ci_events if e.get("status") in ("failed", "cancelled"))
             failure_rate = failures / len(ci_events)
             ci_risk = int(failure_rate * 25)
             factors["ci_failure_rate"] = round(failure_rate * 100, 1)
@@ -2547,13 +2650,13 @@ async def get_deployment_risk(
 
         # Factor 3: Deployment history (0-25 points)
         deploy_result = await supabase.request(
-            f"/deployment_events?project_id=eq.{project_id}"
+            f"/ci_deployments?project_id=eq.{project_id}"
             f"&created_at=gte.{week_ago}&select=status,created_at"
         )
         deployments = deploy_result.get("data") or []
 
         if deployments:
-            failed_deploys = sum(1 for d in deployments if d.get("status") == "error")
+            failed_deploys = sum(1 for d in deployments if d.get("status") == "failed")
             deploy_failure_rate = failed_deploys / len(deployments)
             deploy_risk = int(deploy_failure_rate * 25)
             factors["deployment_failure_rate"] = round(deploy_failure_rate * 100, 1)
