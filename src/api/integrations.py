@@ -1155,6 +1155,43 @@ async def get_platform_info(
     )
 
 
+async def _find_org_scoped_integration(
+    supabase,
+    platform: str,
+    user_id: str,
+    org_id: str | None,
+    project_id: str | None = None,
+) -> dict:
+    """Find an integration scoped to the user's org. Raises 404 if not found.
+
+    Prevents IDOR by only returning integrations the user has access to:
+    either owned by user_id or belonging to a project in the user's org.
+    """
+    # Build org-scoped query
+    path = f"/integrations?platform=eq.{platform}"
+    if project_id:
+        path += f"&project_id=eq.{project_id}"
+
+    result = await supabase.request(path)
+    if not result.get("data"):
+        raise HTTPException(status_code=404, detail="Integration not found")
+
+    # Filter to only integrations the user has access to
+    for integration in result["data"]:
+        # User-level integration
+        if integration.get("user_id") == user_id:
+            return integration
+        # Project-level integration — verify project belongs to user's org
+        if org_id and integration.get("project_id"):
+            proj_result = await supabase.request(
+                f"/projects?id=eq.{integration['project_id']}&organization_id=eq.{org_id}&select=id"
+            )
+            if proj_result.get("data"):
+                return integration
+
+    raise HTTPException(status_code=404, detail="Integration not found")
+
+
 @router.get("", response_model=IntegrationListResponse)
 async def list_integrations(
     request: Request,
@@ -1524,17 +1561,10 @@ async def disconnect_integration(
 
     supabase = get_supabase_client()
 
-    # Find the integration
-    path = f"/integrations?platform=eq.{platform}"
-    if project_id:
-        path += f"&project_id=eq.{project_id}"
-
-    result = await supabase.request(path)
-
-    if not result.get("data"):
-        raise HTTPException(status_code=404, detail="Integration not found")
-
-    integration = result["data"][0]
+    # Find the integration (org-scoped to prevent IDOR)
+    integration = await _find_org_scoped_integration(
+        supabase, platform, user["user_id"], org_id, project_id
+    )
     integration_id = integration["id"]
 
     # Update to disconnected state
@@ -1660,24 +1690,21 @@ async def trigger_sync(
     validate_uuid_optional(project_id, "project_id")
 
     user = await get_current_user(request)
+    org_id = await get_current_organization_id(request)
 
     supabase = get_supabase_client()
 
-    # Find the integration
-    path = f"/integrations?platform=eq.{platform}&status=eq.connected"
-    if project_id:
-        path += f"&project_id=eq.{project_id}"
+    # Find the integration (org-scoped to prevent IDOR)
+    integration = await _find_org_scoped_integration(
+        supabase, platform, user["user_id"], org_id, project_id
+    )
+    integration_id = integration["id"]
 
-    result = await supabase.request(path)
-
-    if not result.get("data"):
+    if integration.get("status") != "connected":
         raise HTTPException(
             status_code=404,
             detail=f"No connected {platform} integration found",
         )
-
-    integration = result["data"][0]
-    integration_id = integration["id"]
 
     # Decrypt credentials
     encrypted_creds = integration.get("credentials", {})
@@ -2000,19 +2027,16 @@ async def get_integration(
     validate_uuid_optional(project_id, "project_id")
 
     user = await get_current_user(request)
+    org_id = await get_current_organization_id(request)
 
     supabase = get_supabase_client()
 
-    path = f"/integrations?platform=eq.{platform}"
-    if project_id:
-        path += f"&project_id=eq.{project_id}"
+    # IDOR fix: scope lookup to the user's organization
+    integration = await _find_org_scoped_integration(
+        supabase, platform, user["user_id"], org_id, project_id
+    )
 
-    result = await supabase.request(path)
-
-    if not result.get("data"):
-        raise HTTPException(status_code=404, detail="Integration not found")
-
-    return format_integration_response(result["data"][0])
+    return format_integration_response(integration)
 
 
 @router.delete("/{platform}")
@@ -2034,17 +2058,12 @@ async def delete_integration(
 
     supabase = get_supabase_client()
 
-    # Find the integration
-    path = f"/integrations?platform=eq.{platform}"
-    if project_id:
-        path += f"&project_id=eq.{project_id}"
+    # IDOR fix: scope lookup to the user's organization
+    integration = await _find_org_scoped_integration(
+        supabase, platform, user["user_id"], org_id, project_id
+    )
 
-    result = await supabase.request(path)
-
-    if not result.get("data"):
-        raise HTTPException(status_code=404, detail="Integration not found")
-
-    integration_id = result["data"][0]["id"]
+    integration_id = integration["id"]
 
     # Delete the integration
     delete_result = await supabase.request(

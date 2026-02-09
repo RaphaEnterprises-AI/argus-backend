@@ -1661,15 +1661,16 @@ async def get_schedule_run(
 
     Returns full run details including test results and logs.
     """
-    if schedule_id not in schedules:
+    # Fetch schedule from DB (not in-memory dict) for proper IDOR prevention
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     # RAP-293: IDOR Prevention - Verify schedule belongs to user's organization
-    schedule = schedules.get(schedule_id)
-    if schedule and schedule.get("organization_id") != user.organization_id:
+    if schedule.get("organization_id") and schedule["organization_id"] != user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    runs = schedule_runs.get(schedule_id, [])
+    runs = await _get_schedule_runs_from_db(schedule_id)
     run = next((r for r in runs if r["id"] == run_id), None)
 
     if not run:
@@ -1711,15 +1712,16 @@ async def cancel_run(
 
     Only runs in 'pending' or 'running' status can be cancelled.
     """
-    if schedule_id not in schedules:
+    # Fetch schedule from DB (not in-memory dict) for proper IDOR prevention
+    schedule = await _get_schedule_from_db(schedule_id)
+    if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     # RAP-293: IDOR Prevention - Verify schedule belongs to user's organization
-    schedule = schedules.get(schedule_id)
-    if schedule and schedule.get("organization_id") != user.organization_id:
+    if schedule.get("organization_id") and schedule["organization_id"] != user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    runs = schedule_runs.get(schedule_id, [])
+    runs = await _get_schedule_runs_from_db(schedule_id)
     run = next((r for r in runs if r["id"] == run_id), None)
 
     if not run:
