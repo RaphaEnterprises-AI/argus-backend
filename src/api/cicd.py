@@ -1789,7 +1789,6 @@ async def _emit_test_event(
     org_id: str,
     project_id: str,
     test_id: str,
-    test_name: str,
     status: str,
     error_message: str | None = None,
     error_type: str | None = None,
@@ -1824,14 +1823,14 @@ async def _emit_test_event(
                 project_id=project_id,
                 metadata=event_metadata,
                 test_id=test_id,
-                test_name=test_name,
+                run_id=str(uuid.uuid4()),
                 error_message=error_message or "Unknown error",
                 error_type=error_type or "unknown",
-                failed_step_index=0,
+                failed_step=0,
                 failed_selector=metadata.get("failed_selector") if metadata else None,
                 page_url=metadata.get("page_url") if metadata else None,
                 screenshot_url=metadata.get("screenshot_url") if metadata else None,
-                dom_snapshot=metadata.get("dom_snapshot") if metadata else None,
+                page_html_snapshot=metadata.get("dom_snapshot") if metadata else None,
             )
         else:
             event = TestExecutedEvent(
@@ -1842,9 +1841,9 @@ async def _emit_test_event(
                 run_id=str(uuid.uuid4()),
                 status=status,
                 duration_ms=duration_ms or 0,
-                steps_executed=metadata.get("steps_executed", 0) if metadata else 0,
                 assertions_passed=metadata.get("assertions_passed", 0) if metadata else 0,
                 assertions_failed=metadata.get("assertions_failed", 0) if metadata else 0,
+                screenshots_captured=metadata.get("screenshots_captured", 0) if metadata else 0,
             )
 
         topic = get_topic_for_event(event.event_type)
@@ -1878,10 +1877,9 @@ async def _emit_healing_request(
     org_id: str,
     project_id: str,
     test_id: str,
-    test_name: str,
-    error_message: str,
     error_type: str,
-    screenshot_urls: list[str] | None = None,
+    failed_selector: str | None = None,
+    page_context: dict | None = None,
 ) -> bool:
     """Emit healing request to trigger self-healing pipeline.
 
@@ -1909,13 +1907,13 @@ async def _emit_healing_request(
                 source="cicd_pipeline",
                 triggered_by="test_failure",
             ),
+            failure_id=str(uuid.uuid4()),
             test_id=test_id,
-            run_id=str(uuid.uuid4()),
-            failure_type=error_type,
-            error_message=error_message,
-            failed_step_index=0,
-            screenshot_urls=screenshot_urls or [],
-            previous_healing_attempts=0,
+            error_type=error_type,
+            strategy="auto",
+            priority="normal",
+            failed_selector=failed_selector,
+            page_context=page_context,
         )
 
         async with EventProducer.create(
@@ -2521,7 +2519,6 @@ async def analyze_test_impact(
                     org_id=org_id or "",
                     project_id=body.project_id,
                     test_id=analysis_id,
-                    test_name=f"impact_analysis_{body.commit_sha[:8]}",
                     status="completed",
                     duration_ms=analysis_time_ms,
                     metadata={
