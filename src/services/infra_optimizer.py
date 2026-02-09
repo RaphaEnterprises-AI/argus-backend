@@ -241,7 +241,6 @@ class AIInfraOptimizer:
         """Prepare context string for AI analysis."""
         # Safely extract usage pattern values with defaults
         hourly_averages = usage_patterns.get("hourly_averages", [0.0] * 24)
-        usage_patterns.get("daily_averages", [0.0] * 7)
         peak_hour = usage_patterns.get("peak_hour", 0)
         min_hour = usage_patterns.get("min_hour", 0)
         peak_day = usage_patterns.get("peak_day", 0)
@@ -509,15 +508,16 @@ Return ONLY the JSON array, no other text."""
         # Get AI costs from ai_usage table
         ai_cost = Decimal("0")
         try:
-            ai_usage_result = self.supabase.table("ai_usage").select(
-                "cost_usd"
-            ).gte(
-                "created_at", start.isoformat()
-            ).lte(
-                "created_at", end.isoformat()
-            ).execute()
-            if ai_usage_result.data:
-                ai_cost = sum(Decimal(str(r.get("cost_usd", 0))) for r in ai_usage_result.data)
+            ai_usage_result = await self.supabase.request(
+                f"/ai_usage?select=cost_usd"
+                f"&created_at=gte.{start.isoformat()}"
+                f"&created_at=lte.{end.isoformat()}"
+            )
+            if not ai_usage_result.get("error") and ai_usage_result.get("data"):
+                ai_cost = sum(
+                    Decimal(str(r.get("cost_usd", 0)))
+                    for r in ai_usage_result["data"]
+                )
         except Exception as e:
             logger.warning("failed_to_get_ai_costs", error=str(e))
 
@@ -809,13 +809,13 @@ Return ONLY the JSON array, no other text."""
             )
 
             if update_result.get("error"):
-                logger.warning(
+                error_msg = str(update_result.get("error"))
+                logger.error(
                     "apply_recommendation_update_error",
                     recommendation_id=recommendation_id,
-                    error=update_result.get("error")
+                    error=error_msg,
                 )
-                # Still return success if the action was logged - the update might fail
-                # due to table not existing yet, but we don't want to block the operation
+                return {"success": False, "error": f"Failed to update status: {error_msg}"}
 
             return {
                 "success": True,

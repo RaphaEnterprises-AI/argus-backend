@@ -40,7 +40,7 @@ class RecommendationResponse(BaseModel):
     title: str
     description: str
     estimated_savings_monthly: float
-    confidence: float
+    confidence: float = Field(ge=0.0, le=1.0)
     action: dict
     reasoning: str
     status: str
@@ -65,10 +65,10 @@ class CostReportResponse(BaseModel):
     daily_costs: list[dict]
     projected_monthly: float
     # Platform-specific costs
-    vultr_cost: float | None = None
-    railway_cost: float | None = None
-    cloudflare_cost: float | None = None
-    ai_cost: float | None = None
+    vultr_cost: float = 0.0
+    railway_cost: float = 0.0
+    cloudflare_cost: float = 0.0
+    ai_cost: float = 0.0
 
 
 class DemandForecastResponse(BaseModel):
