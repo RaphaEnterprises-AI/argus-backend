@@ -990,8 +990,8 @@ async def correlate_error(
     candidates_result = await supabase.request(
         f"/sdlc_events?project_id=eq.{project_id}"
         f"&event_type=in.(deploy,deployment_status,commit,push,pr)"
-        f"&occurred_at=gte.{lookback_time.isoformat()}"
-        f"&occurred_at=lt.{error_time.isoformat()}"
+        f"&occurred_at=gte.{lookback_time.isoformat().replace('+00:00', 'Z')}"
+        f"&occurred_at=lt.{error_time.isoformat().replace('+00:00', 'Z')}"
         f"&order=occurred_at.desc"
         f"&limit=50"
     )
@@ -1260,8 +1260,8 @@ async def get_incident_timeline(
 
     timeline_result = await supabase.request(
         f"/sdlc_events?project_id=eq.{project_id}"
-        f"&occurred_at=gte.{lookback_time.isoformat()}"
-        f"&occurred_at=lte.{incident_time.isoformat()}"
+        f"&occurred_at=gte.{lookback_time.isoformat().replace('+00:00', 'Z')}"
+        f"&occurred_at=lte.{incident_time.isoformat().replace('+00:00', 'Z')}"
         f"&order=occurred_at.asc"
         f"&limit=100"
     )

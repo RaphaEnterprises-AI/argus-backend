@@ -280,8 +280,8 @@ async def generate_report_content(
         # Get test runs in range
         runs_result = await supabase.request(
             f"/test_runs?project_id=eq.{project_id}"
-            f"&created_at=gte.{date_from.isoformat()}"
-            f"&created_at=lte.{date_to.isoformat()}"
+            f"&created_at=gte.{date_from.isoformat().replace('+00:00', 'Z')}"
+            f"&created_at=lte.{date_to.isoformat().replace('+00:00', 'Z')}"
             f"&select=*&order=created_at.desc"
         )
         content["test_runs"] = runs_result.get("data", [])
@@ -613,10 +613,10 @@ async def list_reports(
         query += f"&status=eq.{status.value}"
 
     if date_from:
-        query += f"&created_at=gte.{date_from.isoformat()}"
+        query += f"&created_at=gte.{date_from.isoformat().replace('+00:00', 'Z')}"
 
     if date_to:
-        query += f"&created_at=lte.{date_to.isoformat()}"
+        query += f"&created_at=lte.{date_to.isoformat().replace('+00:00', 'Z')}"
 
     # Get total count first
     count_query = query.replace("&select=*", "&select=id")

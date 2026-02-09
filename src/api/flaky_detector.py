@@ -769,7 +769,7 @@ async def list_flaky_tests(
         # Get test runs for these projects
         runs_result = await supabase.request(
             f"/test_runs?project_id=in.({project_ids_str})"
-            f"&created_at=gte.{days_ago.isoformat()}"
+            f"&created_at=gte.{days_ago.isoformat().replace('+00:00', 'Z')}"
             f"&select=id,project_id"
             f"&order=created_at.desc"
             f"&limit=500"
@@ -1026,8 +1026,8 @@ async def get_flakiness_trend(
             # Get test runs for this week
             runs_result = await supabase.request(
                 f"/test_runs?project_id=in.({project_ids_str})"
-                f"&created_at=gte.{week_start.isoformat()}"
-                f"&created_at=lt.{week_end.isoformat()}"
+                f"&created_at=gte.{week_start.isoformat().replace('+00:00', 'Z')}"
+                f"&created_at=lt.{week_end.isoformat().replace('+00:00', 'Z')}"
                 f"&select=id"
             )
 

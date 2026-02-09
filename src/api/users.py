@@ -1274,7 +1274,7 @@ async def get_account_activity(request: Request):
     try:
         usage_result = await supabase.request(
             f"/ai_usage_logs?user_id=eq.{user['user_id']}"
-            f"&created_at=gte.{(datetime.now(UTC).replace(day=1)).isoformat()}"
+            f"&created_at=gte.{(datetime.now(UTC).replace(day=1)).isoformat().replace('+00:00', 'Z')}"
             f"&select=id"
         )
         api_requests_30d = len((usage_result or {}).get("data", []))
