@@ -12,6 +12,7 @@ Provides endpoints for:
 """
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -26,6 +27,15 @@ from src.utils import safe_datetime
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/correlations", tags=["Correlations"])
+
+
+def _url_safe_isoformat(dt: datetime) -> str:
+    """Format datetime as URL-safe ISO 8601 string.
+
+    Uses 'Z' suffix instead of '+00:00' to avoid the '+' character being
+    interpreted as a space in URL query parameters by PostgREST.
+    """
+    return quote(dt.isoformat().replace("+00:00", "Z"))
 
 
 # =============================================================================
@@ -245,7 +255,7 @@ async def get_timeline(
 
     try:
         # Build query
-        since_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        since_date = _url_safe_isoformat(datetime.now(UTC) - timedelta(days=days))
         query_path = f"/sdlc_events?occurred_at=gte.{since_date}"
 
         if project_id:
@@ -265,7 +275,7 @@ async def get_timeline(
             if "does not exist" in error_msg or "42P01" in error_msg:
                 logger.warning("sdlc_events table not found - run migrations")
                 return TimelineResponse(events=[], total_count=0)
-            raise HTTPException(status_code=500, detail="Failed to fetch timeline")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch timeline: {error_msg}")
 
         events_data = result.get("data") or []
         events = [_row_to_sdlc_event(row) for row in events_data]
@@ -1063,7 +1073,7 @@ Return ONLY valid JSON, no markdown or explanations."""
 
         # Build the query based on interpretation
         days = interpretation.get("time_range_days", 7)
-        since_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        since_date = _url_safe_isoformat(datetime.now(UTC) - timedelta(days=days))
         query_path = f"/sdlc_events?occurred_at=gte.{since_date}"
 
         if project_id:
@@ -1275,7 +1285,7 @@ async def get_correlation_stats(
     supabase = get_supabase_client()
 
     try:
-        since_date = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        since_date = _url_safe_isoformat(datetime.now(UTC) - timedelta(days=days))
 
         # Get event counts by type
         events_query = f"/sdlc_events?occurred_at=gte.{since_date}&select=event_type"

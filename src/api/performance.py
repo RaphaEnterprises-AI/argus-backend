@@ -11,6 +11,7 @@ Provides REST endpoints for:
 
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -383,10 +384,12 @@ async def get_performance_trends(
     supabase = get_supabase_client()
 
     start_date = datetime.now(UTC) - timedelta(days=days)
+    # URL-encode the date to prevent '+' in timezone offset being read as space
+    safe_start = quote(start_date.isoformat().replace("+00:00", "Z"))
 
     result = await supabase.request(
         f"/performance_tests?project_id=eq.{project_id}&status=eq.completed"
-        f"&created_at=gte.{start_date.isoformat()}"
+        f"&created_at=gte.{safe_start}"
         f"&select=created_at,lcp_ms,fid_ms,cls,performance_score"
         f"&order=created_at.asc"
     )
@@ -473,9 +476,10 @@ async def get_performance_summary(
 
     # Get 30-day trends
     start_date = datetime.now(UTC) - timedelta(days=30)
+    safe_start_30d = quote(start_date.isoformat().replace("+00:00", "Z"))
     trends_result = await supabase.request(
         f"/performance_tests?project_id=eq.{project_id}&status=eq.completed"
-        f"&created_at=gte.{start_date.isoformat()}"
+        f"&created_at=gte.{safe_start_30d}"
         f"&select=created_at,lcp_ms,fid_ms,cls,performance_score"
         f"&order=created_at.asc"
     )

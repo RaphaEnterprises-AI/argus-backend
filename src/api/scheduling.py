@@ -98,9 +98,10 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
         run_id = run["id"]
         schedule_id = run["schedule_id"]
 
-        # Note: supabase.update signature is (table, values, filters) and returns bool
+        # supabase.update signature: (table, filters, data)
         update_success = await supabase.update(
             "schedule_runs",
+            {"id": f"eq.{run_id}"},
             {
                 "status": "timeout",
                 "completed_at": datetime.now(UTC).isoformat(),
@@ -116,7 +117,6 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
                 "failure_category": "environment",
                 "failure_confidence": 0.9,
             },
-            {"id": run_id},
         )
 
         if not update_success:
@@ -125,14 +125,14 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
             cleaned += 1
             logger.info("Marked stale run as timeout", run_id=run_id, schedule_id=schedule_id)
 
-            # Update schedule status (values, filters)
+            # Update schedule status
             await supabase.update(
                 "test_schedules",
+                {"id": f"eq.{schedule_id}"},
                 {
                     "status": "error",
                     "last_run_status": "timeout",
                 },
-                {"id": schedule_id},
             )
 
     return cleaned
@@ -262,7 +262,7 @@ async def _update_schedule_in_db(schedule_id: str, updates: dict) -> bool:
         return False
 
     try:
-        success = await supabase.update("test_schedules", updates, {"id": schedule_id})
+        success = await supabase.update("test_schedules", {"id": f"eq.{schedule_id}"}, updates)
         if not success:
             logger.error(
                 "Failed to update schedule in database",
@@ -345,7 +345,7 @@ async def _update_schedule_run_in_db(run_id: str, updates: dict) -> bool:
         return False
 
     try:
-        success = await supabase.update("schedule_runs", updates, {"id": run_id})
+        success = await supabase.update("schedule_runs", {"id": f"eq.{run_id}"}, updates)
         if not success:
             logger.error(
                 "Failed to update schedule run in database",
@@ -1383,6 +1383,59 @@ async def list_schedules(
     )
 
 
+@router.get("/presets")
+async def get_schedule_presets():
+    """
+    Get common schedule presets.
+
+    Returns a list of commonly used cron expressions with descriptions.
+    """
+    return {
+        "presets": [
+            {
+                "name": "Every 15 minutes",
+                "cron": "*/15 * * * *",
+                "description": "Run tests every 15 minutes",
+            },
+            {
+                "name": "Every hour",
+                "cron": "0 * * * *",
+                "description": "Run tests at the start of every hour",
+            },
+            {
+                "name": "Every 6 hours",
+                "cron": "0 */6 * * *",
+                "description": "Run tests every 6 hours (4 times daily)",
+            },
+            {
+                "name": "Daily at midnight",
+                "cron": "0 0 * * *",
+                "description": "Run tests once daily at midnight UTC",
+            },
+            {
+                "name": "Daily at 9 AM",
+                "cron": "0 9 * * *",
+                "description": "Run tests once daily at 9:00 AM UTC",
+            },
+            {
+                "name": "Weekdays at 9 AM",
+                "cron": "0 9 * * 1-5",
+                "description": "Run tests Monday-Friday at 9:00 AM UTC",
+            },
+            {
+                "name": "Weekly on Monday",
+                "cron": "0 0 * * 1",
+                "description": "Run tests every Monday at midnight UTC",
+            },
+            {
+                "name": "Monthly on the 1st",
+                "cron": "0 0 1 * *",
+                "description": "Run tests on the first day of each month at midnight UTC",
+            },
+        ]
+    }
+
+
 @router.get("/{schedule_id}", response_model=ScheduleResponse)
 async def get_schedule(schedule_id: str):
     """
@@ -2070,59 +2123,6 @@ async def validate_cron_endpoint(cron_expression: str = Query(..., description="
         "error": None,
         "readable": cron_to_readable(cron_expression),
         "next_runs": next_runs,
-    }
-
-
-@router.get("/presets")
-async def get_schedule_presets():
-    """
-    Get common schedule presets.
-
-    Returns a list of commonly used cron expressions with descriptions.
-    """
-    return {
-        "presets": [
-            {
-                "name": "Every 15 minutes",
-                "cron": "*/15 * * * *",
-                "description": "Run tests every 15 minutes",
-            },
-            {
-                "name": "Every hour",
-                "cron": "0 * * * *",
-                "description": "Run tests at the start of every hour",
-            },
-            {
-                "name": "Every 6 hours",
-                "cron": "0 */6 * * *",
-                "description": "Run tests every 6 hours (4 times daily)",
-            },
-            {
-                "name": "Daily at midnight",
-                "cron": "0 0 * * *",
-                "description": "Run tests once daily at midnight UTC",
-            },
-            {
-                "name": "Daily at 9 AM",
-                "cron": "0 9 * * *",
-                "description": "Run tests once daily at 9:00 AM UTC",
-            },
-            {
-                "name": "Weekdays at 9 AM",
-                "cron": "0 9 * * 1-5",
-                "description": "Run tests Monday-Friday at 9:00 AM UTC",
-            },
-            {
-                "name": "Weekly on Monday",
-                "cron": "0 0 * * 1",
-                "description": "Run tests every Monday at midnight UTC",
-            },
-            {
-                "name": "Monthly on the 1st",
-                "cron": "0 0 1 * *",
-                "description": "Run tests on the first day of each month at midnight UTC",
-            },
-        ]
     }
 
 

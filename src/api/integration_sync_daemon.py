@@ -203,8 +203,8 @@ async def update_sync_status(
 
         success = await supabase.update(
             "integrations",
+            {"id": f"eq.{integration_id}"},
             update_data,
-            {"id": integration_id},
         )
 
         if success:

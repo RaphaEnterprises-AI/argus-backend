@@ -421,7 +421,7 @@ async def _update_channel_in_db(channel_id: str, updates: dict) -> bool:
             return True
         return False
 
-    return await supabase.update("notification_channels", updates, {"id": channel_id})
+    return await supabase.update("notification_channels", {"id": f"eq.{channel_id}"}, updates)
 
 
 async def _delete_channel_from_db(channel_id: str) -> bool:
@@ -497,7 +497,7 @@ async def _update_rule_in_db(rule_id: str, updates: dict) -> bool:
             return True
         return False
 
-    return await supabase.update("notification_rules", updates, {"id": rule_id})
+    return await supabase.update("notification_rules", {"id": f"eq.{rule_id}"}, updates)
 
 
 async def _delete_rule_from_db(rule_id: str) -> bool:
@@ -677,7 +677,7 @@ async def _update_user_notification_in_db(notification_id: str, updates: dict) -
             return True
         return False
 
-    return await supabase.update("user_notifications", updates, {"id": notification_id})
+    return await supabase.update("user_notifications", {"id": f"eq.{notification_id}"}, updates)
 
 
 async def _mark_all_notifications_read(user_id: str) -> int:
@@ -708,8 +708,8 @@ async def _mark_all_notifications_read(user_id: str) -> int:
     for notification in unread:
         await supabase.update(
             "user_notifications",
+            {"id": f"eq.{notification['id']}"},
             {"read": True, "read_at": now},
-            {"id": notification["id"]}
         )
 
     return len(unread)
@@ -742,8 +742,8 @@ async def _save_user_preferences_to_db(preferences: dict) -> bool:
     if existing:
         return await supabase.update(
             "notification_preferences",
+            {"user_id": f"eq.{preferences['user_id']}"},
             preferences,
-            {"user_id": preferences["user_id"]}
         )
     return await supabase.insert("notification_preferences", [preferences])
 
@@ -757,7 +757,7 @@ async def _update_user_preferences_in_db(user_id: str, updates: dict) -> bool:
             return True
         return False
 
-    return await supabase.update("notification_preferences", updates, {"user_id": user_id})
+    return await supabase.update("notification_preferences", {"user_id": f"eq.{user_id}"}, updates)
 
 
 # =============================================================================

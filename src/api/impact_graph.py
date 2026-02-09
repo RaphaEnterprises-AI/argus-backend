@@ -125,7 +125,10 @@ class CreateMappingRequest(BaseModel):
     function_name: str | None = None
     class_name: str | None = None
     impact_score: float = Field(ge=0, le=1, default=1.0)
-    relationship_type: str = "direct"
+    relationship_type: str = Field(
+        default="direct",
+        pattern="^(direct|transitive|coverage|historical|semantic)$",
+    )
 
 
 class BulkMappingRequest(BaseModel):

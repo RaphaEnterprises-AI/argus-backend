@@ -160,10 +160,10 @@ class AIInsight(BaseModel):
     title: str
     description: str
     confidence: float
-    affected_area: str | None
-    suggested_action: str | None
-    action_url: str | None
-    related_test_ids: list[str] | None
+    affected_area: str | None = None
+    suggested_action: str | None = None
+    action_url: str | None = None
+    related_test_ids: list[str] | None = None
     is_resolved: bool
     created_at: datetime
     metadata: dict = Field(default_factory=dict)
