@@ -18,6 +18,7 @@ Integrates with GitHub Actions API for pipeline operations.
 Uses Claude for semantic code analysis and Cognee for knowledge graph queries.
 """
 
+import asyncio
 import json
 import re
 import time
@@ -2488,48 +2489,51 @@ async def analyze_test_impact(
             logger.warning("Failed to log audit event", error=str(audit_error))
 
         # =====================================================================
-        # AI Learning Loop Integration: Store in Cognee for cross-project learning
+        # AI Learning Loop: Cognee storage + Kafka events (non-blocking, 10s timeout each)
+        # These MUST NOT block the response — if infra is unreachable, skip gracefully.
         # =====================================================================
         try:
-            await _store_analysis_in_cognee(
-                org_id=org_id,
-                project_id=body.project_id,
-                analysis_type="test_impact",
-                data={
-                    "commit_sha": body.commit_sha,
-                    "branch": body.branch,
-                    "changed_files": [cf.path for cf in changed_files],
-                    "impacted_test_count": len(impacted_tests),
-                    "impacted_test_ids": [t.test_id for t in impacted_tests],
-                    "confidence_score": overall_confidence,
-                    "recommended_tests": recommended_tests,
-                    "skip_candidates": skip_candidates[:20],  # Limit for storage
-                },
+            await asyncio.wait_for(
+                _store_analysis_in_cognee(
+                    org_id=org_id,
+                    project_id=body.project_id,
+                    analysis_type="test_impact",
+                    data={
+                        "commit_sha": body.commit_sha,
+                        "branch": body.branch,
+                        "changed_files": [cf.path for cf in changed_files],
+                        "impacted_test_count": len(impacted_tests),
+                        "impacted_test_ids": [t.test_id for t in impacted_tests],
+                        "confidence_score": overall_confidence,
+                        "recommended_tests": recommended_tests,
+                        "skip_candidates": skip_candidates[:20],
+                    },
+                ),
+                timeout=10.0,
             )
-        except Exception as cognee_error:
+        except (Exception, asyncio.TimeoutError) as cognee_error:
             logger.debug("Cognee storage skipped", error=str(cognee_error))
 
-        # =====================================================================
-        # AI Learning Loop: Emit Kafka events for downstream processing
-        # =====================================================================
         try:
-            # Emit test_executed event so Cognee worker can build knowledge graph
-            await _emit_test_event(
-                event_type="test_executed",
-                org_id=org_id or "",
-                project_id=body.project_id,
-                test_id=analysis_id,
-                test_name=f"impact_analysis_{body.commit_sha[:8]}",
-                status="completed",
-                duration_ms=analysis_time_ms,
-                metadata={
-                    "source": "test_impact_analysis",
-                    "impact_source": impact_source,
-                    "files_changed": len(changed_files),
-                    "tests_impacted": len(impacted_tests),
-                },
+            await asyncio.wait_for(
+                _emit_test_event(
+                    event_type="test_executed",
+                    org_id=org_id or "",
+                    project_id=body.project_id,
+                    test_id=analysis_id,
+                    test_name=f"impact_analysis_{body.commit_sha[:8]}",
+                    status="completed",
+                    duration_ms=analysis_time_ms,
+                    metadata={
+                        "source": "test_impact_analysis",
+                        "impact_source": impact_source,
+                        "files_changed": len(changed_files),
+                        "tests_impacted": len(impacted_tests),
+                    },
+                ),
+                timeout=10.0,
             )
-        except Exception as event_error:
+        except (Exception, asyncio.TimeoutError) as event_error:
             logger.debug("Event emission skipped", error=str(event_error))
 
         logger.info(
