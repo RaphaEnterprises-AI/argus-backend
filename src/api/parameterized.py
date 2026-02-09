@@ -120,7 +120,7 @@ async def _update_test_in_db(test_id: str, updates: dict) -> bool:
             return True
         return False
 
-    return await supabase.update("parameterized_tests", {"id": f"eq.{test_id}"}, updates)
+    return await supabase.update("parameterized_tests", updates, {"id": test_id})
 
 
 async def _delete_test_from_db(test_id: str) -> bool:
