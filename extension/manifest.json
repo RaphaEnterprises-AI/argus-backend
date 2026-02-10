@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "E2E Testing Agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Browser automation extension for E2E Testing Agent - works with any web framework",
   "author": "E2E Testing Agent",
+  "minimum_chrome_version": "110",
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
 
   "permissions": [
     "activeTab",
@@ -11,7 +16,8 @@
     "scripting",
     "storage",
     "debugger",
-    "nativeMessaging"
+    "nativeMessaging",
+    "webRequest"
   ],
 
   "host_permissions": [
@@ -47,14 +53,9 @@
     "128": "icons/icon128.png"
   },
 
+  "options_page": "options.html",
+
   "externally_connectable": {
     "matches": ["http://localhost:*/*", "http://127.0.0.1:*/*"]
-  },
-
-  "web_accessible_resources": [
-    {
-      "resources": ["injected.js"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }

@@ -10,6 +10,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const logsEl = document.getElementById('logs');
   const connectBtn = document.getElementById('connect-btn');
   const testBtn = document.getElementById('test-btn');
+  const recordBtn = document.getElementById('record-btn');
+  const recordingInfo = document.getElementById('recording-info');
+  const settingsLink = document.getElementById('settings-link');
+
+  let isRecording = false;
 
   // Get current state from background
   async function updateStatus() {
@@ -18,7 +23,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       tabCount.textContent = tabs.length;
 
       // Check storage for stats
-      const stats = await chrome.storage.local.get(['actionCount', 'connected', 'logs']);
+      const stats = await chrome.storage.local.get([
+        'actionCount', 'connected', 'logs', 'recording', 'recordingStartTime',
+      ]);
 
       if (stats.connected) {
         statusEl.className = 'status connected';
@@ -32,14 +39,37 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       actionCount.textContent = stats.actionCount || 0;
 
-      // Update logs
+      // Update recording state
+      if (stats.recording) {
+        isRecording = true;
+        recordBtn.textContent = 'Stop Recording';
+        recordBtn.classList.add('recording');
+        const elapsed = Math.floor((Date.now() - stats.recordingStartTime) / 1000);
+        recordingInfo.style.display = 'block';
+        recordingInfo.textContent = `Recording... ${elapsed}s`;
+      } else {
+        isRecording = false;
+        recordBtn.textContent = 'Start Recording';
+        recordBtn.classList.remove('recording');
+        recordingInfo.style.display = 'none';
+      }
+
+      // Update logs using safe DOM methods
       if (stats.logs && stats.logs.length > 0) {
-        logsEl.innerHTML = stats.logs.slice(-10).map(log => `
-          <div class="log-entry">
-            <span class="log-time">${new Date(log.time).toLocaleTimeString()}</span>
-            <span class="log-message">${log.message}</span>
-          </div>
-        `).join('');
+        logsEl.textContent = ''; // Clear safely
+        stats.logs.slice(-10).forEach(log => {
+          const entry = document.createElement('div');
+          entry.className = 'log-entry';
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'log-time';
+          timeSpan.textContent = new Date(log.time).toLocaleTimeString();
+          const msgSpan = document.createElement('span');
+          msgSpan.className = 'log-message';
+          msgSpan.textContent = log.message;
+          entry.appendChild(timeSpan);
+          entry.appendChild(msgSpan);
+          logsEl.appendChild(entry);
+        });
       }
     } catch (error) {
       console.error('Error updating status:', error);
@@ -48,7 +78,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Connect button
   connectBtn.addEventListener('click', async () => {
-    // Send message to background to connect
     chrome.runtime.sendMessage({ action: 'connect' });
     addLog('Connecting to agent...');
     setTimeout(updateStatus, 1000);
@@ -58,24 +87,94 @@ document.addEventListener('DOMContentLoaded', async () => {
   testBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    // Send test command to content script
-    const result = await chrome.tabs.sendMessage(tab.id, { action: 'getPageInfo' });
-
-    if (result.success) {
-      addLog(`Page: ${result.data.title}`);
-      addLog(`URL: ${result.data.url}`);
-    } else {
-      addLog(`Error: ${result.error}`);
+    try {
+      const result = await chrome.tabs.sendMessage(tab.id, { action: 'getPageInfo' });
+      if (result.success) {
+        addLog(`Page: ${result.data.title}`);
+        addLog(`URL: ${result.data.url}`);
+      } else {
+        addLog(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      addLog(`Error: ${error.message}`);
     }
+  });
+
+  // Recording button
+  recordBtn.addEventListener('click', async () => {
+    if (isRecording) {
+      // Stop recording
+      addLog('Stopping recording...');
+      recordBtn.disabled = true;
+
+      const settings = await chrome.storage.sync.get({ lastProjectId: '' });
+      const projectId = settings.lastProjectId || 'default';
+
+      const result = await chrome.runtime.sendMessage({
+        action: 'stopRecording',
+        projectId,
+      });
+
+      recordBtn.disabled = false;
+
+      if (result.success) {
+        addLog(`Recording uploaded (${result.data.eventCount} events, ${(result.data.duration / 1000).toFixed(1)}s)`);
+        if (result.data.recording_id) {
+          addLog(`Recording ID: ${result.data.recording_id}`);
+        }
+      } else {
+        addLog(`Stop failed: ${result.error}`);
+      }
+
+      updateStatus();
+    } else {
+      // Start recording
+      addLog('Starting recording...');
+
+      const settings = await chrome.storage.sync.get({
+        maskInputs: true,
+        recordCanvas: false,
+        maxRecordingMs: 300000,
+      });
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      const result = await chrome.runtime.sendMessage({
+        action: 'startRecording',
+        tabId: tab.id,
+        options: {
+          maskInputs: settings.maskInputs,
+          recordCanvas: settings.recordCanvas,
+          maxDuration: settings.maxRecordingMs,
+        },
+      });
+
+      if (result.success) {
+        addLog('Recording started');
+      } else {
+        addLog(`Record failed: ${result.error}`);
+      }
+
+      updateStatus();
+    }
+  });
+
+  // Settings link
+  settingsLink.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
   });
 
   function addLog(message) {
     const entry = document.createElement('div');
     entry.className = 'log-entry';
-    entry.innerHTML = `
-      <span class="log-time">${new Date().toLocaleTimeString()}</span>
-      <span class="log-message">${message}</span>
-    `;
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-time';
+    timeSpan.textContent = new Date().toLocaleTimeString();
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'log-message';
+    msgSpan.textContent = message;
+    entry.appendChild(timeSpan);
+    entry.appendChild(msgSpan);
     logsEl.insertBefore(entry, logsEl.firstChild);
 
     // Keep only last 10 logs
@@ -87,7 +186,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initial update
   updateStatus();
 
-  // Listen for updates
+  // Periodic update for recording timer
+  setInterval(updateStatus, 2000);
+
+  // Listen for storage changes
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       updateStatus();

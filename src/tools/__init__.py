@@ -5,6 +5,7 @@ This module provides a multi-framework browser automation layer:
 - SeleniumAutomation: WebDriver-based automation for legacy support
 - ComputerUseAutomation: Visual/pixel-based automation via Claude Computer Use
 - HybridAutomation: Programmatic + Computer Use fallback
+- MCPBrowserAutomation: Playwright MCP + Chrome DevTools MCP with self-healing
 - ExtensionBridge: Chrome extension for real browser automation (like Claude in Chrome)
 
 Usage:
@@ -13,8 +14,11 @@ Usage:
     # Use Playwright (default)
     browser = await create_browser(framework=AutomationFramework.PLAYWRIGHT)
 
-    # Use Chrome Extension (for real browser session)
-    browser = await create_browser(framework=AutomationFramework.EXTENSION)
+    # Use MCP-based mode (recommended for production with self-healing)
+    browser = await create_browser(
+        framework=AutomationFramework.MCP_BROWSER,
+        org_id="...", project_id="...",
+    )
 
     # Use hybrid mode (programmatic + Computer Use fallback)
     browser = await create_browser(framework=AutomationFramework.HYBRID)
@@ -27,6 +31,7 @@ from .browser_abstraction import (
     BrowserConfig,
     ComputerUseAutomation,
     HybridAutomation,
+    MCPBrowserAutomation,
     PlaywrightAutomation,
     SeleniumAutomation,
     create_browser,
@@ -71,6 +76,7 @@ __all__ = [
     "SeleniumAutomation",
     "ComputerUseAutomation",
     "HybridAutomation",
+    "MCPBrowserAutomation",
     "create_browser",
     # Chrome Extension bridge
     "ExtensionBridge",

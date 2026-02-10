@@ -1,0 +1,15 @@
+{
+  "name": "e2e-testing-agent-extension",
+  "version": "0.2.0",
+  "description": "Browser automation extension for E2E Testing Agent - works with any web framework",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "package": "node build.js && cd dist && zip -r ../e2e-testing-agent.zip .",
+    "lint": "eslint *.js --no-eslintrc --env browser,webextensions --parserOptions=ecmaVersion:2020",
+    "clean": "rm -rf dist e2e-testing-agent.zip"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
+  }
+}

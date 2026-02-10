@@ -10,17 +10,68 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
 from src.api.teams import get_current_user
+from src.services.supabase_client import get_supabase_client
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/recording", tags=["Recording"])
 
+# In-memory fallback when DB is unavailable (e.g., table not migrated yet)
+_recordings_cache: dict[str, dict] = {}
 
-# =============================================================================
-# In-memory Storage (would be database in production)
-# =============================================================================
 
-_recordings: dict[str, dict] = {}
+async def _get_recording(recording_id: str) -> dict | None:
+    """Retrieve a recording from Supabase, falling back to in-memory cache."""
+    supabase = get_supabase_client()
+    result = await supabase.select("recordings", filters={"id": f"eq.{recording_id}"})
+    if result.get("data"):
+        return result["data"][0]
+    return _recordings_cache.get(recording_id)
+
+
+async def _delete_recording(recording_id: str) -> bool:
+    """Delete a recording from Supabase and in-memory cache."""
+    _recordings_cache.pop(recording_id, None)
+    supabase = get_supabase_client()
+    result = await supabase.request(f"/recordings?id=eq.{recording_id}", method="DELETE")
+    return not result.get("error")
+
+
+async def _list_recordings(
+    user_id: str | None = None,
+    org_id: str | None = None,
+    project_id: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """List recordings from Supabase, merging in-memory fallback entries."""
+    supabase = get_supabase_client()
+
+    # Build filter for org-scoped access
+    filters = {}
+    if org_id:
+        filters["organization_id"] = f"eq.{org_id}"
+    if project_id:
+        filters["project_id"] = f"eq.{project_id}"
+    filters["order"] = "created_at.desc"
+    filters["limit"] = str(limit)
+
+    result = await supabase.select("recordings", columns="id,name,project_id,events_count,interaction_count,metadata,created_at", filters=filters)
+
+    db_recordings = result.get("data") or []
+
+    # Merge any in-memory fallback recordings
+    db_ids = {r["id"] for r in db_recordings}
+    for rec in _recordings_cache.values():
+        if rec["id"] not in db_ids:
+            # Check org access
+            if org_id and rec.get("organization_id") != org_id:
+                if rec.get("user_id") != user_id:
+                    continue
+            if project_id and rec.get("project_id") != project_id:
+                continue
+            db_recordings.append(rec)
+
+    return db_recordings[:limit]
 
 
 # =============================================================================
@@ -262,19 +313,29 @@ async def upload_recording(request: Request, body: RecordingUploadRequest):
         # Analyze events to estimate test steps
         interaction_events = _count_interaction_events(body.events)
 
-        # Store recording with user context
-        _recordings[recording_id] = {
+        # Store recording in Supabase
+        supabase = get_supabase_client()
+        record = {
             "id": recording_id,
             "events": [e.model_dump() for e in body.events],
             "metadata": body.metadata.model_dump(),
             "project_id": body.project_id,
             "name": body.name or f"Recording {recording_id[:8]}",
-            "created_at": datetime.now(UTC).isoformat(),
             "events_count": len(body.events),
             "interaction_count": interaction_events,
             "user_id": user.get("user_id"),
             "organization_id": user.get("organization_id"),
         }
+
+        result = await supabase.insert("recordings", record)
+        if result.get("error"):
+            logger.warning(
+                "Failed to persist recording to DB, storing in memory fallback",
+                error=result["error"],
+                recording_id=recording_id,
+            )
+            # Fallback: store in module-level cache so convert/replay still work this session
+            _recordings_cache[recording_id] = record
 
         logger.info(
             "Recording uploaded",
@@ -324,8 +385,8 @@ async def convert_recording(request: Request, body: ConvertRequest):
     validate_uuid(body.recording_id, "recording_id")
 
     try:
-        # Get recording
-        recording = _recordings.get(body.recording_id)
+        # Get recording from DB or cache
+        recording = await _get_recording(body.recording_id)
         if not recording:
             raise HTTPException(status_code=404, detail="Recording not found")
 
@@ -413,14 +474,14 @@ async def get_replay_data(request: Request, recording_id: str):
     validate_uuid(recording_id, "recording_id")
 
     try:
-        recording = _recordings.get(recording_id)
+        recording = await _get_recording(recording_id)
         if not recording:
             raise HTTPException(status_code=404, detail="Recording not found")
 
         # Verify user has access to this recording (same org or owner)
         recording_org = recording.get("organization_id")
         user_org = user.get("organization_id")
-        recording_user = recording.get("user_id")
+        recording_user = str(recording.get("user_id", ""))
         current_user = user.get("user_id")
 
         if recording_org and user_org and recording_org != user_org:
@@ -602,22 +663,12 @@ async def get_recordings(
     user_org = user.get("organization_id")
     current_user = user.get("user_id")
 
-    recordings = list(_recordings.values())
-
-    # Filter by organization - only show recordings from same org or owned by user
-    recordings = [
-        r
-        for r in recordings
-        if r.get("organization_id") == user_org
-        or r.get("user_id") == current_user
-        or not r.get("organization_id")  # Legacy recordings without org
-    ]
-
-    if project_id:
-        recordings = [r for r in recordings if r.get("project_id") == project_id]
-
-    # Sort by created_at descending
-    recordings.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    recordings = await _list_recordings(
+        user_id=current_user,
+        org_id=user_org,
+        project_id=project_id,
+        limit=limit,
+    )
 
     return {
         "success": True,
@@ -628,18 +679,18 @@ async def get_recordings(
                 "project_id": r.get("project_id"),
                 "events_count": r.get("events_count", 0),
                 "interaction_count": r.get("interaction_count", 0),
-                "duration_ms": r.get("metadata", {}).get("duration", 0),
-                "url": r.get("metadata", {}).get("url"),
+                "duration_ms": r.get("metadata", {}).get("duration", 0) if isinstance(r.get("metadata"), dict) else 0,
+                "url": r.get("metadata", {}).get("url") if isinstance(r.get("metadata"), dict) else None,
                 "created_at": r.get("created_at"),
             }
-            for r in recordings[:limit]
+            for r in recordings
         ],
         "total": len(recordings),
     }
 
 
 @router.get("/list")
-async def list_recordings(
+async def list_recordings_alias(
     request: Request,
     project_id: str | None = None,
     limit: int = 20,
@@ -650,51 +701,7 @@ async def list_recordings(
 
     Note: This endpoint is an alias for /recordings and is maintained for backward compatibility.
     """
-    # Authenticate the request
-    user = await get_current_user(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    # Validate UUID parameters
-    validate_uuid_optional(project_id, "project_id")
-
-    user_org = user.get("organization_id")
-    current_user = user.get("user_id")
-
-    recordings = list(_recordings.values())
-
-    # Filter by organization - only show recordings from same org or owned by user
-    recordings = [
-        r
-        for r in recordings
-        if r.get("organization_id") == user_org
-        or r.get("user_id") == current_user
-        or not r.get("organization_id")  # Legacy recordings without org
-    ]
-
-    if project_id:
-        recordings = [r for r in recordings if r.get("project_id") == project_id]
-
-    # Sort by created_at descending
-    recordings.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-
-    return {
-        "success": True,
-        "recordings": [
-            {
-                "id": r["id"],
-                "name": r.get("name"),
-                "project_id": r.get("project_id"),
-                "events_count": r.get("events_count", 0),
-                "interaction_count": r.get("interaction_count", 0),
-                "duration_ms": r.get("metadata", {}).get("duration", 0),
-                "url": r.get("metadata", {}).get("url"),
-                "created_at": r.get("created_at"),
-            }
-            for r in recordings[:limit]
-        ],
-        "total": len(recordings),
-    }
+    return await get_recordings(request, project_id=project_id, limit=limit)
 
 
 @router.delete("/{recording_id}")
@@ -711,22 +718,21 @@ async def delete_recording(request: Request, recording_id: str):
     # Validate UUID parameters
     validate_uuid(recording_id, "recording_id")
 
-    if recording_id not in _recordings:
+    recording = await _get_recording(recording_id)
+    if not recording:
         raise HTTPException(status_code=404, detail="Recording not found")
-
-    recording = _recordings[recording_id]
 
     # Verify user has access to delete this recording
     recording_org = recording.get("organization_id")
     user_org = user.get("organization_id")
-    recording_user = recording.get("user_id")
+    recording_user = str(recording.get("user_id", ""))
     current_user = user.get("user_id")
 
     if recording_org and user_org and recording_org != user_org:
         if recording_user != current_user:
             raise HTTPException(status_code=403, detail="Access denied to this recording")
 
-    del _recordings[recording_id]
+    await _delete_recording(recording_id)
 
     logger.info(
         "Recording deleted",

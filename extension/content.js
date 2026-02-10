@@ -55,9 +55,9 @@
   interceptConsoleLogs();
 
   /**
-   * Find element by selector with multiple strategies
+   * Find element by selector with multiple local strategies (synchronous).
    */
-  function findElement(selector) {
+  function findElementLocal(selector) {
     // Try CSS selector first
     let element = document.querySelector(selector);
     if (element) return element;
@@ -90,17 +90,68 @@
   }
 
   /**
-   * Wait for an element to appear
+   * Find element with self-healing fallback.
+   * If all local strategies fail, asks the background script to query the
+   * backend healing API for alternative selectors.
+   */
+  async function findElement(selector) {
+    // Try local strategies first (fast path)
+    const element = findElementLocal(selector);
+    if (element) return element;
+
+    // Self-healing: ask backend for alternative selectors
+    try {
+      const healingResult = await chrome.runtime.sendMessage({
+        type: 'requestHealing',
+        selector,
+        pageUrl: window.location.href,
+        pageTitle: document.title,
+      });
+
+      if (healingResult && healingResult.success && healingResult.alternatives) {
+        for (const alt of healingResult.alternatives) {
+          const healed = findElementLocal(alt.selector);
+          if (healed) {
+            console.log(
+              `[E2E Agent] Self-healed selector: "${selector}" → "${alt.selector}" (${alt.confidence})`
+            );
+            return healed;
+          }
+        }
+      }
+    } catch {
+      // Healing unavailable (no API key, backend down, etc.) — continue with null
+    }
+
+    return null;
+  }
+
+  /**
+   * Synchronous findElement for backward compatibility in non-async callers.
+   */
+  function findElementSync(selector) {
+    return findElementLocal(selector);
+  }
+
+  /**
+   * Wait for an element to appear (uses self-healing on final attempt)
    */
   async function waitForSelector(selector, timeout = 10000) {
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
-      const element = findElement(selector);
+      // Use fast local-only search during polling
+      const element = findElementLocal(selector);
       if (element) {
         return { success: true, data: getElementInfo(element) };
       }
       await new Promise(r => setTimeout(r, 100));
+    }
+
+    // Final attempt with self-healing fallback
+    const healed = await findElement(selector);
+    if (healed) {
+      return { success: true, data: getElementInfo(healed) };
     }
 
     return { success: false, error: `Timeout waiting for: ${selector}` };
@@ -446,6 +497,17 @@
 
         case 'waitForSelector':
           result = await waitForSelector(message.selector, message.timeout);
+          break;
+
+        case 'compareScreenshot':
+          // Delegate to background script which has API access
+          result = await chrome.runtime.sendMessage({
+            type: 'compareScreenshot',
+            baselineId: message.baselineId,
+            name: message.name,
+            projectId: message.projectId,
+            sensitivity: message.sensitivity,
+          });
           break;
 
         default:

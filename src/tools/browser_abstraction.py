@@ -49,6 +49,7 @@ class AutomationFramework(Enum):
     COMPUTER_USE = "computer_use"  # Pure visual, no framework
     EXTENSION = "extension"  # Chrome extension bridge (like Claude in Chrome)
     HYBRID = "hybrid"  # Programmatic + Computer Use fallback
+    MCP_BROWSER = "mcp_browser"  # Playwright MCP + Chrome DevTools MCP
     CUSTOM = "custom"
 
 
@@ -912,6 +913,187 @@ class HybridAutomation(BrowserAutomation):
         return await self.primary.get_current_url()
 
 
+class MCPBrowserAutomation(BrowserAutomation):
+    """Browser automation via Playwright MCP + Chrome DevTools MCP.
+
+    Uses MCPBrowserOrchestrator under the hood, which provides:
+    - Playwright MCP for fast, selector-based execution
+    - Chrome DevTools MCP for network/console/performance diagnostics
+    - Self-healing via the Argus backend healing API
+    - Kafka event emission for the AI learning loop
+
+    This is the recommended framework for production E2E testing where
+    deep debugging insight and self-healing are needed.
+    """
+
+    def __init__(
+        self,
+        config: BrowserConfig | None = None,
+        org_id: str = "",
+        project_id: str = "",
+        api_key: str = "",
+        enable_healing: bool = True,
+        use_devtools: bool = True,
+    ):
+        super().__init__(config)
+        self._org_id = org_id
+        self._project_id = project_id
+        self._api_key = api_key
+        self._enable_healing = enable_healing
+        self._use_devtools = use_devtools
+        self._orchestrator = None
+
+    async def start(self) -> None:
+        from src.mcp.browser_mcp_orchestrator import MCPBrowserOrchestrator, OrchestratorConfig
+
+        orch_config = OrchestratorConfig(
+            org_id=self._org_id,
+            project_id=self._project_id,
+            api_key=self._api_key,
+            enable_healing=self._enable_healing,
+            use_devtools=self._use_devtools,
+        )
+        self._orchestrator = MCPBrowserOrchestrator(config=orch_config)
+        await self._orchestrator.start()
+        self.log.info("MCPBrowserAutomation started")
+
+    async def stop(self) -> None:
+        if self._orchestrator:
+            await self._orchestrator.stop()
+            self._orchestrator = None
+
+    def _orch(self):
+        if not self._orchestrator:
+            raise RuntimeError("MCPBrowserAutomation not started")
+        return self._orchestrator
+
+    async def goto(self, url: str, wait_until: str = "load") -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().navigate(url)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="goto",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def click(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().click(selector)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="click",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def fill(self, selector: str, value: str) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().fill(selector, value)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="fill",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def type_text(self, selector: str, text: str, delay_ms: int = 0) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().type_text(selector, text)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="type",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def screenshot(self, full_page: bool = False) -> bytes:
+        result = await self._orch().screenshot()
+        if result.success and result.content:
+            # MCP returns base64 image in content
+            import base64
+            for item in (result.content if isinstance(result.content, list) else [result.content]):
+                if isinstance(item, dict) and item.get("type") == "image":
+                    return base64.b64decode(item.get("data", ""))
+        return b""
+
+    async def get_text(self, selector: str) -> str:
+        result = await self._orch().evaluate(
+            f"document.querySelector('{selector}')?.textContent || ''"
+        )
+        return str(result) if result else ""
+
+    async def is_visible(self, selector: str) -> bool:
+        result = await self._orch().evaluate(
+            f"!!document.querySelector('{selector}')"
+        )
+        return bool(result)
+
+    async def wait_for_selector(self, selector: str, timeout_ms: int | None = None) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().wait_for_selector(selector, timeout_ms)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="wait",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def get_current_url(self) -> str:
+        return await self._orch().get_current_url()
+
+    async def hover(self, selector: str) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().hover(selector)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="hover",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def select_option(self, selector: str, value: str) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().select_option(selector, value)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="select",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def press_key(self, key: str) -> ActionResult:
+        import time
+        start = time.monotonic()
+        result = await self._orch().press_key(key)
+        elapsed = int((time.monotonic() - start) * 1000)
+        return ActionResult(
+            success=result.success, action="press_key",
+            duration_ms=elapsed, error=result.error,
+        )
+
+    async def evaluate(self, script: str) -> Any:
+        return await self._orch().evaluate(script)
+
+    # ── Diagnostic methods (unique to MCP_BROWSER) ──────────────
+
+    async def get_network_requests(self):
+        """Get network requests (DevTools MCP only)."""
+        return await self._orch().get_network_requests()
+
+    async def get_console_errors(self):
+        """Get console error messages (DevTools MCP only)."""
+        return await self._orch().get_console_errors()
+
+    async def capture_performance(self, url: str | None = None):
+        """Capture Core Web Vitals (DevTools MCP only)."""
+        return await self._orch().capture_performance(url)
+
+    async def capture_diagnostics(self) -> dict:
+        """Capture full diagnostic snapshot (DevTools MCP only)."""
+        return await self._orch().capture_diagnostics()
+
+
 # Factory functions
 
 
@@ -993,6 +1175,12 @@ def create_automation(
         async with create_automation("hybrid") as browser:
             await browser.click("#button")  # Fast Playwright first
             # Falls back to Computer Use if selector fails
+
+        # Use MCP-based mode (Playwright MCP + DevTools MCP with self-healing)
+        async with create_automation("mcp_browser", org_id="...", project_id="...") as browser:
+            await browser.goto("https://example.com")
+            await browser.click("#button")  # Auto-heals via backend API
+            diagnostics = await browser.capture_diagnostics()
     """
     if isinstance(framework, str):
         framework = AutomationFramework(framework)
@@ -1022,6 +1210,17 @@ def create_automation(
         primary = PlaywrightAutomation(config)
         fallback = ComputerUseAutomation(config, **kwargs) if kwargs.get("with_fallback", True) else None
         return HybridAutomation(primary, fallback, config)
+
+    elif framework == AutomationFramework.MCP_BROWSER:
+        # MCP-based: Playwright MCP (execution) + Chrome DevTools MCP (diagnostics)
+        return MCPBrowserAutomation(
+            config=config,
+            org_id=kwargs.get("org_id", ""),
+            project_id=kwargs.get("project_id", ""),
+            api_key=kwargs.get("api_key", ""),
+            enable_healing=kwargs.get("enable_healing", True),
+            use_devtools=kwargs.get("use_devtools", True),
+        )
 
     elif framework == AutomationFramework.CUSTOM:
         if "automation_class" not in kwargs:

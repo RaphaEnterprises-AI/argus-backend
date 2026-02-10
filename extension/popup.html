@@ -132,6 +132,42 @@
       background: #444;
     }
 
+    button.record {
+      background: #dc3545;
+      color: white;
+      margin-top: 8px;
+    }
+
+    button.record:hover {
+      background: #c82333;
+    }
+
+    button.record.recording {
+      background: #28a745;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .recording-info {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 4px;
+      text-align: center;
+    }
+
+    .settings-link {
+      display: inline-block;
+      margin-top: 4px;
+      color: #0f4c75;
+      cursor: pointer;
+      text-decoration: underline;
+      font-size: 11px;
+    }
+
     .logs {
       background: #0d0d1a;
       border-radius: 8px;
@@ -208,9 +244,12 @@
 
   <button class="primary" id="connect-btn">Connect to Agent</button>
   <button class="secondary" id="test-btn">Test Current Page</button>
+  <button class="record" id="record-btn">Start Recording</button>
+  <div class="recording-info" id="recording-info" style="display:none"></div>
 
   <div class="footer">
     E2E Testing Agent v0.1.0
+    <br><span class="settings-link" id="settings-link">Settings</span>
   </div>
 
   <script src="popup.js"></script>

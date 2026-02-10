@@ -31,14 +31,23 @@ logger = structlog.get_logger()
 # MCP Server configurations for E2E testing
 # Sources:
 #   - Playwright: https://www.npmjs.com/package/@playwright/mcp (Microsoft official)
+#   - Chrome DevTools: https://www.npmjs.com/package/@anthropic-ai/chrome-devtools-mcp
 #   - Filesystem: https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem
 #   - GitHub: https://www.npmjs.com/package/@modelcontextprotocol/server-github
 MCP_SERVER_CONFIGS = {
     "playwright": {
         # Official Microsoft Playwright MCP server
+        # 32+ tools: browser actions, screenshots, video, assertions
         # Uses accessibility tree, no vision models needed
         "command": "npx",
         "args": ["-y", "@playwright/mcp@latest"],
+    },
+    "chrome-devtools": {
+        # Anthropic Chrome DevTools MCP server
+        # 26 tools: network bodies, console stack traces, performance tracing
+        # Connects to Chrome via CDP, complements Playwright for debugging
+        "command": "npx",
+        "args": ["-y", "@anthropic-ai/chrome-devtools-mcp@latest"],
     },
     "filesystem": {
         # Official MCP filesystem server with configurable access controls
@@ -57,7 +66,7 @@ MCP_SERVER_CONFIGS = {
 
 @asynccontextmanager
 async def create_testing_agent_with_mcp(
-    servers: list[str] = ["playwright"],
+    servers: list[str] = ["playwright", "chrome-devtools"],
     model: str = "claude-sonnet-4-5",
     system_prompt: str | None = None,
 ):

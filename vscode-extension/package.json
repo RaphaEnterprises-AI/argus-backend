@@ -1,0 +1,92 @@
+{
+  "name": "argus-e2e-testing-agent",
+  "displayName": "Argus E2E Testing Agent",
+  "description": "E2E testing agent with test explorer, quality score, and self-healing integration",
+  "version": "0.1.0",
+  "publisher": "argus",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "argus.login",
+        "title": "Argus: Login"
+      },
+      {
+        "command": "argus.logout",
+        "title": "Argus: Logout"
+      },
+      {
+        "command": "argus.refreshTests",
+        "title": "Argus: Refresh Tests"
+      },
+      {
+        "command": "argus.runTest",
+        "title": "Argus: Run Test"
+      },
+      {
+        "command": "argus.viewQuality",
+        "title": "Argus: View Quality Score"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "argus-testing",
+          "title": "Argus E2E Tests",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "argus-testing": [
+        {
+          "id": "argus.testExplorer",
+          "name": "Test Explorer"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Argus E2E Testing Agent",
+      "properties": {
+        "argus.backendUrl": {
+          "type": "string",
+          "default": "https://argus-brain-production.up.railway.app",
+          "description": "Argus backend API URL"
+        },
+        "argus.projectId": {
+          "type": "string",
+          "default": "",
+          "description": "Default project ID"
+        },
+        "argus.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-refresh tests on file save"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.5.0"
+  }
+}
