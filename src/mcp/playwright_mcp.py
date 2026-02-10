@@ -4,6 +4,11 @@ This module provides integration with Playwright's MCP server for browser automa
 The Playwright MCP server allows Claude to interact with browsers through a standardized
 protocol.
 
+DEPRECATION NOTE: This module spawns Playwright MCP as a subprocess, which requires
+a separate `npx` install and adds latency. For local development, prefer the unified
+`@argus/mcp` package (argus-mcp/) which runs Playwright directly in-process with
+built-in CDP integration for network/console/performance capture.
+
 Usage:
     1. Install Playwright MCP: npx @anthropic/mcp-server-playwright
     2. Configure in your Claude Code settings or use programmatically

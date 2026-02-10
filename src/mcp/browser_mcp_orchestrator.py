@@ -6,9 +6,9 @@ single interface with:
 - Kafka event emission for the AI learning loop
 - Automatic diagnostic enrichment on failure
 
-This replaces the Chrome Extension WebSocket bridge approach with a pure MCP
-architecture. The agent layer wraps MCP tool calls with self-healing and event
-emission rather than relying on a browser extension.
+NOTE: For local development, prefer the `@argus/mcp` package (argus-mcp/) which
+bundles Playwright directly in-process with built-in CDP. This orchestrator is
+used by the backend for server-side browser control via subprocess MCP servers.
 
 Architecture:
     Agent Code → MCPBrowserOrchestrator
