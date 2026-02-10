@@ -9,7 +9,7 @@ const ERROR_HTML = (statusCode: number, title: string, message: string) => `
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} - Argus</title>
+  <title>${title} - Skopaq</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -105,22 +105,22 @@ const ERROR_HTML = (statusCode: number, title: string, message: string) => `
 
     <div class="actions">
       <a href="/" class="btn btn-primary">Go to Homepage</a>
-      <a href="https://status.heyargus.ai" target="_blank" class="btn btn-secondary">View Status</a>
+      <a href="https://status.skopaq.ai" target="_blank" class="btn btn-secondary">View Status</a>
     </div>
 
     <div class="help">
       <p>Need assistance?</p>
       <div class="help-links">
-        <a href="https://status.heyargus.ai" target="_blank">System Status</a>
-        <a href="https://docs.heyargus.ai" target="_blank">Documentation</a>
-        <a href="mailto:support@heyargus.com">support@heyargus.com</a>
+        <a href="https://status.skopaq.ai" target="_blank">System Status</a>
+        <a href="https://docs.skopaq.ai" target="_blank">Documentation</a>
+        <a href="mailto:support@skopaq.ai">support@skopaq.ai</a>
       </div>
     </div>
   </div>
 
   <script>
     // Auto-refresh status
-    fetch('https://status.heyargus.ai/api/status')
+    fetch('https://status.skopaq.ai/api/status')
       .then(r => r.json())
       .then(data => {
         const statusEl = document.querySelector('.status');
@@ -149,7 +149,7 @@ const ERROR_CONFIGS: Record<number, { title: string; message: string }> = {
   },
   503: {
     title: 'Service Unavailable',
-    message: 'Argus is temporarily unavailable for maintenance or experiencing high load. We\'ll be back shortly.',
+    message: 'Skopaq is temporarily unavailable for maintenance or experiencing high load. We\'ll be back shortly.',
   },
   504: {
     title: 'Gateway Timeout',

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cloudflare Domain Configuration Script for Argus
-# This script configures DNS, redirects, and email routing for heyargus.ai and heyargus.com
+# This script configures DNS, redirects, and email routing for skopaq.ai and skopaq.ai
 
 set -e
 
@@ -23,8 +23,8 @@ if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
 fi
 
 # Configuration
-PRIMARY_DOMAIN="heyargus.ai"
-SECONDARY_DOMAIN="heyargus.com"
+PRIMARY_DOMAIN="skopaq.ai"
+SECONDARY_DOMAIN="skopaq.ai"
 FORWARD_EMAIL="team@youremail.com"  # Change this to your actual email
 
 # Get Zone IDs
@@ -109,7 +109,7 @@ setup_email_routing() {
     done
 }
 
-# Function to create redirect rule (heyargus.com -> heyargus.ai)
+# Function to create redirect rule (skopaq.ai -> skopaq.ai)
 create_redirect_rule() {
     local zone_id=$1
     local from_domain=$2
@@ -183,16 +183,16 @@ echo "  - $SECONDARY_DOMAIN: Redirects to $PRIMARY_DOMAIN"
 echo "  - Email addresses forward to: $FORWARD_EMAIL"
 echo ""
 echo "Email addresses created:"
-echo "  - hello@heyargus.com    -> $FORWARD_EMAIL"
-echo "  - support@heyargus.com  -> $FORWARD_EMAIL"
-echo "  - sales@heyargus.com    -> $FORWARD_EMAIL"
-echo "  - team@heyargus.com     -> $FORWARD_EMAIL"
-echo "  - security@heyargus.com -> $FORWARD_EMAIL"
-echo "  - billing@heyargus.com  -> $FORWARD_EMAIL"
-echo "  - privacy@heyargus.com  -> $FORWARD_EMAIL"
-echo "  - legal@heyargus.com    -> $FORWARD_EMAIL"
+echo "  - hello@skopaq.ai    -> $FORWARD_EMAIL"
+echo "  - support@skopaq.ai  -> $FORWARD_EMAIL"
+echo "  - sales@skopaq.ai    -> $FORWARD_EMAIL"
+echo "  - team@skopaq.ai     -> $FORWARD_EMAIL"
+echo "  - security@skopaq.ai -> $FORWARD_EMAIL"
+echo "  - billing@skopaq.ai  -> $FORWARD_EMAIL"
+echo "  - privacy@skopaq.ai  -> $FORWARD_EMAIL"
+echo "  - legal@skopaq.ai    -> $FORWARD_EMAIL"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo "1. Verify email routing in Cloudflare dashboard"
 echo "2. Add the destination email to Cloudflare Email Routing (verification required)"
-echo "3. Test by sending an email to hello@heyargus.com"
+echo "3. Test by sending an email to hello@skopaq.ai"

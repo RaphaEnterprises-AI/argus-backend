@@ -8,14 +8,14 @@ credentials-file: /etc/cloudflared/creds/credentials.json
 # Ingress rules - route requests to internal Kubernetes services
 ingress:
   # Selenium Grid Hub - for video recording sessions
-  - hostname: selenium-grid.heyargus.ai
+  - hostname: selenium-grid.skopaq.ai
     service: http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444
     originRequest:
       noTLSVerify: true
       connectTimeout: 30s
 
   # Browser Pool Manager - primary browser automation
-  - hostname: browser-pool.heyargus.ai
+  - hostname: browser-pool.skopaq.ai
     service: http://browser-manager.browser-pool.svc.cluster.local:80
     originRequest:
       noTLSVerify: true

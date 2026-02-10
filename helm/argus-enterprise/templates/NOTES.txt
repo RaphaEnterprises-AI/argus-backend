@@ -1,7 +1,7 @@
 
 =============================================================================
    Argus Enterprise - E2E Testing Agent
-   https://heyargus.ai
+   https://skopaq.ai
 =============================================================================
 
 Thank you for installing {{ .Chart.Name }}!
@@ -118,6 +118,6 @@ Check Brain API health:
 DOCUMENTATION
 =============================================================================
 
-Full documentation: https://docs.heyargus.ai/self-hosted
-Support: support@heyargus.ai
+Full documentation: https://docs.skopaq.ai/self-hosted
+Support: support@skopaq.ai
 

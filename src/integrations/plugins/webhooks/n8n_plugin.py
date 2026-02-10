@@ -135,8 +135,8 @@ class N8nPlugin(IntegrationPlugin):
             description="Trigger n8n workflows when test events occur via Webhook nodes",
             category=IntegrationCategory.WEBHOOKS,
             auth_type=AuthType.WEBHOOK,
-            icon_url="https://cdn.heyargus.ai/integrations/n8n.svg",
-            docs_url="https://docs.heyargus.ai/integrations/n8n",
+            icon_url="https://cdn.skopaq.ai/integrations/n8n.svg",
+            docs_url="https://docs.skopaq.ai/integrations/n8n",
             website_url="https://n8n.io",
             features=[
                 "outbound_events",

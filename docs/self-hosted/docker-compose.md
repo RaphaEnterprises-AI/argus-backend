@@ -1,12 +1,12 @@
 # Docker Compose Deployment
 
-Deploy Argus Enterprise on a single node using Docker Compose.
+Deploy Skopaq Enterprise on a single node using Docker Compose.
 
 ## When to Use Docker Compose
 
 - Development and testing environments
 - Small-scale deployments (< 10 concurrent tests)
-- Quick evaluation of Argus features
+- Quick evaluation of Skopaq features
 - CI/CD pipelines
 
 For production deployments, see [Helm Installation](helm-installation.md).
@@ -30,8 +30,8 @@ docker compose version
 
 ```bash
 # Clone repository
-git clone https://github.com/raphaenterprises-ai/argus-e2e-testing-agent.git
-cd argus-e2e-testing-agent/argus-mcp-server/standalone
+git clone https://github.com/raphaenterprises-ai/skopaq-e2e-testing-agent.git
+cd skopaq-e2e-testing-agent/skopaq-mcp-server/standalone
 
 # Copy environment template
 cp .env.example .env

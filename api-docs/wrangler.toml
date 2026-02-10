@@ -1,10 +1,10 @@
-# Cloudflare Pages Configuration for api.heyargus.ai
+# Cloudflare Pages Configuration for api.skopaq.ai
 # Deploy with: npx wrangler pages deploy . --project-name=argus-api-docs
 
 name = "argus-api-docs"
 compatibility_date = "2025-09-17"
 
-# Custom domain: api.heyargus.ai
+# Custom domain: api.skopaq.ai
 # Configure in Cloudflare Dashboard: Pages → argus-api-docs → Custom domains
 
 # Build output directory

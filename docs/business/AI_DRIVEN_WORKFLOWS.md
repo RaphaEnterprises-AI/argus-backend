@@ -1,4 +1,4 @@
-# Argus AI-Driven Business Workflows
+# Skopaq AI-Driven Business Workflows
 ## Every Step Powered by Intelligence
 
 ---
@@ -17,7 +17,7 @@
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐    │
 │  │ STEP 1: INTELLIGENT CHANGE ANALYSIS                                          [AI: Code Analyzer] │
 │  │                                                                                              │    │
-│  │  GitHub Webhook ──▶ Argus Brain                                                             │    │
+│  │  GitHub Webhook ──▶ Skopaq Brain                                                             │    │
 │  │                          │                                                                   │    │
 │  │                          ▼                                                                   │    │
 │  │  ┌──────────────────────────────────────────────────────────────────────────────────────┐  │    │
@@ -166,7 +166,7 @@
 │  │  │                                                                                       │  │    │
 │  │  └──────────────────────────────────────────────────────────────────────────────────────┘  │    │
 │  │                                                                                              │    │
-│  │  → GitHub Check: ✅ "Argus Quality Gate - Passed"                                           │    │
+│  │  → GitHub Check: ✅ "Skopaq Quality Gate - Passed"                                           │    │
 │  │  → PR Auto-merged (if configured)                                                           │    │
 │  └─────────────────────────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                                      │
@@ -194,7 +194,7 @@
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐    │
 │  │ STEP 1: ERROR INGESTION & ENRICHMENT                                  [AI: Error Perception]    │
 │  │                                                                                              │    │
-│  │  Sentry Webhook ──▶ Argus Brain                                                             │    │
+│  │  Sentry Webhook ──▶ Skopaq Brain                                                             │    │
 │  │                          │                                                                   │    │
 │  │  ┌──────────────────────────────────────────────────────────────────────────────────────┐  │    │
 │  │  │ Incoming Error:                                                                       │  │    │
@@ -493,7 +493,7 @@
 
 ## Workflow 4: New Application Onboarding
 
-**Persona**: New Argus Customer
+**Persona**: New Skopaq Customer
 **Goal**: Go from zero to full test coverage with AI assistance
 
 ```
@@ -909,4 +909,4 @@
                                    (Back to more user activity)
 ```
 
-**The more users use Argus, the smarter it gets. The smarter it gets, the more value users get. This is the intelligence flywheel.**
+**The more users use Skopaq, the smarter it gets. The smarter it gets, the more value users get. This is the intelligence flywheel.**

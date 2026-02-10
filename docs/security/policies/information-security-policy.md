@@ -12,15 +12,15 @@
 
 ## 1. Purpose
 
-This Information Security Policy establishes the framework for protecting Argus's information assets, systems, and data. It defines security requirements, responsibilities, and controls to ensure confidentiality, integrity, and availability of information.
+This Information Security Policy establishes the framework for protecting Skopaq's information assets, systems, and data. It defines security requirements, responsibilities, and controls to ensure confidentiality, integrity, and availability of information.
 
 ## 2. Scope
 
 This policy applies to:
-- All employees, contractors, and third parties with access to Argus systems
-- All information assets owned, operated, or managed by Argus
-- All systems, networks, and applications used to process Argus data
-- All locations from which Argus systems are accessed
+- All employees, contractors, and third parties with access to Skopaq systems
+- All information assets owned, operated, or managed by Skopaq
+- All systems, networks, and applications used to process Skopaq data
+- All locations from which Skopaq systems are accessed
 
 ## 3. Policy Statements
 

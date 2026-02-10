@@ -1,8 +1,8 @@
-# Argus Enterprise Self-Hosted Deployment
+# Skopaq Enterprise Self-Hosted Deployment
 
 ## Overview
 
-Argus Enterprise enables organizations to deploy the complete Argus E2E Testing platform within their own infrastructure, ensuring:
+Skopaq Enterprise enables organizations to deploy the complete Skopaq E2E Testing platform within their own infrastructure, ensuring:
 
 - **Data Sovereignty**: All test data, screenshots, and AI interactions stay within your network
 - **Air-Gap Support**: Optional fully offline operation with local LLM inference
@@ -17,10 +17,10 @@ Argus Enterprise enables organizations to deploy the complete Argus E2E Testing 
 │                         Customer Kubernetes Cluster                          │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │                           Argus Namespace                                ││
+│  │                           Skopaq Namespace                                ││
 │  │                                                                          ││
 │  │  ┌───────────────┐    ┌───────────────┐    ┌───────────────────────────┐││
-│  │  │  Argus Brain  │    │   MCP Server  │    │      Selenium Grid        │││
+│  │  │  Skopaq Brain  │    │   MCP Server  │    │      Selenium Grid        │││
 │  │  │   (FastAPI)   │◄──►│  (Node.js)    │    │  Hub + Chrome Nodes       │││
 │  │  │   Replicas: 2 │    │   Replicas: 1 │    │  Replicas: configurable   │││
 │  │  └───────┬───────┘    └───────────────┘    └───────────────────────────┘││
@@ -43,7 +43,7 @@ Argus Enterprise enables organizations to deploy the complete Argus E2E Testing 
 
 ## Components
 
-### Argus Brain (FastAPI Backend)
+### Skopaq Brain (FastAPI Backend)
 
 The main orchestrator handling:
 - LangGraph-based agent coordination (25+ specialized agents)
@@ -53,7 +53,7 @@ The main orchestrator handling:
 
 ### MCP Server (Model Context Protocol)
 
-Enables AI coding assistants to interact with Argus:
+Enables AI coding assistants to interact with Skopaq:
 - SSE-based communication
 - 73+ tools for test management
 - Compatible with Claude Code, Cursor, Windsurf, Continue
@@ -110,7 +110,7 @@ For enterprises with strict compliance requirements, see:
 
 ## Support
 
-- Documentation: https://docs.heyargus.ai/self-hosted
-- Issues: https://github.com/raphaenterprises-ai/argus-e2e-testing-agent/issues
-- Email: support@heyargus.ai
-- Enterprise Support: enterprise@heyargus.ai
+- Documentation: https://docs.skopaq.ai/self-hosted
+- Issues: https://github.com/raphaenterprises-ai/skopaq-e2e-testing-agent/issues
+- Email: support@skopaq.ai
+- Enterprise Support: enterprise@skopaq.ai

@@ -6,7 +6,7 @@
     "version": "2.10.0",
     "contact": {
       "name": "Argus Security Team",
-      "email": "security@heyargus.com"
+      "email": "security@skopaq.ai"
     },
     "license": {
       "name": "MIT",
@@ -44697,6 +44697,6 @@
   ],
   "externalDocs": {
     "description": "Argus Documentation",
-    "url": "https://docs.heyargus.com"
+    "url": "https://docs.skopaq.ai"
   }
 }

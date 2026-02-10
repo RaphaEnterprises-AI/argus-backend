@@ -1,6 +1,6 @@
 {
-  "name": "argus-e2e-testing-agent",
-  "displayName": "Argus E2E Testing Agent",
+  "name": "skopaq-e2e-testing-agent",
+  "displayName": "Skopaq E2E Testing Agent",
   "description": "E2E testing agent with test explorer, quality score, and self-healing integration",
   "version": "0.1.0",
   "publisher": "argus",
@@ -18,30 +18,30 @@
     "commands": [
       {
         "command": "argus.login",
-        "title": "Argus: Login"
+        "title": "Skopaq: Login"
       },
       {
         "command": "argus.logout",
-        "title": "Argus: Logout"
+        "title": "Skopaq: Logout"
       },
       {
         "command": "argus.refreshTests",
-        "title": "Argus: Refresh Tests"
+        "title": "Skopaq: Refresh Tests"
       },
       {
         "command": "argus.runTest",
-        "title": "Argus: Run Test"
+        "title": "Skopaq: Run Test"
       },
       {
         "command": "argus.viewQuality",
-        "title": "Argus: View Quality Score"
+        "title": "Skopaq: View Quality Score"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "argus-testing",
-          "title": "Argus E2E Tests",
+          "title": "Skopaq E2E Tests",
           "icon": "resources/icon.svg"
         }
       ]
@@ -55,12 +55,12 @@
       ]
     },
     "configuration": {
-      "title": "Argus E2E Testing Agent",
+      "title": "Skopaq E2E Testing Agent",
       "properties": {
         "argus.backendUrl": {
           "type": "string",
-          "default": "https://argus-brain-production.up.railway.app",
-          "description": "Argus backend API URL"
+          "default": "https://skopaq-brain-production.up.railway.app",
+          "description": "Skopaq backend API URL"
         },
         "argus.projectId": {
           "type": "string",

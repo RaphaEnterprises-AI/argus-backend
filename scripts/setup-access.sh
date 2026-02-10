@@ -1,6 +1,6 @@
 #!/bin/bash
 # ARGUS Documentation - Cloudflare Access Setup
-# Sets up private access control for docs.heyargus.ai
+# Sets up private access control for docs.skopaq.ai
 
 set -e
 
@@ -15,7 +15,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Configuration
-DOMAIN="heyargus.ai"
+DOMAIN="skopaq.ai"
 SUBDOMAIN="docs"
 APP_NAME="ARGUS Documentation"
 
@@ -73,6 +73,6 @@ echo ""
 echo -e "${GREEN}✓ Access control setup complete!${NC}"
 echo ""
 echo "Your documentation is now private at:"
-echo -e "${BLUE}https://docs.heyargus.ai${NC}"
+echo -e "${BLUE}https://docs.skopaq.ai${NC}"
 echo ""
 echo "Only authenticated users in your Access policy can view it."

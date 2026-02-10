@@ -6,7 +6,7 @@ Get started with the Apache AGE knowledge graph layer in 5 minutes.
 
 - PostgreSQL 12+ with Apache AGE extension
 - Python 3.12+
-- Existing Argus installation
+- Existing Skopaq installation
 
 ## Step 1: Install Apache AGE Extension
 

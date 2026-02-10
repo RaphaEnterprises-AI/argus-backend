@@ -19,9 +19,9 @@
 
 ## General Questions
 
-### Q: Do I need to share my source code to use Argus?
+### Q: Do I need to share my source code to use Skopaq?
 
-**No.** Argus works perfectly without any access to your source code. Our DOM-Only mode analyzes your running application and delivers 90-95% self-healing accuracy—matching or exceeding industry leaders like Mabl, testRigor, and Katalon.
+**No.** Skopaq works perfectly without any access to your source code. Our DOM-Only mode analyzes your running application and delivers 90-95% self-healing accuracy—matching or exceeding industry leaders like Mabl, testRigor, and Katalon.
 
 Git-aware healing (99.9% accuracy) is an optional premium feature for teams who want maximum reliability.
 
@@ -29,7 +29,7 @@ Git-aware healing (99.9% accuracy) is an optional premium feature for teams who 
 
 ### Q: What are the different deployment options?
 
-Argus offers three deployment modes:
+Skopaq offers three deployment modes:
 
 | Mode | Code Access | Healing Accuracy | Best For |
 |------|-------------|------------------|----------|
@@ -46,7 +46,7 @@ Argus offers three deployment modes:
 - You prefer not to grant repository access
 - You're testing third-party applications
 - You're an agency testing client applications
-- You want to evaluate Argus before deeper integration
+- You want to evaluate Skopaq before deeper integration
 
 **Choose Git-Aware if:**
 - You want the highest possible healing accuracy (99.9%)
@@ -72,9 +72,9 @@ For Self-Hosted, contact our sales team for migration assistance.
 
 ## DOM-Only Mode
 
-### Q: What does Argus analyze in DOM-Only mode?
+### Q: What does Skopaq analyze in DOM-Only mode?
 
-In DOM-Only mode, Argus analyzes:
+In DOM-Only mode, Skopaq analyzes:
 
 - **Live DOM structure** of your running application
 - **Visual screenshots** using AI vision models
@@ -140,7 +140,7 @@ This achieves 90-95% accuracy, which matches the industry standard.
 
 | Tool | Self-Healing Accuracy |
 |------|----------------------|
-| **Argus DOM-Only** | 90-95% |
+| **Skopaq DOM-Only** | 90-95% |
 | Mabl | ~95% |
 | testRigor | ~90% |
 | Katalon | ~90% |
@@ -152,9 +152,9 @@ Our DOM-Only mode is competitive with industry leaders. Git-Aware mode (99.9%) i
 
 ## Git-Aware Mode
 
-### Q: What repository access does Argus need?
+### Q: What repository access does Skopaq need?
 
-Argus requires **read-only access** to your repository. We:
+Skopaq requires **read-only access** to your repository. We:
 
 - ✅ **Read** source code files
 - ✅ **Read** git history (commits, blame, diffs)
@@ -167,21 +167,21 @@ Argus requires **read-only access** to your repository. We:
 ### Q: How do I grant repository access?
 
 **GitHub:**
-1. Go to Settings > Integrations in Argus dashboard
+1. Go to Settings > Integrations in Skopaq dashboard
 2. Click "Connect GitHub"
-3. Authorize the Argus GitHub App
+3. Authorize the Skopaq GitHub App
 4. Select which repositories to grant access to
 
 **GitLab:**
-1. Go to Settings > Integrations in Argus dashboard
+1. Go to Settings > Integrations in Skopaq dashboard
 2. Click "Connect GitLab"
 3. Create a read-only access token
-4. Paste the token in Argus
+4. Paste the token in Skopaq
 
 **Bitbucket:**
-1. Go to Settings > Integrations in Argus dashboard
+1. Go to Settings > Integrations in Skopaq dashboard
 2. Click "Connect Bitbucket"
-3. Authorize the Argus app
+3. Authorize the Skopaq app
 4. Select repositories
 
 ---
@@ -201,9 +201,9 @@ Argus requires **read-only access** to your repository. We:
 
 ---
 
-### Q: What does Argus do with my code?
+### Q: What does Skopaq do with my code?
 
-When you grant repository access, Argus:
+When you grant repository access, Skopaq:
 
 1. **Reads changed files** when a test fails
 2. **Queries git blame** to find who changed a selector
@@ -219,7 +219,7 @@ We do NOT:
 
 ---
 
-### Q: Can I limit which repositories Argus can access?
+### Q: Can I limit which repositories Skopaq can access?
 
 **Yes.** When connecting GitHub/GitLab/Bitbucket, you can:
 
@@ -245,7 +245,7 @@ We do NOT:
 
 ### Q: What is Self-Hosted deployment?
 
-Self-Hosted means Argus runs entirely within your own infrastructure. Your code and data never leave your network.
+Self-Hosted means Skopaq runs entirely within your own infrastructure. Your code and data never leave your network.
 
 ---
 
@@ -269,7 +269,7 @@ Self-Hosted means Argus runs entirely within your own infrastructure. Your code 
 
 ---
 
-### Q: Can Argus run in an air-gapped environment?
+### Q: Can Skopaq run in an air-gapped environment?
 
 **Yes, with limitations.** In air-gapped environments:
 
@@ -285,7 +285,7 @@ Contact our enterprise team for air-gapped deployment guidance.
 
 ### Q: What about LLM API calls in Self-Hosted?
 
-By default, Self-Hosted Argus makes outbound API calls to LLM providers (Anthropic, OpenAI, Google). For fully air-gapped deployments, you can:
+By default, Self-Hosted Skopaq makes outbound API calls to LLM providers (Anthropic, OpenAI, Google). For fully air-gapped deployments, you can:
 
 1. **Use local LLMs** - Deploy Llama 3, Mistral, or other open models
 2. **Use Azure OpenAI** - Keep traffic within Azure network
@@ -308,13 +308,13 @@ You control when to update your deployment.
 
 ## Security & Compliance
 
-### Q: Is Argus SOC2 compliant?
+### Q: Is Skopaq SOC2 compliant?
 
-**Yes.** Argus is SOC2 Type II compliant. We can provide our SOC2 report upon request under NDA.
+**Yes.** Skopaq is SOC2 Type II compliant. We can provide our SOC2 report upon request under NDA.
 
 ---
 
-### Q: What compliance certifications does Argus have?
+### Q: What compliance certifications does Skopaq have?
 
 | Standard | Status |
 |----------|--------|
@@ -342,7 +342,7 @@ You control when to update your deployment.
 
 ### Q: Do you train AI models on my data?
 
-**No.** We do not use your test data, code, or screenshots to train AI models. Your data is used only to provide the Argus service to you.
+**No.** We do not use your test data, code, or screenshots to train AI models. Your data is used only to provide the Skopaq service to you.
 
 ---
 
@@ -449,7 +449,7 @@ Project C: DOM-Only (third-party app)
 
 1. Go to **Settings > Integrations** in your project
 2. Click **Connect Repository**
-3. Authorize Argus to read your repository
+3. Authorize Skopaq to read your repository
 4. Existing tests will automatically use Git-Aware healing
 
 No test changes required—it's seamless.

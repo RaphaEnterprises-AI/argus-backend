@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Complete reference for all Argus Enterprise configuration options.
+Complete reference for all Skopaq Enterprise configuration options.
 
 ## Environment Variables
 

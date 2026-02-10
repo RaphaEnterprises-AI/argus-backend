@@ -24,8 +24,8 @@ global:
 
   # SMTP configuration for email alerts
   # smtp_smarthost: 'smtp.gmail.com:587'
-  # smtp_from: 'alerts@heyargus.ai'
-  # smtp_auth_username: 'alerts@heyargus.ai'
+  # smtp_from: 'alerts@skopaq.ai'
+  # smtp_auth_username: 'alerts@skopaq.ai'
   # smtp_auth_password: ''
 
 # =============================================================================

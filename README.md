@@ -122,7 +122,7 @@ Add to Cursor's MCP settings:
 4. Verify the dashboard loads"
 ```
 
-> 📖 **See [argus-mcp-server/README.md](./argus-mcp-server/README.md) for full MCP documentation**
+> 📖 **See [skopaq-mcp-server/README.md](./skopaq-mcp-server/README.md) for full MCP documentation**
 
 ---
 

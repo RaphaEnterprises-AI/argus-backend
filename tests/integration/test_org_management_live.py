@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ═══════════════════════════════════════════════════════════════════════════
 
 BASE_URL = os.environ.get(
-    "ARGUS_BASE_URL", "https://argus-brain-production.up.railway.app"
+    "ARGUS_BASE_URL", "https://skopaq-brain-production.up.railway.app"
 )
 API_KEY = os.environ.get(
     "ARGUS_API_KEY",
@@ -667,7 +667,7 @@ class TestTeams:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.post(
                 url, headers=HEADERS,
-                json={"email": "test@heyargus.ai", "role": "viewer"},
+                json={"email": "test@skopaq.ai", "role": "viewer"},
             )
         # 200 or 400 are both acceptable (depends on prior state)
         assert resp.status_code in (200, 400, 500), resp.text

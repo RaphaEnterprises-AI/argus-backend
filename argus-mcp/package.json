@@ -1,20 +1,47 @@
 {
-  "name": "@argus/mcp",
+  "name": "skopaq-mcp",
   "version": "1.0.0",
-  "description": "Local-first MCP server for autonomous E2E testing with Argus intelligence",
+  "description": "Local-first MCP server for autonomous E2E testing with Skopaq intelligence. Browser automation, network inspection, console capture, performance profiling — all running on your machine.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "argus-mcp": "./bin/argus-mcp.js"
   },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "test": "node test/run-all-tests.mjs",
+    "test:protocol": "node test/test-mcp-protocol.mjs",
+    "test:e2e": "node test/test-e2e-real-site.mjs",
+    "test:live": "node test/test-live-mcp-session.mjs"
   },
-  "keywords": ["mcp", "testing", "playwright", "e2e", "argus"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "testing",
+    "e2e",
+    "playwright",
+    "browser-automation",
+    "argus",
+    "claude",
+    "cursor",
+    "windsurf",
+    "ai-testing"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RaphaEnterprises-AI/argus-backend.git",
+    "directory": "argus-mcp"
+  },
+  "homepage": "https://github.com/RaphaEnterprises-AI/argus-backend/tree/main/argus-mcp#readme",
   "engines": {
     "node": ">=20.0.0"
   },

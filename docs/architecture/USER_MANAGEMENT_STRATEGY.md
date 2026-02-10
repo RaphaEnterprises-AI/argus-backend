@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document outlines a comprehensive strategy to implement an industry-standard user management system for Argus, supporting Individual, Team, and Enterprise tiers following best practices from Vercel, BrowserStack, GitHub, Stripe, and LambdaTest.
+This document outlines a comprehensive strategy to implement an industry-standard user management system for Skopaq, supporting Individual, Team, and Enterprise tiers following best practices from Vercel, BrowserStack, GitHub, Stripe, and LambdaTest.
 
 ---
 
@@ -605,7 +605,7 @@ CREATE POLICY "tests_org_isolation" ON tests
 
 ## Conclusion
 
-This strategy provides a clear roadmap to transform Argus from a single-user tool to a full multi-tenant SaaS platform with:
+This strategy provides a clear roadmap to transform Skopaq from a single-user tool to a full multi-tenant SaaS platform with:
 
 - **Industry-standard hierarchy**: Organization > Team > Project
 - **Flexible roles**: Owner, Admin, Member, Viewer at org level

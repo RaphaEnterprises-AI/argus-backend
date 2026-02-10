@@ -1,10 +1,10 @@
 # Multi-Tenant Architecture
 
-This document describes Argus's multi-tenant architecture, enabling complete data isolation between organizations while sharing infrastructure efficiently.
+This document describes Skopaq's multi-tenant architecture, enabling complete data isolation between organizations while sharing infrastructure efficiently.
 
 ## Overview
 
-Argus implements **organization-based multi-tenancy** where:
+Skopaq implements **organization-based multi-tenancy** where:
 - Each organization has completely isolated data
 - Users can belong to multiple organizations
 - All API requests are scoped to an organization context

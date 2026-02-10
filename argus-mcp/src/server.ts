@@ -7,7 +7,7 @@ import { z, type ZodObject, type ZodRawShape } from "zod";
 import { zodToJsonSchema } from "./zod-to-json.js";
 import { BrowserEngine } from "./browser/engine.js";
 import { ScreenshotManager } from "./browser/screenshots.js";
-import { ArgusClient } from "./argus-client.js";
+import { SkopaqClient } from "./argus-client.js";
 import { loadConfig } from "./config.js";
 import { browserTools } from "./tools/browser-tools.js";
 import { networkTools } from "./tools/network-tools.js";
@@ -27,7 +27,7 @@ export function createServer(): Server {
   const config = loadConfig();
   const engine = new BrowserEngine(config);
   const screenshots = new ScreenshotManager(config);
-  const argusClient = new ArgusClient(config);
+  const argusClient = new SkopaqClient(config);
 
   // Collect all tools
   const tools: ToolDef[] = [

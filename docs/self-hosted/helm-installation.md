@@ -1,6 +1,6 @@
 # Helm Installation Guide
 
-Complete guide for deploying Argus Enterprise using Helm.
+Complete guide for deploying Skopaq Enterprise using Helm.
 
 ## Prerequisites
 
@@ -20,15 +20,15 @@ kubectl cluster-info
 ### Method 1: From Helm Repository (Recommended)
 
 ```bash
-# Add Argus repository
-helm repo add argus https://charts.heyargus.ai
+# Add Skopaq repository
+helm repo add argus https://charts.skopaq.ai
 helm repo update
 
 # View available versions
-helm search repo argus/argus-enterprise --versions
+helm search repo argus/skopaq-enterprise --versions
 
 # Install latest version
-helm install argus argus/argus-enterprise \
+helm install argus argus/skopaq-enterprise \
   --namespace argus \
   --create-namespace \
   -f values.yaml
@@ -38,14 +38,14 @@ helm install argus argus/argus-enterprise \
 
 ```bash
 # Clone repository
-git clone https://github.com/raphaenterprises-ai/argus-e2e-testing-agent.git
-cd argus-e2e-testing-agent
+git clone https://github.com/raphaenterprises-ai/skopaq-e2e-testing-agent.git
+cd skopaq-e2e-testing-agent
 
 # Update dependencies
-helm dependency update ./helm/argus-enterprise
+helm dependency update ./helm/skopaq-enterprise
 
 # Install from local chart
-helm install argus ./helm/argus-enterprise \
+helm install argus ./helm/skopaq-enterprise \
   --namespace argus \
   --create-namespace \
   -f values.yaml
@@ -210,7 +210,7 @@ redis:
 ### Basic Install
 
 ```bash
-helm install argus argus/argus-enterprise \
+helm install argus argus/skopaq-enterprise \
   --namespace argus \
   --create-namespace
 ```
@@ -218,7 +218,7 @@ helm install argus argus/argus-enterprise \
 ### With Custom Values
 
 ```bash
-helm install argus argus/argus-enterprise \
+helm install argus argus/skopaq-enterprise \
   --namespace argus \
   --create-namespace \
   -f values-production.yaml
@@ -227,7 +227,7 @@ helm install argus argus/argus-enterprise \
 ### Multiple Value Files
 
 ```bash
-helm install argus argus/argus-enterprise \
+helm install argus argus/skopaq-enterprise \
   --namespace argus \
   --create-namespace \
   -f values-production.yaml \
@@ -238,7 +238,7 @@ helm install argus argus/argus-enterprise \
 ### Set Individual Values
 
 ```bash
-helm install argus argus/argus-enterprise \
+helm install argus argus/skopaq-enterprise \
   --namespace argus \
   --create-namespace \
   --set brain.replicas=3 \
@@ -302,13 +302,13 @@ helm get values argus -n argus -o yaml > current-values.yaml
 helm repo update
 
 # Dry-run to preview changes
-helm upgrade argus argus/argus-enterprise \
+helm upgrade argus argus/skopaq-enterprise \
   --namespace argus \
   -f values-production.yaml \
   --dry-run
 
 # Apply upgrade
-helm upgrade argus argus/argus-enterprise \
+helm upgrade argus argus/skopaq-enterprise \
   --namespace argus \
   -f values-production.yaml
 ```

@@ -19,7 +19,7 @@ Usage with Claude Code:
             "command": "python",
             "args": ["-m", "src.mcp.quality_mcp"],
             "env": {
-                "ARGUS_API_URL": "https://api.heyargus.ai"
+                "ARGUS_API_URL": "https://api.skopaq.ai"
             }
         }
     }
@@ -39,7 +39,7 @@ import structlog
 logger = structlog.get_logger()
 
 # API URL configuration
-ARGUS_API_URL = os.getenv("ARGUS_API_URL", "https://api.heyargus.ai")
+ARGUS_API_URL = os.getenv("ARGUS_API_URL", "https://api.skopaq.ai")
 
 
 # Tool definitions for MCP
@@ -749,8 +749,8 @@ MCP_CONFIG = {
         "command": "python",
         "args": ["-m", "src.mcp.quality_mcp"],
         "env": {
-            # Optional: Override API URL (default: https://api.heyargus.ai)
-            # "ARGUS_API_URL": "https://api.heyargus.ai"
+            # Optional: Override API URL (default: https://api.skopaq.ai)
+            # "ARGUS_API_URL": "https://api.skopaq.ai"
         }
     }
 }

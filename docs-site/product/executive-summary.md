@@ -10,7 +10,7 @@ Engineering teams spend **80% of QA time on test maintenance**, not actual testi
 
 ## The Solution
 
-**Argus** is a fully autonomous testing platform that generates tests from plain English and self-heals broken tests. Works with **zero code access** (90-95% healing) or with optional git integration for **99.9% accuracy**.
+**Skopaq** is a fully autonomous testing platform that generates tests from plain English and self-heals broken tests. Works with **zero code access** (90-95% healing) or with optional git integration for **99.9% accuracy**.
 
 ```
 "Login as admin and verify dashboard shows 5 widgets" → Complete executable test
@@ -20,7 +20,7 @@ Engineering teams spend **80% of QA time on test maintenance**, not actual testi
 
 ## Deployment Options
 
-**Git-aware healing is OPTIONAL. Argus works with zero code access.**
+**Git-aware healing is OPTIONAL. Skopaq works with zero code access.**
 
 | Mode | Code Access | Healing Accuracy | Best For |
 |------|-------------|------------------|----------|
@@ -129,7 +129,7 @@ Seeking strategic partners and early adopters to:
 
 <div align="center">
 
-**Argus** - *The Testing Agent That Understands Your Code*
+**Skopaq** - *The Testing Agent That Understands Your Code*
 
 [Website] | [GitHub] | [Contact]
 

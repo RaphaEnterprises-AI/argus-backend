@@ -819,7 +819,7 @@ class Settings(BaseSettings):
     # OAuth Frontend URL (where to redirect users after OAuth completes)
     oauth_frontend_url: str = Field(
         "http://localhost:3000",
-        description="Frontend/dashboard URL for final redirect after OAuth (e.g., https://www.heyargus.ai)"
+        description="Frontend/dashboard URL for final redirect after OAuth (e.g., https://www.skopaq.ai)"
     )
 
     # ==========================================================================

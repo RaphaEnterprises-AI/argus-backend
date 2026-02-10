@@ -76,7 +76,7 @@ In air-gap mode with local Ollama LLM, no outbound connectivity is required.
 
 | Service | Port | Protocol |
 |---------|------|----------|
-| Argus Brain API | 8000 | HTTP |
+| Skopaq Brain API | 8000 | HTTP |
 | MCP Server | 3000 | HTTP/SSE |
 | PostgreSQL | 5432 | TCP |
 | Redis | 6379 | TCP |

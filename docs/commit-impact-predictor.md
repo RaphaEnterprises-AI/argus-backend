@@ -2,14 +2,14 @@
 
 ## Executive Summary
 
-The Commit Impact Predictor is Argus's flagship AI capability that analyzes code changes at commit/PR time and predicts:
+The Commit Impact Predictor is Skopaq's flagship AI capability that analyzes code changes at commit/PR time and predicts:
 1. **Which tests will likely fail** (with confidence scores)
 2. **What production issues might occur** (based on historical patterns)
 3. **Security vulnerabilities introduced** (DevSecOps integration)
 4. **Performance/reliability risks** (AIOps integration)
 5. **Suggested mitigations** (proactive recommendations)
 
-This transforms Argus from a testing tool into a **predictive quality intelligence platform**.
+This transforms Skopaq from a testing tool into a **predictive quality intelligence platform**.
 
 ---
 
@@ -449,7 +449,7 @@ async def post_analysis_to_pr(analysis: CommitAnalysis):
 
     # Example comment format:
     """
-    ## 🔮 Argus Commit Impact Analysis
+    ## 🔮 Skopaq Commit Impact Analysis
 
     ### 🧪 Test Predictions
     | Test | Failure Risk | Reason |
@@ -472,7 +472,7 @@ async def post_analysis_to_pr(analysis: CommitAnalysis):
     3. Consider deploying during low-traffic hours
 
     ---
-    *Powered by Argus AI Quality Intelligence*
+    *Powered by Skopaq AI Quality Intelligence*
     """
 
     await github.post_pr_comment(
@@ -513,7 +513,7 @@ async def notify_high_risk_commit(analysis: CommitAnalysis):
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "View Analysis"},
-                            "url": f"https://app.heyargus.ai/commits/{analysis.commit_sha}"
+                            "url": f"https://app.skopaq.ai/commits/{analysis.commit_sha}"
                         }
                     ]
                 }
@@ -673,7 +673,7 @@ GET    /api/v1/projects/{id}/risk-trends          # Risk over time
 
 ## Competitive Advantage
 
-This feature positions Argus uniquely because:
+This feature positions Skopaq uniquely because:
 
 1. **Shift-Left Intelligence**: Predictions at commit time, not after deployment
 2. **Cross-SDLC Correlation**: Uses data from entire pipeline (Jira→Code→Test→Deploy→Monitor)

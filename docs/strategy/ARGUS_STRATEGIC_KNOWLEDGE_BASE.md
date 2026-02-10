@@ -42,9 +42,9 @@
 
 ## 1. Executive Summary
 
-### 1.1 What is Argus?
+### 1.1 What is Skopaq?
 
-**Argus** is an AI-powered, fully autonomous end-to-end testing platform that leverages multiple large language models (LLMs) to understand codebases, generate comprehensive test plans, execute tests across UI/API/Database layers, self-heal broken tests, and deliver actionable insights—all with minimal human intervention.
+**Skopaq** is an AI-powered, fully autonomous end-to-end testing platform that leverages multiple large language models (LLMs) to understand codebases, generate comprehensive test plans, execute tests across UI/API/Database layers, self-heal broken tests, and deliver actionable insights—all with minimal human intervention.
 
 ### 1.2 Key Value Propositions
 
@@ -99,7 +99,7 @@
 
 ### 1.5 Deployment Options
 
-**Critical Clarification:** Git-aware healing is a PREMIUM feature, not a requirement. Argus works with ZERO code access.
+**Critical Clarification:** Git-aware healing is a PREMIUM feature, not a requirement. Skopaq works with ZERO code access.
 
 #### Operating Modes Overview
 
@@ -745,7 +745,7 @@ CREATE TABLE visual_baselines (
 | Gen 1 | Simple retry | 60% |
 | Gen 2 | DOM-based healing | 85% |
 | Gen 3 | ML-powered locators | 92% |
-| **Gen 4 (Argus)** | **Code-aware + Git** | **99.9%** |
+| **Gen 4 (Skopaq)** | **Code-aware + Git** | **99.9%** |
 
 #### 3. Multi-Model AI Strategies
 - Cost optimization through intelligent model routing
@@ -807,8 +807,8 @@ CREATE TABLE visual_baselines (
 - No codebase awareness
 - No self-healing beyond visual elements
 
-**Argus vs Applitools:**
-| Feature | Applitools | Argus |
+**Skopaq vs Applitools:**
+| Feature | Applitools | Skopaq |
 |---------|-----------|-------|
 | Visual AI | ★★★★★ | ★★★★☆ |
 | Functional Testing | ☆☆☆☆☆ | ★★★★★ |
@@ -836,8 +836,8 @@ CREATE TABLE visual_baselines (
 - No git integration for healing
 - Less sophisticated AI reasoning
 
-**Argus vs testRigor:**
-| Feature | testRigor | Argus |
+**Skopaq vs testRigor:**
+| Feature | testRigor | Skopaq |
 |---------|-----------|-------|
 | NLP Test Creation | ★★★★★ | ★★★★★ |
 | Cross-Platform | ★★★★★ | ★★★★☆ |
@@ -864,8 +864,8 @@ CREATE TABLE visual_baselines (
 - No production data integration
 - Narrow focus on discovery
 
-**Argus vs Octomind:**
-| Feature | Octomind | Argus |
+**Skopaq vs Octomind:**
+| Feature | Octomind | Skopaq |
 |---------|----------|-------|
 | Auto-Discovery | ★★★★★ | ★★★★★ |
 | Semantic Understanding | ★★☆☆☆ | ★★★★★ |
@@ -892,8 +892,8 @@ CREATE TABLE visual_baselines (
 - DOM-only healing approach
 - Higher cost for advanced features
 
-**Argus vs Mabl:**
-| Feature | Mabl | Argus |
+**Skopaq vs Mabl:**
+| Feature | Mabl | Skopaq |
 |---------|------|-------|
 | Self-Healing | ★★★★☆ | ★★★★★ |
 | Low-Code UI | ★★★★★ | ★★★★☆ |
@@ -923,8 +923,8 @@ CREATE TABLE visual_baselines (
 - Limited truly autonomous capabilities
 - Traditional test automation with AI bolt-ons
 
-**Argus vs Katalon:**
-| Feature | Katalon | Argus |
+**Skopaq vs Katalon:**
+| Feature | Katalon | Skopaq |
 |---------|---------|-------|
 | Comprehensive Platform | ★★★★★ | ★★★★☆ |
 | Learning Curve | ★★☆☆☆ | ★★★★☆ |
@@ -943,7 +943,7 @@ CREATE TABLE visual_baselines (
 | **Selenium** | ★★☆☆☆ | ★★☆☆☆ | ★★★★★ | Via Appium | Selenium HQ |
 | **Puppeteer** | ★★★★★ | ★★★☆☆ | Chrome only | ☆☆☆☆☆ | Google |
 
-**Argus Position:** Uses Playwright as primary engine, adds AI layer for:
+**Skopaq Position:** Uses Playwright as primary engine, adds AI layer for:
 - Auto-generation of tests
 - Intelligent self-healing
 - Natural language interface
@@ -956,7 +956,7 @@ CREATE TABLE visual_baselines (
                     Codebase    Visual    NLP      Self-      Multi-    Cost
                     Awareness   AI        Tests    Healing    Model     Control
                     ─────────   ──────    ─────    ────────   ───────   ───────
-Argus               ●●●●●       ●●●●○     ●●●●●    ●●●●●      ●●●●●     ●●●●●
+Skopaq               ●●●●●       ●●●●○     ●●●●●    ●●●●●      ●●●●●     ●●●●●
 Applitools          ○○○○○       ●●●●●     ○○○○○    ●●○○○      ○○○○○     ●●○○○
 testRigor           ●○○○○       ●●○○○     ●●●●●    ●●●○○      ○○○○○     ●●●○○
 Octomind            ●●○○○       ●●●○○     ●●○○○    ●●●○○      ○○○○○     ●●●○○
@@ -972,11 +972,11 @@ LambdaTest/KaneAI   ●●●○○       ●●●○○     ●●●●○   
 
 ## 7. Competitive Differentiation
 
-### 7.1 Argus Unique Selling Points
+### 7.1 Skopaq Unique Selling Points
 
 #### **1. Code-Aware Self-Healing (Industry First)**
 
-| Aspect | Competitors (DOM-only) | Argus (Code-Aware) |
+| Aspect | Competitors (DOM-only) | Skopaq (Code-Aware) |
 |--------|------------------------|-------------------|
 | **Healing Source** | DOM structure | Git history + Source code |
 | **Accuracy** | ~95% | 99.9% |
@@ -985,7 +985,7 @@ LambdaTest/KaneAI   ●●●○○       ●●●○○     ●●●●○   
 | **Component Renames** | Fails | Handles correctly |
 
 ```python
-# Argus Self-Healing Process
+# Skopaq Self-Healing Process
 def heal_selector(broken_selector: str) -> HealedResult:
     # 1. Detect test failure → Selector not found
     # 2. Query git blame → Find commit that changed file
@@ -1044,7 +1044,7 @@ def heal_selector(broken_selector: str) -> HealedResult:
 
 #### **3. Full-Stack Codebase Understanding**
 
-| Layer | What Argus Analyzes | Competitors |
+| Layer | What Skopaq Analyzes | Competitors |
 |-------|---------------------|-------------|
 | **Frontend** | Components, hooks, state, routing, selectors | DOM only |
 | **Backend** | Endpoints, schemas, middleware, auth | Nothing |
@@ -1057,7 +1057,7 @@ def heal_selector(broken_selector: str) -> HealedResult:
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │   Datadog    │────▶│              │────▶│   New Test   │
-│   Sessions   │     │    Argus     │     │   Generated  │
+│   Sessions   │     │    Skopaq     │     │   Generated  │
 └──────────────┘     │  Cognitive   │     └──────────────┘
                      │   Engine     │
 ┌──────────────┐     │              │     ┌──────────────┐
@@ -1154,7 +1154,7 @@ def heal_selector(broken_selector: str) -> HealedResult:
 | **BrowserStack** | $29/month | $99/month | Custom | Trial only |
 | **LambdaTest** | $15/month | $40/month | Custom | Free tier |
 
-### 8.2 Argus Cost Structure
+### 8.2 Skopaq Cost Structure
 
 #### **AI Model Costs (per 1M tokens)**
 
@@ -1183,7 +1183,7 @@ def heal_selector(broken_selector: str) -> HealedResult:
 | Visual Comparison | +$0.10/image | +$0.03/image | 70% |
 | API Test (no browser) | $0.05 | $0.02 | 60% |
 
-### 8.3 Suggested Argus Pricing Tiers
+### 8.3 Suggested Skopaq Pricing Tiers
 
 | Tier | Price | Test Runs | Deployment Mode | Features | Target |
 |------|-------|-----------|-----------------|----------|--------|
@@ -1220,7 +1220,7 @@ COST_CONTROLS = {
 - 10 test runs per day
 - 30% test maintenance time without AI
 
-| Metric | Without Argus | With Argus | Savings |
+| Metric | Without Skopaq | With Skopaq | Savings |
 |--------|---------------|------------|---------|
 | Engineer time (maintenance) | 40 hrs/week | 4 hrs/week | 90% |
 | Test creation time | 2 hrs/test | 15 min/test | 87% |
@@ -1297,7 +1297,7 @@ COST_CONTROLS = {
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.5 Current Argus Implementation
+### 9.5 Current Skopaq Implementation
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -1358,13 +1358,13 @@ Priority 2 (Q1 2026):
 │   └── Effort: 1 week
 
 Priority 3 (Q2 2026):
-├── Fine-tune custom model on Argus data
+├── Fine-tune custom model on Skopaq data
 │   └── Reason: Custom healing patterns, selector prediction
 │   └── Effort: 4-6 weeks
 │   └── Cost: $10K-50K
 ```
 
-### 10.4 Should Argus Build Its Own LLM?
+### 10.4 Should Skopaq Build Its Own LLM?
 
 **Short Answer: NO - Not Now**
 
@@ -1376,7 +1376,7 @@ Priority 3 (Q2 2026):
 | Open source (LLaVA) | $1K-5K compute | 1-2 weeks | 70-80% | High |
 
 **Recommendation:**
-1. **Multi-model routing** (what Argus already has)
+1. **Multi-model routing** (what Skopaq already has)
 2. **Use best model per task** via RouterAgent
 3. **Consider fine-tuning LATER** when you have 100K+ test samples
 
@@ -1404,16 +1404,16 @@ Testim:                     ██████████
                               ↑
                         Tests + healing
 
-Argus TODAY:          ██    ████████
+Skopaq TODAY:          ██    ████████
                        ↑        ↑
                     MCP     Core tests
 
-Argus POTENTIAL:  ████████████████████████████████
+Skopaq POTENTIAL:  ████████████████████████████████
                     ↑    ↑     ↑      ↑       ↑
                   Dev  CI/CD  Test  Deploy  Prod
 ```
 
-### 11.2 Current Argus SDLC Coverage
+### 11.2 Current Skopaq SDLC Coverage
 
 | SDLC Phase | Coverage | What We Do |
 |------------|----------|------------|
@@ -1467,7 +1467,7 @@ Argus POTENTIAL:  ████████████████████�
 
 ### 12.1 vs LambdaTest/KaneAI
 
-| Feature | KaneAI | Argus | Gap Level |
+| Feature | KaneAI | Skopaq | Gap Level |
 |---------|--------|-------|-----------|
 | Natural language tests | ✅ | ✅ | None |
 | Multi-modal input (PDF, images) | ✅ | ❌ | **HIGH** |
@@ -1483,7 +1483,7 @@ Argus POTENTIAL:  ████████████████████�
 
 ### 12.2 vs BrowserStack
 
-| Feature | BrowserStack | Argus | Gap Level |
+| Feature | BrowserStack | Skopaq | Gap Level |
 |---------|--------------|-------|-----------|
 | 20K+ real devices | ✅ | ❌ | **CRITICAL** |
 | Percy visual testing | ✅ | ✅ | None |
@@ -1677,7 +1677,7 @@ Argus POTENTIAL:  ████████████████████�
 | **Document ID** | ARGUS-KB-002 |
 | **Version** | 2.0 |
 | **Created** | January 8, 2026 |
-| **Author** | Argus Team |
+| **Author** | Skopaq Team |
 | **Classification** | Internal Strategic |
 | **Review Cycle** | Monthly |
 | **Total Sections** | 15 |

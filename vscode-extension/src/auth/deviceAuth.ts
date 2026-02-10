@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 const SECRET_KEY = "argus.apiKey";
 
 /**
- * Manages API key authentication for the Argus backend.
+ * Manages API key authentication for the Skopaq backend.
  *
  * For the MVP, this uses manual API key entry stored in VS Code's
  * SecretStorage. A full OAuth2 device flow can be added later.
@@ -17,7 +17,7 @@ export class AuthManager {
 
   async login(): Promise<string | undefined> {
     const key = await vscode.window.showInputBox({
-      prompt: "Enter your Argus API key",
+      prompt: "Enter your Skopaq API key",
       placeHolder: "argus_sk_...",
       password: true,
       ignoreFocusOut: true,
@@ -34,7 +34,7 @@ export class AuthManager {
 
     if (key) {
       await this.secrets.store(SECRET_KEY, key);
-      vscode.window.showInformationMessage("Argus: Logged in successfully");
+      vscode.window.showInformationMessage("Skopaq: Logged in successfully");
     }
 
     return key;
@@ -42,7 +42,7 @@ export class AuthManager {
 
   async logout(): Promise<void> {
     await this.secrets.delete(SECRET_KEY);
-    vscode.window.showInformationMessage("Argus: Logged out");
+    vscode.window.showInformationMessage("Skopaq: Logged out");
   }
 
   async isLoggedIn(): Promise<boolean> {

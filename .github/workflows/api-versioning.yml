@@ -7,7 +7,7 @@
 # 4. Generates changelog with oasdiff (FREE, open-source)
 # 5. Blocks PRs with undocumented breaking changes
 #
-# Documentation URL: https://api.heyargus.ai
+# Documentation URL: https://api.skopaq.ai
 
 name: API Version Control
 
@@ -142,7 +142,7 @@ jobs:
   # Job 3: Generate & Deploy API Documentation (FREE - Cloudflare Pages)
   # ============================================================================
   update-docs:
-    name: Deploy to api.heyargus.ai
+    name: Deploy to api.skopaq.ai
     runs-on: ubuntu-latest
     needs: generate-openapi
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -299,9 +299,9 @@ jobs:
               -->
 
               <div class="footer">
-                <p>Base URL: <code>https://app.heyargus.ai/api/v1/</code></p>
+                <p>Base URL: <code>https://app.skopaq.ai/api/v1/</code></p>
                 <p style="margin-top: 0.5rem;">
-                  <a href="https://heyargus.ai" style="color: #00d4ff;">heyargus.ai</a> •
+                  <a href="https://skopaq.ai" style="color: #00d4ff;">skopaq.ai</a> •
                   <a href="https://github.com/your-org/argus" style="color: #00d4ff;">GitHub</a>
                 </p>
               </div>

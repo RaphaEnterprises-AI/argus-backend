@@ -17,7 +17,7 @@ This Incident Response Plan establishes procedures for detecting, responding to,
 ## 2. Scope
 
 This plan covers:
-- Security incidents affecting Argus systems, data, or customers
+- Security incidents affecting Skopaq systems, data, or customers
 - Suspected or confirmed unauthorized access
 - Data breaches or data loss
 - Service disruptions caused by security events
@@ -310,7 +310,7 @@ All team members must complete:
 ## Appendix A: Customer Notification Template
 
 ```
-Subject: Security Notification from Argus
+Subject: Security Notification from Skopaq
 
 Dear [Customer Name],
 
@@ -330,7 +330,7 @@ WHAT YOU CAN DO
 [Recommended customer actions]
 
 FOR MORE INFORMATION
-If you have questions, please contact us at security@heyargus.ai.
+If you have questions, please contact us at security@skopaq.ai.
 
 We sincerely apologize for any inconvenience this may cause.
 

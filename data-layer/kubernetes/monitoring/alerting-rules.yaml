@@ -29,7 +29,7 @@ spec:
           annotations:
             summary: "Cognee worker is down"
             description: "Cognee worker {{ $labels.pod }} has been down for more than 5 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/cognee-worker-down"
+            runbook_url: "https://docs.skopaq.ai/runbooks/cognee-worker-down"
 
         - alert: CogneeWorkerHighErrorRate
           expr: |
@@ -95,7 +95,7 @@ spec:
           annotations:
             summary: "FalkorDB is down"
             description: "FalkorDB instance {{ $labels.pod }} has been down for more than 2 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/falkordb-down"
+            runbook_url: "https://docs.skopaq.ai/runbooks/falkordb-down"
 
         - alert: FalkorDBHighMemory
           expr: |
@@ -129,7 +129,7 @@ spec:
           annotations:
             summary: "Valkey cache is down"
             description: "Valkey instance {{ $labels.pod }} has been down for more than 2 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/valkey-down"
+            runbook_url: "https://docs.skopaq.ai/runbooks/valkey-down"
 
         - alert: ValkeyHighMemory
           expr: |
@@ -153,7 +153,7 @@ spec:
           annotations:
             summary: "Redpanda cluster has underreplicated partitions"
             description: "Redpanda has {{ $value }} underreplicated partitions for more than 5 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/redpanda-underreplicated"
+            runbook_url: "https://docs.skopaq.ai/runbooks/redpanda-underreplicated"
 
         - alert: RedpandaBrokerDown
           expr: up{job="redpanda"} == 0
@@ -164,7 +164,7 @@ spec:
           annotations:
             summary: "Redpanda broker is down"
             description: "Redpanda broker {{ $labels.pod }} has been down for more than 2 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/redpanda-broker-down"
+            runbook_url: "https://docs.skopaq.ai/runbooks/redpanda-broker-down"
 
         - alert: RedpandaHighConsumerLag
           expr: |
@@ -205,7 +205,7 @@ spec:
           annotations:
             summary: "Browser manager is down"
             description: "Browser manager {{ $labels.pod }} has been down for more than 2 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/browser-manager-down"
+            runbook_url: "https://docs.skopaq.ai/runbooks/browser-manager-down"
 
         - alert: BrowserWorkerDown
           expr: up{job="browser-worker"} == 0
@@ -226,7 +226,7 @@ spec:
           annotations:
             summary: "All browser workers are down"
             description: "No browser workers are available. Test execution is blocked."
-            runbook_url: "https://docs.heyargus.com/runbooks/browser-pool-down"
+            runbook_url: "https://docs.skopaq.ai/runbooks/browser-pool-down"
 
         - alert: BrowserPoolCapacityLow
           expr: |
@@ -369,7 +369,7 @@ spec:
           annotations:
             summary: "Intelligence layer LLM fallback rate too high"
             description: "More than 20% of intelligence queries are falling back to LLM (current: {{ $value | humanizePercentage }}). Check cache hit rates and vector search confidence."
-            runbook_url: "https://docs.heyargus.com/runbooks/intelligence-high-llm-fallback"
+            runbook_url: "https://docs.skopaq.ai/runbooks/intelligence-high-llm-fallback"
 
         - alert: IntelligenceLowCacheHitRate
           expr: |
@@ -444,7 +444,7 @@ spec:
           annotations:
             summary: "CRITICAL: Intelligence layer degraded to LLM mode"
             description: "More than 40% of queries falling back to LLM. System performance severely degraded. Immediate investigation required."
-            runbook_url: "https://docs.heyargus.com/runbooks/intelligence-critical-llm-fallback"
+            runbook_url: "https://docs.skopaq.ai/runbooks/intelligence-critical-llm-fallback"
 
         - alert: ValkeyCacheDown
           expr: up{job="valkey"} == 0
@@ -488,7 +488,7 @@ spec:
           annotations:
             summary: "Backend API error rate above 5%"
             description: "Backend API has {{ $value | humanizePercentage }} error rate for the last 5 minutes. Check Railway logs for details."
-            runbook_url: "https://docs.heyargus.com/runbooks/backend-api-errors"
+            runbook_url: "https://docs.skopaq.ai/runbooks/backend-api-errors"
 
         - alert: BackendAPIHighLatency
           expr: |
@@ -517,7 +517,7 @@ spec:
           annotations:
             summary: "Backend API P99 latency critically high"
             description: "Backend API P99 latency is {{ $value | humanizeDuration }}. Immediate investigation required."
-            runbook_url: "https://docs.heyargus.com/runbooks/backend-api-latency"
+            runbook_url: "https://docs.skopaq.ai/runbooks/backend-api-latency"
 
         - alert: BackendAPIHealthCheckFailing
           expr: probe_success{job="argus-backend-healthcheck"} == 0
@@ -529,7 +529,7 @@ spec:
           annotations:
             summary: "Backend API health check failing"
             description: "Backend API health endpoint has been failing for more than 2 minutes."
-            runbook_url: "https://docs.heyargus.com/runbooks/backend-api-health"
+            runbook_url: "https://docs.skopaq.ai/runbooks/backend-api-health"
 
         - alert: BackendAPIRateLimitExceeded
           expr: |
@@ -601,7 +601,7 @@ spec:
           annotations:
             summary: "A2A circuit breaker open"
             description: "Circuit breaker for agent {{ $labels.agent_type }} is open. Agent-to-agent communication is degraded."
-            runbook_url: "https://docs.heyargus.com/runbooks/a2a-circuit-breaker"
+            runbook_url: "https://docs.skopaq.ai/runbooks/a2a-circuit-breaker"
 
         - alert: A2AKafkaTopicLag
           expr: |
@@ -708,7 +708,7 @@ spec:
           annotations:
             summary: "Database connection pool near exhaustion"
             description: "Database is using {{ $value | humanizePercentage }} of available connections. Immediate action required."
-            runbook_url: "https://docs.heyargus.com/runbooks/database-connections"
+            runbook_url: "https://docs.skopaq.ai/runbooks/database-connections"
 
         - alert: DatabaseHighQueryLatency
           expr: |
@@ -734,7 +734,7 @@ spec:
           annotations:
             summary: "Database replication lag critical"
             description: "Replication lag is {{ $value }} seconds. Data consistency at risk."
-            runbook_url: "https://docs.heyargus.com/runbooks/database-replication"
+            runbook_url: "https://docs.skopaq.ai/runbooks/database-replication"
 
         - alert: DatabaseDiskSpaceLow
           expr: |
@@ -781,7 +781,7 @@ spec:
           annotations:
             summary: "AI cost rate unsustainable"
             description: "Current AI spend rate projects to ${{ $value }} per day. Investigate immediately."
-            runbook_url: "https://docs.heyargus.com/runbooks/ai-cost-spike"
+            runbook_url: "https://docs.skopaq.ai/runbooks/ai-cost-spike"
 
         - alert: OrganizationBudgetWarning
           expr: |

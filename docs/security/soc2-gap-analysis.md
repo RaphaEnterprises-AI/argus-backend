@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document assesses Argus E2E Testing Agent's current security posture against SOC 2 Trust Service Criteria (TSC) and identifies gaps requiring remediation before formal audit engagement.
+This document assesses Skopaq E2E Testing Agent's current security posture against SOC 2 Trust Service Criteria (TSC) and identifies gaps requiring remediation before formal audit engagement.
 
 ### Overall Readiness Score
 

@@ -1,6 +1,6 @@
 # Business Continuity Plan
 
-**Argus E2E Testing Platform**
+**Skopaq E2E Testing Platform**
 **Document Version:** 1.0
 **Last Updated:** 2026-01-30
 **Classification:** Internal
@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-This Business Continuity Plan (BCP) ensures the Argus platform can maintain critical operations during disruptions, recover from disasters, and resume normal operations with minimal impact to customers.
+This Business Continuity Plan (BCP) ensures the Skopaq platform can maintain critical operations during disruptions, recover from disasters, and resume normal operations with minimal impact to customers.
 
 ---
 
@@ -126,7 +126,7 @@ This plan covers:
 # 4. Initiate point-in-time recovery
 
 # Post-recovery verification:
-curl -s https://argus-brain-production.up.railway.app/api/v1/health/database
+curl -s https://skopaq-brain-production.up.railway.app/api/v1/health/database
 ```
 
 **RTO:** 30 minutes
@@ -188,7 +188,7 @@ FALLBACK_PROVIDERS = [
 | Data incident | Direct customer contact | Per IRP |
 | Resolution | All channels | When confirmed |
 
-**Status Page:** https://status.heyargus.ai
+**Status Page:** https://status.skopaq.ai
 
 ### 6.3 Communication Templates
 
@@ -396,18 +396,18 @@ kubectl exec -n argus-data redpanda-0 -- rpk cluster health
 ### Critical Contacts
 - On-call: PagerDuty
 - Escalation: Slack #incidents
-- Executive: cto@heyargus.ai
+- Executive: cto@skopaq.ai
 
 ### Critical URLs
-- API Health: https://argus-brain-production.up.railway.app/health
-- Status Page: https://status.heyargus.ai
+- API Health: https://skopaq-brain-production.up.railway.app/health
+- Status Page: https://status.skopaq.ai
 - Railway Dashboard: https://railway.app
 - Supabase Dashboard: https://supabase.com/dashboard
 
 ### Quick Commands
 ```bash
 # Check API status
-curl -s https://argus-brain-production.up.railway.app/health
+curl -s https://skopaq-brain-production.up.railway.app/health
 
 # View Railway logs
 railway logs --tail 100

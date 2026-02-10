@@ -3,13 +3,13 @@
 **Date:** 2026-02-03
 **Status:** Design Complete
 **Linear Issue:** [RAP-345](https://linear.app/raphatech/issue/RAP-345/chat-page-complete-overhaul-ai-native-glassmorphic-workspace)
-**Project:** Argus Dashboard
+**Project:** Skopaq Dashboard
 
 ---
 
 ## Executive Summary
 
-Complete redesign of the Argus chat page from a basic chatbot interface to an **AI-Native Glassmorphic Workspace** - a next-gen command center for the Argus Quality Intelligence Platform.
+Complete redesign of the Skopaq chat page from a basic chatbot interface to an **AI-Native Glassmorphic Workspace** - a next-gen command center for the Skopaq Quality Intelligence Platform.
 
 ### The Problem
 
@@ -17,7 +17,7 @@ The current chat page is:
 - **Cluttered** - Two sidebars (nav + conversation history) steal focus
 - **Disconnected** - Chat doesn't integrate with platform capabilities
 - **Dated** - 2021 ChatGPT-era patterns, basic message bubbles
-- **Not representative** - Doesn't reflect Argus as a full SDLC/STLC intelligence platform
+- **Not representative** - Doesn't reflect Skopaq as a full SDLC/STLC intelligence platform
 
 ### The Solution
 
@@ -430,8 +430,8 @@ dashboard/components/chat-workspace/
 │   ├── ContextualChips.tsx        # Custom smart suggestions
 │   └── ModelBadge.tsx             # Uses AI Elements ModelSelector
 ├── panels/
-│   ├── TestResultsPanel.tsx       # Custom Argus panel
-│   ├── QualityReportPanel.tsx     # Custom Argus panel
+│   ├── TestResultsPanel.tsx       # Custom Skopaq panel
+│   ├── QualityReportPanel.tsx     # Custom Skopaq panel
 │   ├── VisualDiffPanel.tsx        # Custom with assistant-ui Artifact
 │   ├── CodeViewerPanel.tsx        # Uses shadcn/ui AI Code Block
 │   └── BrowserPreviewPanel.tsx    # Uses assistant-ui sandboxed iframe
@@ -470,7 +470,7 @@ dashboard/components/chat-workspace/
 | **Phase 1** | Foundation - Layout system, glassmorphic primitives | Week 1 |
 | **Phase 2** | Chat Core - Message stream, input strip, streaming | Week 2 |
 | **Phase 3** | Panel System - Contextual panels, tabs, floating | Week 3 |
-| **Phase 4** | Integration - Wire to Argus backend, AI-driven spawning | Week 4 |
+| **Phase 4** | Integration - Wire to Skopaq backend, AI-driven spawning | Week 4 |
 | **Phase 5** | Polish - Animations, transitions, edge cases | Week 5 |
 
 ### Phase 1: Foundation
@@ -510,7 +510,7 @@ dashboard/components/chat-workspace/
 - Wire test execution → TestResultsPanel
 - Wire quality reports → QualityReportPanel
 - Wire visual diffs → VisualDiffPanel
-- Connect to existing Argus API endpoints
+- Connect to existing Skopaq API endpoints
 - Implement panel data refresh/streaming
 
 ### Phase 5: Polish

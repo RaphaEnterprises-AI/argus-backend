@@ -1,4 +1,4 @@
-# Argus Implementation Status & Competitive Analysis
+# Skopaq Implementation Status & Competitive Analysis
 
 **Last Updated**: January 29, 2026
 **Overall Readiness**: 80% Production-Ready
@@ -48,7 +48,7 @@
 
 ## Executive Summary
 
-Argus has a **strong core pipeline** with unique differentiators that no competitor offers. However, several advertised features need completion before we can claim competitive parity with leaders like Applitools, mabl, and testRigor.
+Skopaq has a **strong core pipeline** with unique differentiators that no competitor offers. However, several advertised features need completion before we can claim competitive parity with leaders like Applitools, mabl, and testRigor.
 
 ### Key Strengths (Implemented & Working)
 - **Codebase-First Analysis** - UNIQUE, no competitor has this
@@ -226,7 +226,7 @@ Argus has a **strong core pipeline** with unique differentiators that no competi
 
 ### Feature Matrix vs Competitors
 
-| Feature | Argus | Applitools | mabl | testRigor | Checksum |
+| Feature | Skopaq | Applitools | mabl | testRigor | Checksum |
 |---------|-------|------------|------|-----------|----------|
 | **Codebase Analysis** | ✅ UNIQUE | ❌ | ❌ | ❌ | ⚠️ |
 | **Visual AI** | 🚧 25% | ✅ Best | ✅ | ⚠️ | ❌ |
@@ -367,7 +367,7 @@ vs Checksum:   95% parity (we're ahead on intelligence + dashboard)
 
 ## Recommendation
 
-**Argus is launch-ready.** The core platform is complete with a full-featured dashboard, working test execution, visual testing, quality audits, and unique AI intelligence features.
+**Skopaq is launch-ready.** The core platform is complete with a full-featured dashboard, working test execution, visual testing, quality audits, and unique AI intelligence features.
 
 **Next priorities:**
 1. **Polish secondary pages** (Reports, Insights, Intelligence, Settings) - add real data and functionality

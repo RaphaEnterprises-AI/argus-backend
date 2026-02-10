@@ -1,6 +1,6 @@
 # Incident Response Plan
 
-**Argus E2E Testing Platform**
+**Skopaq E2E Testing Platform**
 **Document Version:** 1.0
 **Last Updated:** 2026-01-30
 **Classification:** Internal
@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-This Incident Response Plan (IRP) establishes procedures for detecting, responding to, and recovering from security incidents affecting the Argus platform. It ensures consistent, effective responses that minimize impact and protect customer data.
+This Incident Response Plan (IRP) establishes procedures for detecting, responding to, and recovering from security incidents affecting the Skopaq platform. It ensures consistent, effective responses that minimize impact and protect customer data.
 
 ---
 
@@ -102,7 +102,7 @@ L4: Legal + External Response Team
 **For Service Disruptions:**
 ```bash
 # Check service status
-curl https://argus-brain-production.up.railway.app/health
+curl https://skopaq-brain-production.up.railway.app/health
 
 # View recent deployments
 railway logs --filter error
@@ -205,7 +205,7 @@ ETA to Resolution: [Time estimate]
 4. Post-incident summary within 24 hours
 
 **Status Page Updates:**
-- URL: https://status.heyargus.ai
+- URL: https://status.skopaq.ai
 - Update frequency based on severity
 
 ### 6.3 Regulatory Notification
@@ -297,17 +297,17 @@ ETA to Resolution: [Time estimate]
 
 | Tool | Purpose | Access |
 |------|---------|--------|
-| Railway Dashboard | Deployment, logs | team@heyargus.ai |
-| Supabase Dashboard | Database, auth | team@heyargus.ai |
-| Sentry | Error tracking | team@heyargus.ai |
-| Grafana | Metrics dashboards | monitoring.heyargus.ai |
-| Cloudflare | WAF, DDoS protection | team@heyargus.ai |
+| Railway Dashboard | Deployment, logs | team@skopaq.ai |
+| Supabase Dashboard | Database, auth | team@skopaq.ai |
+| Sentry | Error tracking | team@skopaq.ai |
+| Grafana | Metrics dashboards | monitoring.skopaq.ai |
+| Cloudflare | WAF, DDoS protection | team@skopaq.ai |
 
 ### 9.2 Quick Commands
 
 ```bash
 # Check API health
-curl -s https://argus-brain-production.up.railway.app/health | jq .
+curl -s https://skopaq-brain-production.up.railway.app/health | jq .
 
 # View recent logs
 railway logs --tail 100
@@ -350,9 +350,9 @@ kubectl exec -n argus-data redpanda-0 -- rpk cluster health
 | Role | Primary | Backup |
 |------|---------|--------|
 | On-call Engineer | PagerDuty rotation | Slack #engineering |
-| Security Lead | security@heyargus.ai | Slack #security |
-| Executive Contact | cto@heyargus.ai | ceo@heyargus.ai |
-| Legal | legal@heyargus.ai | External counsel |
+| Security Lead | security@skopaq.ai | Slack #security |
+| Executive Contact | cto@skopaq.ai | ceo@skopaq.ai |
+| Legal | legal@skopaq.ai | External counsel |
 
 ## Appendix B: Related Documents
 

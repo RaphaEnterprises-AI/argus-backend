@@ -1,4 +1,4 @@
-# Argus Deployment Checklist
+# Skopaq Deployment Checklist
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ Optional:
 
 ## Browser Worker Deployment (Cloudflare)
 
-1. Navigate to argus-mcp-server
+1. Navigate to skopaq-mcp-server
 2. Deploy:
    ```bash
    wrangler deploy

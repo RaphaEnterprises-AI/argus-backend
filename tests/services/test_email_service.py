@@ -141,7 +141,7 @@ class TestResendEmailProvider:
         assert result is True
         # Check that default from was used
         call_args = mock_instance.post.call_args
-        assert "noreply@heyargus.ai" in str(call_args)
+        assert "noreply@skopaq.ai" in str(call_args)
 
     @pytest.mark.asyncio
     async def test_send_api_error(self, mock_env_vars):
@@ -441,7 +441,7 @@ class TestSMTPEmailProvider:
         # Check that message was sent
         call_args = mock_send.call_args
         msg = call_args.args[0]
-        assert "noreply@heyargus.ai" in msg["From"]
+        assert "noreply@skopaq.ai" in msg["From"]
 
     @pytest.mark.asyncio
     async def test_send_error(self, mock_env_vars):

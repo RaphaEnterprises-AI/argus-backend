@@ -34,15 +34,15 @@ logger.info(
 # For K8s internal access, set GRAFANA_INTERNAL_URL to the ClusterIP service.
 GRAFANA_INTERNAL_URL = os.environ.get(
     "GRAFANA_INTERNAL_URL",
-    os.environ.get("GRAFANA_URL", "https://grafana-internal.heyargus.ai"),
+    os.environ.get("GRAFANA_URL", "https://grafana-internal.skopaq.ai"),
 )
 PROMETHEUS_INTERNAL_URL = os.environ.get(
     "PROMETHEUS_INTERNAL_URL",
-    os.environ.get("PROMETHEUS_URL", "https://prometheus-internal.heyargus.ai"),
+    os.environ.get("PROMETHEUS_URL", "https://prometheus-internal.skopaq.ai"),
 )
 ALERTMANAGER_INTERNAL_URL = os.environ.get(
     "ALERTMANAGER_INTERNAL_URL",
-    os.environ.get("ALERTMANAGER_URL", "https://alertmanager-internal.heyargus.ai"),
+    os.environ.get("ALERTMANAGER_URL", "https://alertmanager-internal.skopaq.ai"),
 )
 
 # Optional auth for Grafana (service account token)

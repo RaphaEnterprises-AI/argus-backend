@@ -127,7 +127,7 @@ def get_verification_url(request: Request) -> str:
     """Get the base verification URL."""
     # Use the frontend URL from environment or construct from request
     import os
-    frontend_url = os.getenv("FRONTEND_URL", "https://heyargus.ai")
+    frontend_url = os.getenv("FRONTEND_URL", "https://skopaq.ai")
     return f"{frontend_url}/auth/device"
 
 
@@ -547,7 +547,7 @@ async def device_verify_submit(
     # User not authenticated - show login redirect
     # In production, redirect to Clerk sign-in with a return URL
     import os
-    frontend_url = os.getenv("FRONTEND_URL", "https://heyargus.ai")
+    frontend_url = os.getenv("FRONTEND_URL", "https://skopaq.ai")
     return_url = f"/api/v1/auth/device/verify?code={user_code}"
 
     return HTMLResponse(

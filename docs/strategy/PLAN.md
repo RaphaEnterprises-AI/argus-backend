@@ -1,8 +1,8 @@
-# Argus E2E Testing Agent - Comprehensive UX Enhancement Plan
+# Skopaq E2E Testing Agent - Comprehensive UX Enhancement Plan
 
 ## Executive Summary
 
-This plan addresses fundamental UX gaps in the Argus platform, transforming it from a functional tool into a world-class testing experience. The core problems are:
+This plan addresses fundamental UX gaps in the Skopaq platform, transforming it from a functional tool into a world-class testing experience. The core problems are:
 
 1. **No transparency** - Users have no visibility into what's happening during operations
 2. **No project management** - Projects can only be created from Tests page
@@ -208,8 +208,8 @@ const navigation = [
 
 ```json
 {
-  "name": "Argus E2E Testing",
-  "short_name": "Argus",
+  "name": "Skopaq E2E Testing",
+  "short_name": "Skopaq",
   "description": "AI-powered end-to-end testing platform",
   "start_url": "/",
   "display": "standalone",
@@ -256,7 +256,7 @@ const withPWA = require('next-pwa')({
 Desktop (>1024px):     Tablet (768-1024px):    Mobile (<768px):
 ┌────────────────┐    ┌──────────────────┐    ┌──────────────────┐
 │   [SIDEBAR]    │    │     [ICON BAR]   │    │    [HEADER]      │
-│                │    │   ┌────────────┐ │    │    ☰ Argus  👤   │
+│                │    │   ┌────────────┐ │    │    ☰ Skopaq  👤   │
 │   Full width   │    │   │            │ │    ├──────────────────┤
 │   with labels  │    │   │  Content   │ │    │                  │
 │                │    │   │            │ │    │    Content       │

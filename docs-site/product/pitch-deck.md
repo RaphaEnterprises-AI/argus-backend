@@ -64,9 +64,9 @@ $857M ───► $1.01B ───► $2.1B ───► $3.8B
 
 ---
 
-## What is Argus?
+## What is Skopaq?
 
-**Argus is a fully autonomous E2E testing platform that:**
+**Skopaq is a fully autonomous E2E testing platform that:**
 
 1. **Understands** your entire codebase (not just the DOM)
 2. **Generates** comprehensive test plans automatically
@@ -97,7 +97,7 @@ $857M ───► $1.01B ───► $2.1B ───► $3.8B
 
 ## The Magic: Write Tests in Plain English
 
-### Before Argus (Traditional)
+### Before Skopaq (Traditional)
 ```javascript
 // 50+ lines of brittle code
 const page = await browser.newPage();
@@ -110,12 +110,12 @@ await page.waitForNavigation();
 // ... breaks when ANY selector changes
 ```
 
-### With Argus (Natural Language)
+### With Skopaq (Natural Language)
 ```
 "Login as admin@example.com and verify dashboard shows 5 widgets"
 ```
 
-**That's it.** Argus handles the rest.
+**That's it.** Skopaq handles the rest.
 
 ---
 
@@ -129,7 +129,7 @@ Output: Complete executable test with assertions
 
 ### 2. Auto-Discovery
 ```
-Give Argus your URL → It crawls your app → Generates full test suite
+Give Skopaq your URL → It crawls your app → Generates full test suite
 ```
 
 ### 3. Self-Healing (99.9% Accuracy)
@@ -149,7 +149,7 @@ After:  button[data-testid="submit"]  ──►  AUTO-HEALED
 
 ---
 
-# Why Argus Wins
+# Why Skopaq Wins
 
 ## 5 Unique Competitive Moats
 
@@ -163,7 +163,7 @@ Competitors heal tests by looking at the DOM:
 - Fails completely on component renames
 - No explanation of WHY it changed
 
-### The Argus Advantage
+### The Skopaq Advantage
 We read your **git history** and **source code**:
 
 ```
@@ -195,7 +195,7 @@ We read your **git history** and **source code**:
 - Using cheap models for everything = poor quality
 - No cost predictability
 
-### Argus Smart Routing
+### Skopaq Smart Routing
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -227,7 +227,7 @@ DOM Tree only
 └── <input type="text">
 ```
 
-### What Argus Sees
+### What Skopaq Sees
 ```
 Your Entire Application
 ├── Frontend (React/Vue/Angular)
@@ -285,7 +285,7 @@ Your Entire Application
 
 ### Tests Where Developers Live
 
-Argus works natively inside your AI-powered IDE:
+Skopaq works natively inside your AI-powered IDE:
 
 | IDE | Status |
 |-----|--------|
@@ -332,7 +332,7 @@ argus_agent      - Autonomous task completion
 
 ## Detailed Competitor Comparison
 
-| Feature | Applitools | testRigor | Mabl | Argus |
+| Feature | Applitools | testRigor | Mabl | Skopaq |
 |---------|-----------|-----------|------|-------|
 | **Pricing** | $969+/mo | Custom | $249+/mo | $99+/mo |
 | **Visual AI** | ★★★★★ | ★★☆☆☆ | ★★★★☆ | ★★★★☆ |
@@ -413,7 +413,7 @@ argus_agent      - Autonomous task completion
 ✓ Production monitoring integration
 ```
 
-**Bottom Line:** Even without code access, Argus matches or exceeds Mabl, testRigor, and Katalon.
+**Bottom Line:** Even without code access, Skopaq matches or exceeds Mabl, testRigor, and Katalon.
 
 ---
 
@@ -618,7 +618,7 @@ $1000+ │                          ┌─────────┐
 
 ### Cost Per Test Run
 
-| Scenario | Traditional Tools | Argus | Savings |
+| Scenario | Traditional Tools | Skopaq | Savings |
 |----------|-------------------|-------|---------|
 | Simple UI Test | $0.15 | $0.04 | **73%** |
 | Complex Flow | $0.50 | $0.15 | **70%** |
@@ -628,7 +628,7 @@ $1000+ │                          ┌─────────┐
 
 **Typical Mid-Size Team (500 tests, 10 runs/day):**
 
-| Metric | Without Argus | With Argus | Impact |
+| Metric | Without Skopaq | With Skopaq | Impact |
 |--------|---------------|------------|--------|
 | Maintenance time | 40 hrs/week | 4 hrs/week | **90% reduction** |
 | Test creation | 2 hrs/test | 15 min/test | **87% faster** |
@@ -780,9 +780,9 @@ $1000+ │                          ┌─────────┐
 
 ## Summary
 
-### Why Argus Wins
+### Why Skopaq Wins
 
-| Advantage | Competitors | Argus |
+| Advantage | Competitors | Skopaq |
 |-----------|-------------|-------|
 | Self-Healing | DOM-only (95%) | DOM (95%) or Git-aware (99.9%) |
 | AI Costs | Single model | Multi-model (60-80% savings) |
@@ -805,7 +805,7 @@ $1000+ │                          ┌─────────┐
 
 ### Let's Talk
 
-**Argus - AI-Powered Autonomous E2E Testing**
+**Skopaq - AI-Powered Autonomous E2E Testing**
 
 - Website: [Coming Soon]
 - GitHub: [Repository]
@@ -907,4 +907,4 @@ $1000+ │                          ┌─────────┐
 
 ---
 
-*Argus - The Testing Agent That Understands Your Code*
+*Skopaq - The Testing Agent That Understands Your Code*

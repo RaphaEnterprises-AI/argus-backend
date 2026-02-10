@@ -339,7 +339,7 @@ def get_key_vault_client() -> CloudflareKeyVaultClient:
     if _key_vault_client is None:
         worker_url = os.getenv(
             "CLOUDFLARE_WORKER_URL",
-            "https://argus-api.heyargus.workers.dev",
+            "https://skopaq-api.samuelvinay-kumar.workers.dev",
         )
         api_token = os.getenv("CLOUDFLARE_API_TOKEN")
 

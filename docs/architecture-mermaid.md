@@ -1,4 +1,4 @@
-# Argus Architecture - Mermaid Diagrams
+# Skopaq Architecture - Mermaid Diagrams
 
 ## High-Level Platform Architecture
 
@@ -256,7 +256,7 @@ flowchart LR
 
     subgraph Viz["VISUALIZATION"]
         Grafana["Grafana<br/>Dashboards"]
-        Dashboard["Argus<br/>Dashboard"]
+        Dashboard["Skopaq<br/>Dashboard"]
     end
 
     App --> LangFuse

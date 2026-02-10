@@ -4,9 +4,9 @@
 
 ---
 
-## Welcome to Argus
+## Welcome to Skopaq
 
-Argus is an AI-powered autonomous testing platform that lets you create and run E2E tests using plain English. No coding required.
+Skopaq is an AI-powered autonomous testing platform that lets you create and run E2E tests using plain English. No coding required.
 
 This guide will help you:
 1. Create your first project
@@ -45,7 +45,7 @@ This guide will help you:
 # 4. Click Run - That's it!
 ```
 
-**Argus handles everything else:** browser automation, assertions, screenshots, and reporting.
+**Skopaq handles everything else:** browser automation, assertions, screenshots, and reporting.
 
 ---
 
@@ -68,7 +68,7 @@ If you signed up with email, check your inbox for a verification link.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Welcome to Argus!                                          │
+│  Welcome to Skopaq!                                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  Your Name:     [________________________]                  │
@@ -174,7 +174,7 @@ Click **"+ Create Test"** and describe what you want to test:
 
 **Example test descriptions:**
 
-| What You Type | What Argus Does |
+| What You Type | What Skopaq Does |
 |---------------|-----------------|
 | "Login with email test@example.com and password demo123" | Fills login form, submits, verifies success |
 | "Add a product to the shopping cart" | Navigates to product, clicks add to cart, verifies |
@@ -187,7 +187,7 @@ Click the **Chat** icon to describe tests conversationally:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Argus AI Assistant                              [ × ]      │
+│  Skopaq AI Assistant                              [ × ]      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  🤖 Hi! I can help you create tests. What would you        │
@@ -274,7 +274,7 @@ After completion:
 
 ### When Tests Fail
 
-If a test fails, Argus shows you exactly what went wrong:
+If a test fails, Skopaq shows you exactly what went wrong:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -307,7 +307,7 @@ If a test fails, Argus shows you exactly what went wrong:
 
 ## Auto-Discovery: Generate Tests Automatically
 
-Let Argus crawl your app and generate tests for you.
+Let Skopaq crawl your app and generate tests for you.
 
 ### Step 1: Click "Auto-Discover"
 
@@ -339,7 +339,7 @@ From your project dashboard, click **"🔍 Auto-Discover"**
 
 ### Step 3: Review Generated Tests
 
-Argus will crawl your app and suggest tests:
+Skopaq will crawl your app and suggest tests:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -370,7 +370,7 @@ Argus will crawl your app and suggest tests:
 
 ## Choosing Your Deployment Mode
 
-Argus offers three deployment modes. **You can start with DOM-Only (no setup required) and upgrade later.**
+Skopaq offers three deployment modes. **You can start with DOM-Only (no setup required) and upgrade later.**
 
 ### Quick Comparison
 
@@ -443,7 +443,7 @@ Contact sales@argus.dev for on-premise deployment.
 
 ```yaml
 # .github/workflows/argus-tests.yml
-name: Argus E2E Tests
+name: Skopaq E2E Tests
 
 on:
   push:
@@ -455,7 +455,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Run Argus Tests
+      - name: Run Skopaq Tests
         uses: argus-testing/github-action@v1
         with:
           api-key: ${{ secrets.ARGUS_API_KEY }}
@@ -489,11 +489,11 @@ argus-tests:
 
 1. Go to **Project Settings > Integrations**
 2. Enable **"GitHub PR Comments"**
-3. Argus will automatically comment on PRs with test results
+3. Skopaq will automatically comment on PRs with test results
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  🤖 Argus Test Results                                      │
+│  🤖 Skopaq Test Results                                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ✅ 12 tests passed                                         │
@@ -513,7 +513,7 @@ argus-tests:
 
 To test applications running on localhost:
 
-### Option 1: Use Argus CLI (Recommended)
+### Option 1: Use Skopaq CLI (Recommended)
 
 ```bash
 # Install CLI
@@ -532,7 +532,7 @@ argus tunnel --port 3000
 # Start ngrok tunnel
 ngrok http 3000
 
-# Copy the https URL and use it as your App URL in Argus
+# Copy the https URL and use it as your App URL in Skopaq
 ```
 
 ### Option 3: Deploy to Staging
@@ -543,11 +543,11 @@ Use a staging environment URL instead of localhost.
 
 ## IDE Integration (MCP)
 
-Use Argus directly in your AI-powered IDE.
+Use Skopaq directly in your AI-powered IDE.
 
 ### VS Code / Cursor / Windsurf Setup
 
-1. Install the Argus MCP extension
+1. Install the Skopaq MCP extension
 2. Add to your MCP config:
 
 ```json
@@ -564,7 +564,7 @@ Use Argus directly in your AI-powered IDE.
 }
 ```
 
-3. Use Argus commands in your IDE:
+3. Use Skopaq commands in your IDE:
 
 ```
 > argus_discover - Find interactive elements on a page
@@ -598,12 +598,12 @@ Use Argus directly in your AI-powered IDE.
 **Solution:**
 1. Click "Report Issue" on the healing suggestion
 2. Manually specify the correct selector
-3. Argus learns from your feedback
+3. Skopaq learns from your feedback
 
-### "My test passes locally but fails in Argus"
+### "My test passes locally but fails in Skopaq"
 
 **Common causes:**
-- Different screen resolution (Argus uses 1920x1080)
+- Different screen resolution (Skopaq uses 1920x1080)
 - Missing test data in staging environment
 - Authentication tokens not set up
 
@@ -620,7 +620,7 @@ Start building your test suite:
 
 ### 2. Set Up CI/CD
 
-Integrate Argus into your deployment pipeline:
+Integrate Skopaq into your deployment pipeline:
 - Run tests on every PR
 - Block deploys on test failures
 - Get Slack notifications
@@ -692,7 +692,7 @@ Go to **Settings > Team** to invite colleagues.
 
 ---
 
-**Welcome to Argus!** 🎯
+**Welcome to Skopaq!** 🎯
 
 You're ready to start testing. If you have questions, our team is here to help.
 

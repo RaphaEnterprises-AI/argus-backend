@@ -1,6 +1,6 @@
 # SOC 2 Type II Evidence Documentation
 
-**Argus E2E Testing Platform**
+**Skopaq E2E Testing Platform**
 **Document Version:** 1.0
 **Last Updated:** 2026-01-30
 **Classification:** Internal - Auditor Access
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document provides comprehensive evidence of security controls implemented in the Argus platform, aligned with SOC 2 Trust Service Criteria (TSC). The evidence demonstrates our commitment to Security, Availability, Processing Integrity, Confidentiality, and Privacy.
+This document provides comprehensive evidence of security controls implemented in the Skopaq platform, aligned with SOC 2 Trust Service Criteria (TSC). The evidence demonstrates our commitment to Security, Availability, Processing Integrity, Confidentiality, and Privacy.
 
 ---
 
@@ -298,7 +298,7 @@ credentials.json
 | Component | Purpose | Location |
 |-----------|---------|----------|
 | Prometheus | Metrics collection | Kubernetes |
-| Grafana | Dashboards | monitoring.heyargus.ai |
+| Grafana | Dashboards | monitoring.skopaq.ai |
 | Alertmanager | Alert routing | Kubernetes |
 | Langfuse | LLM observability | Cloud service |
 | Sentry | Error tracking | Cloud service |
@@ -335,7 +335,7 @@ credentials.json
 
 ## 9. Attestation
 
-This document accurately represents the security controls implemented in the Argus platform as of the document date. All code references can be verified in the source repository.
+This document accurately represents the security controls implemented in the Skopaq platform as of the document date. All code references can be verified in the source repository.
 
 **Prepared by:** Engineering Team
 **Reviewed by:** Security Team

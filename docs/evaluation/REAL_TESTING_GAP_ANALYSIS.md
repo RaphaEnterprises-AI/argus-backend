@@ -150,7 +150,7 @@ pytest tests/integration/test_browser_pool_real.py -v -s
 
 **Status**: Deployed but untested
 
-**Location**: `argus-mcp-server/src/index.ts`
+**Location**: `skopaq-mcp-server/src/index.ts`
 
 **7 Tools to Test**:
 1. `argus_health` - Health check
@@ -248,7 +248,7 @@ curl -X POST http://localhost:8000/api/v1/discovery/start \
 1. Create Sentry test project
 2. Configure webhook to `https://your-api.com/api/v1/webhooks/sentry`
 3. Generate a test error
-4. Verify error appears in Argus
+4. Verify error appears in Skopaq
 
 **Verification**:
 - Error stored in `production_events` table
@@ -263,7 +263,7 @@ curl -X POST http://localhost:8000/api/v1/discovery/start \
 
 **Test Commands**:
 ```
-# In Claude Code with Argus MCP configured
+# In Claude Code with Skopaq MCP configured
 mcp__argus__argus_health
 mcp__argus__argus_discover url="https://example.com"
 mcp__argus__argus_act url="https://example.com" instruction="Click More information"
@@ -334,8 +334,8 @@ mcp__argus__argus_act url="https://example.com" instruction="Click More informat
 
 1. **cloudflare-worker `/extract` response format** - Was spreading data directly instead of wrapping in `{success: true, data: {...}}`
 2. **cloudflare-worker Vultr pool extract response** - Added conditional wrapping for proper format
-3. **argus-mcp-server `argus_act` error handling** - Now uses `result.error || result.message` fallback
-4. **argus-mcp-server `argus_extract` undefined handling** - Added nullish coalescing for data
+3. **skopaq-mcp-server `argus_act` error handling** - Now uses `result.error || result.message` fallback
+4. **skopaq-mcp-server `argus_extract` undefined handling** - Added nullish coalescing for data
 
 ### Before Launch
 

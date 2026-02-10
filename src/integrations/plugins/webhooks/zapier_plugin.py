@@ -114,8 +114,8 @@ class ZapierPlugin(IntegrationPlugin):
             description="Trigger Zaps when test events occur using Webhooks by Zapier",
             category=IntegrationCategory.WEBHOOKS,
             auth_type=AuthType.WEBHOOK,
-            icon_url="https://cdn.heyargus.ai/integrations/zapier.svg",
-            docs_url="https://docs.heyargus.ai/integrations/zapier",
+            icon_url="https://cdn.skopaq.ai/integrations/zapier.svg",
+            docs_url="https://docs.skopaq.ai/integrations/zapier",
             website_url="https://zapier.com",
             features=[
                 "outbound_events",

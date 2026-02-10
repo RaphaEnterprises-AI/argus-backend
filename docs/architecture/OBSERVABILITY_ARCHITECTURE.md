@@ -1,4 +1,4 @@
-# Argus Observability Architecture
+# Skopaq Observability Architecture
 
 **Version:** 1.0
 **Last Updated:** January 29, 2026
@@ -7,7 +7,7 @@
 
 ## Overview
 
-Argus implements a comprehensive observability stack covering:
+Skopaq implements a comprehensive observability stack covering:
 1. **LLM Tracing** - Langfuse for AI model observability
 2. **Infrastructure Metrics** - Prometheus + Grafana
 3. **Application Logging** - Structured logging with correlation
@@ -136,7 +136,7 @@ data:
 
 ### ServiceMonitors
 
-**Argus Data Layer:**
+**Skopaq Data Layer:**
 ```yaml
 # data-layer/kubernetes/monitoring/servicemonitors-argus-data.yaml
 apiVersion: monitoring.coreos.com/v1

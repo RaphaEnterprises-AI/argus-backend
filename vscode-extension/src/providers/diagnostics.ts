@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ArgusClient, ArgusTestRun } from "../api/client";
+import { SkopaqClient, SkopaqTestRun } from "../api/client";
 
 /**
  * Shows test failures in VS Code's Problems panel.
@@ -7,10 +7,10 @@ import { ArgusClient, ArgusTestRun } from "../api/client";
  * After each test run refresh, failed tests are added as diagnostics
  * so developers see them alongside linting errors, type errors, etc.
  */
-export class ArgusDiagnostics {
+export class SkopaqDiagnostics {
   private diagnosticCollection: vscode.DiagnosticCollection;
 
-  constructor(private readonly client: ArgusClient) {
+  constructor(private readonly client: SkopaqClient) {
     this.diagnosticCollection =
       vscode.languages.createDiagnosticCollection("argus");
   }
@@ -57,7 +57,7 @@ export class ArgusDiagnostics {
           `Test failed: ${failure.error || "Unknown error"}`,
           vscode.DiagnosticSeverity.Error
         );
-        diagnostic.source = "Argus";
+        diagnostic.source = "Skopaq";
         diagnostic.code = failure.test_id;
 
         diagnosticsByUri.get(uriStr)!.push(diagnostic);
@@ -72,7 +72,7 @@ export class ArgusDiagnostics {
   }
 
   private async findTestFile(
-    run: ArgusTestRun
+    run: SkopaqTestRun
   ): Promise<vscode.Uri | undefined> {
     // Search workspace for test files matching the test ID
     const files = await vscode.workspace.findFiles(

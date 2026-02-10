@@ -25,7 +25,7 @@ data:
 
   # Optional: API callback URL for metadata persistence
   # Leave empty if not using callback
-  api_callback_url: "https://argus-brain-production.up.railway.app"
+  api_callback_url: "https://skopaq-brain-production.up.railway.app"
 
 ---
 # Secret with raw R2 credentials (for custom sidecars, debugging)

@@ -9,7 +9,7 @@
 ## Quick Reference Card
 
 ### Our Elevator Pitch (30 seconds)
-> "Argus is the only AI testing platform that actually understands your codebase. While competitors just look at the DOM to fix broken tests, we read your git history and source code—giving us 99.9% healing accuracy versus the industry's 95%. Plus, our multi-model AI routing cuts testing costs by 60-80%. It's like having a senior QA engineer who knows every line of your code."
+> "Skopaq is the only AI testing platform that actually understands your codebase. While competitors just look at the DOM to fix broken tests, we read your git history and source code—giving us 99.9% healing accuracy versus the industry's 95%. Plus, our multi-model AI routing cuts testing costs by 60-80%. It's like having a senior QA engineer who knows every line of your code."
 
 ### Three Things to Always Mention
 1. **Git-aware self-healing** (99.9% accuracy) - Nobody else has this
@@ -34,7 +34,7 @@
 
 ### "What if the customer doesn't want to share their code?"
 
-**Key Message:** Git-aware healing is a PREMIUM feature, not a requirement. Argus works great with ZERO code access.
+**Key Message:** Git-aware healing is a PREMIUM feature, not a requirement. Skopaq works great with ZERO code access.
 
 ### Operating Modes
 
@@ -67,7 +67,7 @@ Still get:
 ```
 
 **Talk Track (DOM-Only):**
-> "You don't need to share any code with Argus. Our DOM-only mode analyzes your running app and delivers 90-95% healing accuracy—matching or exceeding Mabl, testRigor, and Katalon. Git-aware healing is an optional upgrade for teams who want to push from 95% to 99.9%."
+> "You don't need to share any code with Skopaq. Our DOM-only mode analyzes your running app and delivers 90-95% healing accuracy—matching or exceeding Mabl, testRigor, and Katalon. Git-aware healing is an optional upgrade for teams who want to push from 95% to 99.9%."
 
 ### Mode 2: Git-Aware (Read-Only Access)
 
@@ -100,7 +100,7 @@ For customers with strict security requirements:
 ```
 
 **Talk Track (Self-Hosted):**
-> "For customers with strict data residency or security requirements, we offer a self-hosted deployment. Argus runs entirely in your infrastructure—your code never leaves your network. You get full git-aware healing with complete data control."
+> "For customers with strict data residency or security requirements, we offer a self-hosted deployment. Skopaq runs entirely in your infrastructure—your code never leaves your network. You get full git-aware healing with complete data control."
 
 ### Feature Availability by Mode
 
@@ -123,7 +123,7 @@ For customers with strict security requirements:
 |-----------|----------|
 | "We can't share our source code" | "No problem—our DOM-only mode requires zero code access and still delivers 90-95% healing, matching industry leaders. Git-aware is optional for teams who want 99.9%." |
 | "Our security team won't approve repo access" | "Understood. Start with DOM-only mode for your POC. If the value is clear, security teams often approve read-only access—same as what CircleCI and GitHub Actions require." |
-| "What about compliance? We're in healthcare/finance" | "We offer self-hosted deployment for regulated industries. Argus runs in your VPC—code never leaves your network. Full features, complete data control." |
+| "What about compliance? We're in healthcare/finance" | "We offer self-hosted deployment for regulated industries. Skopaq runs in your VPC—code never leaves your network. Full features, complete data control." |
 | "How do you handle our code if we do grant access?" | "Read-only, analyzed in memory, never stored. We're SOC2 compliant with full audit logging. You can revoke access instantly via your Git provider." |
 
 ---
@@ -145,7 +145,7 @@ For customers with strict security requirements:
 
 ### Head-to-Head Comparison
 
-| Capability | Applitools | Argus | Advantage |
+| Capability | Applitools | Skopaq | Advantage |
 |------------|-----------|-------|-----------|
 | Visual AI | ★★★★★ | ★★★★☆ | Applitools |
 | Functional Testing | ☆☆☆☆☆ | ★★★★★ | **ARGUS** |
@@ -165,14 +165,14 @@ For customers with strict security requirements:
 4. **Self-healing** - Our git-aware healing is far superior
 
 **Talk Track:**
-> "Applitools is excellent for visual regression, but it's only one piece of the puzzle. You still need separate tools for functional, API, and database testing. With Argus, you get visual AI PLUS full-stack testing PLUS intelligent self-healing—all at 1/10th the price."
+> "Applitools is excellent for visual regression, but it's only one piece of the puzzle. You still need separate tools for functional, API, and database testing. With Skopaq, you get visual AI PLUS full-stack testing PLUS intelligent self-healing—all at 1/10th the price."
 
 ### Objection Handling
 
 | Objection | Response |
 |-----------|----------|
 | "Applitools has better visual AI" | "Their visual AI is excellent, but visual testing is only 20% of E2E testing. We offer 80% of their visual capability PLUS functional, API, and DB testing they don't have. And we're 10x cheaper." |
-| "We already use Applitools" | "Great—you can keep using it for visual and add Argus for everything else. Or consolidate to Argus and save $10K+/year while gaining functional testing capabilities." |
+| "We already use Applitools" | "Great—you can keep using it for visual and add Skopaq for everything else. Or consolidate to Skopaq and save $10K+/year while gaining functional testing capabilities." |
 
 ### Killer Questions to Ask Prospect
 - "How much are you spending on Applitools annually?"
@@ -195,7 +195,7 @@ For customers with strict security requirements:
 
 ### Head-to-Head Comparison
 
-| Capability | testRigor | Argus | Advantage |
+| Capability | testRigor | Skopaq | Advantage |
 |------------|-----------|-------|-----------|
 | NLP Test Creation | ★★★★★ | ★★★★★ | Tie |
 | Cross-Platform | ★★★★★ | ★★★★☆ | testRigor |
@@ -245,7 +245,7 @@ For customers with strict security requirements:
 
 ### Head-to-Head Comparison
 
-| Capability | Mabl | Argus | Advantage |
+| Capability | Mabl | Skopaq | Advantage |
 |------------|------|-------|-----------|
 | Low-Code UI | ★★★★★ | ★★★★☆ | Mabl |
 | Self-Healing | ★★★★☆ | ★★★★★ | **ARGUS** |
@@ -298,7 +298,7 @@ For customers with strict security requirements:
 
 ### Head-to-Head Comparison
 
-| Capability | Katalon | Argus | Advantage |
+| Capability | Katalon | Skopaq | Advantage |
 |------------|---------|-------|-----------|
 | Feature Breadth | ★★★★★ | ★★★★☆ | Katalon |
 | Ease of Use | ★★☆☆☆ | ★★★★☆ | **ARGUS** |
@@ -326,7 +326,7 @@ For customers with strict security requirements:
 |-----------|----------|
 | "Katalon is a Gartner Visionary" | "Gartner recognized their breadth of features. But their AI is an add-on, not the foundation. For truly autonomous testing, you need AI-native architecture." |
 | "Katalon has enterprise features we need" | "What specific features? We have SSO, RBAC, and audit logging on our roadmap for Q2. If there's something critical, let's discuss timeline." |
-| "Our team already knows Katalon" | "Katalon has a steep learning curve—that's sunk cost. Argus requires almost no training: describe tests in English, we do the rest. Your team will be productive in hours, not weeks." |
+| "Our team already knows Katalon" | "Katalon has a steep learning curve—that's sunk cost. Skopaq requires almost no training: describe tests in English, we do the rest. Your team will be productive in hours, not weeks." |
 
 ### Killer Questions to Ask Prospect
 - "How long did it take to get your team productive on Katalon?"
@@ -349,7 +349,7 @@ For customers with strict security requirements:
 
 ### Head-to-Head Comparison
 
-| Capability | BrowserStack | Argus | Advantage |
+| Capability | BrowserStack | Skopaq | Advantage |
 |------------|--------------|-------|-----------|
 | Device Coverage | ★★★★★ | ★★☆☆☆ | BrowserStack |
 | Real Devices | ★★★★★ | ☆☆☆☆☆ | BrowserStack |
@@ -368,14 +368,14 @@ For customers with strict security requirements:
 4. **Complementary positioning** - We can use BrowserStack for device coverage
 
 **Talk Track:**
-> "BrowserStack is excellent infrastructure—20K+ real devices is impressive. But they're a 'dumb pipe'—you write tests, they run them. We're the intelligence layer: we generate tests, heal them when they break, and learn from production. Many customers use both: Argus for AI intelligence, BrowserStack for device coverage when needed."
+> "BrowserStack is excellent infrastructure—20K+ real devices is impressive. But they're a 'dumb pipe'—you write tests, they run them. We're the intelligence layer: we generate tests, heal them when they break, and learn from production. Many customers use both: Skopaq for AI intelligence, BrowserStack for device coverage when needed."
 
 ### Objection Handling
 
 | Objection | Response |
 |-----------|----------|
 | "We need real device testing" | "Understood. We can integrate with BrowserStack for device execution when you need it. You get our AI intelligence plus their device farm. Best of both worlds." |
-| "BrowserStack is an industry standard" | "It's standard infrastructure, yes. But the industry is shifting from 'run my tests' to 'write and maintain my tests.' That's where AI comes in. BrowserStack runs; Argus thinks." |
+| "BrowserStack is an industry standard" | "It's standard infrastructure, yes. But the industry is shifting from 'run my tests' to 'write and maintain my tests.' That's where AI comes in. BrowserStack runs; Skopaq thinks." |
 
 ### Killer Questions to Ask Prospect
 - "How much time does your team spend writing and maintaining tests vs running them?"
@@ -398,7 +398,7 @@ For customers with strict security requirements:
 
 ### Head-to-Head Comparison
 
-| Capability | KaneAI | Argus | Advantage |
+| Capability | KaneAI | Skopaq | Advantage |
 |------------|--------|-------|-----------|
 | AI Agents | 10 | 23 | **ARGUS** |
 | NLP Testing | ★★★★☆ | ★★★★★ | **ARGUS** |
@@ -438,7 +438,7 @@ For customers with strict security requirements:
 
 | Vendor | Entry | Mid-Tier | Enterprise | Free Tier |
 |--------|-------|----------|------------|-----------|
-| **Argus** | **$49/mo** | **$99/mo** | **Custom** | **100 runs** |
+| **Skopaq** | **$49/mo** | **$99/mo** | **Custom** | **100 runs** |
 | Applitools | $969/mo | Custom | Custom | Trial |
 | Mabl | $249/mo | Custom | Custom | None |
 | Katalon | $84/mo | $229/mo | Custom | Limited |
@@ -457,7 +457,7 @@ For customers with strict security requirements:
 ## Feature Comparison Matrix
 
 ```
-Feature                    Argus  Appli  testR  Mabl  Katal  BrwSt  KaneAI
+Feature                    Skopaq  Appli  testR  Mabl  Katal  BrwSt  KaneAI
 ─────────────────────────  ─────  ─────  ─────  ────  ─────  ─────  ──────
 NLP Test Creation          ●●●●●  ○○○○○  ●●●●●  ●●○○○ ●●○○○  ●○○○○  ●●●●○
 Visual AI Testing          ●●●●○  ●●●●●  ●●○○○  ●●●●○ ●●●○○  ●●●●○  ●●●○○

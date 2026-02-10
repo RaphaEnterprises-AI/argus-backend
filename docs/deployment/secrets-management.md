@@ -3,7 +3,7 @@
 **Last Updated**: 2026-01-22
 **Audit Status**: Compliant
 
-This document outlines the secrets management practices and rotation procedures for the Argus E2E Testing Agent.
+This document outlines the secrets management practices and rotation procedures for the Skopaq E2E Testing Agent.
 
 ---
 
@@ -102,7 +102,7 @@ wrangler secret put BROWSER_POOL_JWT_SECRET
 
 # 5. Verify
 curl -H "Authorization: Bearer $(jwt encode --secret $NEW_SECRET ...)" \
-  https://browser-pool.heyargus.ai/health
+  https://browser-pool.skopaq.ai/health
 ```
 
 ### 4. KEK (Key Encryption Key) - CRITICAL

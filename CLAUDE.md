@@ -1316,9 +1316,9 @@ When implementing this project:
 | Service | URL | Description |
 |---------|-----|-------------|
 | **Backend API** | `https://argus-brain-production.up.railway.app` | Main FastAPI backend (Railway) |
-| **Dashboard** | `https://app.heyargus.ai` | Next.js dashboard (Vercel) |
-| **Docs** | `https://docs.heyargus.ai` | MkDocs documentation |
-| **Status Page** | `https://status.heyargus.ai` | Service status |
+| **Dashboard** | `https://app.skopaq.ai` | Next.js dashboard (Vercel) |
+| **Docs** | `https://docs.skopaq.ai` | MkDocs documentation |
+| **Status Page** | `https://status.skopaq.ai` | Service status |
 
 ### API Health Check
 
@@ -1370,7 +1370,7 @@ kubectl exec -n argus-data redpanda-0 -- rpk topic list
 kubectl exec -n argus-data redpanda-0 -- rpk group describe argus-cognee-workers
 
 # View Grafana dashboards (via Cloudflare Tunnel)
-# Access: https://monitoring.heyargus.ai/grafana
+# Access: https://monitoring.skopaq.ai/grafana
 ```
 
 ### Data Layer Health Check (from API)

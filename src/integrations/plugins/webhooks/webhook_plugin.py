@@ -110,8 +110,8 @@ class WebhookPlugin(IntegrationPlugin):
             description="Send events to any HTTP endpoint with optional HMAC-SHA256 signatures",
             category=IntegrationCategory.WEBHOOKS,
             auth_type=AuthType.WEBHOOK,
-            icon_url="https://cdn.heyargus.ai/integrations/webhook.svg",
-            docs_url="https://docs.heyargus.ai/integrations/webhook",
+            icon_url="https://cdn.skopaq.ai/integrations/webhook.svg",
+            docs_url="https://docs.skopaq.ai/integrations/webhook",
             features=[
                 "outbound_events",
                 "hmac_signatures",

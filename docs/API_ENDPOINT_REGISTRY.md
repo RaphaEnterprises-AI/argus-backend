@@ -1,4 +1,4 @@
-# Argus API Endpoint Registry
+# Skopaq API Endpoint Registry
 
 **Document Version:** 1.0
 **Generated:** 2026-01-28
@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document provides a complete registry of all API endpoints in the Argus backend, including authentication requirements, rate limits, and RBAC permissions.
+This document provides a complete registry of all API endpoints in the Skopaq backend, including authentication requirements, rate limits, and RBAC permissions.
 
 **Total Endpoints:** 413+
 **Total Router Files:** 50+

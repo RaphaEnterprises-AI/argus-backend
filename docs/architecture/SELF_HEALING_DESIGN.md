@@ -1,4 +1,4 @@
-# Argus Self-Healing System Design
+# Skopaq Self-Healing System Design
 
 ## Goal: 95%+ Test Pass Rate
 

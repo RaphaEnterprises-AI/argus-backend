@@ -29,7 +29,7 @@ import pytest
 
 # Default to local backend, override with env var
 BASE_URL = os.getenv("ARGUS_API_URL", "http://localhost:8000")
-PRODUCTION_URL = "https://argus-brain-production.up.railway.app"
+PRODUCTION_URL = "https://skopaq-brain-production.up.railway.app"
 
 # Test configuration
 TIMEOUT_SECONDS = 200  # Match backend's 180s timeout for runTest + buffer

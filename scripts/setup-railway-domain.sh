@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup custom domain api.heyargus.ai for Railway backend
+# Setup custom domain api.skopaq.ai for Railway backend
 # This configures both Railway and Cloudflare DNS
 
 set -e
@@ -12,7 +12,7 @@ NC='\033[0m'
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║     Setup api.heyargus.ai → Railway Backend                  ║"
+echo "║     Setup api.skopaq.ai → Railway Backend                  ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -53,7 +53,7 @@ railway_login() {
 add_railway_domain() {
     echo -e "${YELLOW}Step 2: Add Custom Domain to Railway${NC}"
 
-    DOMAIN="api.heyargus.ai"
+    DOMAIN="api.skopaq.ai"
 
     echo "Adding domain: $DOMAIN to argus-backend service..."
 
@@ -79,13 +79,13 @@ cloudflare_dns() {
     echo ""
     echo "  Type:    CNAME"
     echo "  Name:    api"
-    echo "  Target:  argus-brain-production.up.railway.app"
+    echo "  Target:  skopaq-brain-production.up.railway.app"
     echo "  Proxy:   OFF (DNS only - grey cloud)"
     echo ""
     echo -e "${YELLOW}IMPORTANT: Proxy must be OFF for Railway SSL to work!${NC}"
     echo ""
     echo "Cloudflare Dashboard URL:"
-    echo "  https://dash.cloudflare.com → heyargus.ai → DNS → Add record"
+    echo "  https://dash.cloudflare.com → skopaq.ai → DNS → Add record"
     echo ""
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
@@ -97,7 +97,7 @@ cloudflare_auto_dns() {
         echo -e "${YELLOW}Attempting automatic Cloudflare DNS setup...${NC}"
 
         # Get zone ID
-        ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=heyargus.ai" \
+        ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=skopaq.ai" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" | jq -r '.result[0].id')
 
@@ -105,7 +105,7 @@ cloudflare_auto_dns() {
             echo "Found zone ID: $ZONE_ID"
 
             # Check if record exists
-            EXISTING=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=api.heyargus.ai" \
+            EXISTING=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=api.skopaq.ai" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
                 -H "Content-Type: application/json" | jq -r '.result[0].id')
 
@@ -117,7 +117,7 @@ cloudflare_auto_dns() {
                     --data '{
                         "type": "CNAME",
                         "name": "api",
-                        "content": "argus-brain-production.up.railway.app",
+                        "content": "skopaq-brain-production.up.railway.app",
                         "proxied": false,
                         "ttl": 1
                     }' | jq -r 'if .success then "✓ DNS record updated" else "✗ Error: " + (.errors[0].message // "Unknown") end'
@@ -129,14 +129,14 @@ cloudflare_auto_dns() {
                     --data '{
                         "type": "CNAME",
                         "name": "api",
-                        "content": "argus-brain-production.up.railway.app",
+                        "content": "skopaq-brain-production.up.railway.app",
                         "proxied": false,
                         "ttl": 1
                     }' | jq -r 'if .success then "✓ DNS record created" else "✗ Error: " + (.errors[0].message // "Unknown") end'
             fi
             echo ""
         else
-            echo -e "${RED}Could not find zone for heyargus.ai${NC}"
+            echo -e "${RED}Could not find zone for skopaq.ai${NC}"
         fi
     else
         echo -e "${YELLOW}CLOUDFLARE_API_TOKEN not set. Manual DNS setup required.${NC}"
@@ -150,9 +150,9 @@ update_codebase() {
     echo ""
     echo "The following files reference the Railway URL:"
     echo ""
-    grep -r "argus-brain-production.up.railway.app" --include="*.py" --include="*.ts" --include="*.json" --include="*.md" --include="*.yaml" . 2>/dev/null | head -20 || true
+    grep -r "skopaq-brain-production.up.railway.app" --include="*.py" --include="*.ts" --include="*.json" --include="*.md" --include="*.yaml" . 2>/dev/null | head -20 || true
     echo ""
-    echo -e "${YELLOW}Consider updating these to use api.heyargus.ai${NC}"
+    echo -e "${YELLOW}Consider updating these to use api.skopaq.ai${NC}"
     echo ""
 }
 
@@ -165,9 +165,9 @@ verify_setup() {
 
     # Check DNS
     echo "Checking DNS resolution..."
-    DNS_RESULT=$(dig api.heyargus.ai +short 2>/dev/null || echo "")
+    DNS_RESULT=$(dig api.skopaq.ai +short 2>/dev/null || echo "")
     if [ -n "$DNS_RESULT" ]; then
-        echo -e "${GREEN}✓ DNS resolves: api.heyargus.ai → $DNS_RESULT${NC}"
+        echo -e "${GREEN}✓ DNS resolves: api.skopaq.ai → $DNS_RESULT${NC}"
     else
         echo -e "${YELLOW}⏳ DNS not propagated yet. Check again in a few minutes.${NC}"
     fi
@@ -175,9 +175,9 @@ verify_setup() {
 
     # Test endpoint
     echo "Testing API endpoint..."
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://api.heyargus.ai/health" 2>/dev/null || echo "000")
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://api.skopaq.ai/health" 2>/dev/null || echo "000")
     if [ "$HTTP_STATUS" = "200" ]; then
-        echo -e "${GREEN}✓ API responding: https://api.heyargus.ai/health (HTTP $HTTP_STATUS)${NC}"
+        echo -e "${GREEN}✓ API responding: https://api.skopaq.ai/health (HTTP $HTTP_STATUS)${NC}"
     else
         echo -e "${YELLOW}⏳ API not ready yet (HTTP $HTTP_STATUS). SSL certificate may be provisioning.${NC}"
     fi
@@ -193,23 +193,23 @@ summary() {
     echo -e "${NC}"
     echo ""
     echo "URLs:"
-    echo "  • Old: https://argus-brain-production.up.railway.app"
-    echo "  • New: https://api.heyargus.ai"
+    echo "  • Old: https://skopaq-brain-production.up.railway.app"
+    echo "  • New: https://api.skopaq.ai"
     echo ""
     echo "API Endpoints:"
-    echo "  • Health:  https://api.heyargus.ai/health"
-    echo "  • API v1:  https://api.heyargus.ai/api/v1/"
-    echo "  • Docs:    https://api.heyargus.ai/docs"
+    echo "  • Health:  https://api.skopaq.ai/health"
+    echo "  • API v1:  https://api.skopaq.ai/api/v1/"
+    echo "  • Docs:    https://api.skopaq.ai/docs"
     echo ""
     echo "SSL Certificate:"
     echo "  Railway will automatically provision a Let's Encrypt certificate."
     echo "  This may take 2-5 minutes after DNS is configured."
     echo ""
     echo -e "${YELLOW}Next Steps:${NC}"
-    echo "  1. Update environment variables to use api.heyargus.ai"
+    echo "  1. Update environment variables to use api.skopaq.ai"
     echo "  2. Update frontend/dashboard to point to new URL"
     echo "  3. Update MCP server configuration"
-    echo "  4. (Optional) Set up docs.heyargus.ai for API documentation"
+    echo "  4. (Optional) Set up docs.skopaq.ai for API documentation"
 }
 
 # Main

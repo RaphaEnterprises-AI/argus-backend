@@ -54,7 +54,7 @@ langfuse:
           name: langfuse-auth-secret
           key: langfuse-project-secret
     - name: LANGFUSE_INIT_USER_EMAIL
-      value: "admin@heyargus.com"
+      value: "admin@skopaq.ai"
     - name: LANGFUSE_INIT_USER_NAME
       value: "Argus Admin"
     - name: LANGFUSE_INIT_USER_PASSWORD
@@ -76,7 +76,7 @@ langfuse:
         memory: 512Mi
     additionalEnv:
       - name: NEXTAUTH_URL
-        value: "https://langfuse-internal.heyargus.ai"
+        value: "https://langfuse-internal.skopaq.ai"
 
 # =============================================================================
 # Langfuse Worker (async processing)

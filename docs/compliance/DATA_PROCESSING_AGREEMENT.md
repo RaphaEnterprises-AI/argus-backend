@@ -14,11 +14,11 @@
 - Contact: _______________________
 - Email: _______________________
 
-**Data Processor** ("Argus" / "Raphael Enterprises AI, Inc."):
+**Data Processor** ("Skopaq" / "Raphael Enterprises AI, Inc."):
 - Company Name: Raphael Enterprises AI, Inc.
 - Address: _______________________
 - Contact: Data Protection Officer
-- Email: dpo@heyargus.ai
+- Email: dpo@skopaq.ai
 
 ---
 
@@ -34,17 +34,17 @@
 
 **1.5** "Data Subject" means an identified or identifiable natural person whose Personal Data is processed.
 
-**1.6** "Services" means the Argus E2E Testing Platform and related services provided under the Master Service Agreement.
+**1.6** "Services" means the Skopaq E2E Testing Platform and related services provided under the Master Service Agreement.
 
 ---
 
 ## 2. SCOPE AND PURPOSE
 
-**2.1** This DPA applies to the Processing of Personal Data by Argus on behalf of Customer in connection with the provision of the Services.
+**2.1** This DPA applies to the Processing of Personal Data by Skopaq on behalf of Customer in connection with the provision of the Services.
 
 **2.2** The nature and purpose of Processing, categories of Data Subjects, and types of Personal Data are described in **Schedule A**.
 
-**2.3** Argus shall process Personal Data only:
+**2.3** Skopaq shall process Personal Data only:
 - (a) In accordance with Customer's documented instructions;
 - (b) As necessary to provide the Services;
 - (c) As required by applicable law.
@@ -55,7 +55,7 @@
 
 ### 3.1 Processor Obligations
 
-Argus agrees to:
+Skopaq agrees to:
 
 **(a)** Process Personal Data only on documented instructions from Customer, unless required by applicable law;
 
@@ -81,9 +81,9 @@ Customer agrees to:
 
 **(b)** Provide documented instructions for Processing;
 
-**(c)** Ensure accuracy of Personal Data provided to Argus;
+**(c)** Ensure accuracy of Personal Data provided to Skopaq;
 
-**(d)** Notify Argus promptly of any changes affecting Processing.
+**(d)** Notify Skopaq promptly of any changes affecting Processing.
 
 ---
 
@@ -91,11 +91,11 @@ Customer agrees to:
 
 ### 4.1 Authorized Sub-processors
 
-Customer authorizes Argus to engage the Sub-processors listed in **Schedule C** for the purposes described therein.
+Customer authorizes Skopaq to engage the Sub-processors listed in **Schedule C** for the purposes described therein.
 
 ### 4.2 Sub-processor Requirements
 
-Argus shall:
+Skopaq shall:
 
 **(a)** Enter into written agreements with Sub-processors imposing data protection obligations no less protective than this DPA;
 
@@ -137,7 +137,7 @@ For air-gap deployments, no Personal Data is transferred outside Customer's infr
 
 ### 6.1 Technical and Organizational Measures
 
-Argus implements the security measures described in **Schedule B**, including:
+Skopaq implements the security measures described in **Schedule B**, including:
 
 **(a)** Encryption of Personal Data at rest (AES-256) and in transit (TLS 1.3);
 
@@ -151,7 +151,7 @@ Argus implements the security measures described in **Schedule B**, including:
 
 ### 6.2 Security Updates
 
-Argus may update security measures provided that updates do not materially decrease the overall security of the Services.
+Skopaq may update security measures provided that updates do not materially decrease the overall security of the Services.
 
 ---
 
@@ -159,7 +159,7 @@ Argus may update security measures provided that updates do not materially decre
 
 ### 7.1 Notification Timeline
 
-Argus shall notify Customer without undue delay, and in any event within 48 hours, after becoming aware of a Personal Data breach.
+Skopaq shall notify Customer without undue delay, and in any event within 48 hours, after becoming aware of a Personal Data breach.
 
 ### 7.2 Notification Content
 
@@ -179,7 +179,7 @@ Notification shall include:
 
 ### 7.3 Cooperation
 
-Argus shall cooperate with Customer and provide reasonable assistance in investigating and mitigating the breach.
+Skopaq shall cooperate with Customer and provide reasonable assistance in investigating and mitigating the breach.
 
 ---
 
@@ -187,7 +187,7 @@ Argus shall cooperate with Customer and provide reasonable assistance in investi
 
 ### 8.1 Assistance with Requests
 
-Argus shall assist Customer in responding to Data Subject requests regarding:
+Skopaq shall assist Customer in responding to Data Subject requests regarding:
 
 **(a)** Access to Personal Data;
 
@@ -203,11 +203,11 @@ Argus shall assist Customer in responding to Data Subject requests regarding:
 
 ### 8.2 Response Timeline
 
-Argus shall respond to Customer requests for assistance within 10 business days.
+Skopaq shall respond to Customer requests for assistance within 10 business days.
 
 ### 8.3 Direct Requests
 
-If Argus receives a request directly from a Data Subject, Argus shall promptly redirect the request to Customer unless legally prohibited from doing so.
+If Skopaq receives a request directly from a Data Subject, Skopaq shall promptly redirect the request to Customer unless legally prohibited from doing so.
 
 ---
 
@@ -215,11 +215,11 @@ If Argus receives a request directly from a Data Subject, Argus shall promptly r
 
 ### 9.1 Retention Period
 
-Argus shall retain Personal Data only for the duration necessary to provide the Services or as required by applicable law.
+Skopaq shall retain Personal Data only for the duration necessary to provide the Services or as required by applicable law.
 
 ### 9.2 Deletion Upon Termination
 
-Upon termination of Services, Argus shall, at Customer's election:
+Upon termination of Services, Skopaq shall, at Customer's election:
 
 **(a)** Delete all Personal Data within 30 days; or
 
@@ -227,17 +227,17 @@ Upon termination of Services, Argus shall, at Customer's election:
 
 ### 9.3 Certification
 
-Upon request, Argus shall certify in writing that all Personal Data has been deleted in accordance with this Section 9.
+Upon request, Skopaq shall certify in writing that all Personal Data has been deleted in accordance with this Section 9.
 
 ### 9.4 Exceptions
 
-Argus may retain Personal Data where required by applicable law, provided that:
+Skopaq may retain Personal Data where required by applicable law, provided that:
 
-**(a)** Argus notifies Customer of such requirement;
+**(a)** Skopaq notifies Customer of such requirement;
 
 **(b)** Retention is limited to the extent and duration required by law;
 
-**(c)** Argus maintains confidentiality of retained data.
+**(c)** Skopaq maintains confidentiality of retained data.
 
 ---
 
@@ -245,7 +245,7 @@ Argus may retain Personal Data where required by applicable law, provided that:
 
 ### 10.1 Audit Rights
 
-Customer may audit Argus's compliance with this DPA:
+Customer may audit Skopaq's compliance with this DPA:
 
 **(a)** Upon 30 days' written notice;
 
@@ -257,11 +257,11 @@ Customer may audit Argus's compliance with this DPA:
 
 ### 10.2 Third-Party Audits
 
-Argus shall make available SOC 2 Type II reports and other relevant certifications upon request.
+Skopaq shall make available SOC 2 Type II reports and other relevant certifications upon request.
 
 ### 10.3 Audit Costs
 
-Customer shall bear its own costs of conducting audits. Argus shall bear costs of providing audit access and documentation.
+Customer shall bear its own costs of conducting audits. Skopaq shall bear costs of providing audit access and documentation.
 
 ---
 
@@ -326,7 +326,7 @@ Title: _______________________
 Date: _______________________
 
 
-**Data Processor (Argus / Raphael Enterprises AI, Inc.)**
+**Data Processor (Skopaq / Raphael Enterprises AI, Inc.)**
 
 Signature: _______________________
 
@@ -352,7 +352,7 @@ Date: _______________________
 
 ## A.2 Categories of Data Subjects
 
-- Customer employees using the Argus platform
+- Customer employees using the Skopaq platform
 - End users of Customer applications (when captured in test recordings)
 
 ## A.3 Types of Personal Data
@@ -367,7 +367,7 @@ Date: _______________________
 
 ## A.4 Special Categories of Data
 
-Argus does not intentionally process special categories of data (health, biometric, etc.). Customer is responsible for ensuring test scenarios do not capture such data.
+Skopaq does not intentionally process special categories of data (health, biometric, etc.). Customer is responsible for ensuring test scenarios do not capture such data.
 
 ## A.5 Processing Duration
 
@@ -521,9 +521,9 @@ Customer controls all data storage locations. Recommended configurations:
 
 ## E.3 Air-Gap Data Isolation Guarantee
 
-For air-gap deployments, Argus contractually guarantees:
+For air-gap deployments, Skopaq contractually guarantees:
 
-1. Zero external network calls from Argus components
+1. Zero external network calls from Skopaq components
 2. All data processed and stored within Customer infrastructure
 3. No telemetry, analytics, or license validation calls
 4. No sub-processor involvement

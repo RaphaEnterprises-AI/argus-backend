@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Argus Enterprise running in 15 minutes.
+Get Skopaq Enterprise running in 15 minutes.
 
 ## Option 1: Helm (Recommended for Production)
 
@@ -14,18 +14,18 @@ kubectl cluster-info
 helm version
 ```
 
-### Install Argus
+### Install Skopaq
 
 ```bash
-# Add the Argus Helm repository
-helm repo add argus https://charts.heyargus.ai
+# Add the Skopaq Helm repository
+helm repo add argus https://charts.skopaq.ai
 helm repo update
 
 # Create namespace
 kubectl create namespace argus
 
 # Install with default values
-helm install argus argus/argus-enterprise \
+helm install argus argus/skopaq-enterprise \
   --namespace argus \
   --set brain.secrets.anthropicApiKey=sk-ant-xxx
 ```
@@ -67,11 +67,11 @@ docker compose version
 
 ```bash
 # Clone the repository
-git clone https://github.com/raphaenterprises-ai/argus-e2e-testing-agent.git
-cd argus-e2e-testing-agent
+git clone https://github.com/raphaenterprises-ai/skopaq-e2e-testing-agent.git
+cd skopaq-e2e-testing-agent
 
 # Start MCP Server with all dependencies
-cd argus-mcp-server/standalone
+cd skopaq-mcp-server/standalone
 docker compose up -d
 ```
 
@@ -124,7 +124,7 @@ Add to your MCP settings:
 In your AI assistant, ask:
 
 ```
-What Argus tools are available?
+What Skopaq tools are available?
 ```
 
 You should see a list of 73+ MCP tools for test management.

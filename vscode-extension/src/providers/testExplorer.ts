@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ArgusClient, ArgusTest } from "../api/client";
+import { SkopaqClient, SkopaqTest } from "../api/client";
 
 export class TestExplorerProvider
   implements vscode.TreeDataProvider<TestItem>
@@ -9,9 +9,9 @@ export class TestExplorerProvider
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private tests: ArgusTest[] = [];
+  private tests: SkopaqTest[] = [];
 
-  constructor(private readonly client: ArgusClient) {}
+  constructor(private readonly client: SkopaqClient) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire();
@@ -45,7 +45,7 @@ export class TestExplorerProvider
     if (!this.client.getApiKey()) {
       return [
         new TestItem(
-          'Run "Argus: Login" to see tests',
+          'Run "Skopaq: Login" to see tests',
           "none",
           "info",
           vscode.TreeItemCollapsibleState.None

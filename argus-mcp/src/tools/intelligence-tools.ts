@@ -1,16 +1,16 @@
 import { z } from "zod";
-import type { ArgusClient } from "../argus-client.js";
+import type { SkopaqClient } from "../argus-client.js";
 import type { ToolDef } from "../server.js";
 
 const NO_KEY_MSG =
   "Configure ARGUS_API_KEY to enable AI features. Set it in your MCP server env config.";
 
-export function intelligenceTools(client: ArgusClient): ToolDef[] {
+export function intelligenceTools(client: SkopaqClient): ToolDef[] {
   return [
     {
       name: "argus_heal",
       description:
-        "Get AI-powered healing suggestions for a broken test selector or assertion. Requires Argus API key.",
+        "Get AI-powered healing suggestions for a broken test selector or assertion. Requires Skopaq API key.",
       inputSchema: z.object({
         orgId: z.string().describe("Organization ID"),
         errorType: z
@@ -48,7 +48,7 @@ export function intelligenceTools(client: ArgusClient): ToolDef[] {
     {
       name: "argus_generate_test",
       description:
-        "AI-generate a test from a natural language description or page context. Requires Argus API key.",
+        "AI-generate a test from a natural language description or page context. Requires Skopaq API key.",
       inputSchema: z.object({
         projectId: z.string().describe("Project ID"),
         description: z
@@ -77,7 +77,7 @@ export function intelligenceTools(client: ArgusClient): ToolDef[] {
     {
       name: "argus_quality_score",
       description:
-        "Get the AI-computed quality score for a project. Includes test coverage, flakiness, and reliability metrics. Requires Argus API key.",
+        "Get the AI-computed quality score for a project. Includes test coverage, flakiness, and reliability metrics. Requires Skopaq API key.",
       inputSchema: z.object({
         projectId: z.string().describe("Project ID"),
       }),
@@ -92,7 +92,7 @@ export function intelligenceTools(client: ArgusClient): ToolDef[] {
     {
       name: "argus_similar_failures",
       description:
-        "Find similar past test failures using semantic search. Helps understand if a failure is known and how it was fixed before. Requires Argus API key.",
+        "Find similar past test failures using semantic search. Helps understand if a failure is known and how it was fixed before. Requires Skopaq API key.",
       inputSchema: z.object({
         orgId: z.string().describe("Organization ID"),
         errorMessage: z
@@ -118,7 +118,7 @@ export function intelligenceTools(client: ArgusClient): ToolDef[] {
     {
       name: "argus_ask",
       description:
-        "Ask Argus AI about testing strategy, best practices, or how to test a specific feature. Requires Argus API key.",
+        "Ask Skopaq AI about testing strategy, best practices, or how to test a specific feature. Requires Skopaq API key.",
       inputSchema: z.object({
         message: z.string().describe("Your question about testing"),
         projectId: z
@@ -143,7 +143,7 @@ export function intelligenceTools(client: ArgusClient): ToolDef[] {
     {
       name: "argus_report",
       description:
-        "Generate a test report for a project or test run. Requires Argus API key.",
+        "Generate a test report for a project or test run. Requires Skopaq API key.",
       inputSchema: z.object({
         projectId: z.string().describe("Project ID"),
         reportType: z
