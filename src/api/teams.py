@@ -102,11 +102,11 @@ class MemberResponse(BaseModel):
     """Organization member response."""
     id: str
     user_id: str
-    email: str
+    email: str | None = None
     role: str
     status: str
-    invited_at: str | None
-    accepted_at: str | None
+    invited_at: str | None = None
+    accepted_at: str | None = None
     created_at: str
 
 
@@ -436,11 +436,11 @@ async def list_organizations(request: Request):
 
     # Get member counts
     result = []
-    for org in orgs.get("data", []):
+    for org in orgs.get("data") or []:
         members = await supabase.request(
             f"/organization_members?organization_id=eq.{org['id']}&status=eq.active&select=id"
         )
-        member_count = len(members.get("data", []))
+        member_count = len(members.get("data") or [])
 
         result.append(OrganizationResponse(
             id=org["id"],
@@ -580,7 +580,7 @@ async def get_organization(org_id: str, request: Request):
         ai_spend_today=float(org_data.get("ai_spend_today", 0)),
         ai_spend_this_month=float(org_data.get("ai_spend_this_month", 0)),
         features=org_data.get("features", {}),
-        member_count=len(members.get("data", [])),
+        member_count=len(members.get("data") or []),
         created_at=safe_datetime(org_data.get("created_at")),
     )
 
@@ -664,7 +664,7 @@ async def list_members(org_id: str, request: Request):
             accepted_at=m.get("accepted_at"),
             created_at=safe_datetime(m.get("created_at")),
         )
-        for m in members.get("data", [])
+        for m in members.get("data") or []
     ]
 
 

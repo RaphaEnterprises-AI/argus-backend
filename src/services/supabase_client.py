@@ -65,9 +65,11 @@ class SupabaseClient:
 
         Returns:
             {"data": ..., "error": ...}
+            On error, data is [] (not None) so callers can safely
+            iterate or call len() without None checks.
         """
         if not self.is_configured:
-            return {"data": None, "error": "Supabase not configured"}
+            return {"data": [], "error": "Supabase not configured"}
 
         client = await self._get_client()
 
@@ -93,14 +95,14 @@ class SupabaseClient:
                     status=response.status_code,
                     error=error_text,
                 )
-                return {"data": None, "error": error_text}
+                return {"data": [], "error": error_text}
 
-            data = response.json() if response.text else None
+            data = response.json() if response.text else []
             return {"data": data, "error": None}
 
         except Exception as e:
             logger.exception("Supabase request error", path=path, error=str(e))
-            return {"data": None, "error": str(e)}
+            return {"data": [], "error": str(e)}
 
     # Convenience methods
     async def insert(self, table: str, data: dict) -> dict[str, Any]:

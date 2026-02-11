@@ -75,7 +75,7 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
             columns="id, schedule_id, started_at",
             filters={
                 "status": "eq.running",
-                "started_at": f"lt.{cutoff_time.isoformat()}",
+                "started_at": f"lt.{cutoff_time.isoformat().replace('+00:00', 'Z')}",
             },
         )
     except Exception as e:
@@ -103,7 +103,7 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
             "schedule_runs",
             {
                 "status": "timeout",
-                "completed_at": datetime.now(UTC).isoformat(),
+                "completed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 "error_message": f"Run exceeded maximum duration ({max_running_minutes} minutes). Marked as timeout by cleanup job.",
                 "ai_analysis": {
                     "category": "environment",
