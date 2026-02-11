@@ -2542,14 +2542,33 @@ async def abort_supervisor_run(thread_id: str, reason: str = "Aborted by user"):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler."""
+    """Global exception handler with CORS headers.
+
+    CORS headers are added here because when exceptions are wrapped in
+    ExceptionGroup (by anyio's TaskGroup inside BaseHTTPMiddleware), they
+    can escape the CORSMiddleware and be caught by ServerErrorMiddleware
+    instead, resulting in 500 responses without CORS headers.
+    """
     logger.exception("Unhandled exception", error=str(exc), path=request.url.path)
+
+    # Build CORS headers so browsers see the 500 instead of a CORS error
+    cors_headers: dict[str, str] = {}
+    origin = request.headers.get("origin", "")
+    if origin:
+        allowed = settings.cors_allowed_origins
+        if "*" in allowed or origin in allowed:
+            cors_headers = {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Credentials": "true",
+            }
+
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
             "detail": str(exc) if os.getenv("DEBUG") else "An error occurred",
         },
+        headers=cors_headers,
     )
 
 

@@ -1266,7 +1266,7 @@ async def get_account_activity(request: Request):
     api_keys_result = await supabase.request(
         f"/api_keys?user_id=eq.{user['user_id']}&is_active=eq.true&select=id"
     )
-    api_keys_count = len((api_keys_result or {}).get("data", []))
+    api_keys_count = len((api_keys_result or {}).get("data") or [])
 
     # Get API requests in last 30 days (from ai_usage_logs if available)
     # This is a simplified count - in production you'd query a proper usage table
@@ -1277,7 +1277,7 @@ async def get_account_activity(request: Request):
             f"&created_at=gte.{(datetime.now(UTC).replace(day=1)).isoformat().replace('+00:00', 'Z')}"
             f"&select=id"
         )
-        api_requests_30d = len((usage_result or {}).get("data", []))
+        api_requests_30d = len((usage_result or {}).get("data") or [])
     except Exception:
         # Table might not exist, that's okay
         pass
