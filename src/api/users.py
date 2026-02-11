@@ -1371,3 +1371,330 @@ async def get_connected_accounts(request: Request):
         api_keys_active=api_keys_active,
         api_keys_total=api_keys_total,
     )
+
+
+# ============================================================================
+# Account Deletion (GitHub Issue #17)
+# ============================================================================
+
+class DeleteAccountRequest(BaseModel):
+    """Confirmation for account deletion."""
+    confirm_email: str = Field(..., description="User must type their email to confirm")
+
+
+class DeleteAccountResponse(BaseModel):
+    """Response for account deletion."""
+    success: bool
+    message: str
+    memberships_deactivated: int
+    api_keys_revoked: int
+    personal_orgs_deleted: int
+
+
+@router.delete("/me", response_model=DeleteAccountResponse)
+async def delete_account(body: DeleteAccountRequest, request: Request):
+    """Delete the current user's account.
+
+    This performs a soft-delete:
+    - Deactivates all organization memberships
+    - Revokes all API keys
+    - Deletes personal organizations where user is sole owner
+    - Anonymizes the user profile (GDPR compliant)
+
+    Requires the user to confirm by typing their email address.
+    Blocks if the user is the sole owner of any non-personal team organization.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    profile = await get_or_create_profile(user_id, user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Verify email confirmation (case insensitive)
+    user_email = profile.get("email") or user.get("email")
+    if user_email and body.confirm_email.lower() != user_email.lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation email does not match your account email"
+        )
+
+    # Block if user owns non-personal team organizations
+    owned_orgs_result = await supabase.request(
+        f"/organization_members?user_id=eq.{user_id}&role=eq.owner&status=eq.active"
+        f"&select=organization_id,organizations!inner(id,name,is_personal)"
+    )
+    owned_orgs = (owned_orgs_result or {}).get("data", []) or []
+    team_orgs = [
+        m["organizations"]["name"]
+        for m in owned_orgs
+        if m.get("organizations") and not m["organizations"].get("is_personal", False)
+    ]
+    if team_orgs:
+        org_names = ", ".join(team_orgs)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Must transfer ownership of team organizations before deleting account: {org_names}"
+        )
+
+    # Deactivate all memberships
+    memberships_result = await supabase.request(
+        f"/organization_members?user_id=eq.{user_id}&status=eq.active",
+        method="PATCH",
+        json={"status": "inactive"},
+    )
+    memberships_deactivated = len((memberships_result or {}).get("data", []) or [])
+
+    # Revoke all API keys
+    api_keys_result = await supabase.request(
+        f"/api_keys?user_id=eq.{user_id}&is_active=eq.true",
+        method="PATCH",
+        json={"is_active": False},
+    )
+    api_keys_revoked = len((api_keys_result or {}).get("data", []) or [])
+
+    # Delete personal orgs where user was sole owner
+    personal_orgs_deleted = 0
+    personal_orgs = [
+        m["organizations"]
+        for m in owned_orgs
+        if m.get("organizations") and m["organizations"].get("is_personal", False)
+    ]
+    for org in personal_orgs:
+        # Delete membership records for this org
+        await supabase.request(
+            f"/organization_members?organization_id=eq.{org['id']}",
+            method="DELETE",
+        )
+        # Delete the organization
+        await supabase.request(
+            f"/organizations?id=eq.{org['id']}",
+            method="DELETE",
+        )
+        personal_orgs_deleted += 1
+
+    # Anonymize profile
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    await supabase.update(
+        "user_profiles",
+        {"id": f"eq.{profile['id']}"},
+        {
+            "email": f"deleted_{user_id[:8]}@redacted.local",
+            "display_name": None,
+            "avatar_url": None,
+            "bio": None,
+            "phone": None,
+            "github_username": None,
+            "linkedin_url": None,
+            "twitter_handle": None,
+            "website_url": None,
+            "deleted_at": now,
+            "updated_at": now,
+        }
+    )
+
+    # Clear provisioning cache
+    from src.api.security.middleware import _provisioned_users
+    _provisioned_users.discard(user_id)
+
+    logger.info(
+        "Account deleted (soft)",
+        user_id=user_id,
+        memberships_deactivated=memberships_deactivated,
+        api_keys_revoked=api_keys_revoked,
+        personal_orgs_deleted=personal_orgs_deleted,
+    )
+
+    return DeleteAccountResponse(
+        success=True,
+        message="Account has been deleted. All data has been anonymized.",
+        memberships_deactivated=memberships_deactivated,
+        api_keys_revoked=api_keys_revoked,
+        personal_orgs_deleted=personal_orgs_deleted,
+    )
+
+
+# ============================================================================
+# Leave Organization (GitHub Issue #18)
+# ============================================================================
+
+class LeaveOrganizationResponse(BaseModel):
+    """Response for leaving an organization."""
+    success: bool
+    message: str
+    new_default_org_id: str | None = None
+
+
+@router.post("/me/organizations/{org_id}/leave", response_model=LeaveOrganizationResponse)
+async def leave_organization(org_id: str, request: Request):
+    """Leave an organization.
+
+    The user's membership record is deleted. If the user is the sole owner,
+    they must transfer ownership first. If the organization was the user's
+    default, a new default is selected automatically.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    profile = await get_or_create_profile(user_id, user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Find user's membership in this org (by user_id)
+    membership_result = await supabase.request(
+        f"/organization_members?organization_id=eq.{org_id}&user_id=eq.{user_id}&status=eq.active&select=id,role"
+    )
+    membership_data = (membership_result or {}).get("data", []) or []
+
+    # Also check by email if not found by user_id
+    if not membership_data and user.get("email"):
+        membership_result = await supabase.request(
+            f"/organization_members?organization_id=eq.{org_id}&email=eq.{user['email']}&status=eq.active&select=id,role"
+        )
+        membership_data = (membership_result or {}).get("data", []) or []
+
+    if not membership_data:
+        raise HTTPException(status_code=404, detail="You are not a member of this organization")
+
+    member = membership_data[0]
+
+    # If user is owner, check if there are other owners
+    if member["role"] == "owner":
+        owners_result = await supabase.request(
+            f"/organization_members?organization_id=eq.{org_id}&role=eq.owner&status=eq.active&select=id"
+        )
+        owners = (owners_result or {}).get("data", []) or []
+        if len(owners) <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Must transfer ownership before leaving. Use POST /api/v1/organizations/{org_id}/transfer"
+            )
+
+    # Delete the membership record (matches remove_member pattern)
+    await supabase.request(
+        f"/organization_members?id=eq.{member['id']}",
+        method="DELETE",
+    )
+
+    # Handle default org switch
+    new_default_org_id = None
+    if profile.get("default_organization_id") == org_id:
+        # Find another active membership's org
+        other_memberships = await supabase.request(
+            f"/organization_members?user_id=eq.{user_id}&status=eq.active&select=organization_id"
+        )
+        other_orgs = (other_memberships or {}).get("data", []) or []
+
+        if other_orgs:
+            new_default_org_id = other_orgs[0]["organization_id"]
+        else:
+            # No other orgs — auto-create personal org
+            personal_org = await _create_personal_organization(
+                user_id=user_id,
+                user_email=user.get("email"),
+            )
+            if personal_org:
+                new_default_org_id = personal_org.id
+
+        # Update profile with new default org
+        await supabase.update(
+            "user_profiles",
+            {"id": f"eq.{profile['id']}"},
+            {
+                "default_organization_id": new_default_org_id,
+                "updated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            }
+        )
+
+    # Audit log
+    from src.api.teams import log_audit
+    await log_audit(
+        organization_id=org_id,
+        user_id=user_id,
+        user_email=user.get("email", ""),
+        action="member.self_leave",
+        resource_type="member",
+        resource_id=member["id"],
+        description=f"User left organization",
+        metadata={"role": member["role"]},
+        request=request,
+    )
+
+    logger.info("User left organization", user_id=user_id, org_id=org_id)
+
+    return LeaveOrganizationResponse(
+        success=True,
+        message="Successfully left the organization",
+        new_default_org_id=new_default_org_id,
+    )
+
+
+# ============================================================================
+# Data Export — GDPR (GitHub Issue #21)
+# ============================================================================
+
+class DataExportResponse(BaseModel):
+    """GDPR data export response."""
+    exported_at: str
+    user_profile: dict
+    organizations: list[dict]
+    memberships: list[dict]
+    api_keys: list[dict]
+    audit_logs: list[dict]
+
+
+@router.get("/me/export", response_model=DataExportResponse)
+async def export_my_data(request: Request):
+    """Export all user data (GDPR compliance).
+
+    Returns a complete dump of the user's data including profile,
+    organization memberships, API keys (without secret hashes),
+    and recent audit logs (up to 1000 entries).
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    profile = await get_or_create_profile(user_id, user.get("email"))
+
+    supabase = get_supabase_client()
+
+    # Get memberships
+    memberships_result = await supabase.request(
+        f"/organization_members?user_id=eq.{user_id}&select=*"
+    )
+    memberships = (memberships_result or {}).get("data", []) or []
+
+    # Get organizations (batch query)
+    organizations = []
+    org_ids = list({m["organization_id"] for m in memberships if m.get("organization_id")})
+    if org_ids:
+        orgs_result = await supabase.request(
+            f"/organizations?id=in.({','.join(org_ids)})&select=*"
+        )
+        organizations = (orgs_result or {}).get("data", []) or []
+
+    # Get API keys (exclude actual key hashes for security)
+    api_keys_result = await supabase.request(
+        f"/api_keys?user_id=eq.{user_id}&select=id,name,prefix,is_active,created_at,last_used_at"
+    )
+    api_keys = (api_keys_result or {}).get("data", []) or []
+
+    # Get audit logs (most recent 1000)
+    audit_logs = []
+    try:
+        audit_result = await supabase.request(
+            f"/audit_logs?user_id=eq.{user_id}&select=*&order=created_at.desc&limit=1000"
+        )
+        audit_logs = (audit_result or {}).get("data", []) or []
+    except Exception:
+        # Table might not exist or user has no logs
+        pass
+
+    return DataExportResponse(
+        exported_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        user_profile=profile,
+        organizations=organizations,
+        memberships=memberships,
+        api_keys=api_keys,
+        audit_logs=audit_logs,
+    )

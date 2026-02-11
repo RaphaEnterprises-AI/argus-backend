@@ -234,7 +234,12 @@ async def get_ai_preferences(request: Request):
     user = await get_current_user(request)
     profile = await get_or_create_profile(user["user_id"], user.get("email"))
 
-    prefs = profile.get("ai_preferences") or get_default_ai_preferences()
+    # Merge stored prefs over defaults so that:
+    #  - Missing keys (schema evolution) get default values
+    #  - Stored null values are replaced by defaults
+    defaults = get_default_ai_preferences()
+    stored = profile.get("ai_preferences") or {}
+    prefs = {**defaults, **{k: v for k, v in stored.items() if v is not None}}
 
     return AIPreferences(**prefs)
 

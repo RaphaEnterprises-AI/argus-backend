@@ -70,6 +70,7 @@ dependencies = [
     # Cross-encoder reranking moved to optional - saves ~2GB (PyTorch)
     # Security / JWT
     "PyJWT[crypto]>=2.8.0",  # JWT with RS256 support for Clerk
+    "svix>=1.8.0",  # Clerk webhook signature verification
     # Error Monitoring
     "sentry-sdk[fastapi]>=2.0.0",  # Sentry for error tracking and performance monitoring
     "defusedxml>=0.7.1",
