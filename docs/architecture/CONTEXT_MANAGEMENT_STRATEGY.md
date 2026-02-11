@@ -226,7 +226,7 @@ class TestingState(TypedDict):
 
 ---
 
-## Recommended Architecture for Argus
+## Recommended Architecture for Skopaq
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -335,7 +335,7 @@ async def generate_ai_sdk_stream():
 | Hierarchical Memory | High | Very High | Enterprise |
 | Tool-Specific State | Medium | High | Complex agents |
 
-**For Argus, implement in this order:**
+**For Skopaq, implement in this order:**
 1. ✅ Message pruning (done)
 2. 🔜 Artifact store (next)
 3. 📅 Hierarchical memory (future)

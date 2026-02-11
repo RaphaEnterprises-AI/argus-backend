@@ -128,7 +128,7 @@ spec:
     app: prometheus
 ---
 # LoadBalancer for external access to Prometheus
-# DNS: prometheus.heyargus.ai (to be configured)
+# DNS: prometheus.skopaq.ai (to be configured)
 apiVersion: v1
 kind: Service
 metadata:

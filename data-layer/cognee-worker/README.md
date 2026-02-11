@@ -127,14 +127,14 @@ python src/worker.py
 
 ```bash
 # Build image
-docker build -t ghcr.io/heyargus/cognee-worker:latest .
+docker build -t ghcr.io/skopaq/cognee-worker:latest .
 
 # Run container
 docker run -e KAFKA_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
            -e KAFKA_SASL_PASSWORD=secret \
            -e FALKORDB_PASSWORD=secret \
            -e VALKEY_PASSWORD=secret \
-           ghcr.io/heyargus/cognee-worker:latest
+           ghcr.io/skopaq/cognee-worker:latest
 ```
 
 ## Kubernetes Deployment

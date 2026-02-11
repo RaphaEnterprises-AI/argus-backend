@@ -471,7 +471,7 @@ async function startRecording(tabId, options = {}) {
 }
 
 /**
- * Stop recording and upload to Argus backend.
+ * Stop recording and upload to Skopaq backend.
  */
 async function stopRecordingAndUpload(projectId) {
   try {
@@ -491,7 +491,7 @@ async function stopRecordingAndUpload(projectId) {
 
     // Upload to backend
     const settings = await getSettings();
-    const brainUrl = settings.brainUrl || 'https://argus-brain-production.up.railway.app';
+    const brainUrl = settings.brainUrl || 'https://skopaq-brain-production.up.railway.app';
 
     const uploadPayload = {
       project_id: projectId,
@@ -536,7 +536,7 @@ async function stopRecordingAndUpload(projectId) {
 // =========================================================================
 
 /**
- * Ask the Argus healing API for alternative selectors when findElement fails.
+ * Ask the Skopaq healing API for alternative selectors when findElement fails.
  * Returns an array of {selector, confidence} alternatives.
  */
 async function requestHealing(failedSelector, pageUrl) {
@@ -544,7 +544,7 @@ async function requestHealing(failedSelector, pageUrl) {
     const settings = await getSettings();
     if (!settings.apiKey) return { success: false, error: 'No API key configured' };
 
-    const brainUrl = settings.brainUrl || 'https://argus-brain-production.up.railway.app';
+    const brainUrl = settings.brainUrl || 'https://skopaq-brain-production.up.railway.app';
 
     // Use the stored org_id from settings (set via options page)
     const orgId = settings.orgId;
@@ -597,7 +597,7 @@ async function compareScreenshot(baselineId, options = {}) {
     const settings = await getSettings();
     if (!settings.apiKey) return { success: false, error: 'No API key configured' };
 
-    const brainUrl = settings.brainUrl || 'https://argus-brain-production.up.railway.app';
+    const brainUrl = settings.brainUrl || 'https://skopaq-brain-production.up.railway.app';
 
     // Capture the current tab screenshot
     const screenshotResult = await captureScreenshot(null, { format: 'png', quality: 100 });
@@ -637,11 +637,11 @@ async function compareScreenshot(baselineId, options = {}) {
 }
 
 // =========================================================================
-// Event Feed - Send console/network errors to Argus backend
+// Event Feed - Send console/network errors to Skopaq backend
 // =========================================================================
 
 /**
- * Send an error event to the Argus backend Event Gateway.
+ * Send an error event to the Skopaq backend Event Gateway.
  * Feeds into the AI learning loop via Kafka.
  */
 async function sendEventToBackend(eventType, eventData) {
@@ -653,7 +653,7 @@ async function sendEventToBackend(eventType, eventData) {
     if (eventType === 'network_error' && !settings.feedNetworkErrors) return;
     if (!settings.apiKey) return; // Need auth for event gateway
 
-    const brainUrl = settings.brainUrl || 'https://argus-brain-production.up.railway.app';
+    const brainUrl = settings.brainUrl || 'https://skopaq-brain-production.up.railway.app';
 
     await fetch(`${brainUrl}/events/test.failed`, {
       method: 'POST',

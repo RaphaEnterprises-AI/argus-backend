@@ -2,10 +2,10 @@
 # Routes external traffic to internal monitoring services via secure tunnel
 #
 # This ConfigMap defines the tunnel routing rules for:
-#   - prometheus-internal.heyargus.ai -> Prometheus (port 9090)
-#   - grafana-internal.heyargus.ai -> Grafana (port 80)
-#   - alertmanager-internal.heyargus.ai -> AlertManager (port 9093)
-#   - langfuse-internal.heyargus.ai -> Langfuse (port 3000)
+#   - prometheus-internal.skopaq.ai -> Prometheus (port 9090)
+#   - grafana-internal.skopaq.ai -> Grafana (port 80)
+#   - alertmanager-internal.skopaq.ai -> AlertManager (port 9093)
+#   - langfuse-internal.skopaq.ai -> Langfuse (port 3000)
 #
 # Prerequisites (see cloudflare-tunnel.yaml for full setup):
 #   1. Tunnel must be created: cloudflared tunnel create argus-monitoring
@@ -14,10 +14,10 @@
 #        --from-file=credentials.json=/path/to/tunnel-credentials.json \
 #        --namespace=monitoring
 #   3. DNS routes must be configured in Cloudflare:
-#      cloudflared tunnel route dns argus-monitoring prometheus-internal.heyargus.ai
-#      cloudflared tunnel route dns argus-monitoring grafana-internal.heyargus.ai
-#      cloudflared tunnel route dns argus-monitoring alertmanager-internal.heyargus.ai
-#      cloudflared tunnel route dns argus-monitoring langfuse-internal.heyargus.ai
+#      cloudflared tunnel route dns argus-monitoring prometheus-internal.skopaq.ai
+#      cloudflared tunnel route dns argus-monitoring grafana-internal.skopaq.ai
+#      cloudflared tunnel route dns argus-monitoring alertmanager-internal.skopaq.ai
+#      cloudflared tunnel route dns argus-monitoring langfuse-internal.skopaq.ai
 #
 # Security Notes:
 #   - All traffic is encrypted end-to-end via Cloudflare Tunnel
@@ -68,7 +68,7 @@ data:
       # ==========================================================
       # Prometheus - Metrics storage and alerting queries
       # ==========================================================
-      - hostname: prometheus-internal.heyargus.ai
+      - hostname: prometheus-internal.skopaq.ai
         service: http://monitoring-prometheus.monitoring.svc.cluster.local:9090
         originRequest:
           # Disable TLS verification (internal HTTP service)
@@ -86,7 +86,7 @@ data:
       # ==========================================================
       # Grafana - Dashboards and visualization
       # ==========================================================
-      - hostname: grafana-internal.heyargus.ai
+      - hostname: grafana-internal.skopaq.ai
         service: http://monitoring-grafana.monitoring.svc.cluster.local:80
         originRequest:
           noTLSVerify: true
@@ -101,7 +101,7 @@ data:
       # ==========================================================
       # AlertManager - Alert management, silencing, and routing
       # ==========================================================
-      - hostname: alertmanager-internal.heyargus.ai
+      - hostname: alertmanager-internal.skopaq.ai
         service: http://monitoring-alertmanager.monitoring.svc.cluster.local:9093
         originRequest:
           noTLSVerify: true
@@ -114,7 +114,7 @@ data:
       # ==========================================================
       # Langfuse - LLM Observability (traces, sessions, prompts)
       # ==========================================================
-      - hostname: langfuse-internal.heyargus.ai
+      - hostname: langfuse-internal.skopaq.ai
         service: http://langfuse-web.monitoring.svc.cluster.local:3000
         originRequest:
           noTLSVerify: true

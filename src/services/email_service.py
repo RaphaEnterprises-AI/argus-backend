@@ -101,7 +101,7 @@ class ResendEmailProvider(EmailProvider):
         }
 
         # Format the from field
-        from_field = from_email or "noreply@heyargus.ai"
+        from_field = from_email or "noreply@skopaq.ai"
         if from_name:
             from_field = f"{from_name} <{from_field}>"
 
@@ -181,7 +181,7 @@ class SendGridEmailProvider(EmailProvider):
         payload = {
             "personalizations": [{"to": [{"email": to}]}],
             "from": {
-                "email": from_email or "noreply@heyargus.ai",
+                "email": from_email or "noreply@skopaq.ai",
                 "name": from_name or "Argus",
             },
             "subject": subject,
@@ -258,7 +258,7 @@ class SMTPEmailProvider(EmailProvider):
         from_email: str | None = None,
         from_name: str | None = None,
     ) -> bool:
-        sender = from_email or "noreply@heyargus.ai"
+        sender = from_email or "noreply@skopaq.ai"
         if from_name:
             sender_display = f"{from_name} <{sender}>"
         else:
@@ -320,7 +320,7 @@ class EmailService:
                      from environment variables.
         """
         self.provider = provider or self._get_provider()
-        self.from_email = os.getenv("EMAIL_FROM", "noreply@heyargus.ai")
+        self.from_email = os.getenv("EMAIL_FROM", "noreply@skopaq.ai")
         self.from_name = os.getenv("EMAIL_FROM_NAME", "Argus")
 
     def _get_provider(self) -> EmailProvider:

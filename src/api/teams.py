@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 
 from src.api.middleware.tenant import validate_uuid, validate_uuid_optional
@@ -406,9 +407,12 @@ async def log_audit(
 # Organization Endpoints
 # ============================================================================
 
-@router.get("/organizations", response_model=list[OrganizationResponse])
+@router.get("/organizations", response_model=list[OrganizationResponse], deprecated=True)
 async def list_organizations(request: Request):
-    """List all organizations the current user belongs to."""
+    """List all organizations the current user belongs to.
+
+    **Deprecated**: Use `GET /api/v1/organizations/` instead.
+    """
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -455,9 +459,12 @@ async def list_organizations(request: Request):
     return result
 
 
-@router.post("/organizations", response_model=OrganizationResponse)
+@router.post("/organizations", response_model=OrganizationResponse, deprecated=True)
 async def create_organization(body: CreateOrganizationRequest, request: Request):
-    """Create a new organization."""
+    """Create a new organization.
+
+    **Deprecated**: Use `POST /api/v1/organizations/` instead.
+    """
     user = await get_current_user(request)
     supabase = get_supabase_client()
 
@@ -537,9 +544,12 @@ async def create_organization(body: CreateOrganizationRequest, request: Request)
     )
 
 
-@router.get("/organizations/{org_id}", response_model=OrganizationResponse)
+@router.get("/organizations/{org_id}", response_model=OrganizationResponse, deprecated=True)
 async def get_organization(org_id: str, request: Request):
-    """Get organization details."""
+    """Get organization details.
+
+    **Deprecated**: Use `GET /api/v1/organizations/{org_id}` instead.
+    """
     # RAP-292: UUID Validation
     validate_org_id(org_id)
 
@@ -575,9 +585,12 @@ async def get_organization(org_id: str, request: Request):
     )
 
 
-@router.patch("/organizations/{org_id}", response_model=OrganizationResponse)
+@router.patch("/organizations/{org_id}", response_model=OrganizationResponse, deprecated=True)
 async def update_organization(org_id: str, body: UpdateOrganizationRequest, request: Request):
-    """Update organization settings (admin/owner only)."""
+    """Update organization settings (admin/owner only).
+
+    **Deprecated**: Use `PUT /api/v1/organizations/{org_id}` instead.
+    """
     # RAP-292: UUID Validation
     validate_org_id(org_id)
 
@@ -655,9 +668,13 @@ async def list_members(org_id: str, request: Request):
     ]
 
 
-@router.post("/organizations/{org_id}/members/invite", response_model=MemberResponse)
+@router.post("/organizations/{org_id}/members/invite", response_model=MemberResponse, deprecated=True)
 async def invite_member(org_id: str, body: InviteMemberRequest, request: Request):
-    """Invite a new member to the organization (admin/owner only)."""
+    """Invite a new member to the organization (admin/owner only).
+
+    **Deprecated**: Use `POST /api/v1/invitations/organizations/{org_id}/invitations` instead.
+    This endpoint does not send invitation emails.
+    """
     # RAP-292: UUID Validation
     validate_org_id(org_id)
 

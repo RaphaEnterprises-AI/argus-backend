@@ -1,5 +1,5 @@
 /**
- * Argus Storage Utilities
+ * Skopaq Storage Utilities
  * R2-based object storage for screenshots, artifacts, and reports
  */
 
@@ -20,7 +20,7 @@ export const STORAGE_PATHS = {
 /**
  * Storage helper class for Cloudflare R2 operations
  */
-export class ArgusStorage {
+export class SkopaqStorage {
   constructor(private bucket: R2Bucket | null) {}
 
   /**
@@ -466,7 +466,7 @@ export class ArgusStorage {
  */
 export class OrganizationStorage {
   constructor(
-    private storage: ArgusStorage,
+    private storage: SkopaqStorage,
     private organizationId: string
   ) {}
 
@@ -502,6 +502,6 @@ export class OrganizationStorage {
 /**
  * Create storage instance from R2 binding
  */
-export function createStorage(bucket: R2Bucket | null | undefined): ArgusStorage {
-  return new ArgusStorage(bucket || null);
+export function createStorage(bucket: R2Bucket | null | undefined): SkopaqStorage {
+  return new SkopaqStorage(bucket || null);
 }

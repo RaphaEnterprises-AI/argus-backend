@@ -435,7 +435,7 @@ The knowledge graph layer is **fully implemented and operational**. All acceptan
 
 ### Impact
 
-The knowledge graph layer transforms Argus from a test automation tool into an **intelligent test ecosystem analyzer**, capable of understanding complex relationships and providing insights that guide both automated healing and strategic refactoring decisions.
+The knowledge graph layer transforms Skopaq from a test automation tool into an **intelligent test ecosystem analyzer**, capable of understanding complex relationships and providing insights that guide both automated healing and strategic refactoring decisions.
 
 ---
 

@@ -1,6 +1,6 @@
-# Argus Status Page (Uptime Kuma)
+# Skopaq Status Page (Uptime Kuma)
 
-Self-hosted status page for monitoring Argus services.
+Self-hosted status page for monitoring Skopaq services.
 
 ## Deploy to Railway
 
@@ -40,7 +40,7 @@ railway domain
 
 1. In Railway dashboard, go to your deployment
 2. Settings → Domains → Add Custom Domain
-3. Add: `status.heyargus.ai`
+3. Add: `status.skopaq.ai`
 4. Add the CNAME record in Cloudflare:
    - Type: CNAME
    - Name: status
@@ -58,11 +58,11 @@ railway domain
 ### Core Services
 | Name | Type | URL/Host |
 |------|------|----------|
-| Dashboard | HTTP(s) | https://heyargus.ai |
-| Dashboard (www) | HTTP(s) | https://www.heyargus.ai |
-| API Brain | HTTP(s) | https://argus-brain-production.up.railway.app/health |
+| Dashboard | HTTP(s) | https://skopaq.ai |
+| Dashboard (www) | HTTP(s) | https://www.skopaq.ai |
+| API Brain | HTTP(s) | https://skopaq-brain-production.up.railway.app/health |
 | Browser Worker | HTTP(s) | https://argus-api.samuelvinay-kumar.workers.dev |
-| Documentation | HTTP(s) | https://docs.heyargus.ai |
+| Documentation | HTTP(s) | https://docs.skopaq.ai |
 
 ### Database & Infrastructure
 | Name | Type | URL/Host |
@@ -85,9 +85,9 @@ railway domain
 
 1. Go to Status Pages → Add New Status Page
 2. Configure:
-   - Title: Argus Status
+   - Title: Skopaq Status
    - Slug: argus (URL will be /status/argus)
-   - Description: Real-time status of Argus services
+   - Description: Real-time status of Skopaq services
    - Theme: Auto (respects user preference)
    - Show Powered By: Off
 

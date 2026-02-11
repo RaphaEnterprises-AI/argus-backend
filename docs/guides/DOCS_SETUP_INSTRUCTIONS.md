@@ -2,7 +2,7 @@
 
 ## Private Documentation Site on Cloudflare Pages
 
-This guide will help you deploy your private documentation to `docs.heyargus.ai`
+This guide will help you deploy your private documentation to `docs.skopaq.ai`
 
 ---
 
@@ -16,7 +16,7 @@ This guide will help you deploy your private documentation to `docs.heyargus.ai`
 │   GitHub Repo ──► GitHub Actions ──► Cloudflare Pages            │
 │        │                                      │                  │
 │        │                                      ▼                  │
-│   docs-site/           builds MkDocs     docs.heyargus.ai        │
+│   docs-site/           builds MkDocs     docs.skopaq.ai        │
 │   ARGUS_*.md                                  │                  │
 │                                               ▼                  │
 │                                    Cloudflare Access             │
@@ -69,14 +69,14 @@ Your site will be live at: `argus-docs.pages.dev`
 
 ---
 
-## Step 2: Add Custom Domain (docs.heyargus.ai)
+## Step 2: Add Custom Domain (docs.skopaq.ai)
 
 ### 2.1 In Cloudflare Pages
 
 1. Go to your `argus-docs` project
 2. Click **Custom domains**
 3. Click **Set up a custom domain**
-4. Enter: `docs.heyargus.ai`
+4. Enter: `docs.skopaq.ai`
 5. Click **Continue**
 
 ### 2.2 DNS Configuration
@@ -120,7 +120,7 @@ Session duration:   24 hours (or your preference)
 
 Application domain:
   Subdomain: docs
-  Domain:    heyargus.ai
+  Domain:    skopaq.ai
 ```
 
 ### 3.4 Create Access Policy
@@ -205,7 +205,7 @@ Or manually trigger:
 
 ### 5.1 Visit Your Docs
 
-Go to: `https://docs.heyargus.ai`
+Go to: `https://docs.skopaq.ai`
 
 ### 5.2 You Should See
 
@@ -344,7 +344,7 @@ Check that all files referenced in `mkdocs.yml` nav exist in `docs-site/`.
 
 | What | Where |
 |------|-------|
-| Docs URL | `https://docs.heyargus.ai` |
+| Docs URL | `https://docs.skopaq.ai` |
 | Cloudflare Pages | `dash.cloudflare.com` → Workers & Pages |
 | Cloudflare Access | `one.dash.cloudflare.com` → Access |
 | GitHub Workflow | `.github/workflows/deploy-docs.yml` |
@@ -355,7 +355,7 @@ Check that all files referenced in `mkdocs.yml` nav exist in `docs-site/`.
 
 **Setup Complete!**
 
-Your private documentation is now live at `docs.heyargus.ai` - accessible only to you.
+Your private documentation is now live at `docs.skopaq.ai` - accessible only to you.
 
 ---
 

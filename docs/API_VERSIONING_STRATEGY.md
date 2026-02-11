@@ -2,13 +2,13 @@
 
 **Document Version:** 1.0
 **Date:** 2026-01-28
-**Domain:** api.heyargus.ai
+**Domain:** api.skopaq.ai
 
 ---
 
 ## Overview
 
-This document defines when and how to version the Argus API. Our strategy balances stability for existing integrations with the ability to evolve the platform.
+This document defines when and how to version the Skopaq API. Our strategy balances stability for existing integrations with the ability to evolve the platform.
 
 ---
 
@@ -17,8 +17,8 @@ This document defines when and how to version the Argus API. Our strategy balanc
 We use **URL Path Versioning** with **Semantic Versioning** principles:
 
 ```
-https://api.heyargus.ai/api/v1/tests
-https://api.heyargus.ai/api/v2/tests
+https://api.skopaq.ai/api/v1/tests
+https://api.skopaq.ai/api/v2/tests
 ```
 
 ### Version Format
@@ -99,7 +99,7 @@ These are backward-compatible (minor/patch):
 HTTP/1.1 200 OK
 Deprecation: Sun, 01 Jul 2026 00:00:00 GMT
 Sunset: Sun, 01 Oct 2026 00:00:00 GMT
-Link: <https://api.heyargus.ai/docs/migration/v1-to-v2>; rel="deprecation"
+Link: <https://api.skopaq.ai/docs/migration/v1-to-v2>; rel="deprecation"
 X-API-Version: 1.45.2
 X-API-Current-Version: 2.11.3
 ```
@@ -121,7 +121,7 @@ We're releasing API v2 with these improvements:
 **v1 deprecation date:** July 1, 2026
 **v1 sunset date:** October 1, 2026
 
-[Migration Guide →](https://api.heyargus.ai/docs/migration/v1-to-v2)
+[Migration Guide →](https://api.skopaq.ai/docs/migration/v1-to-v2)
 ```
 
 ### Step 2: Parallel Operation (6 months)
@@ -142,7 +142,7 @@ v1 responses include warnings:
   "data": [...],
   "_meta": {
     "deprecation_warning": "API v1 is deprecated. Migrate to v2 by October 1, 2026.",
-    "migration_guide": "https://api.heyargus.ai/docs/migration/v1-to-v2"
+    "migration_guide": "https://api.skopaq.ai/docs/migration/v1-to-v2"
   }
 }
 ```
@@ -162,7 +162,7 @@ v1 returns:
   "error": {
     "code": "VERSION_REMOVED",
     "message": "API v1 has been removed. Please use v2.",
-    "migration_guide": "https://api.heyargus.ai/docs/migration/v1-to-v2"
+    "migration_guide": "https://api.skopaq.ai/docs/migration/v1-to-v2"
   }
 }
 ```
@@ -174,7 +174,7 @@ v1 returns:
 ### URL Structure
 
 ```
-api.heyargus.ai/
+api.skopaq.ai/
 ├── index.html          → Version selector
 ├── v1/
 │   ├── index.html      → v1 docs (deprecated badge)
@@ -191,8 +191,8 @@ api.heyargus.ai/
 ### Version Selector Page
 
 ```html
-<!-- api.heyargus.ai/index.html -->
-<h1>Argus API Documentation</h1>
+<!-- api.skopaq.ai/index.html -->
+<h1>Skopaq API Documentation</h1>
 
 <div class="version-card current">
   <h2>v2 (Current)</h2>
@@ -283,7 +283,7 @@ api.heyargus.ai/
 
 | Version | Status | Base URL | Sunset Date |
 |---------|--------|----------|-------------|
-| **v1** | Current | `https://api.heyargus.ai/api/v1/` | - |
+| **v1** | Current | `https://api.skopaq.ai/api/v1/` | - |
 
 ### Version Headers
 

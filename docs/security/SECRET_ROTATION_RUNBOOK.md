@@ -1,6 +1,6 @@
 # Secret Rotation Runbook
 
-This document provides step-by-step procedures for rotating secrets in the Argus platform.
+This document provides step-by-step procedures for rotating secrets in the Skopaq platform.
 
 ## Table of Contents
 
@@ -329,17 +329,17 @@ After rotating any secret, verify the following:
 ### 1. Health Checks
 ```bash
 # Backend API
-curl https://argus-brain-production.up.railway.app/health
+curl https://skopaq-brain-production.up.railway.app/health
 
 # Data layer
-curl https://argus-brain-production.up.railway.app/api/v1/health/data-layer \
+curl https://skopaq-brain-production.up.railway.app/api/v1/health/data-layer \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ### 2. Authentication Test
 ```bash
 # Test with new API key
-curl https://argus-brain-production.up.railway.app/api/v1/projects \
+curl https://skopaq-brain-production.up.railway.app/api/v1/projects \
   -H "X-API-Key: YOUR_NEW_KEY"
 ```
 

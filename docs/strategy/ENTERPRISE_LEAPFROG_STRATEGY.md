@@ -1,4 +1,4 @@
-# Argus Enterprise Leapfrog Strategy
+# Skopaq Enterprise Leapfrog Strategy
 
 ## How to Beat the Giants (BrowserStack, Testim, Sauce Labs)
 
@@ -23,7 +23,7 @@ Based on research, enterprises care about these **in order of priority**:
 
 ---
 
-## The Argus Advantage: What We Can Do BETTER
+## The Skopaq Advantage: What We Can Do BETTER
 
 ### Our Unique Position
 
@@ -46,7 +46,7 @@ This lets us build **fundamentally better** versions of every enterprise feature
 - 95% accuracy, but still breaks on major refactors
 - No understanding of WHY elements changed
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 CODEBASE-AWARE SELF-HEALING
 
@@ -62,7 +62,7 @@ Example:
 - Test: click('[data-testid="submit-btn"]')
 - Breaks because dev renamed to '[data-testid="checkout-btn"]'
 - Giants: Try 100 DOM heuristics to find button
-- Argus: Read git diff, see rename, update with 100% confidence
+- Skopaq: Read git diff, see rename, update with 100% confidence
 ```
 
 **Implementation**:
@@ -111,7 +111,7 @@ async def code_aware_heal(self, broken_selector: str, page_url: str):
 - "These tests failed last time this file changed"
 - 60-70% accuracy
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 DEPENDENCY-GRAPH IMPACT ANALYSIS
 
@@ -127,7 +127,7 @@ DEPENDENCY-GRAPH IMPACT ANALYSIS
 Example:
 - Dev changes: src/utils/formatPrice.ts
 - Giants: "Run all checkout tests" (guessing)
-- Argus:
+- Skopaq:
   - formatPrice → used by PriceDisplay component
   - PriceDisplay → used in Cart, Checkout, ProductPage
   - Tests affected: cart.spec.ts, checkout.spec.ts, product.spec.ts
@@ -195,7 +195,7 @@ class CodebaseImpactAnalyzer:
 - 90% faster than manual
 - No knowledge of production behavior
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 PRODUCTION-AWARE TEST GENERATION
 
@@ -213,7 +213,7 @@ Generation Strategy:
 
 Example:
 - Sentry: "TypeError in checkout.ts:142" (500 users affected)
-- Argus auto-generates:
+- Skopaq auto-generates:
   1. Reproduction test for the exact error
   2. Boundary tests around that code path
   3. Related tests for similar patterns
@@ -282,7 +282,7 @@ class ProductionAwareTestGenerator:
 - Testim: Screenshot comparison, error aggregation
 - "The button wasn't found" (symptom, not cause)
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 CODE-LEVEL ROOT CAUSE ANALYSIS
 
@@ -296,7 +296,7 @@ When a test fails:
 Example:
 - Test fails: "Element not found: .checkout-btn"
 - Giants: "Button missing" + screenshot
-- Argus:
+- Skopaq:
   - "Button was removed in commit abc123 by @dev"
   - "The commit message says 'Refactor checkout flow'"
   - "New button selector is '.payment-submit'"
@@ -366,7 +366,7 @@ class CodeAwareRCA:
 - Manual priority assignment
 - "Business critical" = guessing
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 DYNAMIC RISK SCORING
 
@@ -392,7 +392,7 @@ Auto-prioritize tests by:
 - Nothing predictive
 - React to failures
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 PREDICT FAILURES BEFORE THEY HAPPEN
 
@@ -417,7 +417,7 @@ Predictions:
 - Quarantine flaky tests
 - Manual investigation
 
-**Argus Advanced Version**:
+**Skopaq Advanced Version**:
 ```
 ROOT CAUSE FLAKINESS ANALYSIS
 
@@ -473,7 +473,7 @@ Output:
 >
 > BrowserStack tests your app. Testim heals your selectors. Sauce Labs runs your tests.
 >
-> **Argus understands your codebase.**
+> **Skopaq understands your codebase.**
 >
 > - Self-healing that reads git commits (not just DOM heuristics)
 > - Test impact analysis from dependency graphs (not probability)
@@ -500,7 +500,7 @@ Output:
 
 ## Summary: The 5 Features That Beat the Giants
 
-| Feature | Giant Version | Argus Version | Advantage |
+| Feature | Giant Version | Skopaq Version | Advantage |
 |---------|--------------|---------------|-----------|
 | **Self-Healing** | DOM heuristics (95%) | Code-aware (99.9%) | Reads git commits |
 | **Test Impact** | Probabilistic (70%) | Deterministic (100%) | Dependency graph |

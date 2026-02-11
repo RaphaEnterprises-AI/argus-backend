@@ -1,4 +1,4 @@
-# Argus Product Strategy 2025
+# Skopaq Product Strategy 2025
 
 ## Full Stack Quality Intelligence Platform
 
@@ -6,11 +6,11 @@
 
 ## Executive Summary
 
-Argus is pivoting from a "Generalist E2E Testing Agent" to an **Autonomous Quality Intelligence Platform** designed for Enterprise Confidence.
+Skopaq is pivoting from a "Generalist E2E Testing Agent" to an **Autonomous Quality Intelligence Platform** designed for Enterprise Confidence.
 We address the #1 blocker to AI adoption in QA: **Trust**.
 
-**The Argus Difference: "Confidence through Control"**
-Unlike "Magic Box" agents that guess at DOM elements, Argus builds trust through:
+**The Skopaq Difference: "Confidence through Control"**
+Unlike "Magic Box" agents that guess at DOM elements, Skopaq builds trust through:
 
 1. **Code-Aware Determinism**: We read the Git History + Source Code to heal tests with 99.9% accuracy (vs 95% DOM guesses).
 2. **3-Zone Architecture**: Strict isolation between Dashboard (Zone 1), AI Agents (Zone 2), and Shared Data (Zone 3) ensures Enterprise Security.
@@ -208,7 +208,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 
 ## Competitive Differentiation
 
-| Capability | Argus | Competitors |
+| Capability | Skopaq | Competitors |
 |------------|-------|-------------|
 | Commit-Time Predictions | ✅ Unique | ❌ None |
 | Full SDLC Correlation | ✅ Built | ❌ Fragmented |
@@ -267,7 +267,7 @@ Connecting data from requirements → code → tests → deploys → incidents f
 ## Appendix: Linear Issue Structure
 
 ```
-Epic: Argus Platform Evolution (Q1 2025)
+Epic: Skopaq Platform Evolution (Q1 2025)
 ├── Phase 1: Foundation Completion
 │   ├── RAP-85: Complete scheduler real execution
 │   ├── RAP-86: Integration hub polish & testing

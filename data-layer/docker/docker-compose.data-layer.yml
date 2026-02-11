@@ -154,7 +154,7 @@ services:
       # BYOK Support (Supabase + Cloudflare Key Vault)
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
-      - CLOUDFLARE_WORKER_URL=${CLOUDFLARE_WORKER_URL:-https://argus-api.heyargus.workers.dev}
+      - CLOUDFLARE_WORKER_URL=${CLOUDFLARE_WORKER_URL:-https://skopaq-api.samuelvinay-kumar.workers.dev}
 
       # Worker Configuration
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}

@@ -24,7 +24,7 @@ This Helm chart deploys:
 
 ```bash
 # Add the Argus Helm repository
-helm repo add argus https://charts.heyargus.ai
+helm repo add argus https://charts.skopaq.ai
 helm repo update
 
 # Install with default values
@@ -235,6 +235,6 @@ kubectl exec deploy/argus-brain -n argus -- \
 
 ## Support
 
-- Documentation: https://docs.heyargus.ai/self-hosted
+- Documentation: https://docs.skopaq.ai/self-hosted
 - Issues: https://github.com/raphaenterprises-ai/argus-e2e-testing-agent/issues
-- Email: support@heyargus.ai
+- Email: support@skopaq.ai

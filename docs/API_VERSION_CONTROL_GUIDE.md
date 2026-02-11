@@ -7,7 +7,7 @@
 
 ## Overview
 
-This guide explains how to set up and use API version control for the Argus backend. The system automatically:
+This guide explains how to set up and use API version control for the Skopaq backend. The system automatically:
 
 1. **Detects breaking changes** in pull requests
 2. **Generates changelogs** for API modifications
@@ -50,7 +50,7 @@ git commit -m "chore: update OpenAPI spec"
 
 **ReDoc** provides beautiful, responsive API documentation hosted for free on Cloudflare Pages.
 
-**Live URL:** `https://api.heyargus.ai`
+**Live URL:** `https://api.skopaq.ai`
 
 #### Setup Steps
 
@@ -67,7 +67,7 @@ git commit -m "chore: update OpenAPI spec"
 
 3. **Configure Custom Domain**
    - Cloudflare Dashboard → Pages → argus-api-docs → Custom domains
-   - Add `api.heyargus.ai`
+   - Add `api.skopaq.ai`
    - DNS is auto-configured (you're already on Cloudflare)
 
 4. **Local Preview**
@@ -87,7 +87,7 @@ git commit -m "chore: update OpenAPI spec"
    |---------|-------------|
    | Auto-generated Docs | Beautiful, responsive API documentation |
    | Search | Built-in search functionality |
-   | Custom Domain | api.heyargus.ai (free on Cloudflare) |
+   | Custom Domain | api.skopaq.ai (free on Cloudflare) |
    | Global CDN | Cloudflare's edge network |
    | Zero Cost | Unlimited bandwidth, free forever |
 

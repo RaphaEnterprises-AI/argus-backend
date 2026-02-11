@@ -1,6 +1,6 @@
 # Networking Guide
 
-Configure networking for Argus Enterprise deployments.
+Configure networking for Skopaq Enterprise deployments.
 
 ## Network Architecture
 
@@ -8,14 +8,14 @@ Configure networking for Argus Enterprise deployments.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              External Traffic                                │
 │                                                                              │
-│  Users ────────────────► Ingress Controller ─────────────► Argus Services   │
+│  Users ────────────────► Ingress Controller ─────────────► Skopaq Services   │
 │  AI Assistants ─────────►  (nginx/traefik)                                  │
 │  CI/CD Systems ─────────►                                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Argus Namespace                                 │
+│                              Skopaq Namespace                                 │
 │                                                                              │
 │  ┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐   │
 │  │    Brain API      │    │    MCP Server     │    │   Selenium Hub    │   │

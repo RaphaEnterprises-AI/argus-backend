@@ -1,10 +1,10 @@
 # Monitoring and Observability
 
-Configure monitoring, logging, and alerting for Argus Enterprise.
+Configure monitoring, logging, and alerting for Skopaq Enterprise.
 
 ## Metrics Overview
 
-Argus exposes Prometheus metrics at `/metrics` on port 8000.
+Skopaq exposes Prometheus metrics at `/metrics` on port 8000.
 
 ### Key Metrics
 
@@ -93,7 +93,7 @@ histogram_quantile(0.95, rate(argus_request_duration_seconds_bucket[5m]))
 
 ```json
 {
-  "title": "Argus Enterprise Overview",
+  "title": "Skopaq Enterprise Overview",
   "panels": [
     {
       "title": "Tests per Hour",
@@ -145,7 +145,7 @@ groups:
   - name: argus
     rules:
       # High test failure rate
-      - alert: ArgusHighFailureRate
+      - alert: SkopaqHighFailureRate
         expr: |
           sum(rate(argus_tests_failed[5m])) /
           sum(rate(argus_tests_total[5m])) > 0.2
@@ -157,7 +157,7 @@ groups:
           description: "Test failure rate is {{ $value | humanizePercentage }}"
 
       # Self-healing not working
-      - alert: ArgusSelfHealingFailing
+      - alert: SkopaqSelfHealingFailing
         expr: |
           sum(rate(argus_healing_success[1h])) /
           sum(rate(argus_healing_attempts[1h])) < 0.5
@@ -168,7 +168,7 @@ groups:
           summary: "Self-healing success rate below 50%"
 
       # High LLM costs
-      - alert: ArgusHighLLMCost
+      - alert: SkopaqHighLLMCost
         expr: sum(increase(argus_llm_cost_usd[1h])) > 50
         for: 5m
         labels:
@@ -178,7 +178,7 @@ groups:
           description: "LLM costs in the last hour: ${{ $value | humanize }}"
 
       # API latency
-      - alert: ArgusHighLatency
+      - alert: SkopaqHighLatency
         expr: |
           histogram_quantile(0.95, rate(argus_request_duration_seconds_bucket[5m])) > 5
         for: 5m
@@ -188,14 +188,14 @@ groups:
           summary: "High API latency (p95 > 5s)"
 
       # Pod not ready
-      - alert: ArgusPodNotReady
+      - alert: SkopaqPodNotReady
         expr: |
           kube_pod_status_ready{namespace="argus", condition="true"} == 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Argus pod {{ $labels.pod }} not ready"
+          summary: "Skopaq pod {{ $labels.pod }} not ready"
 ```
 
 ### Configure AlertManager

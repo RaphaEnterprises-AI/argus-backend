@@ -431,7 +431,7 @@ async def _check_prometheus_health() -> ComponentHealth:
     """Check Prometheus health."""
     start = datetime.now()
     prometheus_url = os.environ.get(
-        "PROMETHEUS_URL", "https://prometheus-internal.heyargus.ai"
+        "PROMETHEUS_URL", "https://prometheus-internal.skopaq.ai"
     )
 
     # Check if URL is internal K8s (not accessible from external services)
@@ -565,7 +565,7 @@ async def _check_flink_health() -> ComponentHealth:
 async def _check_grafana_health() -> ComponentHealth:
     """Check Grafana health."""
     start = datetime.now()
-    grafana_url = os.environ.get("GRAFANA_URL", "https://grafana-internal.heyargus.ai")
+    grafana_url = os.environ.get("GRAFANA_URL", "https://grafana-internal.skopaq.ai")
 
     # Check if URL is internal K8s (not accessible from external services)
     is_internal = ".svc.cluster.local" in grafana_url or ".svc:" in grafana_url

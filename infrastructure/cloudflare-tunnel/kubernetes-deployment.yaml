@@ -1,7 +1,7 @@
 # Cloudflare Tunnel Deployment for Browser Infrastructure
 # This creates stable DNS endpoints that never change:
-#   - https://selenium-grid.heyargus.ai → Selenium Grid Hub
-#   - https://browser-pool.heyargus.ai → Browser Pool Manager
+#   - https://selenium-grid.skopaq.ai → Selenium Grid Hub
+#   - https://browser-pool.skopaq.ai → Browser Pool Manager
 #
 # Deploy with:
 #   kubectl apply -f kubernetes-deployment.yaml
@@ -37,14 +37,14 @@ data:
 
     ingress:
       # Selenium Grid Hub - for video recording sessions
-      - hostname: selenium-grid.heyargus.ai
+      - hostname: selenium-grid.skopaq.ai
         service: http://selenium-grid-selenium-hub.selenium-grid.svc.cluster.local:4444
         originRequest:
           noTLSVerify: true
           connectTimeout: 30s
 
       # Browser Pool Manager - primary browser automation
-      - hostname: browser-pool.heyargus.ai
+      - hostname: browser-pool.skopaq.ai
         service: http://browser-manager.browser-pool.svc.cluster.local:80
         originRequest:
           noTLSVerify: true

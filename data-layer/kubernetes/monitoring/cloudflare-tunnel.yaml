@@ -9,9 +9,9 @@
 #        --from-file=credentials.json=/path/to/tunnel-credentials.json \
 #        --namespace=monitoring
 #   3. Configure DNS in Cloudflare:
-#      cloudflared tunnel route dns argus-monitoring prometheus.argus-internal.heyargus.com
-#      cloudflared tunnel route dns argus-monitoring grafana.argus-internal.heyargus.com
-#      cloudflared tunnel route dns argus-monitoring alertmanager.argus-internal.heyargus.com
+#      cloudflared tunnel route dns argus-monitoring prometheus.argus-internal.skopaq.ai
+#      cloudflared tunnel route dns argus-monitoring grafana.argus-internal.skopaq.ai
+#      cloudflared tunnel route dns argus-monitoring alertmanager.argus-internal.skopaq.ai
 #
 # Deploy with:
 #   kubectl apply -f cloudflare-tunnel-config.yaml

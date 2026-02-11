@@ -158,7 +158,7 @@ Minimum docs:
 
 ### Week 4: Polish & Testing
 
-#### Day 1-2: E2E Tests for Argus (Dogfooding)
+#### Day 1-2: E2E Tests for Skopaq (Dogfooding)
 ```
 Test scenarios to implement:
 [ ] Create project → Run discovery → Create test → Execute

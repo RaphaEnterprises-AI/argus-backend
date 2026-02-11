@@ -1,6 +1,6 @@
 # Storage Configuration
 
-Configure persistent storage for Argus Enterprise.
+Configure persistent storage for Skopaq Enterprise.
 
 ## Storage Overview
 

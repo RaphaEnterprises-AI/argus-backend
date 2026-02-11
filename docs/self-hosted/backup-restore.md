@@ -1,6 +1,6 @@
 # Backup and Restore
 
-Comprehensive backup and disaster recovery procedures for Argus Enterprise.
+Comprehensive backup and disaster recovery procedures for Skopaq Enterprise.
 
 ## What to Backup
 
@@ -286,7 +286,7 @@ sops --decrypt argus-secrets.enc.json | kubectl apply -f -
 3. **Restore PostgreSQL**
    ```bash
    # Deploy fresh PostgreSQL
-   helm upgrade argus ./argus-enterprise -n argus \
+   helm upgrade argus ./skopaq-enterprise -n argus \
      --set postgresql.enabled=true
 
    # Wait for pod
@@ -305,7 +305,7 @@ sops --decrypt argus-secrets.enc.json | kubectl apply -f -
 
 5. **Deploy Application**
    ```bash
-   helm upgrade argus ./argus-enterprise -n argus -f values.yaml
+   helm upgrade argus ./skopaq-enterprise -n argus -f values.yaml
    ```
 
 6. **Verify**
@@ -349,7 +349,7 @@ kubectl delete namespace argus-backup-test
 
 ```yaml
 # Alert if backup fails
-- alert: ArgusBackupFailed
+- alert: SkopaqBackupFailed
   expr: |
     time() - backup_last_success_timestamp{job="argus-postgres-backup"} > 90000
   for: 5m

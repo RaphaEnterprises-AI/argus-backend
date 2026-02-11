@@ -6,7 +6,7 @@ protocol.
 
 DEPRECATION NOTE: This module spawns Playwright MCP as a subprocess, which requires
 a separate `npx` install and adds latency. For local development, prefer the unified
-`@argus/mcp` package (argus-mcp/) which runs Playwright directly in-process with
+`argus-mcp` package (argus-mcp/) which runs Playwright directly in-process with
 built-in CDP integration for network/console/performance capture.
 
 Usage:

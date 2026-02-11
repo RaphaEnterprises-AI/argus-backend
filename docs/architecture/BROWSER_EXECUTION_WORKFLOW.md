@@ -7,7 +7,7 @@
 
 ## Overview
 
-Argus supports multiple browser execution paths depending on the client (MCP/CLI vs Dashboard) and configuration. This document explains how browser automation flows through the system.
+Skopaq supports multiple browser execution paths depending on the client (MCP/CLI vs Dashboard) and configuration. This document explains how browser automation flows through the system.
 
 ---
 
@@ -51,7 +51,7 @@ Argus supports multiple browser execution paths depending on the client (MCP/CLI
 Claude Code
     │ MCP Protocol (SSE)
     ▼
-Argus MCP Server (Cloudflare Worker)
+Skopaq MCP Server (Cloudflare Worker)
     │ REST API
     ▼
 Cloudflare Worker Gateway
@@ -207,13 +207,13 @@ class HybridExecutor:
         # 3. Apply self-healing if needed
 ```
 
-### MCP Server (`argus-mcp-server/src/index.ts`)
+### MCP Server (`skopaq-mcp-server/src/index.ts`)
 
 Exposes browser automation to AI IDEs:
 
 ```typescript
 this.server.tool("argus_test", ..., async ({ url, steps }) => {
-    const result = await callArgusAPI<ArgusTestResponse>("/test", { url, steps });
+    const result = await callSkopaqAPI<SkopaqTestResponse>("/test", { url, steps });
     // Format results as markdown
 });
 ```
@@ -293,7 +293,7 @@ mcp__argus__argus_health
 ### MCP Server
 
 ```bash
-cd argus-mcp-server
+cd skopaq-mcp-server
 npm run deploy  # Deploys to Cloudflare Workers
 ```
 

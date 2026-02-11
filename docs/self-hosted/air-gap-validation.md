@@ -1,6 +1,6 @@
 # Air-Gap Deployment Validation Checklist
 
-This document provides a comprehensive checklist for validating Argus Enterprise
+This document provides a comprehensive checklist for validating Skopaq Enterprise
 deployments in air-gapped (fully offline) environments.
 
 ## Pre-Deployment Checklist
@@ -65,12 +65,12 @@ curl -s http://registry.local:5000/v2/_catalog | jq .
 
 ### 4. Helm Charts Available
 
-- [ ] Argus Enterprise Helm chart downloaded
+- [ ] Skopaq Enterprise Helm chart downloaded
 - [ ] Values file configured for air-gap mode
 
 ```bash
 ls -la helm-charts/
-# Expected: argus-enterprise-1.0.0.tgz
+# Expected: skopaq-enterprise-1.0.0.tgz
 ```
 
 ---
@@ -316,7 +316,7 @@ Create and run a test to verify the full workflow:
 
 ### 17. Monitoring Setup
 
-- [ ] Prometheus scraping Argus metrics
+- [ ] Prometheus scraping Skopaq metrics
 - [ ] Grafana dashboards configured
 - [ ] Alerts configured for service health
 
@@ -393,7 +393,7 @@ kubectl get configmap argus-config -n argus -o yaml | grep -E 'http[s]?://'
 
 **Certification Statement:**
 
-I certify that this Argus Enterprise deployment has been validated for air-gap
+I certify that this Skopaq Enterprise deployment has been validated for air-gap
 operation and does not require external network connectivity for core functionality.
 
 Signed: _________________________ Date: _____________
@@ -408,7 +408,7 @@ Save this script and run it for quick validation:
 #!/bin/bash
 # air-gap-quick-check.sh
 
-echo "=== Argus Air-Gap Quick Validation ==="
+echo "=== Skopaq Air-Gap Quick Validation ==="
 
 # Check pods
 echo -e "\n[1/5] Checking pods..."

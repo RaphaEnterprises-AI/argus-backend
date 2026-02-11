@@ -12,7 +12,7 @@ The Chrome DevTools MCP server connects to Chrome via CDP (Chrome DevTools Proto
 giving access to capabilities that Playwright MCP does not expose.
 
 DEPRECATION NOTE: This module spawns DevTools MCP as a separate subprocess. For local
-development, prefer the unified `@argus/mcp` package (argus-mcp/) which uses
+development, prefer the unified `argus-mcp` package (argus-mcp/) which uses
 Playwright's built-in CDP session for network, console, and performance capture
 without requiring a separate process.
 

@@ -205,7 +205,7 @@ jobs:
 
       - name: Run E2E tests against staging
         env:
-          E2E_BASE_URL: https://staging.heyargus.com
+          E2E_BASE_URL: https://staging.skopaq.ai
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python -m pytest tests/e2e/ \
@@ -229,7 +229,7 @@ jobs:
         run: |
           echo "## Staging E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Target: staging.heyargus.com" >> $GITHUB_STEP_SUMMARY
+          echo "Target: staging.skopaq.ai" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "See the full report in the artifacts." >> $GITHUB_STEP_SUMMARY
 

@@ -1,23 +1,23 @@
 import * as vscode from "vscode";
-import { ArgusClient, QualityScore } from "../api/client";
+import { SkopaqClient, QualityScore } from "../api/client";
 
 /**
- * Shows the Argus quality score in the VS Code status bar.
+ * Shows the Skopaq quality score in the VS Code status bar.
  *
- * Displays format: "Argus: A (92%)" with color coding by grade.
+ * Displays format: "Skopaq: A (92%)" with color coding by grade.
  * Clicking opens a detail view with the full quality breakdown.
  */
-export class ArgusStatusBar {
+export class SkopaqStatusBar {
   private statusBarItem: vscode.StatusBarItem;
   private refreshInterval: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly client: ArgusClient) {
+  constructor(private readonly client: SkopaqClient) {
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Left,
       50
     );
     this.statusBarItem.command = "argus.viewQuality";
-    this.statusBarItem.tooltip = "Click to view Argus quality details";
+    this.statusBarItem.tooltip = "Click to view Skopaq quality details";
     this.setDisconnected();
     this.statusBarItem.show();
   }
@@ -60,12 +60,12 @@ export class ArgusStatusBar {
 
   private setScore(score: QualityScore): void {
     const icon = this.getGradeIcon(score.grade);
-    this.statusBarItem.text = `${icon} Argus: ${score.grade} (${Math.round(score.score)}%)`;
+    this.statusBarItem.text = `${icon} Skopaq: ${score.grade} (${Math.round(score.score)}%)`;
     this.statusBarItem.backgroundColor = undefined;
   }
 
   private setDisconnected(): void {
-    this.statusBarItem.text = "$(circle-outline) Argus";
+    this.statusBarItem.text = "$(circle-outline) Skopaq";
     this.statusBarItem.backgroundColor = undefined;
   }
 

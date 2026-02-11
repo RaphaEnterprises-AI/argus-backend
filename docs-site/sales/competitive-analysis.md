@@ -1,4 +1,4 @@
-# Argus Competitive Analysis 2025
+# Skopaq Competitive Analysis 2025
 
 **Last Updated**: January 2025
 **Market Size**: $686.7M (2025) → $3.8B (2035), CAGR 20.9%
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The AI testing market has exploded with 15+ serious players. Argus must differentiate on:
+The AI testing market has exploded with 15+ serious players. Skopaq must differentiate on:
 1. **Codebase-First Intelligence** (UNIQUE - no competitor analyzes source code)
 2. **Production Error → Test Pipeline** (UNIQUE - observability integration)
 3. **Open Source** (UNIQUE in AI testing space)
@@ -52,8 +52,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - Narrow focus on AI-generated code
 - No production error integration
 
-**vs Argus**:
-| Feature | TestSprite | Argus |
+**vs Skopaq**:
+| Feature | TestSprite | Skopaq |
 |---------|------------|-------|
 | AI-Code Testing | ✅ Primary focus | ⚠️ General purpose |
 | Codebase Analysis | ❌ No | ✅ UNIQUE |
@@ -97,8 +97,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - No codebase analysis
 - No production integration
 
-**vs Argus**:
-| Feature | Testim | Argus |
+**vs Skopaq**:
+| Feature | Testim | Skopaq |
 |---------|--------|-------|
 | Self-Healing | ✅ Best-in-class | ✅ 95% confidence |
 | Agentic AI | ✅ Yes | ✅ LangGraph |
@@ -141,8 +141,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - No AI-native features exposed
 - Scope creep reported (800% renewal increases)
 
-**vs Argus**:
-| Feature | QA Wolf | Argus |
+**vs Skopaq**:
+| Feature | QA Wolf | Skopaq |
 |---------|---------|-------|
 | Model | Service | Platform |
 | Price | $65K+/yr | Self-serve |
@@ -186,8 +186,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - No codebase analysis
 - No production integration
 
-**vs Argus**:
-| Feature | Virtuoso | Argus |
+**vs Skopaq**:
+| Feature | Virtuoso | Skopaq |
 |---------|----------|-------|
 | NLP Tests | ✅ Best-in-class | ⚠️ Via AI chat |
 | Self-Healing | ✅ 95% | ✅ 95% |
@@ -227,8 +227,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - Learning curve
 - No production error integration
 
-**vs Argus**:
-| Feature | Katalon | Argus |
+**vs Skopaq**:
+| Feature | Katalon | Skopaq |
 |---------|---------|-------|
 | Free Tier | ✅ Yes | ✅ Yes |
 | All-in-One | ✅ Yes | ✅ Yes |
@@ -269,8 +269,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - No codebase analysis
 - Newer product
 
-**vs Argus**:
-| Feature | KaneAI | Argus |
+**vs Skopaq**:
+| Feature | KaneAI | Skopaq |
 |---------|--------|-------|
 | GenAI Native | ✅ Yes | ✅ Yes |
 | MCP | ✅ Yes | ✅ Yes |
@@ -368,8 +368,8 @@ The AI testing market has exploded with 15+ serious players. Argus must differen
 - Smaller company
 - Limited enterprise features
 
-**vs Argus**:
-| Feature | Octomind | Argus |
+**vs Skopaq**:
+| Feature | Octomind | Skopaq |
 |---------|----------|-------|
 | Free Tier | ✅ Yes | ✅ Yes |
 | SOC 2 | ✅ Yes | ⚠️ Not yet |
@@ -468,7 +468,7 @@ All include unlimited users and test executions.
 
 ## Feature Comparison Matrix
 
-| Feature | Argus | TestSprite | Testim | QA Wolf | Virtuoso | Katalon | KaneAI | Octomind | BrowserStack |
+| Feature | Skopaq | TestSprite | Testim | QA Wolf | Virtuoso | Katalon | KaneAI | Octomind | BrowserStack |
 |---------|-------|------------|--------|---------|----------|---------|--------|----------|--------------|
 | **Codebase Analysis** | ✅ UNIQUE | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Prod Error → Test** | ✅ UNIQUE | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -487,7 +487,7 @@ All include unlimited users and test executions.
 
 | Tool | Entry Price | Enterprise | Model |
 |------|-------------|------------|-------|
-| **Argus** | Free | TBD | Open Source + Cloud |
+| **Skopaq** | Free | TBD | Open Source + Cloud |
 | TestSprite | $69/mo | Custom | SaaS |
 | Testim | Not public | $50K-200K/yr | Enterprise SaaS |
 | QA Wolf | $40/test/mo | ~$90K/yr | Service |
@@ -501,7 +501,7 @@ All include unlimited users and test executions.
 
 ---
 
-## Argus Unique Advantages
+## Skopaq Unique Advantages
 
 ### 1. Codebase-First Intelligence (NO COMPETITOR HAS THIS)
 - We analyze source code to understand routes, components, APIs

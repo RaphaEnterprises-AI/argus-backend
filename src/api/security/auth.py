@@ -68,6 +68,8 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/oauth/slack/callback",
     "/api/v1/oauth/jira/callback",
     "/api/v1/oauth/linear/callback",
+    # Clerk webhooks (verified via svix signature, not API key/JWT)
+    "/api/v1/webhooks/clerk",
 }
 
 # Endpoints that only require API key (not full auth)

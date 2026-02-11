@@ -1,4 +1,4 @@
-# Argus E2E Testing Platform - Enterprise Architecture
+# Skopaq E2E Testing Platform - Enterprise Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐

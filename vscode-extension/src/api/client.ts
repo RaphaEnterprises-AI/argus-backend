@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as https from "https";
 import * as http from "http";
 
-export interface ArgusTest {
+export interface SkopaqTest {
   id: string;
   name: string;
   type: string;
@@ -11,7 +11,7 @@ export interface ArgusTest {
   project_id?: string;
 }
 
-export interface ArgusTestRun {
+export interface SkopaqTestRun {
   id: string;
   test_id: string;
   status: string;
@@ -28,13 +28,13 @@ export interface QualityScore {
   flaky_count: number;
 }
 
-export class ArgusClient {
+export class SkopaqClient {
   private baseUrl: string;
   private apiKey: string | undefined;
 
   constructor() {
     const config = vscode.workspace.getConfiguration("argus");
-    this.baseUrl = config.get<string>("backendUrl") || "https://argus-brain-production.up.railway.app";
+    this.baseUrl = config.get<string>("backendUrl") || "https://skopaq-brain-production.up.railway.app";
   }
 
   setApiKey(key: string): void {
@@ -86,7 +86,7 @@ export class ArgusClient {
                 reject(new Error(`Invalid JSON response: ${data.slice(0, 200)}`));
               }
             } else if (res.statusCode === 401) {
-              reject(new Error("Authentication required. Please run 'Argus: Login'."));
+              reject(new Error("Authentication required. Please run 'Skopaq: Login'."));
             } else if (res.statusCode === 429) {
               reject(new Error("Rate limited. Please wait a moment and try again."));
             } else {
@@ -109,8 +109,8 @@ export class ArgusClient {
     });
   }
 
-  async getTests(projectId: string): Promise<ArgusTest[]> {
-    const result = await this.request<{ tests: ArgusTest[] }>(
+  async getTests(projectId: string): Promise<SkopaqTest[]> {
+    const result = await this.request<{ tests: SkopaqTest[] }>(
       "GET",
       `/api/v1/tests?project_id=${projectId}`
     );
@@ -120,16 +120,16 @@ export class ArgusClient {
   async getTestRuns(
     projectId: string,
     limit = 20
-  ): Promise<ArgusTestRun[]> {
-    const result = await this.request<{ test_runs: ArgusTestRun[] }>(
+  ): Promise<SkopaqTestRun[]> {
+    const result = await this.request<{ test_runs: SkopaqTestRun[] }>(
       "GET",
       `/api/v1/test-runs?project_id=${projectId}&limit=${limit}`
     );
     return result.test_runs || [];
   }
 
-  async runTest(testId: string): Promise<ArgusTestRun> {
-    return this.request<ArgusTestRun>("POST", `/api/v1/test-runs`, {
+  async runTest(testId: string): Promise<SkopaqTestRun> {
+    return this.request<SkopaqTestRun>("POST", `/api/v1/test-runs`, {
       test_id: testId,
     });
   }

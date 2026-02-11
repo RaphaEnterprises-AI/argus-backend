@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
 
-export class ArgusClient {
+export class SkopaqClient {
   private apiKey: string | null;
   private baseUrl: string;
 
@@ -40,7 +40,7 @@ export class ArgusClient {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       return {
-        error: `Argus API returned ${res.status}: ${text.slice(0, 500)}`,
+        error: `Skopaq API returned ${res.status}: ${text.slice(0, 500)}`,
       };
     }
 

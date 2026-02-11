@@ -1,8 +1,8 @@
-# Argus Scalable Data Ingestion Pipeline Architecture
+# Skopaq Scalable Data Ingestion Pipeline Architecture
 
 ## Executive Summary
 
-This document defines the architecture for Argus's real-time, multi-tenant data ingestion pipeline, synthesizing best practices from industry leaders (Netflix, Uber) and modern AI frameworks (Cognee, LlamaIndex) to create a production-grade system that powers our AI-driven quality intelligence platform.
+This document defines the architecture for Skopaq's real-time, multi-tenant data ingestion pipeline, synthesizing best practices from industry leaders (Netflix, Uber) and modern AI frameworks (Cognee, LlamaIndex) to create a production-grade system that powers our AI-driven quality intelligence platform.
 
 ## Research Foundation
 
@@ -136,7 +136,7 @@ This document defines the architecture for Argus's real-time, multi-tenant data 
 │  │                                 │                                          │  │
 │  │                                 ▼                                          │  │
 │  │            ┌─────────────────────────────────────────┐                    │  │
-│  │            │          Argus Brain (LangGraph)        │                    │  │
+│  │            │          Skopaq Brain (LangGraph)        │                    │  │
 │  │            │  • Context assembly                     │                    │  │
 │  │            │  • Fact grounding                       │                    │  │
 │  │            │  • Response generation                  │                    │  │

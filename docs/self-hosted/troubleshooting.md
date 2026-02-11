@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Common issues and solutions for Argus Enterprise self-hosted deployments.
+Common issues and solutions for Skopaq Enterprise self-hosted deployments.
 
 ## Quick Diagnostics
 
@@ -10,7 +10,7 @@ Common issues and solutions for Argus Enterprise self-hosted deployments.
 #!/bin/bash
 # argus-health-check.sh
 
-echo "=== Argus Health Check ==="
+echo "=== Skopaq Health Check ==="
 
 echo -e "\n--- Pod Status ---"
 kubectl get pods -n argus
@@ -93,19 +93,19 @@ kubectl get events -n argus --sort-by='.lastTimestamp'
 **Dependency Issues:**
 ```bash
 # Update dependencies first
-helm dependency update ./helm/argus-enterprise
+helm dependency update ./helm/skopaq-enterprise
 
 # Check dependencies
-helm dependency list ./helm/argus-enterprise
+helm dependency list ./helm/skopaq-enterprise
 ```
 
 **Template Errors:**
 ```bash
 # Validate templates
-helm template argus ./helm/argus-enterprise -f values.yaml
+helm template argus ./helm/skopaq-enterprise -f values.yaml
 
 # Debug specific issue
-helm install argus ./helm/argus-enterprise -f values.yaml --debug --dry-run
+helm install argus ./helm/skopaq-enterprise -f values.yaml --debug --dry-run
 ```
 
 ## Database Issues
@@ -289,7 +289,7 @@ curl -N http://argus-mcp:3000/sse
 
 ### Tools Not Available
 
-**Symptom:** AI assistant can't see Argus tools
+**Symptom:** AI assistant can't see Skopaq tools
 
 **Diagnosis:**
 ```bash
@@ -508,7 +508,7 @@ tar czf argus-debug.tar.gz argus-debug/
 
 ### Support Channels
 
-- Documentation: https://docs.heyargus.ai/self-hosted
-- GitHub Issues: https://github.com/raphaenterprises-ai/argus-e2e-testing-agent/issues
-- Email: support@heyargus.ai
-- Enterprise Support: enterprise@heyargus.ai
+- Documentation: https://docs.skopaq.ai/self-hosted
+- GitHub Issues: https://github.com/raphaenterprises-ai/skopaq-e2e-testing-agent/issues
+- Email: support@skopaq.ai
+- Enterprise Support: enterprise@skopaq.ai

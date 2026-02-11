@@ -12,7 +12,7 @@ export function loadConfig(): Config {
     argusApiKey: process.env.ARGUS_API_KEY || null,
     argusApiUrl:
       process.env.ARGUS_API_URL ||
-      "https://argus-brain-production.up.railway.app",
+      "https://skopaq-brain-production.up.railway.app",
     headless: process.env.ARGUS_HEADLESS !== "false",
     screenshotDir: process.env.ARGUS_SCREENSHOT_DIR || "./argus-screenshots",
     defaultTimeout: parseInt(process.env.ARGUS_TIMEOUT || "30000", 10),

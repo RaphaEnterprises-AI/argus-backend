@@ -1,6 +1,6 @@
 # Railway Deployment Guide
 
-This guide explains how to deploy Argus on Railway with a microservice architecture.
+This guide explains how to deploy Skopaq on Railway with a microservice architecture.
 
 ## Architecture Overview
 

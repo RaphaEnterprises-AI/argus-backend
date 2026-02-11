@@ -1,23 +1,23 @@
 import * as vscode from "vscode";
-import { ArgusClient } from "./api/client";
+import { SkopaqClient } from "./api/client";
 import { AuthManager } from "./auth/deviceAuth";
 import { TestExplorerProvider } from "./providers/testExplorer";
-import { ArgusCodeLensProvider } from "./providers/codeLens";
-import { ArgusDiagnostics } from "./providers/diagnostics";
-import { ArgusStatusBar } from "./providers/statusBar";
+import { SkopaqCodeLensProvider } from "./providers/codeLens";
+import { SkopaqDiagnostics } from "./providers/diagnostics";
+import { SkopaqStatusBar } from "./providers/statusBar";
 
-let statusBar: ArgusStatusBar | undefined;
-let diagnostics: ArgusDiagnostics | undefined;
+let statusBar: SkopaqStatusBar | undefined;
+let diagnostics: SkopaqDiagnostics | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  const client = new ArgusClient();
+  const client = new SkopaqClient();
   const auth = new AuthManager(context.secrets);
   const testExplorer = new TestExplorerProvider(client);
-  const codeLens = new ArgusCodeLensProvider();
-  diagnostics = new ArgusDiagnostics(client);
-  statusBar = new ArgusStatusBar(client);
+  const codeLens = new SkopaqCodeLensProvider();
+  diagnostics = new SkopaqDiagnostics(client);
+  statusBar = new SkopaqStatusBar(client);
 
   // Restore saved API key
   const savedKey = await auth.getApiKey();
@@ -85,7 +85,7 @@ export async function activate(
     async (testId: string) => {
       if (!client.getApiKey()) {
         vscode.window.showWarningMessage(
-          'Please login first: run "Argus: Login"'
+          'Please login first: run "Skopaq: Login"'
         );
         return;
       }

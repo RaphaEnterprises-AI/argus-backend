@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: heyargus/cognee-worker
+  IMAGE_NAME: skopaq/cognee-worker
 
 jobs:
   build:

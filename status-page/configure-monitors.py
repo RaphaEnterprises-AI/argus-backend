@@ -18,7 +18,7 @@ except ImportError:
     from uptime_kuma_api import MonitorType, UptimeKumaApi
 
 # Configuration - Load from environment (required)
-UPTIME_KUMA_URL = os.environ.get("UPTIME_KUMA_URL", "https://status.heyargus.ai")
+UPTIME_KUMA_URL = os.environ.get("UPTIME_KUMA_URL", "https://status.skopaq.ai")
 API_KEY = os.environ.get("UPTIME_KUMA_API_KEY")
 if not API_KEY:
     print("ERROR: UPTIME_KUMA_API_KEY environment variable required")
@@ -31,21 +31,21 @@ MONITORS = {
         {
             "name": "Dashboard",
             "type": MonitorType.HTTP,
-            "url": "https://heyargus.ai",
+            "url": "https://skopaq.ai",
             "interval": 60,
             "maxretries": 3,
         },
         {
             "name": "Dashboard (www)",
             "type": MonitorType.HTTP,
-            "url": "https://www.heyargus.ai",
+            "url": "https://www.skopaq.ai",
             "interval": 60,
             "maxretries": 3,
         },
         {
             "name": "API Brain",
             "type": MonitorType.HTTP,
-            "url": "https://argus-brain-production.up.railway.app/health",
+            "url": "https://skopaq-brain-production.up.railway.app/health",
             "interval": 60,
             "maxretries": 3,
         },
@@ -59,7 +59,7 @@ MONITORS = {
         {
             "name": "Documentation",
             "type": MonitorType.HTTP,
-            "url": "https://docs.heyargus.ai",
+            "url": "https://docs.skopaq.ai",
             "interval": 300,
             "maxretries": 3,
         },

@@ -1,4 +1,4 @@
-# Argus Backend Architecture Audit
+# Skopaq Backend Architecture Audit
 
 **Document Version:** 1.0
 **Audit Date:** 2026-01-28
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The Argus backend is a **production-grade, enterprise-ready autonomous E2E testing platform** built on FastAPI + LangGraph. This audit covers:
+The Skopaq backend is a **production-grade, enterprise-ready autonomous E2E testing platform** built on FastAPI + LangGraph. This audit covers:
 
 - **413+ API endpoints** across 50+ routers
 - **16 specialized AI agents** orchestrated by LangGraph

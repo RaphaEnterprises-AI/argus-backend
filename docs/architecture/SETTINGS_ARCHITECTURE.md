@@ -25,7 +25,7 @@
 
 ## 1. Overview
 
-The Argus settings architecture provides a comprehensive system for managing user profiles, organization settings, team members, API keys, and notification preferences. The architecture follows a multi-tenant design where:
+The Skopaq settings architecture provides a comprehensive system for managing user profiles, organization settings, team members, API keys, and notification preferences. The architecture follows a multi-tenant design where:
 
 - **Users** have personal profiles with preferences and defaults
 - **Organizations** serve as the primary billing and access control entity
@@ -378,7 +378,7 @@ notification_channels
   "config": {
     "webhook_url": "https://hooks.slack.com/services/...",
     "channel": "#testing-alerts",
-    "username": "Argus Bot",
+    "username": "Skopaq Bot",
     "icon_emoji": ":robot_face:"
   }
 }
@@ -390,7 +390,7 @@ notification_channels
   "channel_type": "email",
   "config": {
     "recipients": ["team@example.com"],
-    "from_name": "Argus Testing",
+    "from_name": "Skopaq Testing",
     "reply_to": "noreply@argus.io"
   }
 }
@@ -1017,4 +1017,4 @@ audit_logs
 
 *Document generated: 2026-01-12*
 *Architecture Version: 2.2.0*
-*Argus E2E Testing Agent*
+*Skopaq E2E Testing Agent*

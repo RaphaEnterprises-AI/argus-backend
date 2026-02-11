@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------------------------------------------------------------------------
 BASE_URL = os.environ.get(
     "ARGUS_BASE_URL",
-    "https://argus-brain-production.up.railway.app",
+    "https://skopaq-brain-production.up.railway.app",
 )
 API_KEY = os.environ.get(
     "ARGUS_API_KEY",

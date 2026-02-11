@@ -3,7 +3,7 @@
  *
  * This content script module handles session recording using rrweb.
  * It injects the rrweb library, captures DOM events, and uploads
- * recordings to the Argus backend for test conversion.
+ * recordings to the Skopaq backend for test conversion.
  *
  * Usage: Injected by background.js when user starts a recording.
  */

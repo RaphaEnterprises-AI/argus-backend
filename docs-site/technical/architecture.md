@@ -1,4 +1,4 @@
-# Argus Platform - Complete Technical Architecture
+# Skopaq Platform - Complete Technical Architecture
 
 **Version:** 1.0.0
 **Last Updated:** January 2026
@@ -25,7 +25,7 @@
 
 ## 1. Executive Summary
 
-**Argus** is an autonomous end-to-end testing platform that combines:
+**Skopaq** is an autonomous end-to-end testing platform that combines:
 - **AI-Powered Test Generation** from production errors
 - **Self-Healing Test Execution** with automatic selector repair
 - **Multi-Browser Cross-Device Testing** via edge computing
@@ -419,7 +419,7 @@ src/
 │                        QUALITY INTELLIGENCE WORKFLOW                             │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-    Production Error                 Argus Brain                    Actions
+    Production Error                 Skopaq Brain                    Actions
          │                               │                             │
          ▼                               │                             │
     ┌─────────┐                          │                             │
@@ -901,7 +901,7 @@ TESTINGBOT_SECRET=xxx
 
 ## Summary
 
-Argus is a **production-ready autonomous testing platform** featuring:
+Skopaq is a **production-ready autonomous testing platform** featuring:
 
 - **3-Tier Architecture**: Edge (Cloudflare) → Brain (Railway) → Database (Supabase)
 - **20+ AI Agents**: Specialized for different testing and analysis tasks

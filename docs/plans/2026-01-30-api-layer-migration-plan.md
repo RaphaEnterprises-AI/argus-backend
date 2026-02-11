@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-**Problem**: The Argus dashboard makes ~216 direct Supabase queries across 25+ hook files, bypassing the FastAPI backend. This creates security, maintainability, and observability issues.
+**Problem**: The Skopaq dashboard makes ~216 direct Supabase queries across 25+ hook files, bypassing the FastAPI backend. This creates security, maintainability, and observability issues.
 
 **Solution**: Migrate all direct Supabase queries to use the FastAPI backend API layer.
 

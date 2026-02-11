@@ -1,6 +1,6 @@
 # Argus Enterprise - Helm Chart Values
 # =====================================
-# Full documentation: https://docs.heyargus.ai/self-hosted
+# Full documentation: https://docs.skopaq.ai/self-hosted
 
 # Global configuration
 global:

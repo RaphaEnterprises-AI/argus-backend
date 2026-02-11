@@ -1,12 +1,12 @@
-# Mobile Responsive & PWA Design for Argus Dashboard
+# Mobile Responsive & PWA Design for Skopaq Dashboard
 
 **Date**: 2026-01-30
 **Status**: Approved
-**Goal**: Transform Argus dashboard into a mobile-first, progressive web app that excels at "monitor and respond" on mobile while preserving full desktop power.
+**Goal**: Transform Skopaq dashboard into a mobile-first, progressive web app that excels at "monitor and respond" on mobile while preserving full desktop power.
 
 ## Overview
 
-This design addresses comprehensive mobile responsiveness issues and adds full PWA capabilities to the Argus dashboard. The approach is systematic - building a design system foundation, then migrating pages, then layering PWA features.
+This design addresses comprehensive mobile responsiveness issues and adds full PWA capabilities to the Skopaq dashboard. The approach is systematic - building a design system foundation, then migrating pages, then layering PWA features.
 
 ### Mobile Design Philosophy
 
@@ -375,8 +375,8 @@ For pages like **Orchestrator**, **Correlations**, **Visual Diff**:
 ```json
 // dashboard/public/manifest.json
 {
-  "name": "Argus - E2E Testing Agent",
-  "short_name": "Argus",
+  "name": "Skopaq - E2E Testing Agent",
+  "short_name": "Skopaq",
   "description": "Autonomous end-to-end testing with AI",
   "start_url": "/dashboard",
   "display": "standalone",

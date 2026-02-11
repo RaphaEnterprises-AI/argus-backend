@@ -12,10 +12,10 @@ workers_dev = true
 # Routes - disabled for now (requires Cloudflare proxy enabled on DNS)
 # To enable: set proxied=true on DNS records in Cloudflare dashboard
 # routes = [
-#   { pattern = "heyargus.ai/*", zone_name = "heyargus.ai" },
-#   { pattern = "heyargus.com/*", zone_name = "heyargus.com" },
-#   { pattern = "www.heyargus.ai/*", zone_name = "heyargus.ai" },
-#   { pattern = "www.heyargus.com/*", zone_name = "heyargus.com" },
+#   { pattern = "skopaq.ai/*", zone_name = "skopaq.ai" },
+#   { pattern = "skopaq.ai/*", zone_name = "skopaq.ai" },
+#   { pattern = "www.skopaq.ai/*", zone_name = "skopaq.ai" },
+#   { pattern = "www.skopaq.ai/*", zone_name = "skopaq.ai" },
 # ]
 
 [vars]

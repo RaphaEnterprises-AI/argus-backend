@@ -196,7 +196,7 @@ services:
     environment:
       # Kafka/Redpanda
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
-      - KAFKA_CONSUMER_GROUP=argus-cognee-workers
+      - KAFKA_CONSUMER_GROUP=skopaq-cognee-workers
       - KAFKA_AUTO_OFFSET_RESET=earliest
 
       # FalkorDB

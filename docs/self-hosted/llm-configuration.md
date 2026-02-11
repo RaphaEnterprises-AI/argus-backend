@@ -1,6 +1,6 @@
 # LLM Configuration Guide
 
-Configure Large Language Model providers for Argus Enterprise.
+Configure Large Language Model providers for Skopaq Enterprise.
 
 ## Provider Options
 
@@ -227,7 +227,7 @@ brain:
 
 ## Ollama (Air-Gap) {#air-gap}
 
-Deploy Argus with zero external connectivity using Ollama for local LLM inference.
+Deploy Skopaq with zero external connectivity using Ollama for local LLM inference.
 
 ### Architecture
 
@@ -236,7 +236,7 @@ Deploy Argus with zero external connectivity using Ollama for local LLM inferenc
 │                         Air-Gapped Environment                               │
 │                                                                              │
 │  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐     │
-│  │  Argus Brain  │────────►│    Ollama     │◄───────►│  GPU Server   │     │
+│  │  Skopaq Brain  │────────►│    Ollama     │◄───────►│  GPU Server   │     │
 │  │               │   HTTP  │  :11434       │         │  NVIDIA A100  │     │
 │  └───────────────┘         └───────────────┘         └───────────────┘     │
 │                                    │                                         │
@@ -325,7 +325,7 @@ ollama:
 
 ## Model Selection by Task
 
-Argus uses different models based on task complexity:
+Skopaq uses different models based on task complexity:
 
 | Task Type | Recommended Model | Fallback |
 |-----------|-------------------|----------|
@@ -482,7 +482,7 @@ The following must be pre-installed/downloaded before disconnecting from the int
 3. **Helm Charts**
    ```bash
    # Download charts for offline installation
-   helm pull argus/argus-enterprise --version 1.0.0
+   helm pull argus/skopaq-enterprise --version 1.0.0
    ```
 
 4. **Python Dependencies** (for development only)
@@ -550,7 +550,7 @@ The following features have optional external dependencies that can be disabled:
 | Telemetry | Sentry | Disable | `SENTRY_ENABLED=false` |
 | Webhooks | External URLs | Internal only | Configure internal endpoints |
 | GitHub/GitLab Integration | API | Disable or use self-hosted | Configure self-hosted URLs |
-| Documentation links | docs.heyargus.ai | Bundle locally | Use offline docs |
+| Documentation links | docs.skopaq.ai | Bundle locally | Use offline docs |
 
 To fully disable all external features:
 

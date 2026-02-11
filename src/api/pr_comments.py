@@ -305,7 +305,7 @@ def format_pr_comment(analysis: CommitAnalysis) -> str:
         )
     else:
         lines.append(
-            "<sub>\U0001f916 Powered by [Argus Quality Intelligence](https://heyargus.com)</sub>"
+            "<sub>\U0001f916 Powered by [Argus Quality Intelligence](https://skopaq.ai)</sub>"
         )
 
     return "\n".join(lines)

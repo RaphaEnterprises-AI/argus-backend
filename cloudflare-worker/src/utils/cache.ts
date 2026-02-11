@@ -1,5 +1,5 @@
 /**
- * Argus Cache Utilities
+ * Skopaq Cache Utilities
  * KV-based caching for deduplication, rate limiting, and response caching
  */
 
@@ -28,7 +28,7 @@ export const KEY_PREFIX = {
 /**
  * Cache helper class for Cloudflare KV operations
  */
-export class ArgusCache {
+export class SkopaqCache {
   constructor(private kv: KVNamespace | null) {}
 
   /**
@@ -406,7 +406,7 @@ export class ArgusCache {
  */
 export class OrganizationCache {
   constructor(
-    private cache: ArgusCache,
+    private cache: SkopaqCache,
     private organizationId: string
   ) {}
 
@@ -434,6 +434,6 @@ export class OrganizationCache {
 /**
  * Create cache instance from KV binding
  */
-export function createCache(kv: KVNamespace | null | undefined): ArgusCache {
-  return new ArgusCache(kv || null);
+export function createCache(kv: KVNamespace | null | undefined): SkopaqCache {
+  return new SkopaqCache(kv || null);
 }

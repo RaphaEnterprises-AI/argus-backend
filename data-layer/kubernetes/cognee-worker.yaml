@@ -70,7 +70,7 @@ data:
   HEALTH_CHECK_PORT: "8080"
 
   # Cloudflare Key Vault (for BYOK decryption)
-  CLOUDFLARE_WORKER_URL: "https://argus-api.heyargus.workers.dev"
+  CLOUDFLARE_WORKER_URL: "https://skopaq-api.samuelvinay-kumar.workers.dev"
 
   # =============================================================================
   # Observability Configuration

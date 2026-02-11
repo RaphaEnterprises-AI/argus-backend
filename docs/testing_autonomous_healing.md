@@ -127,7 +127,7 @@ echo "=================================="
 
 # Step 1: Create a test with a broken selector
 echo "Step 1: Creating test with broken selector..."
-curl -X POST https://argus-brain-production.up.railway.app/api/v1/tests \
+curl -X POST https://skopaq-brain-production.up.railway.app/api/v1/tests \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
   -d '{
@@ -143,7 +143,7 @@ curl -X POST https://argus-brain-production.up.railway.app/api/v1/tests \
 
 # Step 2: Run the test (it will fail)
 echo -e "\nStep 2: Running test (expecting failure)..."
-curl -X POST https://argus-brain-production.up.railway.app/api/v1/tests/run \
+curl -X POST https://skopaq-brain-production.up.railway.app/api/v1/tests/run \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
   -d '{
@@ -164,7 +164,7 @@ sleep 30
 
 # Step 5: Check if test spec was updated
 echo -e "\nStep 5: Checking if test was healed..."
-curl https://argus-brain-production.up.railway.app/api/v1/tests/TEST_ID_FROM_STEP_1 \
+curl https://skopaq-brain-production.up.railway.app/api/v1/tests/TEST_ID_FROM_STEP_1 \
   -H "X-API-Key: YOUR_API_KEY"
 
 echo -e "\n✅ Test complete!"
@@ -287,7 +287,7 @@ async def trigger_multiple_failures():
         tasks = []
         for i in range(10):
             task = session.post(
-                "https://argus-brain-production.up.railway.app/api/v1/tests/run",
+                "https://skopaq-brain-production.up.railway.app/api/v1/tests/run",
                 headers={"X-API-Key": "YOUR_KEY"},
                 json={"project_id": "YOUR_PROJECT", "test_ids": [f"broken-test-{i}"]}
             )

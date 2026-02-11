@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup script for api.heyargus.ai (API Documentation)
+# Setup script for api.skopaq.ai (API Documentation)
 # This creates a Cloudflare Pages project and configures the custom domain
 
 set -e
@@ -12,7 +12,7 @@ NC='\033[0m'
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║       Argus API Documentation Setup (api.heyargus.ai)        ║"
+echo "║       Argus API Documentation Setup (api.skopaq.ai)        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -159,9 +159,9 @@ PLACEHOLDER
         </div>
 
         <div class="footer">
-            <p>Base URL: <code>https://app.heyargus.ai/api/v1/</code></p>
+            <p>Base URL: <code>https://app.skopaq.ai/api/v1/</code></p>
             <p style="margin-top: 0.5rem;">
-                <a href="https://heyargus.ai" style="color: #00d4ff;">heyargus.ai</a>
+                <a href="https://skopaq.ai" style="color: #00d4ff;">skopaq.ai</a>
             </p>
         </div>
     </div>
@@ -197,9 +197,9 @@ configure_domain() {
     echo ""
     echo "3. Click 'Set up a custom domain'"
     echo ""
-    echo "4. Enter: api.heyargus.ai"
+    echo "4. Enter: api.skopaq.ai"
     echo ""
-    echo "5. Cloudflare will auto-configure DNS (since you own heyargus.ai on CF)"
+    echo "5. Cloudflare will auto-configure DNS (since you own skopaq.ai on CF)"
     echo ""
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
@@ -230,7 +230,7 @@ summary() {
     echo ""
     echo "URLs:"
     echo "  • Cloudflare Pages: https://argus-api-docs.pages.dev"
-    echo "  • Custom Domain:    https://api.heyargus.ai (after DNS setup)"
+    echo "  • Custom Domain:    https://api.skopaq.ai (after DNS setup)"
     echo ""
     echo "Auto-deployment:"
     echo "  • Push to main branch → Triggers GitHub Actions → Updates docs"

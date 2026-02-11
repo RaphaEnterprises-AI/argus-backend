@@ -1,8 +1,8 @@
-# Argus Strategic Plan 2025
+# Skopaq Strategic Plan 2025
 
 ## Executive Summary
 
-Based on the architecture assessment, Argus requires a phased transformation to achieve enterprise-scale reliability. This plan outlines a 12-week roadmap divided into four phases, prioritizing stability, scalability, and intelligence.
+Based on the architecture assessment, Skopaq requires a phased transformation to achieve enterprise-scale reliability. This plan outlines a 12-week roadmap divided into four phases, prioritizing stability, scalability, and intelligence.
 
 **Current State**: MVP with 6/10 readiness
 **Target State**: Production-ready for 1M+ users

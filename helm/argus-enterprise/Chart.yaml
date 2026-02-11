@@ -23,13 +23,13 @@ keywords:
   - self-hosted
   - enterprise
 
-home: https://heyargus.ai
+home: https://skopaq.ai
 sources:
   - https://github.com/raphaenterprises-ai/argus-e2e-testing-agent
 
 maintainers:
   - name: Argus Team
-    email: support@heyargus.ai
+    email: support@skopaq.ai
 
 # Dependencies - optional components
 dependencies:

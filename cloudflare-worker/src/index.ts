@@ -1,6 +1,6 @@
 /**
- * Argus Worker - Browser Automation API (Simplified)
- * https://heyargus.ai
+ * Skopaq Worker - Browser Automation API (Simplified)
+ * https://skopaq.ai
  *
  * Supports multiple browser backends:
  * - Cloudflare Browser Rendering (free, Chromium only)
@@ -223,7 +223,7 @@ interface BrowserResult {
 
 /**
  * AI-controlled session configuration.
- * The Argus brain determines optimal settings based on test complexity.
+ * The Skopaq brain determines optimal settings based on test complexity.
  */
 interface SessionConfig {
   // AI-determined timeouts (in seconds)
@@ -746,7 +746,7 @@ async function createTestingBotSession(
     browserVersion: "latest",
     platformName: tbPlatform,
     "tb:options": {
-      name: "Argus Browser Automation",
+      name: "Skopaq Browser Automation",
       screenrecorder: false,
     },
   };
@@ -3242,13 +3242,13 @@ interface QueueMessage {
 // ============================================================================
 
 /**
- * Allowed origins for CORS. Restricts to known Argus domains.
+ * Allowed origins for CORS. Restricts to known Skopaq domains.
  */
 const ALLOWED_ORIGINS = [
-  'https://heyargus.ai',
-  'https://www.heyargus.ai',
-  'https://app.heyargus.ai',
-  'https://dashboard.heyargus.ai',
+  'https://skopaq.ai',
+  'https://www.skopaq.ai',
+  'https://app.skopaq.ai',
+  'https://dashboard.skopaq.ai',
   'https://argus-dashboard.vercel.app',
 ];
 
@@ -3347,9 +3347,9 @@ export default {
     // API docs
     if (path === "/") {
       return Response.json({
-        name: "Argus Worker API",
+        name: "Skopaq Worker API",
         version: "3.0.0",
-        description: "Browser Automation API - heyargus.ai",
+        description: "Browser Automation API - skopaq.ai",
         endpoints: {
           "POST /act": "Execute browser action",
           "POST /extract": "Extract structured data",

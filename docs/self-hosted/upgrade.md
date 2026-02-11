@@ -1,6 +1,6 @@
 # Upgrade Guide
 
-Procedures for upgrading Argus Enterprise to new versions.
+Procedures for upgrading Skopaq Enterprise to new versions.
 
 ## Before You Upgrade
 
@@ -14,7 +14,7 @@ Check the changelog for:
 
 ```bash
 # View available versions
-helm search repo argus/argus-enterprise --versions
+helm search repo argus/skopaq-enterprise --versions
 ```
 
 ### 2. Backup Current State
@@ -36,7 +36,7 @@ kubectl get secret argus-secrets -n argus -o yaml > secrets-pre-upgrade.yaml
 ```bash
 helm list -n argus
 # NAME   NAMESPACE  REVISION  STATUS    CHART                    APP VERSION
-# argus  argus      3         deployed  argus-enterprise-1.2.0   1.2.0
+# argus  argus      3         deployed  skopaq-enterprise-1.2.0   1.2.0
 ```
 
 ## Standard Upgrade
@@ -48,13 +48,13 @@ helm list -n argus
 helm repo update
 
 # Dry-run to preview changes
-helm upgrade argus argus/argus-enterprise \
+helm upgrade argus argus/skopaq-enterprise \
   --namespace argus \
   -f values.yaml \
   --dry-run
 
 # Apply upgrade
-helm upgrade argus argus/argus-enterprise \
+helm upgrade argus argus/skopaq-enterprise \
   --namespace argus \
   -f values.yaml
 ```
@@ -124,7 +124,7 @@ For major upgrades, use canary deployment:
 
 ```bash
 # Deploy canary (10% traffic)
-helm upgrade argus-canary argus/argus-enterprise \
+helm upgrade argus-canary argus/skopaq-enterprise \
   --namespace argus \
   -f values.yaml \
   --set brain.replicas=1 \
@@ -134,7 +134,7 @@ helm upgrade argus-canary argus/argus-enterprise \
 kubectl logs -f deploy/argus-canary-brain -n argus
 
 # If successful, upgrade main deployment
-helm upgrade argus argus/argus-enterprise \
+helm upgrade argus argus/skopaq-enterprise \
   --namespace argus \
   -f values.yaml
 
@@ -191,7 +191,7 @@ kubectl scale deploy argus-brain -n argus --replicas=0
 kubectl apply -f pre-upgrade-job.yaml
 
 # 6. Upgrade
-helm upgrade argus argus/argus-enterprise \
+helm upgrade argus argus/skopaq-enterprise \
   --namespace argus \
   -f values-2x.yaml \
   --version 2.0.0
@@ -218,7 +218,7 @@ postgresql:
 kubectl delete statefulset argus-postgresql -n argus --cascade=orphan
 
 # 4. Upgrade
-helm upgrade argus argus/argus-enterprise -n argus -f values.yaml
+helm upgrade argus argus/skopaq-enterprise -n argus -f values.yaml
 
 # 5. Run pg_upgrade if needed
 kubectl exec -n argus argus-postgresql-0 -- pg_upgrade ...
@@ -235,7 +235,7 @@ redis:
 ```
 
 ```bash
-helm upgrade argus argus/argus-enterprise -n argus -f values.yaml
+helm upgrade argus argus/skopaq-enterprise -n argus -f values.yaml
 ```
 
 ### MinIO Upgrade
@@ -247,7 +247,7 @@ minio:
 ```
 
 ```bash
-helm upgrade argus argus/argus-enterprise -n argus -f values.yaml
+helm upgrade argus argus/skopaq-enterprise -n argus -f values.yaml
 ```
 
 ## Upgrade Checklist

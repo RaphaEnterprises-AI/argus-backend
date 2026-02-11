@@ -4,7 +4,7 @@ This directory contains **internal documentation** for the E2E Testing Agent dev
 
 ## Public Documentation
 
-For user-facing documentation, visit: **[docs.heyargus.ai](https://docs.heyargus.ai)**
+For user-facing documentation, visit: **[docs.skopaq.ai](https://docs.skopaq.ai)**
 
 Public docs are maintained in the [argus-docs](https://github.com/RaphaEnterprises-AI/argus-docs) repository.
 

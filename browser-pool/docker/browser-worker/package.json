@@ -1,5 +1,5 @@
 {
-  "name": "argus-browser-worker",
+  "name": "skopaq-browser-worker",
   "version": "1.0.0",
   "description": "Browser worker for Argus E2E testing",
   "main": "src/server.js",

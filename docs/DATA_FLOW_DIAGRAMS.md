@@ -1,4 +1,4 @@
-# Argus Data Flow Diagrams
+# Skopaq Data Flow Diagrams
 
 **Document Version:** 1.0
 **Date:** 2026-01-28

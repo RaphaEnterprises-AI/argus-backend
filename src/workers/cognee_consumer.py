@@ -92,7 +92,7 @@ class CogneeConfig(BaseModel):
     cloudflare_worker_url: str = Field(
         default_factory=lambda: os.getenv(
             "CLOUDFLARE_WORKER_URL",
-            "https://argus-api.heyargus.workers.dev"
+            "https://skopaq-api.samuelvinay-kumar.workers.dev"
         )
     )
 

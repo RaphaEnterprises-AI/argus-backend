@@ -175,6 +175,94 @@ class RateLimitConfig:
 
 
 # =============================================================================
+# Post-Auth User Provisioning
+# =============================================================================
+
+# In-memory cache of provisioned user IDs to avoid repeated DB lookups.
+# This is per-process; restarts re-check, which is fine (idempotent).
+_provisioned_users: set[str] = set()
+
+
+async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | None:
+    """Ensure an authenticated user has a profile and at least one organization.
+
+    Called from the auth middleware for interactive users (JWT/OAuth) whose
+    Clerk JWT does not carry an org_id.  The function is idempotent — safe to
+    call on every request, but the in-memory cache makes subsequent calls free.
+
+    Returns:
+        The user's organization UUID, or None if provisioning fails.
+    """
+    if user_id in _provisioned_users:
+        # Fast path: already provisioned this process lifetime.
+        # Still need to resolve their org_id for the current request.
+        from src.services.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+        result = await supabase.request(
+            f"/organization_members?user_id=eq.{user_id}&status=eq.active"
+            f"&select=organization_id&limit=1"
+        )
+        if result.get("data") and len(result["data"]) > 0:
+            return result["data"][0]["organization_id"]
+        # User lost all memberships (e.g., kicked from only org) — evict
+        # from cache and fall through to full provisioning below.
+        _provisioned_users.discard(user_id)
+
+    try:
+        # Lazy imports to avoid circular dependencies
+        from src.api.users import _create_personal_organization, get_or_create_profile
+        from src.services.supabase_client import get_supabase_client
+
+        # 1. Ensure profile exists
+        await get_or_create_profile(user_id, email)
+
+        # 2. Check for existing org membership
+        supabase = get_supabase_client()
+        result = await supabase.request(
+            f"/organization_members?user_id=eq.{user_id}&status=eq.active"
+            f"&select=organization_id&limit=1"
+        )
+        if result.get("data") and len(result["data"]) > 0:
+            _provisioned_users.add(user_id)
+            return result["data"][0]["organization_id"]
+
+        # 3. Also try by email
+        if email:
+            result = await supabase.request(
+                f"/organization_members?email=eq.{email}&status=eq.active"
+                f"&select=organization_id&limit=1"
+            )
+            if result.get("data") and len(result["data"]) > 0:
+                _provisioned_users.add(user_id)
+                return result["data"][0]["organization_id"]
+
+        # 4. No org at all — create a personal workspace
+        logger.info(
+            "Provisioning personal organization for new user",
+            user_id=user_id,
+        )
+        personal_org = await _create_personal_organization(user_id, email)
+        if personal_org:
+            _provisioned_users.add(user_id)
+            return personal_org.id
+
+        logger.warning("Failed to provision organization", user_id=user_id)
+        return None
+
+    except Exception as e:
+        # Provisioning must never block the request — log and continue.
+        # The downstream endpoint may still fail, but at least the user
+        # sees a meaningful error instead of a middleware crash.
+        logger.error(
+            "User provisioning failed (non-fatal)",
+            user_id=user_id,
+            error=str(e),
+        )
+        return None
+
+
+# =============================================================================
 # Authentication Middleware
 # =============================================================================
 
@@ -315,6 +403,20 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     **_get_cors_headers(request),
                 },
             )
+
+        # Post-auth provisioning: ensure user has profile + organization
+        # This runs ONCE per new user (subsequent requests find existing records).
+        # Only for interactive users (JWT/OAuth) — API keys already carry an org_id.
+        if (
+            user.organization_id is None
+            and user.user_id not in ("anonymous", "dev-user")
+            and str(user.auth_method) not in ("api_key", "service_account")
+        ):
+            resolved_org_id = await _ensure_user_provisioned(
+                user.user_id, user.email
+            )
+            if resolved_org_id:
+                user.organization_id = resolved_org_id
 
         # Attach user to request
         request.state.user = user

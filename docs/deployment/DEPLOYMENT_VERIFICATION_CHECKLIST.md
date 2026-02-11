@@ -1,6 +1,6 @@
 # Multi-Tenant Deployment Verification Checklist
 
-This checklist verifies that the Argus multi-tenant data layer is properly deployed and functioning.
+This checklist verifies that the Skopaq multi-tenant data layer is properly deployed and functioning.
 
 ## Prerequisites
 
@@ -226,14 +226,14 @@ Check Railway/deployment environment:
 
 ### 8.2 Verify API Health
 ```bash
-curl https://argus-brain-production.up.railway.app/api/v1/health
+curl https://skopaq-brain-production.up.railway.app/api/v1/health
 ```
 - [ ] Returns `200 OK`
 - [ ] Response includes data layer status
 
 ### 8.3 Verify Event Gateway
 ```bash
-curl https://argus-brain-production.up.railway.app/api/v1/health/kafka
+curl https://skopaq-brain-production.up.railway.app/api/v1/health/kafka
 ```
 - [ ] Kafka connection healthy
 - [ ] Producer initialized
@@ -245,7 +245,7 @@ curl https://argus-brain-production.up.railway.app/api/v1/health/kafka
 ### 9.1 Create Test Organization (via API)
 ```bash
 # Use dashboard or API to create test org
-curl -X POST https://argus-brain-production.up.railway.app/api/v1/orgs \
+curl -X POST https://skopaq-brain-production.up.railway.app/api/v1/orgs \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "Test Org", "slug": "test-org"}'

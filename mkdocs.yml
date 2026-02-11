@@ -3,8 +3,8 @@
 
 site_name: ARGUS Documentation
 site_description: AI-Powered Autonomous E2E Testing Platform
-site_author: Argus Team
-site_url: https://docs.heyargus.ai
+site_author: Skopaq Team
+site_url: https://docs.skopaq.ai
 
 # Repository (optional - remove if you want to hide repo link)
 # repo_name: argus/e2e-testing-agent
@@ -12,7 +12,7 @@ site_url: https://docs.heyargus.ai
 # edit_uri: edit/main/docs-site/
 
 # Copyright
-copyright: Copyright &copy; 2026 Argus
+copyright: Copyright &copy; 2026 Skopaq
 
 # Docs directory
 docs_dir: docs-site

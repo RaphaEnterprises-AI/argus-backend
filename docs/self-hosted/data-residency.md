@@ -4,19 +4,19 @@
 **Last Updated:** 2026-01-30
 **Classification:** PUBLIC
 
-This document provides comprehensive information about data storage locations, data flows, and residency guarantees for Argus Enterprise deployments to support compliance requirements (GDPR, HIPAA, SOC2, FedRAMP, etc.).
+This document provides comprehensive information about data storage locations, data flows, and residency guarantees for Skopaq Enterprise deployments to support compliance requirements (GDPR, HIPAA, SOC2, FedRAMP, etc.).
 
 ---
 
 ## Executive Summary
 
-Argus Enterprise provides three deployment modes with different data residency characteristics:
+Skopaq Enterprise provides three deployment modes with different data residency characteristics:
 
 | Deployment Mode | Data Location | External Dependencies | Compliance Level |
 |-----------------|---------------|----------------------|------------------|
 | **Self-Hosted** | Customer infrastructure | Cloud LLM (configurable) | High |
 | **Self-Hosted (Air-Gap)** | Customer infrastructure | None | Maximum |
-| **Cloud (SaaS)** | Argus-managed infrastructure | Yes | Standard |
+| **Cloud (SaaS)** | Skopaq-managed infrastructure | Yes | Standard |
 
 ---
 
@@ -62,7 +62,7 @@ Argus Enterprise provides three deployment modes with different data residency c
 │  │                              Kubernetes Cluster                            │  │
 │  │                                                                            │  │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌────────────┐ │  │
-│  │  │   Browser   │───►│   Ingress   │───►│ Argus Brain │───►│ PostgreSQL │ │  │
+│  │  │   Browser   │───►│   Ingress   │───►│ Skopaq Brain │───►│ PostgreSQL │ │  │
 │  │  │   (Users)   │    │ Controller  │    │  (FastAPI)  │    │ + pgvector │ │  │
 │  │  └─────────────┘    └─────────────┘    └──────┬──────┘    └────────────┘ │  │
 │  │                                               │                           │  │
@@ -108,7 +108,7 @@ EXTERNAL DATA FLOW:
 │  │                              Kubernetes Cluster                            │  │
 │  │                                                                            │  │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌────────────┐ │  │
-│  │  │   Browser   │───►│   Ingress   │───►│ Argus Brain │───►│ PostgreSQL │ │  │
+│  │  │   Browser   │───►│   Ingress   │───►│ Skopaq Brain │───►│ PostgreSQL │ │  │
 │  │  │   (Users)   │    │ Controller  │    │  (FastAPI)  │    │ + pgvector │ │  │
 │  │  └─────────────┘    └─────────────┘    └──────┬──────┘    └────────────┘ │  │
 │  │                                               │                           │  │
@@ -164,7 +164,7 @@ NETWORK FIREWALL: Block all egress traffic (optional)
 │  ┌───────────────────────────────────────────────┼───────────────────────────┐  │
 │  │                         Railway (Compute)      │                           │  │
 │  │  ┌────────────────────────────────────────────▼────────────────────────┐  │  │
-│  │  │                        Argus Brain (FastAPI)                        │  │  │
+│  │  │                        Skopaq Brain (FastAPI)                        │  │  │
 │  │  └────────────────────────────────┬────────────────────────────────────┘  │  │
 │  └───────────────────────────────────┼───────────────────────────────────────┘  │
 │                                      │                                           │
@@ -198,7 +198,7 @@ NETWORK FIREWALL: Block all egress traffic (optional)
 
 ### Contractual Guarantees
 
-When deployed in air-gap mode, Argus Enterprise provides the following guarantees:
+When deployed in air-gap mode, Skopaq Enterprise provides the following guarantees:
 
 1. **Zero External Network Calls**
    - All LLM inference runs locally via Ollama
@@ -265,7 +265,7 @@ spec:
 
 ## EU Data Residency Configuration
 
-For organizations requiring EU data residency, Argus supports the following configurations:
+For organizations requiring EU data residency, Skopaq supports the following configurations:
 
 ### Self-Hosted EU Deployment
 
@@ -296,7 +296,7 @@ brain:
 
 ### Cloud (SaaS) EU Residency
 
-For Argus Cloud customers requiring EU data residency:
+For Skopaq Cloud customers requiring EU data residency:
 
 | Component | EU Location | Notes |
 |-----------|-------------|-------|
@@ -304,13 +304,13 @@ For Argus Cloud customers requiring EU data residency:
 | Cloudflare R2 | EU region | Object storage |
 | LLM Processing | Azure OpenAI (EU) | Optional, additional cost |
 
-Contact enterprise@heyargus.ai to enable EU data residency for cloud deployments.
+Contact enterprise@skopaq.ai to enable EU data residency for cloud deployments.
 
 ---
 
 ## Sub-Processors List (Cloud Mode Only)
 
-The following sub-processors are used in Argus Cloud (SaaS) mode:
+The following sub-processors are used in Skopaq Cloud (SaaS) mode:
 
 | Sub-Processor | Purpose | Location | Data Processed | DPA Available |
 |---------------|---------|----------|----------------|---------------|
@@ -351,7 +351,7 @@ Customers will be notified 30 days in advance of any sub-processor changes.
 
 ### HIPAA Compliance (Self-Hosted)
 
-For healthcare organizations, Argus self-hosted can be deployed in HIPAA-compliant configuration:
+For healthcare organizations, Skopaq self-hosted can be deployed in HIPAA-compliant configuration:
 
 1. **Business Associate Agreement (BAA)**: Available upon request
 2. **PHI Handling**: No PHI processed by default; if testing PHI systems, all data stays in customer infrastructure
@@ -408,10 +408,10 @@ For US government agencies:
 
 For data residency questions or to request compliance documentation:
 
-- **Enterprise Sales**: enterprise@heyargus.ai
-- **Security Team**: security@heyargus.ai
-- **DPA Requests**: legal@heyargus.ai
-- **Documentation**: https://docs.heyargus.ai/compliance
+- **Enterprise Sales**: enterprise@skopaq.ai
+- **Security Team**: security@skopaq.ai
+- **DPA Requests**: legal@skopaq.ai
+- **Documentation**: https://docs.skopaq.ai/compliance
 
 ---
 

@@ -6,7 +6,7 @@ import * as vscode from "vscode";
  * Detects test functions by common naming patterns (test_, it(, describe(,
  * @Test, etc.) across multiple languages.
  */
-export class ArgusCodeLensProvider implements vscode.CodeLensProvider {
+export class SkopaqCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
@@ -37,7 +37,7 @@ export class ArgusCodeLensProvider implements vscode.CodeLensProvider {
     for (let i = 0; i < document.lineCount; i++) {
       const line = document.lineAt(i);
 
-      for (const pattern of ArgusCodeLensProvider.TEST_PATTERNS) {
+      for (const pattern of SkopaqCodeLensProvider.TEST_PATTERNS) {
         const match = line.text.match(pattern);
         if (match) {
           const range = new vscode.Range(i, 0, i, line.text.length);
@@ -49,7 +49,7 @@ export class ArgusCodeLensProvider implements vscode.CodeLensProvider {
               title: "$(play) Run Test",
               command: "argus.runTest",
               arguments: [testName],
-              tooltip: `Run ${testName} via Argus`,
+              tooltip: `Run ${testName} via Skopaq`,
             })
           );
 

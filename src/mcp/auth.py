@@ -42,7 +42,7 @@ logger = structlog.get_logger()
 # =============================================================================
 
 # Default API base URL
-DEFAULT_API_URL = os.getenv("ARGUS_API_URL", "https://api.heyargus.ai")
+DEFAULT_API_URL = os.getenv("ARGUS_API_URL", "https://api.skopaq.ai")
 
 # Token cache location
 TOKEN_CACHE_DIR = Path.home() / ".argus"
@@ -134,7 +134,7 @@ class MCPAuthenticator:
         """Initialize the authenticator.
 
         Args:
-            api_url: Argus API base URL (default: from env or https://api.heyargus.ai)
+            api_url: Argus API base URL (default: from env or https://api.skopaq.ai)
             client_id: OAuth2 client ID for this MCP server
             scope: Space-separated scopes to request
             auto_open_browser: Automatically open browser for verification

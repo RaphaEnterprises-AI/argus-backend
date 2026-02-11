@@ -8,7 +8,7 @@ const DEFAULTS = {
   serverUrl: 'ws://localhost:8765',
   apiKey: '',
   autoConnect: true,
-  brainUrl: 'https://argus-brain-production.up.railway.app',
+  brainUrl: 'https://skopaq-brain-production.up.railway.app',
   orgId: '',
   lastProjectId: '',
   maskInputs: true,

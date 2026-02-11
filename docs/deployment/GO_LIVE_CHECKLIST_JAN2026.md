@@ -1,4 +1,4 @@
-# Argus Go-Live Checklist - January 2026
+# Skopaq Go-Live Checklist - January 2026
 
 **Target Launch Date**: January 31, 2026
 **Current Status**: Grade A Evaluation Complete
@@ -335,12 +335,12 @@ Results:
 
 ### Competitive Benchmarks
 
-| Metric | Argus | SWE-bench SOTA | Human |
+| Metric | Skopaq | SWE-bench SOTA | Human |
 |--------|-------|----------------|-------|
 | Code Understanding | 100% | 75.2% | 97% |
 | Pass@1 Overall | 80% | 75.2% | 97% |
 
-**Argus exceeds SWE-bench SOTA by 4.8 percentage points.**
+**Skopaq exceeds SWE-bench SOTA by 4.8 percentage points.**
 
 ---
 

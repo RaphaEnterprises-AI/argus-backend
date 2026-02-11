@@ -1,5 +1,5 @@
 /**
- * Argus Realtime Session - Durable Object
+ * Skopaq Realtime Session - Durable Object
  * Handles WebSocket connections for real-time dashboard updates
  */
 

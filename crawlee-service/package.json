@@ -1,5 +1,5 @@
 {
-  "name": "argus-crawlee-service",
+  "name": "skopaq-crawlee-service",
   "version": "1.0.0",
   "description": "Crawlee microservice for Argus - handles browser-based crawling and visual capture",
   "main": "dist/index.js",

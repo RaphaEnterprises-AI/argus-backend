@@ -2609,7 +2609,7 @@ def custom_openapi():
     # Add contact and license info for SOC2
     openapi_schema["info"]["contact"] = {
         "name": "Argus Security Team",
-        "email": "security@heyargus.com",
+        "email": "security@skopaq.ai",
     }
     openapi_schema["info"]["license"] = {
         "name": "MIT",
@@ -2619,7 +2619,7 @@ def custom_openapi():
     # Add external docs
     openapi_schema["externalDocs"] = {
         "description": "Argus Documentation",
-        "url": "https://docs.heyargus.com",
+        "url": "https://docs.skopaq.ai",
     }
 
     app.openapi_schema = openapi_schema
