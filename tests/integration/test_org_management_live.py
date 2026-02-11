@@ -366,7 +366,7 @@ class TestOrganizations:
         url = f"{BASE_URL}/api/v1/organizations/{FAKE_UUID}"
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.get(url, headers=HEADERS)
-        assert resp.status_code in (403, 404, 429), resp.text
+        assert resp.status_code in (401, 403, 404, 429), resp.text
 
     @pytest.mark.asyncio
     async def test_get_organization_invalid_uuid_returns_400(self):

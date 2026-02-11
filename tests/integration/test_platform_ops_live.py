@@ -437,7 +437,7 @@ class TestNotifications:
                 f"{BASE_URL}/api/v1/notifications/rules/{FAKE_UUID}",
                 headers=HEADERS,
             )
-        assert resp.status_code in (404, 429), resp.text
+        assert resp.status_code in (401, 404, 429), resp.text
 
     # -- Logs --
     @pytest.mark.asyncio

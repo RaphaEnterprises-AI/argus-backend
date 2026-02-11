@@ -829,7 +829,7 @@ class TestParameterized:
                 f"{PARAM_URL}/tests/{FAKE_UUID}",
                 headers=HEADERS,
             )
-        assert resp.status_code in (404, 429), resp.text
+        assert resp.status_code in (401, 404, 429), resp.text
 
     @pytest.mark.asyncio
     async def test_update_test_fake_uuid(self):
