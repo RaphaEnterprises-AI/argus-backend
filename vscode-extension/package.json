@@ -3,7 +3,7 @@
   "displayName": "Skopaq E2E Testing Agent",
   "description": "E2E testing agent with test explorer, quality score, and self-healing integration",
   "version": "0.1.0",
-  "publisher": "argus",
+  "publisher": "skopaq",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -17,39 +17,39 @@
   "contributes": {
     "commands": [
       {
-        "command": "argus.login",
+        "command": "skopaq.login",
         "title": "Skopaq: Login"
       },
       {
-        "command": "argus.logout",
+        "command": "skopaq.logout",
         "title": "Skopaq: Logout"
       },
       {
-        "command": "argus.refreshTests",
+        "command": "skopaq.refreshTests",
         "title": "Skopaq: Refresh Tests"
       },
       {
-        "command": "argus.runTest",
+        "command": "skopaq.runTest",
         "title": "Skopaq: Run Test"
       },
       {
-        "command": "argus.viewQuality",
+        "command": "skopaq.viewQuality",
         "title": "Skopaq: View Quality Score"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "argus-testing",
+          "id": "skopaq-testing",
           "title": "Skopaq E2E Tests",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "argus-testing": [
+      "skopaq-testing": [
         {
-          "id": "argus.testExplorer",
+          "id": "skopaq.testExplorer",
           "name": "Test Explorer"
         }
       ]
@@ -57,17 +57,17 @@
     "configuration": {
       "title": "Skopaq E2E Testing Agent",
       "properties": {
-        "argus.backendUrl": {
+        "skopaq.backendUrl": {
           "type": "string",
           "default": "https://skopaq-brain-production.up.railway.app",
           "description": "Skopaq backend API URL"
         },
-        "argus.projectId": {
+        "skopaq.projectId": {
           "type": "string",
           "default": "",
           "description": "Default project ID"
         },
-        "argus.autoRefresh": {
+        "skopaq.autoRefresh": {
           "type": "boolean",
           "default": true,
           "description": "Auto-refresh tests on file save"

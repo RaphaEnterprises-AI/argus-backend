@@ -47,7 +47,7 @@ export class SkopaqCodeLensProvider implements vscode.CodeLensProvider {
           lenses.push(
             new vscode.CodeLens(range, {
               title: "$(play) Run Test",
-              command: "argus.runTest",
+              command: "skopaq.runTest",
               arguments: [testName],
               tooltip: `Run ${testName} via Skopaq`,
             })

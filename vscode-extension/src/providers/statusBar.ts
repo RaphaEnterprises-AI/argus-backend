@@ -16,7 +16,7 @@ export class SkopaqStatusBar {
       vscode.StatusBarAlignment.Left,
       50
     );
-    this.statusBarItem.command = "argus.viewQuality";
+    this.statusBarItem.command = "skopaq.viewQuality";
     this.statusBarItem.tooltip = "Click to view Skopaq quality details";
     this.setDisconnected();
     this.statusBarItem.show();
@@ -42,7 +42,7 @@ export class SkopaqStatusBar {
 
   async refresh(): Promise<void> {
     const projectId = vscode.workspace
-      .getConfiguration("argus")
+      .getConfiguration("skopaq")
       .get<string>("projectId");
 
     if (!projectId || !this.client.getApiKey()) {
@@ -90,7 +90,7 @@ export class SkopaqStatusBar {
    */
   async showDetails(): Promise<void> {
     const projectId = vscode.workspace
-      .getConfiguration("argus")
+      .getConfiguration("skopaq")
       .get<string>("projectId");
 
     if (!projectId || !this.client.getApiKey()) {

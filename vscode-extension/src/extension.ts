@@ -26,7 +26,7 @@ export async function activate(
   }
 
   // Register tree view
-  const treeView = vscode.window.createTreeView("argus.testExplorer", {
+  const treeView = vscode.window.createTreeView("skopaq.testExplorer", {
     treeDataProvider: testExplorer,
     showCollapseAll: true,
   });
@@ -45,7 +45,7 @@ export async function activate(
   );
 
   // Register commands
-  const loginCmd = vscode.commands.registerCommand("argus.login", async () => {
+  const loginCmd = vscode.commands.registerCommand("skopaq.login", async () => {
     const key = await auth.login();
     if (key) {
       client.setApiKey(key);
@@ -55,7 +55,7 @@ export async function activate(
   });
 
   const logoutCmd = vscode.commands.registerCommand(
-    "argus.logout",
+    "skopaq.logout",
     async () => {
       await auth.logout();
       client.setApiKey("");
@@ -65,14 +65,14 @@ export async function activate(
   );
 
   const refreshCmd = vscode.commands.registerCommand(
-    "argus.refreshTests",
+    "skopaq.refreshTests",
     () => {
       testExplorer.refresh();
       codeLens.refresh();
       statusBar?.refresh();
 
       const projectId = vscode.workspace
-        .getConfiguration("argus")
+        .getConfiguration("skopaq")
         .get<string>("projectId");
       if (projectId) {
         diagnostics?.refreshFromTestRuns(projectId);
@@ -81,7 +81,7 @@ export async function activate(
   );
 
   const runTestCmd = vscode.commands.registerCommand(
-    "argus.runTest",
+    "skopaq.runTest",
     async (testId: string) => {
       if (!client.getApiKey()) {
         vscode.window.showWarningMessage(
@@ -119,14 +119,14 @@ export async function activate(
   );
 
   const qualityCmd = vscode.commands.registerCommand(
-    "argus.viewQuality",
+    "skopaq.viewQuality",
     () => statusBar?.showDetails()
   );
 
   // Auto-refresh on file save
   const saveWatcher = vscode.workspace.onDidSaveTextDocument(() => {
     const autoRefresh = vscode.workspace
-      .getConfiguration("argus")
+      .getConfiguration("skopaq")
       .get<boolean>("autoRefresh");
     if (autoRefresh) {
       testExplorer.refresh();

@@ -28,7 +28,7 @@ export class TestExplorerProvider
     }
 
     const projectId = vscode.workspace
-      .getConfiguration("argus")
+      .getConfiguration("skopaq")
       .get<string>("projectId");
 
     if (!projectId) {
@@ -136,7 +136,7 @@ export class TestItem extends vscode.TreeItem {
     // Make test items clickable to run
     if (testId !== "none") {
       this.command = {
-        command: "argus.runTest",
+        command: "skopaq.runTest",
         title: "Run Test",
         arguments: [testId],
       };
