@@ -98,10 +98,9 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
         run_id = run["id"]
         schedule_id = run["schedule_id"]
 
-        # supabase.update signature: (table, filters, data)
+        # old supabase client: update(table, values, filters)
         update_success = await supabase.update(
             "schedule_runs",
-            {"id": f"eq.{run_id}"},
             {
                 "status": "timeout",
                 "completed_at": datetime.now(UTC).isoformat(),
@@ -117,6 +116,7 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
                 "failure_category": "environment",
                 "failure_confidence": 0.9,
             },
+            {"id": run_id},
         )
 
         if not update_success:
@@ -128,11 +128,11 @@ async def cleanup_stale_runs(max_running_minutes: int = 60) -> int:
             # Update schedule status
             await supabase.update(
                 "test_schedules",
-                {"id": f"eq.{schedule_id}"},
                 {
                     "status": "error",
                     "last_run_status": "timeout",
                 },
+                {"id": schedule_id},
             )
 
     return cleaned
@@ -262,7 +262,7 @@ async def _update_schedule_in_db(schedule_id: str, updates: dict) -> bool:
         return False
 
     try:
-        success = await supabase.update("test_schedules", {"id": f"eq.{schedule_id}"}, updates)
+        success = await supabase.update("test_schedules", updates, {"id": schedule_id})
         if not success:
             logger.error(
                 "Failed to update schedule in database",
@@ -345,7 +345,7 @@ async def _update_schedule_run_in_db(run_id: str, updates: dict) -> bool:
         return False
 
     try:
-        success = await supabase.update("schedule_runs", {"id": f"eq.{run_id}"}, updates)
+        success = await supabase.update("schedule_runs", updates, {"id": run_id})
         if not success:
             logger.error(
                 "Failed to update schedule run in database",

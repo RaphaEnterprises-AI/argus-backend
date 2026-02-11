@@ -113,8 +113,8 @@ async def update_schedule_next_run(schedule_id: str, cron_expression: str) -> bo
 
         success = await supabase.update(
             "test_schedules",
-            {"id": f"eq.{schedule_id}"},
             {"next_run_at": next_run_at, "updated_at": datetime.now(UTC).isoformat()},
+            {"id": schedule_id},
         )
 
         if success:
