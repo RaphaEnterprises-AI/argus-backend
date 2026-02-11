@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-const SECRET_KEY = "argus.apiKey";
+const SECRET_KEY = "skopaq.apiKey";
 
 /**
  * Manages API key authentication for the Skopaq backend.

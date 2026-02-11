@@ -33,7 +33,7 @@ export class SkopaqClient {
   private apiKey: string | undefined;
 
   constructor() {
-    const config = vscode.workspace.getConfiguration("argus");
+    const config = vscode.workspace.getConfiguration("skopaq");
     this.baseUrl = config.get<string>("backendUrl") || "https://skopaq-brain-production.up.railway.app";
   }
 

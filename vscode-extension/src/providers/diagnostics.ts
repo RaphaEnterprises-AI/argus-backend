@@ -12,7 +12,7 @@ export class SkopaqDiagnostics {
 
   constructor(private readonly client: SkopaqClient) {
     this.diagnosticCollection =
-      vscode.languages.createDiagnosticCollection("argus");
+      vscode.languages.createDiagnosticCollection("skopaq");
   }
 
   dispose(): void {
