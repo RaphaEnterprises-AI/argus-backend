@@ -290,7 +290,7 @@ class AccountActivityModel(BaseModel):
     login_count: int = Field(alias="loginCount")
     organizations_count: int = Field(alias="organizationsCount")
     api_keys_count: int = Field(alias="apiKeysCount")
-    api_requests_30d: int = Field(alias="apiRequests30d")
+    api_requests_30d: int = Field(alias="apiRequests30D")
     organizations: list = []
 
 
