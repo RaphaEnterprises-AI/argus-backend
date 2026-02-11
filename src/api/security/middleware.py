@@ -526,7 +526,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip exempt endpoints
-        from src.api.security.rate_limit_config import is_exempt_endpoint
+        from src.api.security.rate_limit_config import is_exempt_endpoint, is_exempt_org
         if is_exempt_endpoint(request.url.path):
             return await call_next(request)
 
@@ -534,9 +534,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in RateLimitConfig.EXEMPT_ENDPOINTS:
             return await call_next(request)
 
+        # Skip rate limiting for exempt organizations
+        user = getattr(request.state, "user", None)
+        if user and is_exempt_org(getattr(user, "organization_id", None)):
+            response = await call_next(request)
+            response.headers["X-RateLimit-Limit"] = "unlimited"
+            response.headers["X-RateLimit-Remaining"] = "unlimited"
+            return response
+
         # Get rate limit key and config
         key = self._get_rate_limit_key(request)
-        user = getattr(request.state, "user", None)
         limit_config = self._get_limit_for_endpoint(request.url.path, user)
 
         max_requests = limit_config["requests"]

@@ -371,6 +371,12 @@ EXEMPT_ENDPOINTS: set[str] = {
     "/redoc",
 }
 
+# Exempt organizations (bypass rate limiting entirely)
+# Comma-separated org IDs via environment variable
+EXEMPT_ORGS: set[str] = set(
+    filter(None, os.getenv("RATE_LIMIT_EXEMPT_ORGS", "").split(","))
+)
+
 
 # =============================================================================
 # CONCURRENT CONNECTION LIMITS (for SSE/streaming endpoints)
@@ -538,3 +544,15 @@ def is_exempt_endpoint(path: str) -> bool:
         True if exempt
     """
     return path in EXEMPT_ENDPOINTS
+
+
+def is_exempt_org(org_id: str | None) -> bool:
+    """Check if an organization is exempt from rate limiting.
+
+    Args:
+        org_id: Organization ID
+
+    Returns:
+        True if exempt
+    """
+    return org_id is not None and org_id in EXEMPT_ORGS
