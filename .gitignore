@@ -21,6 +21,7 @@ secrets.yaml
 **/kubernetes/**/*-secrets.yml
 **/*secret*.yaml
 **/*secret*.yml
+**/kubernetes/**/langfuse-values.yaml
 
 # Environment files in nested directories
 **/.env

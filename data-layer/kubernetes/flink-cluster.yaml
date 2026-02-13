@@ -77,6 +77,8 @@ spec:
 
 ---
 # Redpanda credentials secret (update with your actual values)
+# For self-hosted Redpanda on Vultr VKE, use internal service address.
+# For Redpanda Cloud, use the cloud bootstrap server URL.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -84,9 +86,9 @@ metadata:
   namespace: argus-data
 type: Opaque
 stringData:
-  bootstrap_servers: "d5rq6j17lc71h60f3oog.any.ap-south-1.mpx.prd.cloud.redpanda.com:9092"
-  sasl_username: "bapatla92"
-  sasl_password: "PpoOCp1nneHSPNIdBLh2NV5GbEuadZ"
+  bootstrap_servers: "REPLACE_WITH_BOOTSTRAP_SERVERS"
+  sasl_username: "REPLACE_WITH_SASL_USERNAME"
+  sasl_password: "REPLACE_WITH_SASL_PASSWORD"
   sasl_mechanism: "SCRAM-SHA-256"
   security_protocol: "SASL_SSL"
 

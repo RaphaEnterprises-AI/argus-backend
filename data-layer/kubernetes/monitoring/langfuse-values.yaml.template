@@ -1,6 +1,8 @@
 # Langfuse Helm Chart Values - Self-hosted LLM Observability
 # For Cognee knowledge graph worker tracing
 #
+# IMPORTANT: Copy this to langfuse-values.yaml and replace placeholder values!
+#
 # Deploy with:
 #   helm repo add langfuse https://langfuse.github.io/langfuse-k8s
 #   helm repo update
@@ -58,7 +60,7 @@ langfuse:
     - name: LANGFUSE_INIT_USER_NAME
       value: "Argus Admin"
     - name: LANGFUSE_INIT_USER_PASSWORD
-      value: "ArgusLangfuse2026"
+      value: "REPLACE_WITH_ADMIN_PASSWORD"
     - name: TELEMETRY_ENABLED
       value: "false"
     - name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
@@ -101,7 +103,7 @@ postgresql:
   auth:
     username: langfuse
     database: postgres_langfuse
-    password: "langfuse-pg-password-2026"
+    password: "REPLACE_WITH_PG_PASSWORD"
     existingSecret: ""
 
   primary:
@@ -126,7 +128,7 @@ clickhouse:
 
   auth:
     username: default
-    password: "langfuse-clickhouse-password-2026"
+    password: "REPLACE_WITH_CLICKHOUSE_PASSWORD"
     existingSecret: ""
 
   shards: 1
@@ -170,7 +172,7 @@ redis:
 
   auth:
     username: "default"
-    password: "97e480472555549de30192da9f1d0e52f28e83a5762eb5506020e925923931fc"
+    password: "REPLACE_WITH_VALKEY_PASSWORD"
     existingSecret: ""
     database: 1  # Use database 1 to avoid conflicts with Cognee worker
 
@@ -189,7 +191,7 @@ s3:
   storageProvider: s3
   bucket: "langfuse-argus"
   region: "auto"
-  endpoint: "https://4957164416d09fb70ffd01ea18a86f4c.r2.cloudflarestorage.com"
+  endpoint: "https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com"
   forcePathStyle: true
 
   # R2 credentials from secret
