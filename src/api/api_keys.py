@@ -248,15 +248,22 @@ async def create_api_key(org_id: str, body: CreateAPIKeyRequest, request: Reques
         user.get("email")
     )
 
+    supabase = get_supabase_client()
+
     # For API key auth, the key's organization_id IS the authorization
     is_api_key_auth = await check_api_key_auth(user, supabase_org_id)
     if is_api_key_auth:
-        # API key auth - use the user_id as created_by (it's the original key creator's member ID)
-        member = {"id": user["user_id"]}
+        # API key auth - look up organization_members.id (UUID) from Clerk user_id
+        # created_by is a FK to organization_members(id), so we can't use the Clerk user_id directly
+        member_result = await supabase.request(
+            f"/organization_members?user_id=eq.{user['user_id']}&organization_id=eq.{supabase_org_id}&status=eq.active&select=id&limit=1"
+        )
+        if member_result.get("data") and len(member_result["data"]) > 0:
+            member = member_result["data"][0]
+        else:
+            member = {"id": None}  # NULL is allowed — member record may not exist
     else:
         member, supabase_org_id = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
-
-    supabase = get_supabase_client()
 
     # Validate scopes
     # SECURITY: Require at least one scope - empty scopes means no access
@@ -344,14 +351,21 @@ async def rotate_api_key(org_id: str, key_id: str, request: Request):
         user.get("email")
     )
 
+    supabase = get_supabase_client()
+
     # For API key auth, the key's organization_id IS the authorization
     is_api_key_auth = await check_api_key_auth(user, supabase_org_id)
     if is_api_key_auth:
-        member = {"id": user["user_id"]}
+        # Look up organization_members.id (UUID) — created_by is a FK to organization_members(id)
+        member_result = await supabase.request(
+            f"/organization_members?user_id=eq.{user['user_id']}&organization_id=eq.{supabase_org_id}&status=eq.active&select=id&limit=1"
+        )
+        if member_result.get("data") and len(member_result["data"]) > 0:
+            member = member_result["data"][0]
+        else:
+            member = {"id": None}
     else:
         member, supabase_org_id = await verify_org_access(supabase_org_id, user["user_id"], ["owner", "admin"], user.get("email"), request=request)
-
-    supabase = get_supabase_client()
 
     # Get the existing key
     try:
