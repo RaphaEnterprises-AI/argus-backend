@@ -37,6 +37,11 @@ class EventType(str, Enum):
     INTEGRATION_CONFLUENCE = "integration.confluence"
     INTEGRATION_JIRA = "integration.jira"
 
+    # Penetration Testing Events
+    PENTEST_STARTED = "pentest.started"
+    PENTEST_FINDING = "pentest.finding"
+    PENTEST_COMPLETED = "pentest.completed"
+
 
 class TenantInfo(BaseModel):
     """Tenant context for multi-tenant isolation.
@@ -495,3 +500,46 @@ class AgentHeartbeatEvent(BaseEvent):
         ...,
         description="Agent status: 'healthy', 'degraded', 'unhealthy', 'shutting_down'"
     )
+
+
+# =============================================================================
+# Penetration Testing Events
+# =============================================================================
+
+
+class PentestStartedEvent(BaseEvent):
+    """Emitted when a penetration test scan is started."""
+
+    event_type: EventType = Field(default=EventType.PENTEST_STARTED, frozen=True)
+
+    scan_id: str = Field(..., description="Pentest scan ID")
+    target_url: str = Field(..., description="Target URL being scanned")
+    scan_profile: str = Field(default="standard", description="quick|standard|thorough")
+
+
+class PentestFindingEvent(BaseEvent):
+    """Emitted when a vulnerability finding is discovered during a pentest."""
+
+    event_type: EventType = Field(default=EventType.PENTEST_FINDING, frozen=True)
+
+    scan_id: str = Field(..., description="Pentest scan ID")
+    finding_id: str = Field(..., description="Finding unique ID")
+    vulnerability_type: str = Field(..., description="Type of vulnerability")
+    severity: str = Field(..., description="critical|high|medium|low|info")
+    title: str = Field(..., description="Finding title")
+    cvss_score: float = Field(default=0.0, description="CVSS 3.1 score")
+    cwe_id: str = Field(default="", description="CWE identifier")
+
+
+class PentestCompletedEvent(BaseEvent):
+    """Emitted when a penetration test scan completes."""
+
+    event_type: EventType = Field(default=EventType.PENTEST_COMPLETED, frozen=True)
+
+    scan_id: str = Field(..., description="Pentest scan ID")
+    total_findings: int = Field(default=0, description="Total findings discovered")
+    critical_count: int = Field(default=0, description="Critical severity count")
+    high_count: int = Field(default=0, description="High severity count")
+    verified_count: int = Field(default=0, description="Exploited/verified count")
+    risk_score: float = Field(default=0.0, description="Overall risk score 0-100")
+    duration_ms: int = Field(default=0, description="Total scan duration")

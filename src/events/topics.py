@@ -35,6 +35,11 @@ TOPIC_INTEGRATION_SENTRY = "argus.integration.sentry"
 TOPIC_INTEGRATION_CONFLUENCE = "argus.integration.confluence"
 TOPIC_INTEGRATION_JIRA = "argus.integration.jira"
 
+# Penetration Testing Topics
+TOPIC_PENTEST_STARTED = "argus.pentest.started"
+TOPIC_PENTEST_FINDING = "argus.pentest.finding"
+TOPIC_PENTEST_COMPLETED = "argus.pentest.completed"
+
 # Pattern Analysis Topics (Flink output)
 TOPIC_PATTERNS_FAILURE_CLUSTER = "argus.patterns.failure-cluster"
 
@@ -164,6 +169,25 @@ TOPIC_CONFIGS: dict[str, TopicConfig] = {
         retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
         consumer_group="argus-cognee-workers",
     ),
+    # Penetration Testing Topics
+    TOPIC_PENTEST_STARTED: TopicConfig(
+        name=TOPIC_PENTEST_STARTED,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-pentest",
+    ),
+    TOPIC_PENTEST_FINDING: TopicConfig(
+        name=TOPIC_PENTEST_FINDING,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-pentest",
+    ),
+    TOPIC_PENTEST_COMPLETED: TopicConfig(
+        name=TOPIC_PENTEST_COMPLETED,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-pentest",
+    ),
     # Pattern Analysis Topics (Flink output)
     TOPIC_PATTERNS_FAILURE_CLUSTER: TopicConfig(
         name=TOPIC_PATTERNS_FAILURE_CLUSTER,
@@ -197,6 +221,10 @@ EVENT_TYPE_TO_TOPIC: dict[EventType, str] = {
     EventType.INTEGRATION_SENTRY: TOPIC_INTEGRATION_SENTRY,
     EventType.INTEGRATION_CONFLUENCE: TOPIC_INTEGRATION_CONFLUENCE,
     EventType.INTEGRATION_JIRA: TOPIC_INTEGRATION_JIRA,
+    # Penetration Testing
+    EventType.PENTEST_STARTED: TOPIC_PENTEST_STARTED,
+    EventType.PENTEST_FINDING: TOPIC_PENTEST_FINDING,
+    EventType.PENTEST_COMPLETED: TOPIC_PENTEST_COMPLETED,
 }
 
 

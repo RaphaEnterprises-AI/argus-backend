@@ -121,6 +121,8 @@ AGENTS = [
     "sre_agent",
     "corrective_rag",
     "tool_discovery",
+    # Penetration testing
+    "pentest_coordinator",
 ]
 
 AGENT_DESCRIPTIONS = {
@@ -134,6 +136,7 @@ AGENT_DESCRIPTIONS = {
     "sre_agent": "Handles incident correlation, alert triage, runbook execution, infrastructure healing, and MTTR tracking. Use for production issues, infrastructure problems, or when correlating failures across systems.",
     "corrective_rag": "Self-correcting retrieval agent that finds relevant documentation, code context, and historical patterns. Use when you need accurate context from knowledge bases, when initial retrieval seems incomplete, or for complex queries requiring multiple sources.",
     "tool_discovery": "Discovers and creates tools dynamically from API documentation (OpenAPI, GraphQL, MCP). Use when existing tools are insufficient, when integrating new APIs, or when capability gaps are identified.",
+    "pentest_coordinator": "AI-driven penetration testing coordinator. Runs recon, vulnerability scanning (Nuclei + SQLMap + AI), and controlled exploitation in Docker sandboxes. Use when the user requests security testing, penetration testing, or vulnerability assessment of a web application.",
 }
 
 PHASE_DESCRIPTIONS = {
@@ -957,6 +960,67 @@ async def supervisor_tool_discovery_node(state: SupervisorState) -> dict:
         }
 
 
+async def supervisor_pentest_coordinator_node(state: SupervisorState) -> dict:
+    """Wrapper for pentest coordinator that works with supervisor state.
+
+    Runs the full pentest pipeline: recon → vuln scan → exploitation → report.
+    """
+    from src.orchestrator.pentest_graph import (
+        create_initial_pentest_state,
+        create_pentest_graph,
+    )
+
+    log = logger.bind(node="supervisor_pentest_coordinator")
+    log.info("Running Pentest Coordinator")
+
+    try:
+        app_url = state.get("app_url", "")
+        if not app_url:
+            return {
+                "messages": [AIMessage(content="Pentest Coordinator: No app_url provided, cannot run pentest.")],
+                "current_phase": state.get("current_phase", "analysis"),
+            }
+
+        pentest_state = create_initial_pentest_state(
+            target_url=app_url,
+            scope=[app_url],
+            scan_profile="standard",
+            organization_id=state.get("org_id", "default"),
+            project_id=state.get("project_id", "default"),
+            enable_exploitation=False,  # Disabled by default in supervisor
+        )
+
+        graph = create_pentest_graph()
+        compiled = graph.compile()
+        final_state = await compiled.ainvoke(pentest_state)
+
+        report = final_state.get("pentest_report", {})
+        total = report.get("total_findings", 0)
+        critical = report.get("critical_count", 0)
+        summary = report.get("executive_summary", "Scan completed.")
+
+        return {
+            "messages": [AIMessage(content=f"Pentest Coordinator: {summary}")],
+            "current_phase": "reporting",
+            "results": {
+                **state.get("results", {}),
+                "pentest": {
+                    "total_findings": total,
+                    "critical_count": critical,
+                    "risk_score": report.get("risk_score", 0),
+                    "status": final_state.get("status", "completed"),
+                },
+            },
+        }
+
+    except Exception as e:
+        log.error("Pentest Coordinator failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"Pentest error: {str(e)}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+
 def create_supervisor_graph() -> StateGraph:
     """Create the multi-agent supervisor graph.
 
@@ -1015,6 +1079,9 @@ def create_supervisor_graph() -> StateGraph:
     graph.add_node("corrective_rag", supervisor_corrective_rag_node)
     graph.add_node("tool_discovery", supervisor_tool_discovery_node)
 
+    # Penetration testing
+    graph.add_node("pentest_coordinator", supervisor_pentest_coordinator_node)
+
     # Entry point
     graph.set_entry_point("supervisor")
 
@@ -1033,6 +1100,8 @@ def create_supervisor_graph() -> StateGraph:
             "sre_agent": "sre_agent",
             "corrective_rag": "corrective_rag",
             "tool_discovery": "tool_discovery",
+            # Penetration testing
+            "pentest_coordinator": "pentest_coordinator",
             "end": END,
         }
     )

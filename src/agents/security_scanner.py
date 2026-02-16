@@ -251,13 +251,41 @@ You are an elite application security engineer with expertise in OWASP Top 10.
             return AgentResult(success=False, error=str(e))
 
     async def _analyze_headers(self, url: str) -> SecurityHeaders:
-        """Analyze security headers from response."""
-        # Would fetch actual headers via HTTP client
-        return SecurityHeaders()
+        """Analyze security headers from HTTP response."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=15, follow_redirects=True, verify=False,
+            ) as client:
+                resp = await client.get(url)
+                h = resp.headers
+                return SecurityHeaders(
+                    content_security_policy=h.get("content-security-policy"),
+                    x_frame_options=h.get("x-frame-options"),
+                    x_content_type_options=h.get("x-content-type-options"),
+                    strict_transport_security=h.get("strict-transport-security"),
+                    x_xss_protection=h.get("x-xss-protection"),
+                    referrer_policy=h.get("referrer-policy"),
+                    permissions_policy=h.get("permissions-policy"),
+                )
+        except httpx.HTTPError as exc:
+            self.log.warning("Failed to fetch headers", url=url, error=str(exc))
+            return SecurityHeaders()
 
     async def _fetch_page_content(self, url: str) -> str:
-        """Fetch page content for analysis."""
-        return ""
+        """Fetch page HTML content for static analysis."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=15, follow_redirects=True, verify=False,
+            ) as client:
+                resp = await client.get(url)
+                return resp.text
+        except httpx.HTTPError as exc:
+            self.log.warning("Failed to fetch page content", url=url, error=str(exc))
+            return ""
 
     def _check_security_headers(self, headers: SecurityHeaders, url: str) -> list[Vulnerability]:
         """Check for missing or misconfigured security headers."""
@@ -309,14 +337,76 @@ You are an elite application security engineer with expertise in OWASP Top 10.
         return vulnerabilities
 
     async def _test_injection(self, url: str) -> list[Vulnerability]:
-        """Test for injection vulnerabilities."""
-        # Would perform actual injection testing
-        return []
+        """Test for injection vulnerabilities by delegating to VulnScannerAgent."""
+        from .vuln_scanner_agent import VulnScannerAgent
+        from ..models.pentest import Endpoint
+
+        try:
+            scanner = VulnScannerAgent()
+            endpoints = [Endpoint(url=url, method="GET")]
+            sqli_results = await scanner._test_sql_injection(endpoints)
+            xss_results = await scanner._test_xss(endpoints)
+
+            vulns: list[Vulnerability] = []
+            for r in sqli_results:
+                if r.vulnerable:
+                    vulns.append(Vulnerability(
+                        id=f"SEC-SQLI-{r.parameter}",
+                        category=VulnerabilityCategory.INJECTION,
+                        severity=VulnerabilitySeverity.CRITICAL,
+                        title=f"SQL Injection in {r.parameter}",
+                        description=f"SQL injection detected via parameter '{r.parameter}'",
+                        location=r.endpoint,
+                        evidence=r.evidence,
+                        cwe_id="CWE-89",
+                        cvss_score=9.8,
+                    ))
+            for r in xss_results:
+                if r.vulnerable:
+                    vulns.append(Vulnerability(
+                        id=f"SEC-XSS-{r.parameter}",
+                        category=VulnerabilityCategory.XSS,
+                        severity=VulnerabilitySeverity.HIGH,
+                        title=f"Reflected XSS in {r.parameter}",
+                        description=f"Reflected XSS detected via parameter '{r.parameter}'",
+                        location=r.endpoint,
+                        evidence=r.evidence,
+                        cwe_id="CWE-79",
+                        cvss_score=6.1,
+                    ))
+            return vulns
+        except Exception as exc:
+            self.log.warning("Injection testing failed", error=str(exc))
+            return []
 
     async def _test_authentication(self, url: str) -> list[Vulnerability]:
-        """Test for authentication vulnerabilities."""
-        # Would test auth mechanisms
-        return []
+        """Test for authentication vulnerabilities by delegating to VulnScannerAgent."""
+        from .vuln_scanner_agent import VulnScannerAgent
+        from ..models.pentest import Endpoint
+
+        try:
+            scanner = VulnScannerAgent()
+            endpoints = [Endpoint(url=url, method="GET", auth_required=True)]
+            bypass_results = await scanner._test_auth_bypass(endpoints)
+
+            vulns: list[Vulnerability] = []
+            for r in bypass_results:
+                if r.vulnerable:
+                    vulns.append(Vulnerability(
+                        id=f"SEC-AUTH-{r.technique}",
+                        category=VulnerabilityCategory.BROKEN_AUTH,
+                        severity=VulnerabilitySeverity.CRITICAL,
+                        title=f"Auth Bypass via {r.technique}",
+                        description=f"Authentication bypass at {r.endpoint} using {r.technique}",
+                        location=r.endpoint,
+                        evidence=r.evidence,
+                        cwe_id="CWE-287",
+                        cvss_score=9.1,
+                    ))
+            return vulns
+        except Exception as exc:
+            self.log.warning("Auth testing failed", error=str(exc))
+            return []
 
     def _calculate_risk_score(self, vulnerabilities: list[Vulnerability]) -> float:
         """Calculate overall risk score from vulnerabilities."""

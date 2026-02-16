@@ -67,6 +67,7 @@ from src.api.oauth import router as oauth_router
 from src.api.organizations import router as organizations_router
 from src.api.orgs import router as orgs_router
 from src.api.parameterized import router as parameterized_router
+from src.api.pentest import router as pentest_router
 from src.api.performance import router as performance_router
 from src.api.pr_comments import router as pr_comments_router
 from src.api.projects import router as projects_router
@@ -477,6 +478,7 @@ app.include_router(accessibility_router)
 app.include_router(activity_router)
 app.include_router(performance_router)
 app.include_router(slo_router)
+app.include_router(pentest_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

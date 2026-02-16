@@ -150,6 +150,12 @@ from .security_scanner import (
     VulnerabilityCategory,
     VulnerabilitySeverity,
 )
+
+# Penetration Testing Agents
+from .recon_agent import ReconAgent
+from .vuln_scanner_agent import VulnScannerAgent
+from .exploitation_agent import ExploitationAgent
+
 from .self_healer import SelfHealerAgent
 
 # SRE Agent - Unified incident correlation, remediation, optimization (RAP-253)
@@ -300,6 +306,10 @@ __all__ = [
     "RetrievalAction",
     "AdaptiveRAGRouter",
     "AdaptiveRAGStrategy",
+    # Penetration Testing Agents
+    "ReconAgent",
+    "VulnScannerAgent",
+    "ExploitationAgent",
     # Hallucination Detection (RAP-330) - SelfCheckGPT pattern
     "HallucinationDetectorAgent",
     "HallucinationResult",

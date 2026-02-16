@@ -118,6 +118,13 @@ class Capability(str, Enum):
     VISUAL_AI = "visual_ai"
     COGNITIVE_MODELING = "cognitive_modeling"
 
+    # Penetration Testing Capabilities
+    RECON = "recon"
+    NETWORK_SCAN = "network_scan"
+    VULN_SCAN = "vuln_scan"
+    INJECTION_TEST = "injection_test"
+    EXPLOITATION = "exploitation"
+
 
 @dataclass
 class AgentInfo:
