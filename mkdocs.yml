@@ -1,5 +1,10 @@
 # MkDocs Configuration for ARGUS Documentation
 # https://www.mkdocs.org/
+#
+# SECURITY: This site is PRIVATE. Search engine indexing is blocked via:
+#   1. docs-site/robots.txt (Disallow: /)
+#   2. docs-site/_headers (X-Robots-Tag: noindex)
+#   3. theme.custom_dir override with noindex meta tag
 
 site_name: ARGUS Documentation
 site_description: AI-Powered Autonomous E2E Testing Platform
@@ -20,6 +25,7 @@ docs_dir: docs-site
 # Theme Configuration
 theme:
   name: material
+  custom_dir: overrides
   language: en
   palette:
     # Light mode

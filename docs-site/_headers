@@ -1,0 +1,4 @@
+# Cloudflare Pages custom headers
+# Block search engine indexing on all pages
+/*
+  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
