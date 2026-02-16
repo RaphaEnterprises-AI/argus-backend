@@ -523,6 +523,20 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Pentest Runner (Remote Tool Execution on K8s)
+    # ==========================================================================
+    # When Docker sandbox is unavailable (e.g. Railway), pentest agents call
+    # this HTTP service on Vultr K8s to run Nuclei, Nmap, and SQLMap.
+    pentest_runner_url: str | None = Field(
+        None,
+        description="URL for remote pentest runner service (e.g. http://<LB-IP>:8000)"
+    )
+    pentest_runner_api_key: SecretStr | None = Field(
+        None,
+        description="API key for pentest runner authentication"
+    )
+
+    # ==========================================================================
     # Selenium Grid Configuration (Video Recording)
     # ==========================================================================
     # Selenium Grid is a separate system from browser-pool, used specifically for

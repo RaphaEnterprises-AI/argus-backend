@@ -180,13 +180,27 @@ class VulnScannerAgent(BaseAgent):
     async def _run_nuclei_scan(
         self, target_url: str, scan_profile: str,
     ) -> list[NucleiFinding]:
-        """Run Nuclei templates inside Docker sandbox."""
+        """Run Nuclei templates via remote runner or Docker sandbox."""
         severity_flag = {
             "quick": "-severity critical,high",
             "standard": "-severity critical,high,medium",
             "thorough": "-severity critical,high,medium,low",
         }.get(scan_profile, "-severity critical,high,medium")
 
+        # Tier 1: Remote runner (production — K8s)
+        try:
+            from ..services.pentest_runner_client import get_pentest_runner
+
+            runner = get_pentest_runner()
+            if runner:
+                result = await runner.run_nuclei(target_url, severity_flag, timeout=300)
+                if result.exit_code == 0:
+                    return self._parse_nuclei_jsonl(result.stdout)
+                self.log.warning("Remote Nuclei scan failed", exit_code=result.exit_code, stderr=result.stderr[:200])
+        except Exception as exc:
+            self.log.info("Remote pentest runner unavailable", reason=str(exc))
+
+        # Tier 2: Local Docker sandbox (development)
         try:
             from ..computer_use.sandbox import SandboxManager
 

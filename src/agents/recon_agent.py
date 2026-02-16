@@ -218,13 +218,27 @@ class ReconAgent(BaseAgent):
     async def _nmap_sandbox_scan(
         self, host: str, ports: list[int],
     ) -> list[OpenPort]:
-        """Execute Nmap inside Docker sandbox."""
+        """Execute Nmap via remote runner or Docker sandbox."""
+        port_arg = ",".join(str(p) for p in ports[:200])  # limit
+
+        # Tier 1: Remote runner (production — K8s)
+        try:
+            from ..services.pentest_runner_client import get_pentest_runner
+
+            runner = get_pentest_runner()
+            if runner:
+                result = await runner.run_nmap(host, port_arg, timeout=120)
+                if result.exit_code == 0:
+                    return self._parse_nmap_xml(result.stdout)
+                self.log.warning("Remote Nmap scan failed", exit_code=result.exit_code, stderr=result.stderr[:200])
+        except Exception as exc:
+            self.log.info("Remote pentest runner unavailable", reason=str(exc))
+
+        # Tier 2: Local Docker sandbox (development)
         try:
             from ..computer_use.sandbox import SandboxManager
 
             sandbox = SandboxManager()
-            port_arg = ",".join(str(p) for p in ports[:200])  # limit
-
             result = await sandbox.execute_command(
                 command=f"nmap -sV -T4 -p {port_arg} --open -oX - {host}",
                 image="argus/pentest-tools:latest",
