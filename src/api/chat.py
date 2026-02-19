@@ -155,7 +155,7 @@ async def _build_ai_config(
             ai_config_result = await router_instance.get_ai_config(
                 user_id=user_id,
                 model=model,
-                allow_platform_fallback=False,  # BYOK only - no platform fallback
+                allow_platform_fallback=True,  # Try BYOK first, fall back to platform key
             )
 
             if ai_config_result.api_key:
