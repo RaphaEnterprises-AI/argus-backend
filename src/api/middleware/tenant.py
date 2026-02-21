@@ -94,6 +94,29 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
+    async def _get_org_plan(self, org_id: str) -> str:
+        """Look up the organization's plan from the database.
+
+        Falls back to 'free' if the lookup fails for any reason.
+        """
+        try:
+            from src.services.supabase_client import get_supabase_client
+
+            supabase = get_supabase_client()
+            if not supabase.is_configured:
+                return "free"
+
+            result = await supabase.request(
+                f"/organizations?id=eq.{org_id}&select=plan",
+            )
+            data = result.get("data", [])
+            if data and isinstance(data, list) and len(data) > 0:
+                return data[0].get("plan", "free")
+        except Exception as e:
+            logger.warning("Failed to look up org plan, defaulting to free", org_id=org_id, error=str(e))
+
+        return "free"
+
     def _is_public_path(self, path: str) -> bool:
         """Check if path is public and doesn't require tenant context."""
         for pattern in PUBLIC_PATHS:
@@ -153,6 +176,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         user_id: str | None = None
         user_email: str | None = None
         plan = "free"
+
+        # Look up actual plan from organizations table
+        plan = await self._get_org_plan(org_id)
 
         if user:
             if hasattr(user, "id"):
