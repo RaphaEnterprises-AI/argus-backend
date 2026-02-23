@@ -158,6 +158,13 @@ from .exploitation_agent import ExploitationAgent
 
 from .self_healer import SelfHealerAgent
 
+# Test Quality Intelligence
+from .test_quality_agent import (
+    SuiteAudit,
+    TestQualityIntelligenceAgent,
+    TrustScore,
+)
+
 # SRE Agent - Unified incident correlation, remediation, optimization (RAP-253)
 from .sre_agent import (
     CorrelatedIncident,
@@ -310,6 +317,10 @@ __all__ = [
     "ReconAgent",
     "VulnScannerAgent",
     "ExploitationAgent",
+    # Test Quality Intelligence
+    "TestQualityIntelligenceAgent",
+    "TrustScore",
+    "SuiteAudit",
     # Hallucination Detection (RAP-330) - SelfCheckGPT pattern
     "HallucinationDetectorAgent",
     "HallucinationResult",
