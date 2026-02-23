@@ -1,0 +1,162 @@
+[
+  {
+    "id": "sre_001_db_connection_pool",
+    "description": "Database connection pool exhaustion causing 500 errors",
+    "alert_data": {
+      "service": "api-gateway",
+      "error": "Connection pool exhausted: too many clients already (max_connections=100)",
+      "error_type": "database_error",
+      "count": 342,
+      "first_seen": "2026-02-18T10:15:00Z",
+      "last_seen": "2026-02-18T10:25:00Z",
+      "affected_endpoints": ["/api/v1/tests/run", "/api/v1/projects", "/api/v1/evaluations/recent"],
+      "metrics": {
+        "error_rate": 0.45,
+        "p99_latency_ms": 15000,
+        "active_connections": 100,
+        "waiting_queries": 87
+      }
+    },
+    "ground_truth": {
+      "severity": "sev2",
+      "root_cause_must_mention": ["connection pool", "max_connections", "database"],
+      "suggested_actions_must_include": ["increase pool size", "connection leak", "query optimization"],
+      "blast_radius": "partial"
+    }
+  },
+  {
+    "id": "sre_002_memory_leak",
+    "description": "Gradual memory leak in worker process causing OOM kills",
+    "alert_data": {
+      "service": "healing-consumer",
+      "error": "Container killed: OOMKilled (memory limit 512Mi exceeded)",
+      "error_type": "resource_exhaustion",
+      "count": 5,
+      "first_seen": "2026-02-18T02:00:00Z",
+      "last_seen": "2026-02-18T14:00:00Z",
+      "affected_endpoints": [],
+      "metrics": {
+        "memory_usage_mb": 512,
+        "memory_limit_mb": 512,
+        "restart_count": 5,
+        "uptime_seconds_before_kill": [7200, 6800, 6500, 6100, 5800],
+        "events_processed_before_kill": [1200, 1150, 1100, 1050, 980]
+      }
+    },
+    "ground_truth": {
+      "severity": "sev3",
+      "root_cause_must_mention": ["memory leak", "OOM", "gradual increase"],
+      "suggested_actions_must_include": ["increase memory limit", "memory profiling", "object retention"],
+      "blast_radius": "isolated"
+    }
+  },
+  {
+    "id": "sre_003_certificate_expiry",
+    "description": "TLS certificate about to expire causing connection failures",
+    "alert_data": {
+      "service": "api-gateway",
+      "error": "SSL certificate for api.skopaq.ai expires in 2 days",
+      "error_type": "certificate_warning",
+      "count": 1,
+      "first_seen": "2026-02-18T06:00:00Z",
+      "last_seen": "2026-02-18T06:00:00Z",
+      "affected_endpoints": ["all HTTPS endpoints"],
+      "metrics": {
+        "certificate_expiry": "2026-02-20T00:00:00Z",
+        "certificate_issuer": "Let's Encrypt",
+        "auto_renewal": false,
+        "days_until_expiry": 2
+      }
+    },
+    "ground_truth": {
+      "severity": "sev2",
+      "root_cause_must_mention": ["certificate", "expiry", "TLS", "SSL"],
+      "suggested_actions_must_include": ["renew certificate", "auto-renewal", "certbot"],
+      "blast_radius": "widespread"
+    }
+  },
+  {
+    "id": "sre_004_kafka_consumer_lag",
+    "description": "Kafka consumer group falling behind on healing events",
+    "alert_data": {
+      "service": "healing-consumer",
+      "error": "Consumer group argus-healing-workers lag exceeds 10000 messages on argus.healing.requested",
+      "error_type": "queue_lag",
+      "count": 1,
+      "first_seen": "2026-02-18T08:30:00Z",
+      "last_seen": "2026-02-18T09:00:00Z",
+      "affected_endpoints": [],
+      "metrics": {
+        "consumer_lag": 10500,
+        "messages_per_second_in": 50,
+        "messages_per_second_out": 12,
+        "active_consumers": 1,
+        "partition_count": 6,
+        "oldest_unprocessed_age_seconds": 875
+      }
+    },
+    "ground_truth": {
+      "severity": "sev3",
+      "root_cause_must_mention": ["consumer lag", "throughput", "processing speed"],
+      "suggested_actions_must_include": ["scale consumers", "partitions", "processing bottleneck"],
+      "blast_radius": "isolated"
+    }
+  },
+  {
+    "id": "sre_005_cascading_failure",
+    "description": "Third-party API rate limiting causing cascading failures",
+    "alert_data": {
+      "service": "code-analyzer",
+      "error": "GitHub API rate limit exceeded: 403 Forbidden (X-RateLimit-Remaining: 0, X-RateLimit-Reset: 1708264800)",
+      "error_type": "rate_limit",
+      "count": 156,
+      "first_seen": "2026-02-18T11:00:00Z",
+      "last_seen": "2026-02-18T11:15:00Z",
+      "affected_endpoints": ["/api/v1/cicd/test-impact/analyze", "/api/v1/healing"],
+      "metrics": {
+        "github_rate_limit_remaining": 0,
+        "github_rate_limit_reset": "2026-02-18T12:00:00Z",
+        "failed_analyses": 45,
+        "queued_healing_requests": 23,
+        "affected_projects": 12
+      }
+    },
+    "ground_truth": {
+      "severity": "sev3",
+      "root_cause_must_mention": ["rate limit", "GitHub API", "quota"],
+      "suggested_actions_must_include": ["rate limiting", "caching", "backoff", "GitHub App"],
+      "blast_radius": "partial"
+    }
+  },
+  {
+    "id": "sre_006_disk_space",
+    "description": "Disk space running low on database server",
+    "alert_data": {
+      "service": "supabase-postgres",
+      "error": "Disk usage at 92% (7.36GB / 8GB). Database may become read-only.",
+      "error_type": "disk_space",
+      "count": 1,
+      "first_seen": "2026-02-18T04:00:00Z",
+      "last_seen": "2026-02-18T04:00:00Z",
+      "affected_endpoints": ["all database operations"],
+      "metrics": {
+        "disk_used_gb": 7.36,
+        "disk_total_gb": 8.0,
+        "disk_usage_percent": 92,
+        "largest_tables": {
+          "agent_evaluations": "2.1GB",
+          "test_results": "1.8GB",
+          "checkpoints": "1.5GB",
+          "execution_trace": "0.9GB"
+        },
+        "daily_growth_mb": 120
+      }
+    },
+    "ground_truth": {
+      "severity": "sev2",
+      "root_cause_must_mention": ["disk space", "storage", "92%"],
+      "suggested_actions_must_include": ["clean old data", "increase storage", "archival", "vacuum"],
+      "blast_radius": "widespread"
+    }
+  }
+]

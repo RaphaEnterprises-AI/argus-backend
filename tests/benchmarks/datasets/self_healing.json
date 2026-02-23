@@ -1,0 +1,161 @@
+[
+  {
+    "id": "heal_001_button_id_rename",
+    "description": "Button ID renamed from #submit-btn to #submitButton in React refactor",
+    "failure_data": {
+      "test_id": "test_checkout_submit",
+      "failure_id": "fail_001",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: #submit-btn. Timeout 5000ms exceeded.",
+      "failed_selector": "#submit-btn",
+      "page_url": "https://example.com/checkout",
+      "page_html_snippet": "<form id='checkout-form'><input type='text' name='email'/><button id='submitButton' type='submit' class='btn-primary'>Place Order</button></form>",
+      "test_code": "await page.click('#submit-btn');",
+      "git_diff": "diff --git a/src/components/Checkout.tsx b/src/components/Checkout.tsx\n--- a/src/components/Checkout.tsx\n+++ b/src/components/Checkout.tsx\n@@ -42,7 +42,7 @@\n-      <button id=\"submit-btn\" type=\"submit\" className=\"btn-primary\">\n+      <button id=\"submitButton\" type=\"submit\" className=\"btn-primary\">\n         Place Order\n       </button>"
+    },
+    "ground_truth": {
+      "expected_selector": "#submitButton",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["submitButton", "#submitButton"]
+    }
+  },
+  {
+    "id": "heal_002_class_restructure",
+    "description": "CSS class changed from .nav-link to .nav-item-link during Tailwind migration",
+    "failure_data": {
+      "test_id": "test_navigation_click",
+      "failure_id": "fail_002",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: .nav-link[href='/dashboard']. Timeout 5000ms exceeded.",
+      "failed_selector": ".nav-link[href='/dashboard']",
+      "page_url": "https://example.com/",
+      "page_html_snippet": "<nav><ul><li><a href='/dashboard' class='nav-item-link text-sm font-medium'>Dashboard</a></li><li><a href='/settings' class='nav-item-link text-sm font-medium'>Settings</a></li></ul></nav>",
+      "test_code": "await page.click('.nav-link[href=\"/dashboard\"]');",
+      "git_diff": "diff --git a/src/components/Nav.tsx b/src/components/Nav.tsx\n--- a/src/components/Nav.tsx\n+++ b/src/components/Nav.tsx\n@@ -15,7 +15,7 @@\n-        <a href={item.href} className=\"nav-link\">\n+        <a href={item.href} className=\"nav-item-link text-sm font-medium\">"
+    },
+    "ground_truth": {
+      "expected_selector": ".nav-item-link[href='/dashboard']",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["nav-item-link"]
+    }
+  },
+  {
+    "id": "heal_003_data_testid_added",
+    "description": "Element gained data-testid but lost its original ID during component library swap",
+    "failure_data": {
+      "test_id": "test_search_input",
+      "failure_id": "fail_003",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: #search-input. Timeout 5000ms exceeded.",
+      "failed_selector": "#search-input",
+      "page_url": "https://example.com/search",
+      "page_html_snippet": "<div class='search-wrapper'><input data-testid='search-input' type='search' placeholder='Search...' class='form-input'/></div>",
+      "test_code": "await page.fill('#search-input', 'test query');",
+      "git_diff": "diff --git a/src/components/SearchBar.tsx b/src/components/SearchBar.tsx\n--- a/src/components/SearchBar.tsx\n+++ b/src/components/SearchBar.tsx\n@@ -8,7 +8,7 @@\n-      <input id=\"search-input\" type=\"search\" placeholder=\"Search...\" />\n+      <Input data-testid=\"search-input\" type=\"search\" placeholder=\"Search...\" className=\"form-input\" />"
+    },
+    "ground_truth": {
+      "expected_selector": "[data-testid='search-input']",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["data-testid", "search-input"]
+    }
+  },
+  {
+    "id": "heal_004_nested_shadow_dom",
+    "description": "Button moved inside a Shadow DOM web component",
+    "failure_data": {
+      "test_id": "test_login_button",
+      "failure_id": "fail_004",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: button.login-btn. Timeout 5000ms exceeded.",
+      "failed_selector": "button.login-btn",
+      "page_url": "https://example.com/login",
+      "page_html_snippet": "<auth-form><template shadowrootmode='open'><button class='login-btn primary' type='submit'>Sign In</button></template></auth-form>",
+      "test_code": "await page.click('button.login-btn');",
+      "git_diff": "diff --git a/src/pages/Login.tsx b/src/pages/Login.tsx\n--- a/src/pages/Login.tsx\n+++ b/src/pages/Login.tsx\n@@ -20,5 +20,3 @@\n-      <button className=\"login-btn primary\" type=\"submit\">Sign In</button>\n+      <AuthForm onSubmit={handleLogin} />"
+    },
+    "ground_truth": {
+      "expected_strategy": "llm_fallback",
+      "must_contain_in_suggestion": ["auth-form", "shadow", "login-btn"]
+    }
+  },
+  {
+    "id": "heal_005_dynamic_id",
+    "description": "Static ID replaced with dynamic UUID-based ID",
+    "failure_data": {
+      "test_id": "test_modal_close",
+      "failure_id": "fail_005",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: #modal-close. Timeout 5000ms exceeded.",
+      "failed_selector": "#modal-close",
+      "page_url": "https://example.com/settings",
+      "page_html_snippet": "<div role='dialog' aria-label='Settings'><button aria-label='Close' class='modal-close-btn' id='close-a1b2c3d4'>X</button><h2>Settings</h2></div>",
+      "test_code": "await page.click('#modal-close');",
+      "git_diff": "diff --git a/src/components/Modal.tsx b/src/components/Modal.tsx\n--- a/src/components/Modal.tsx\n+++ b/src/components/Modal.tsx\n@@ -12,7 +12,7 @@\n-        <button id=\"modal-close\" aria-label=\"Close\">X</button>\n+        <button id={`close-${useId()}`} aria-label=\"Close\" className=\"modal-close-btn\">X</button>"
+    },
+    "ground_truth": {
+      "expected_selector": "button[aria-label='Close']",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["aria-label", "Close"]
+    }
+  },
+  {
+    "id": "heal_006_table_row_restructure",
+    "description": "Table rows restructured from tr/td to div-based grid layout",
+    "failure_data": {
+      "test_id": "test_user_table_click",
+      "failure_id": "fail_006",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: table.users-table tbody tr:first-child td:nth-child(2). Timeout 5000ms exceeded.",
+      "failed_selector": "table.users-table tbody tr:first-child td:nth-child(2)",
+      "page_url": "https://example.com/admin/users",
+      "page_html_snippet": "<div class='users-grid' role='table'><div role='row' class='grid grid-cols-4 py-2'><div role='cell'>1</div><div role='cell' class='user-name'>John Doe</div><div role='cell'>john@example.com</div><div role='cell'>Admin</div></div></div>",
+      "test_code": "const name = await page.textContent('table.users-table tbody tr:first-child td:nth-child(2)');",
+      "git_diff": "diff --git a/src/components/UsersTable.tsx b/src/components/UsersTable.tsx\n--- a/src/components/UsersTable.tsx\n+++ b/src/components/UsersTable.tsx\n@@ -5,10 +5,8 @@\n-    <table className=\"users-table\">\n-      <tbody>\n-        {users.map(u => <tr key={u.id}><td>{u.id}</td><td>{u.name}</td>...</tr>)}\n-      </tbody>\n-    </table>\n+    <div className=\"users-grid\" role=\"table\">\n+      {users.map(u => <div role=\"row\" className=\"grid grid-cols-4 py-2\" key={u.id}><div role=\"cell\">{u.id}</div><div role=\"cell\" className=\"user-name\">{u.name}</div>...</div>)}\n+    </div>"
+    },
+    "ground_truth": {
+      "expected_selector": ".users-grid [role='row']:first-child .user-name",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["user-name"]
+    }
+  },
+  {
+    "id": "heal_007_form_library_migration",
+    "description": "Form migrated from Formik to React Hook Form, changing field name attributes",
+    "failure_data": {
+      "test_id": "test_signup_email",
+      "failure_id": "fail_007",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: input[name='email']. Timeout 5000ms exceeded.",
+      "failed_selector": "input[name='email']",
+      "page_url": "https://example.com/signup",
+      "page_html_snippet": "<form><div class='form-group'><label for='signup-email'>Email</label><input id='signup-email' name='signup.email' type='email' placeholder='you@example.com' aria-required='true'/></div></form>",
+      "test_code": "await page.fill('input[name=\"email\"]', 'test@example.com');",
+      "git_diff": "diff --git a/src/pages/Signup.tsx b/src/pages/Signup.tsx\n--- a/src/pages/Signup.tsx\n+++ b/src/pages/Signup.tsx\n@@ -18,7 +18,7 @@\n-        <Field name=\"email\" type=\"email\" placeholder=\"you@example.com\" />\n+        <input {...register('signup.email')} id=\"signup-email\" type=\"email\" placeholder=\"you@example.com\" aria-required=\"true\" />"
+    },
+    "ground_truth": {
+      "expected_selector": "#signup-email",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["signup-email", "signup.email"]
+    }
+  },
+  {
+    "id": "heal_008_text_content_change",
+    "description": "Button text changed from 'Save' to 'Save Changes' during UX update",
+    "failure_data": {
+      "test_id": "test_settings_save",
+      "failure_id": "fail_008",
+      "error_type": "selector_not_found",
+      "error_message": "Element not found: button:has-text('Save'). Multiple matches found.",
+      "failed_selector": "button:has-text('Save')",
+      "page_url": "https://example.com/settings",
+      "page_html_snippet": "<div class='settings-actions'><button type='button' class='btn-secondary'>Save Draft</button><button type='submit' data-testid='save-settings' class='btn-primary'>Save Changes</button></div>",
+      "test_code": "await page.click('button:has-text(\"Save\")');",
+      "git_diff": "diff --git a/src/pages/Settings.tsx b/src/pages/Settings.tsx\n--- a/src/pages/Settings.tsx\n+++ b/src/pages/Settings.tsx\n@@ -45,7 +45,8 @@\n-        <button type=\"submit\" className=\"btn-primary\">Save</button>\n+        <button type=\"button\" className=\"btn-secondary\">Save Draft</button>\n+        <button type=\"submit\" data-testid=\"save-settings\" className=\"btn-primary\">Save Changes</button>"
+    },
+    "ground_truth": {
+      "expected_selector": "[data-testid='save-settings']",
+      "expected_strategy": "code_aware",
+      "must_contain_in_suggestion": ["save-settings", "data-testid"]
+    }
+  }
+]
