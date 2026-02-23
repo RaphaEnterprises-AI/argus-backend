@@ -1,35 +1,39 @@
 # Streaming Processing Abstraction Layer
 # Designed for Python workers today, Flink migration tomorrow
+# Also includes AG-UI protocol streaming for real-time agent activity updates.
 
-from src.streaming.interfaces import (
-    KeyedProcessor,
-    ProcessorContext,
-    SessionWindowAssigner,
-    SlidingWindowAssigner,
-    StreamProcessor,
-    TimeWindow,
-    TumblingWindowAssigner,
-    WindowAssigner,
-    WindowedProcessor,
-)
-from src.streaming.runtime import (
-    DataStream,
-    KeyedStream,
-    StreamExecutionEnvironment,
-)
-from src.streaming.serde import (
-    AvroSerde,
-    Deserializer,
-    JsonSerde,
-    Serializer,
-)
-from src.streaming.state import (
-    ListState,
-    MapState,
-    ReducingState,
-    StateBackend,
-    ValueState,
-)
+try:
+    from src.streaming.interfaces import (
+        KeyedProcessor,
+        ProcessorContext,
+        SessionWindowAssigner,
+        SlidingWindowAssigner,
+        StreamProcessor,
+        TimeWindow,
+        TumblingWindowAssigner,
+        WindowAssigner,
+        WindowedProcessor,
+    )
+    from src.streaming.runtime import (
+        DataStream,
+        KeyedStream,
+        StreamExecutionEnvironment,
+    )
+    from src.streaming.serde import (
+        AvroSerde,
+        Deserializer,
+        JsonSerde,
+        Serializer,
+    )
+    from src.streaming.state import (
+        ListState,
+        MapState,
+        ReducingState,
+        StateBackend,
+        ValueState,
+    )
+except ImportError:
+    pass
 
 __all__ = [
     # Processors
