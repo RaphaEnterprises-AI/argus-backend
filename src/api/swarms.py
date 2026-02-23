@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from src.api.context import require_organization_id
 from src.api.security.auth import get_current_user
 from src.orchestrator.swarm_orchestrator import (
     SwarmConfig,
@@ -62,9 +63,7 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
     Returns the swarm_id and stream_url for SSE consumption.
     """
     user = await get_current_user(request)
-    org_id = getattr(request.state, "organization_id", None)
-    if not org_id:
-        raise HTTPException(status_code=400, detail="Organization ID required")
+    org_id = await require_organization_id(request)
 
     # Validate mode
     try:
