@@ -78,7 +78,7 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
         mode=mode,
         org_id=org_id,
         project_id=body.project_id,
-        user_id=user["user_id"],
+        user_id=user.user_id,
         target_url=body.target_url,
         target_flow=body.target_flow,
         pr_number=body.pr_number,
