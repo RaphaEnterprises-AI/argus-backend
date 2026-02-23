@@ -34,6 +34,7 @@ from src.api.api_keys import router as api_keys_router
 from src.api.api_testing import router as api_testing_router
 from src.api.approvals import router as approvals_router
 from src.api.artifacts import router as artifacts_router
+from src.api.benchmarks import router as benchmarks_router
 from src.api.audit import router as audit_router
 from src.api.browser import router as browser_router
 from src.api.chat import router as chat_router
@@ -89,8 +90,10 @@ from src.api.security.middleware import (
     SecurityMiddleware,
 )
 from src.api.streaming import router as streaming_router
+from src.api.swarms import router as swarms_router
 from src.api.sync import router as sync_router
 from src.api.teams import router as teams_router
+from src.api.test_quality import router as test_quality_router
 from src.api.tests import router as tests_router
 from src.api.test_runs import router as test_runs_router
 from src.api.time_travel import router as time_travel_router
@@ -125,6 +128,7 @@ _cognee_consumer_task: asyncio.Task | None = None
 # Module-level reference to HealingConsumer for autonomous healing
 _healing_consumer: HealingConsumer | None = None
 _healing_consumer_task: asyncio.Task | None = None
+_benchmark_task: asyncio.Task | None = None
 
 # =============================================================================
 # Frontend Alias Models
@@ -479,6 +483,9 @@ app.include_router(activity_router)
 app.include_router(performance_router)
 app.include_router(slo_router)
 app.include_router(pentest_router)
+app.include_router(benchmarks_router)
+app.include_router(test_quality_router)
+app.include_router(swarms_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -696,6 +703,54 @@ async def worker_health_check():
         "timestamp": datetime.now(UTC).isoformat(),
         "workers": workers,
     }
+
+
+@app.get("/health/agents", tags=["Health"])
+async def agent_reliability_summary():
+    """Return a reliability summary for all agents from the latest benchmarks.
+
+    Queries the most recent agent_benchmarks (global, org_id IS NULL)
+    to provide a quick overview of system-wide agent reliability.
+    """
+    try:
+        supabase = get_supabase_client()
+        response = await supabase.request(
+            "/agent_benchmarks?organization_id=is.null"
+            "&order=period_start.desc"
+            "&select=agent_type,pass_at_1,pass_at_8,avg_latency_ms,"
+            "avg_cost_usd,total_executions,period_start"
+            "&limit=50"
+        )
+
+        rows = response.get("data", [])
+
+        # Deduplicate: keep only the latest record per agent_type
+        latest: dict[str, dict] = {}
+        for row in rows:
+            agent = row.get("agent_type", "unknown")
+            if agent not in latest:
+                latest[agent] = {
+                    "pass_at_1": row.get("pass_at_1"),
+                    "pass_at_8": row.get("pass_at_8"),
+                    "avg_latency_ms": row.get("avg_latency_ms"),
+                    "avg_cost_usd": row.get("avg_cost_usd"),
+                    "total_executions": row.get("total_executions", 0),
+                    "period": row.get("period_start"),
+                }
+
+        return {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agents": latest,
+            "total_agent_types": len(latest),
+        }
+    except Exception as e:
+        logger.warning("Failed to fetch agent reliability summary", error=str(e))
+        return {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agents": {},
+            "total_agent_types": 0,
+            "error": "Agent benchmarks not yet populated",
+        }
 
 
 @app.get("/health/selenium-test", tags=["Health"])
@@ -2800,6 +2855,19 @@ async def startup():
         # HealingConsumer is optional - don't fail startup if Kafka is not configured
         logger.warning("Failed to start HealingConsumer (Kafka may not be configured)", error=str(e))
 
+    # Start weekly benchmark runner (Sundays at 2 AM UTC)
+    global _benchmark_task
+    try:
+        if startup_settings.enable_weekly_benchmarks:
+            from src.services.benchmark_runner import start_weekly_benchmark_loop
+
+            _benchmark_task = asyncio.create_task(start_weekly_benchmark_loop())
+            logger.info("Weekly benchmark runner started")
+        else:
+            logger.info("Weekly benchmarks disabled (set ENABLE_WEEKLY_BENCHMARKS=true to enable)")
+    except Exception as e:
+        logger.warning("Failed to start weekly benchmark runner", error=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -2842,6 +2910,12 @@ async def shutdown():
         logger.info("Event gateway stopped")
     except Exception as e:
         logger.warning("Failed to stop event gateway", error=str(e))
+
+    # Stop weekly benchmark runner
+    global _benchmark_task
+    if _benchmark_task and not _benchmark_task.done():
+        _benchmark_task.cancel()
+        logger.info("Weekly benchmark runner stopped")
 
     # Stop CogneeConsumer gracefully
     global _cognee_consumer, _cognee_consumer_task

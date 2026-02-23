@@ -23,6 +23,7 @@ class EventType(str, Enum):
     TEST_FAILED = "test.failed"
     HEALING_REQUESTED = "healing.requested"
     HEALING_COMPLETED = "healing.completed"
+    HEALING_VALIDATED = "healing.validated"
     DLQ = "dlq"
 
     # A2A Communication Events
@@ -41,6 +42,12 @@ class EventType(str, Enum):
     PENTEST_STARTED = "pentest.started"
     PENTEST_FINDING = "pentest.finding"
     PENTEST_COMPLETED = "pentest.completed"
+
+    # Swarm Events
+    SWARM_STARTED = "swarm.started"
+    SWARM_COMPLETED = "swarm.completed"
+    SWARM_WORKER_STARTED = "swarm.worker.started"
+    SWARM_WORKER_COMPLETED = "swarm.worker.completed"
 
 
 class TenantInfo(BaseModel):
@@ -354,6 +361,37 @@ class HealingCompletedEvent(BaseEvent):
         None,
         description="Why healing failed (if success=false)"
     )
+
+
+# =============================================================================
+# Healing Validation Event
+# =============================================================================
+
+class HealingValidatedEvent(BaseEvent):
+    """Emitted when a heal attempt is validated (approved or blocked)."""
+
+    event_type: EventType = Field(default=EventType.HEALING_VALIDATED, frozen=True)
+
+    # Payload
+    test_id: str = Field(..., description="Test case ID")
+    failure_id: str | None = Field(None, description="Failure record ID")
+    healing_request_id: str | None = Field(None, description="ID of the healing request")
+
+    # Validation result
+    heal_quality: str = Field(
+        ...,
+        description="Quality: valid_heal, suspicious_heal, regression_masking, needs_human_review"
+    )
+    blocking: bool = Field(..., description="Whether the heal was blocked from auto-apply")
+    healing_method: str | None = Field(None, description="Method: cache, cognee, code_aware, llm_analysis")
+
+    # Signals
+    assertion_weakening_detected: bool = Field(default=False)
+    judge_confidence: float = Field(default=0.0, description="AgentAsJudge confidence 0.0-1.0")
+
+    # Selectors
+    original_selector: str | None = Field(None)
+    healed_selector: str | None = Field(None)
 
 
 # =============================================================================

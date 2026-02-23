@@ -40,8 +40,15 @@ TOPIC_PENTEST_STARTED = "argus.pentest.started"
 TOPIC_PENTEST_FINDING = "argus.pentest.finding"
 TOPIC_PENTEST_COMPLETED = "argus.pentest.completed"
 
+# Heal Quality Topics
+TOPIC_HEALING_VALIDATED = "argus.healing.validated"
+
 # Pattern Analysis Topics (Flink output)
 TOPIC_PATTERNS_FAILURE_CLUSTER = "argus.patterns.failure-cluster"
+
+# Swarm Topics
+TOPIC_SWARM_STARTED = "argus.swarm.started"
+TOPIC_SWARM_COMPLETED = "argus.swarm.completed"
 
 
 @dataclass
@@ -188,6 +195,26 @@ TOPIC_CONFIGS: dict[str, TopicConfig] = {
         retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
         consumer_group="argus-pentest",
     ),
+    # Heal Quality Topics
+    TOPIC_HEALING_VALIDATED: TopicConfig(
+        name=TOPIC_HEALING_VALIDATED,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-healers",
+    ),
+    # Swarm Topics
+    TOPIC_SWARM_STARTED: TopicConfig(
+        name=TOPIC_SWARM_STARTED,
+        partitions=6,
+        retention_ms=14 * 24 * 60 * 60 * 1000,  # 14 days
+        consumer_group="argus-swarms",
+    ),
+    TOPIC_SWARM_COMPLETED: TopicConfig(
+        name=TOPIC_SWARM_COMPLETED,
+        partitions=6,
+        retention_ms=14 * 24 * 60 * 60 * 1000,  # 14 days
+        consumer_group="argus-swarms",
+    ),
     # Pattern Analysis Topics (Flink output)
     TOPIC_PATTERNS_FAILURE_CLUSTER: TopicConfig(
         name=TOPIC_PATTERNS_FAILURE_CLUSTER,
@@ -210,6 +237,7 @@ EVENT_TYPE_TO_TOPIC: dict[EventType, str] = {
     EventType.TEST_FAILED: TOPIC_TEST_FAILED,
     EventType.HEALING_REQUESTED: TOPIC_HEALING_REQUESTED,
     EventType.HEALING_COMPLETED: TOPIC_HEALING_COMPLETED,
+    EventType.HEALING_VALIDATED: TOPIC_HEALING_VALIDATED,
     EventType.DLQ: TOPIC_DLQ,
     # A2A Communication
     EventType.AGENT_REQUEST: TOPIC_AGENT_REQUEST,
@@ -225,6 +253,9 @@ EVENT_TYPE_TO_TOPIC: dict[EventType, str] = {
     EventType.PENTEST_STARTED: TOPIC_PENTEST_STARTED,
     EventType.PENTEST_FINDING: TOPIC_PENTEST_FINDING,
     EventType.PENTEST_COMPLETED: TOPIC_PENTEST_COMPLETED,
+    # Swarm
+    EventType.SWARM_STARTED: TOPIC_SWARM_STARTED,
+    EventType.SWARM_COMPLETED: TOPIC_SWARM_COMPLETED,
 }
 
 
