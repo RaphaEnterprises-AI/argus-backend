@@ -7,6 +7,10 @@
     "sentry": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.sentry.dev/mcp"]
+    },
+    "penpot": {
+      "type": "http",
+      "url": "http://localhost:4401/mcp"
     }
   }
 }
