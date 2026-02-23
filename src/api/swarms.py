@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from src.api.context import require_organization_id
-from src.api.security.auth import get_current_user
+from src.api.teams import get_current_user
 from src.orchestrator.swarm_orchestrator import (
     SwarmConfig,
     SwarmMode,
@@ -78,7 +78,7 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
         mode=mode,
         org_id=org_id,
         project_id=body.project_id,
-        user_id=user.user_id,
+        user_id=user["user_id"],
         target_url=body.target_url,
         target_flow=body.target_flow,
         pr_number=body.pr_number,
