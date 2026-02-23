@@ -137,13 +137,11 @@ class SwarmOrchestrator:
         swarm_id = f"swarm_{uuid.uuid4().hex[:12]}"
         throttler = get_swarm_throttler()
 
-        # Reserve swarm slot (Layer 2)
-        reserved = await throttler.reserve_swarm(config.org_id, swarm_id)
-        if not reserved:
-            raise SwarmQuotaExceeded(
-                f"Organization has reached max concurrent swarms "
-                f"({throttler.config.max_concurrent_swarms_per_org})"
-            )
+        # Reserve swarm slot (Layer 2) — sync method, may raise RuntimeError
+        try:
+            throttler.reserve_swarm(config.org_id, swarm_id)
+        except RuntimeError as e:
+            raise SwarmQuotaExceeded(str(e))
 
         # Create AG-UI emitter
         emitter = create_emitter(swarm_id)
@@ -281,7 +279,7 @@ class SwarmOrchestrator:
 
         finally:
             await emitter.close()
-            await throttler.release_swarm(config.org_id, swarm_id)
+            throttler.release_swarm(config.org_id, swarm_id)
             self._active_swarms.pop(swarm_id, None)
             remove_emitter(swarm_id)
 
@@ -309,14 +307,14 @@ class SwarmOrchestrator:
         )
 
         try:
-            # Check budget before execution
-            if not throttler.check_budget(swarm_id, config.org_id):
-                raise BudgetExceededError(
-                    f"Budget exceeded for swarm {swarm_id}"
-                )
+            # Check budget before execution (may raise RuntimeError)
+            try:
+                throttler.check_budget(config.org_id, swarm_id)
+            except RuntimeError as e:
+                raise BudgetExceededError(str(e))
 
             # Acquire worker slot (Layer 1 semaphore)
-            async with throttler.acquire_worker(swarm_id):
+            async with throttler.acquire_worker(config.org_id, swarm_id):
                 # Emit progress: executing
                 await emitter.emit(
                     StateDeltaEvent(
@@ -349,7 +347,7 @@ class SwarmOrchestrator:
             cost = result.get("cost_usd", 0.0)
 
             # Record cost
-            throttler.record_cost(swarm_id, config.org_id, cost)
+            throttler.record_cost(config.org_id, swarm_id, cost)
 
             worker_result = WorkerResult(
                 agent_id=agent_id,
