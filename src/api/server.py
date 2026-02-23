@@ -256,6 +256,9 @@ def _filter_sentry_event(event: dict, hint: dict) -> dict | None:
     return event
 
 
+_env = os.getenv("ENVIRONMENT") or os.getenv("SENTRY_ENVIRONMENT") or "development"
+_is_dev = _env in ("development", "test", "local")
+
 app = FastAPI(
     title="Argus - Autonomous Intelligence Agent API",
     description="""
@@ -274,8 +277,9 @@ Autonomous quality intelligence powered by Claude AI.
 - Version Header: X-API-Version
     """,
     version=API_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _is_dev else None,
+    redoc_url="/redoc" if _is_dev else None,
+    openapi_url="/openapi.json" if _is_dev else None,
     openapi_tags=[
         {"name": "Health", "description": "Health check endpoints"},
         {"name": "Authentication", "description": "Authentication and authorization"},

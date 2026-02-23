@@ -251,25 +251,50 @@ You are an elite application security engineer with expertise in OWASP Top 10.
             return AgentResult(success=False, error=str(e))
 
     async def _analyze_headers(self, url: str) -> SecurityHeaders:
-        """Analyze security headers from HTTP response."""
+        """Analyze security headers from HTTP response.
+
+        Checks multiple paths (root, /health, /robots.txt) because security
+        headers may be added by middleware that only activates on certain routes.
+        Merges results so a header found on ANY path counts as present.
+        """
         import httpx
+        from urllib.parse import urljoin
+
+        paths_to_check = [url, urljoin(url + "/", "health"), urljoin(url + "/", "robots.txt")]
+        merged: dict[str, str | None] = {}
+        header_keys = [
+            "content-security-policy",
+            "x-frame-options",
+            "x-content-type-options",
+            "strict-transport-security",
+            "x-xss-protection",
+            "referrer-policy",
+            "permissions-policy",
+        ]
 
         try:
             async with httpx.AsyncClient(
                 timeout=15, follow_redirects=True, verify=False,
             ) as client:
-                resp = await client.get(url)
-                h = resp.headers
-                return SecurityHeaders(
-                    content_security_policy=h.get("content-security-policy"),
-                    x_frame_options=h.get("x-frame-options"),
-                    x_content_type_options=h.get("x-content-type-options"),
-                    strict_transport_security=h.get("strict-transport-security"),
-                    x_xss_protection=h.get("x-xss-protection"),
-                    referrer_policy=h.get("referrer-policy"),
-                    permissions_policy=h.get("permissions-policy"),
-                )
-        except httpx.HTTPError as exc:
+                for check_url in paths_to_check:
+                    try:
+                        resp = await client.get(check_url)
+                        for key in header_keys:
+                            if not merged.get(key) and resp.headers.get(key):
+                                merged[key] = resp.headers.get(key)
+                    except httpx.HTTPError:
+                        continue
+
+            return SecurityHeaders(
+                content_security_policy=merged.get("content-security-policy"),
+                x_frame_options=merged.get("x-frame-options"),
+                x_content_type_options=merged.get("x-content-type-options"),
+                strict_transport_security=merged.get("strict-transport-security"),
+                x_xss_protection=merged.get("x-xss-protection"),
+                referrer_policy=merged.get("referrer-policy"),
+                permissions_policy=merged.get("permissions-policy"),
+            )
+        except Exception as exc:
             self.log.warning("Failed to fetch headers", url=url, error=str(exc))
             return SecurityHeaders()
 
