@@ -576,6 +576,14 @@ Return as JSON:
             # Store in memory for learning
             await self._store_remediation_outcome(incident, runbook, True)
 
+            # Persist SRE resolution metrics to agent_evaluations
+            await self._persist_sre_metrics(
+                incident=incident,
+                success=True,
+                execution_time_seconds=execution_time,
+                runbook_id=runbook_id,
+            )
+
             return {
                 "success": True,
                 "status": "completed",
@@ -590,6 +598,17 @@ Return as JSON:
                 incident_id=incident_id,
                 error=str(e),
             )
+
+            # Persist failure metrics
+            execution_time = (datetime.utcnow() - execution_start).total_seconds()
+            await self._persist_sre_metrics(
+                incident=incident,
+                success=False,
+                execution_time_seconds=execution_time,
+                runbook_id=runbook_id,
+                error=str(e),
+            )
+
             return {"success": False, "status": "failed", "error": str(e)}
 
     async def _execute_runbook_step(
@@ -931,6 +950,49 @@ Provide 2-3 actionable remediation steps as JSON:
         """Format a dict for inclusion in prompts."""
         import json
         return json.dumps(d, indent=2, default=str)[:2000]
+
+    # =========================================================================
+    # Metrics Persistence
+    # =========================================================================
+
+    async def _persist_sre_metrics(
+        self,
+        incident: CorrelatedIncident,
+        success: bool,
+        execution_time_seconds: float,
+        runbook_id: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Persist SRE incident resolution to agent_evaluations. Fire-and-forget."""
+        try:
+            mttr_seconds = None
+            if incident.resolution_time and incident.detected_at:
+                mttr_seconds = (incident.resolution_time - incident.detected_at).total_seconds()
+
+            await self._record_evaluation(
+                task_completed=success,
+                efficacy_score=incident.root_cause_confidence if success else 0.0,
+                latency_ms=int(execution_time_seconds * 1000),
+                cost_usd=self._usage.total_cost,
+                assurance_score=incident.root_cause_confidence,
+                input_tokens=self._usage.total_input_tokens,
+                output_tokens=self._usage.total_output_tokens,
+                error_type=None if success else "remediation_failed",
+                error_message=error,
+                trigger_source="sre_remediation",
+                organization_id=self.org_id,
+                project_id=self.project_id,
+                metadata={
+                    "incident_id": incident.id,
+                    "severity": incident.severity.value,
+                    "runbook_id": runbook_id,
+                    "mttr_seconds": mttr_seconds,
+                    "blast_radius": incident.blast_radius,
+                    "affected_services": incident.affected_services,
+                },
+            )
+        except Exception as e:
+            self.log.warning("Failed to persist SRE metrics", error=str(e))
 
     # =========================================================================
     # Metrics and Reporting

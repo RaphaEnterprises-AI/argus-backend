@@ -915,6 +915,18 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Benchmark Configuration
+    # ==========================================================================
+    enable_weekly_benchmarks: bool = Field(
+        False,
+        description="Enable weekly automated benchmark runs (Sundays 2 AM UTC)"
+    )
+    benchmark_runs_per_scenario: int = Field(
+        8,
+        description="Number of runs per scenario for Pass@k calculation"
+    )
+
+    # ==========================================================================
     # Cognee Configuration (AI Memory)
     # ==========================================================================
     cognee_env: str = Field(

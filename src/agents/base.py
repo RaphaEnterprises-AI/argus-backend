@@ -112,6 +112,7 @@ class AgentCapability:
     ACCESSIBILITY_CHECK = "accessibility_check"
     FLAKY_DETECTION = "flaky_detection"
     MR_ANALYSIS = "mr_analysis"  # Merge Request / Code Change Analysis
+    QUALITY_SCORING = "quality_scoring"  # Test quality trust scores
 
 
 class AICapability(str, Enum):
@@ -280,6 +281,10 @@ class BaseAgent(ABC):
         self._client: anthropic.Anthropic | None = None
         self._model_router: ModelRouter | None = None
         self._usage = UsageStats()
+
+        # Evaluation tracking
+        self._reflexion_scores: list[dict] = []
+        self._tool_calls_count: int = 0
 
         # RAP-231: A2A Protocol support
         # Import here to avoid circular imports
@@ -1307,6 +1312,138 @@ class BaseAgent(ABC):
         self._usage = UsageStats()
 
     # =========================================================================
+    # Agent Evaluation & Benchmarking
+    # =========================================================================
+
+    async def tracked_execute(self, **kwargs) -> AgentResult:
+        """Execute with automatic evaluation recording.
+
+        Wraps execute() to capture timing, cost, and success metrics,
+        then persists them to the agent_evaluations table.
+
+        Evaluation-specific kwargs are popped before forwarding to execute():
+            trigger_source, organization_id, org_id, project_id, eval_metadata
+
+        Returns:
+            AgentResult from the underlying execute() call.
+        """
+        # Pop evaluation-specific kwargs so they don't leak into execute()
+        trigger_source = kwargs.pop("trigger_source", "api")
+        organization_id = kwargs.pop("organization_id", None) or kwargs.pop("org_id", None)
+        project_id = kwargs.pop("project_id", None)
+        eval_metadata = kwargs.pop("eval_metadata", None)
+
+        start_time = time.time()
+        start_cost = self._usage.total_cost
+        self._reflexion_scores = []
+        self._tool_calls_count = 0
+        error_type = None
+        error_message = None
+
+        try:
+            result = await self.execute(**kwargs)
+        except Exception as e:
+            error_type = type(e).__name__
+            error_message = str(e)[:500]
+            result = AgentResult(success=False, error=str(e))
+
+        latency_ms = int((time.time() - start_time) * 1000)
+        cost_usd = self._usage.total_cost - start_cost
+
+        # Compute assurance score from reflexion history
+        assurance_score = None
+        if self._reflexion_scores:
+            assurance_score = self._reflexion_scores[-1].get("quality", 0.0)
+
+        await self._record_evaluation(
+            task_completed=result.success,
+            efficacy_score=self._reflexion_scores[-1].get("quality") if self._reflexion_scores else None,
+            latency_ms=latency_ms,
+            cost_usd=cost_usd,
+            assurance_score=assurance_score,
+            input_tokens=self._usage.total_input_tokens,
+            output_tokens=self._usage.total_output_tokens,
+            tool_calls_count=self._tool_calls_count,
+            self_corrections=len(self._reflexion_scores),
+            error_type=error_type or (None if result.success else "agent_failure"),
+            error_message=error_message or result.error,
+            trigger_source=trigger_source,
+            organization_id=organization_id,
+            project_id=project_id,
+            metadata=eval_metadata,
+        )
+
+        return result
+
+    async def _record_evaluation(
+        self,
+        task_completed: bool,
+        efficacy_score: float | None = None,
+        latency_ms: int = 0,
+        cost_usd: float = 0.0,
+        assurance_score: float | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        tool_calls_count: int = 0,
+        self_corrections: int = 0,
+        human_escalated: bool = False,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        trigger_source: str = "api",
+        organization_id: str | None = None,
+        project_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """Persist CLEAR framework metrics for this agent execution.
+
+        This is fire-and-forget — failures are logged but never propagated.
+        Agent execution should never fail because metrics recording broke.
+        """
+        try:
+            from ..services.supabase_client import get_supabase_client
+
+            supabase = get_supabase_client()
+            org_id = organization_id or "unknown"
+
+            evaluation = {
+                "organization_id": org_id,
+                "project_id": project_id,
+                "agent_type": self.__class__.__name__,
+                "task_type": self.DEFAULT_TASK_TYPE.value if hasattr(self.DEFAULT_TASK_TYPE, "value") else str(self.DEFAULT_TASK_TYPE),
+                "task_completed": task_completed,
+                "efficacy_score": efficacy_score,
+                "latency_ms": latency_ms,
+                "cost_usd": cost_usd,
+                "assurance_score": assurance_score,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "tool_calls_count": tool_calls_count,
+                "self_corrections": self_corrections,
+                "human_escalated": human_escalated,
+                "error_type": error_type,
+                "error_message": error_message[:500] if error_message else None,
+                "trigger_source": trigger_source,
+                "metadata": metadata,
+            }
+
+            await supabase.insert("agent_evaluations", evaluation)
+
+            self.log.debug(
+                "Recorded agent evaluation",
+                agent_type=self.__class__.__name__,
+                task_completed=task_completed,
+                latency_ms=latency_ms,
+                cost_usd=round(cost_usd, 6),
+            )
+        except Exception as e:
+            # Never let evaluation recording break agent execution
+            self.log.warning(
+                "Failed to record agent evaluation",
+                error=str(e),
+                agent_type=self.__class__.__name__,
+            )
+
+    # =========================================================================
     # RAP-250: Reflexion Middleware - Self-Improving Agent Pattern
     # =========================================================================
 
@@ -1490,6 +1627,13 @@ Provide the improved response directly, without any preamble."""
                     suggestions=[],
                     should_refine=False,
                 )
+
+            # Persist reflexion score for evaluation tracking
+            self._reflexion_scores.append({
+                "round": round_num,
+                "quality": critique.quality_score,
+                "weaknesses_count": len(critique.weaknesses),
+            })
 
             # Record round
             rounds.append(ReflexionRound(
