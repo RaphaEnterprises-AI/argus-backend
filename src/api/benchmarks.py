@@ -91,12 +91,13 @@ class AggregateResponse(BaseModel):
 async def get_public_benchmarks():
     """Return global (anonymized) benchmarks for the public trust page.
 
-    No authentication required. Only returns organization_id IS NULL records.
+    No authentication required. Returns global benchmarks (sentinel org or NULL).
     """
+    BENCHMARK_ORG_UUID = "00000000-0000-0000-0000-000000000000"
     supabase = get_supabase_client()
 
     response = await supabase.request(
-        "/agent_benchmarks?organization_id=is.null"
+        f"/agent_benchmarks?or=(organization_id.is.null,organization_id.eq.{BENCHMARK_ORG_UUID})"
         "&order=period_start.desc"
         "&select=agent_type,period_start,period_end,total_executions,"
         "pass_at_1,pass_at_3,pass_at_8,avg_efficacy,avg_latency_ms,"
@@ -152,7 +153,8 @@ async def get_benchmarks(
     request: Request,
     days: int = Query(7, ge=1, le=365, description="Number of days of history"),
 ):
-    """Return latest benchmarks for all agents in the user's org."""
+    """Return latest benchmarks for all agents in the user's org + global benchmarks."""
+    BENCHMARK_ORG_UUID = "00000000-0000-0000-0000-000000000000"
     user = await get_current_user(request)
     org_id = user.get("organization_id")
 
@@ -160,9 +162,7 @@ async def get_benchmarks(
 
     since = (datetime.now(UTC) - timedelta(days=days)).date().isoformat()
 
-    filters = (
-        f"period_start=gte.{since}"
-        "&order=period_start.desc"
+    select = (
         "&select=agent_type,period_start,period_end,total_executions,"
         "pass_at_1,pass_at_3,pass_at_8,avg_efficacy,avg_latency_ms,"
         "p50_latency_ms,p95_latency_ms,p99_latency_ms,avg_cost_usd,"
@@ -170,10 +170,15 @@ async def get_benchmarks(
         "human_escalation_rate"
     )
 
+    # Include both org-specific and global (sentinel UUID) benchmarks
     if org_id:
-        filters += f"&organization_id=eq.{org_id}"
+        org_filter = f"or=(organization_id.eq.{org_id},organization_id.eq.{BENCHMARK_ORG_UUID},organization_id.is.null)"
+    else:
+        org_filter = f"or=(organization_id.eq.{BENCHMARK_ORG_UUID},organization_id.is.null)"
 
-    response = await supabase.request(f"/agent_benchmarks?{filters}")
+    response = await supabase.request(
+        f"/agent_benchmarks?period_start=gte.{since}&order=period_start.desc{select}&{org_filter}"
+    )
 
     rows = response.get("data", [])
     return {"data": rows, "total": len(rows)}
@@ -185,26 +190,30 @@ async def get_recent_evaluations(
     limit: int = Query(100, ge=1, le=500, description="Number of evaluations"),
     agent_type: str | None = Query(None, description="Filter by agent type"),
 ):
-    """Return the most recent agent evaluations for the org."""
+    """Return the most recent agent evaluations for the org + global benchmarks."""
+    BENCHMARK_ORG_UUID = "00000000-0000-0000-0000-000000000000"
     user = await get_current_user(request)
     org_id = user.get("organization_id")
 
     supabase = get_supabase_client()
 
-    filters = "order=created_at.desc"
-    filters += f"&limit={limit}"
-    filters += (
+    select = (
         "&select=id,agent_type,task_type,task_completed,"
         "efficacy_score,latency_ms,cost_usd,assurance_score,"
         "self_corrections,human_escalated,error_type,created_at"
     )
 
+    # Include both org-specific and global benchmark evaluations
     if org_id:
-        filters += f"&organization_id=eq.{org_id}"
-    if agent_type:
-        filters += f"&agent_type=eq.{agent_type}"
+        org_filter = f"&or=(organization_id.eq.{org_id},organization_id.eq.{BENCHMARK_ORG_UUID})"
+    else:
+        org_filter = f"&organization_id=eq.{BENCHMARK_ORG_UUID}"
 
-    response = await supabase.request(f"/agent_evaluations?{filters}")
+    agent_filter = f"&agent_type=eq.{agent_type}" if agent_type else ""
+
+    response = await supabase.request(
+        f"/agent_evaluations?order=created_at.desc&limit={limit}{select}{org_filter}{agent_filter}"
+    )
 
     rows = response.get("data", [])
     return {"data": rows, "total": len(rows)}

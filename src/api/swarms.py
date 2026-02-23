@@ -41,10 +41,12 @@ class LaunchSwarmRequest(BaseModel):
     target_url: str | None = Field(None, description="URL to test (full_crawl/blitz)")
     target_flow: str | None = Field(None, description="Specific flow to test (blitz)")
     pr_number: int | None = Field(None, description="PR number (pr_analysis)")
-    changed_files: list[str] | None = Field(None, description="Changed files (pr_analysis)")
+    changed_files: list[dict] | None = Field(None, description="Changed files [{path, status, additions, deletions}]")
     agent_types: list[str] | None = Field(
         None, description="Override default agent types for the mode"
     )
+    codebase_path: str | None = Field(None, description="Local codebase path for code_analyzer")
+    repository_url: str | None = Field(None, description="GitHub repo URL for code-aware analysis")
 
 
 class LaunchSwarmResponse(BaseModel):
@@ -84,6 +86,8 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
         pr_number=body.pr_number,
         changed_files=body.changed_files,
         agent_types=body.agent_types,
+        codebase_path=body.codebase_path,
+        repository_url=body.repository_url,
     )
 
     orchestrator = get_swarm_orchestrator()

@@ -30,8 +30,9 @@ logger = structlog.get_logger(__name__)
 
 DATASETS_DIR = Path(__file__).parent.parent.parent / "tests" / "benchmarks" / "datasets"
 
-# Benchmark org/project IDs (NULL org = global benchmarks)
-BENCHMARK_ORG_ID = None
+# Benchmark org/project IDs — sentinel UUID for global benchmarks
+# (agent_evaluations.organization_id is UUID NOT NULL)
+BENCHMARK_ORG_ID = "00000000-0000-0000-0000-000000000000"
 BENCHMARK_PROJECT_ID = None
 
 

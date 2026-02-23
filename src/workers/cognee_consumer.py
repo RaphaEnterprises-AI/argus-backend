@@ -318,7 +318,7 @@ class CogneeConsumer:
             cognee.config.set_llm_provider("openrouter")
             cognee.config.set_llm_config({
                 "api_key": openrouter_key,
-                "model": os.getenv("LLM_MODEL", "anthropic/claude-sonnet-4"),
+                "model": os.getenv("LLM_MODEL", "anthropic/claude-sonnet-4.5"),
             })
             logger.info("Configured Cognee with OpenRouter fallback", org_id=org_id)
             return True

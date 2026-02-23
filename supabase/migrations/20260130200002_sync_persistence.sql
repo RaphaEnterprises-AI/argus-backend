@@ -96,6 +96,7 @@ ALTER TABLE sync_project_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sync_pending_events ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass (for backend operations)
+DROP POLICY IF EXISTS "Service role full access to sync_project_state" ON sync_project_state;
 CREATE POLICY "Service role full access to sync_project_state"
     ON sync_project_state
     FOR ALL
@@ -103,6 +104,7 @@ CREATE POLICY "Service role full access to sync_project_state"
     USING (true)
     WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Service role full access to sync_pending_events" ON sync_pending_events;
 CREATE POLICY "Service role full access to sync_pending_events"
     ON sync_pending_events
     FOR ALL

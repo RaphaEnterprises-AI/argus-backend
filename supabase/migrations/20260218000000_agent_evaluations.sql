@@ -100,7 +100,7 @@ ALTER TABLE agent_benchmarks ENABLE ROW LEVEL SECURITY;
 -- RLS policies: users can only see their own org's data
 CREATE POLICY "Users can view own org evaluations"
   ON agent_evaluations FOR SELECT
-  USING (organization_id = current_setting('request.jwt.claims', true)::json->>'organization_id'
+  USING (organization_id::text = current_setting('request.jwt.claims', true)::json->>'organization_id'
          OR current_setting('role', true) = 'service_role');
 
 CREATE POLICY "Service role can insert evaluations"
@@ -110,7 +110,7 @@ CREATE POLICY "Service role can insert evaluations"
 CREATE POLICY "Users can view own org benchmarks"
   ON agent_benchmarks FOR SELECT
   USING (organization_id IS NULL
-         OR organization_id = current_setting('request.jwt.claims', true)::json->>'organization_id'
+         OR organization_id::text = current_setting('request.jwt.claims', true)::json->>'organization_id'
          OR current_setting('role', true) = 'service_role');
 
 CREATE POLICY "Service role can manage benchmarks"

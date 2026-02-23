@@ -43,7 +43,7 @@ services:
       - VECTOR_DB_PROVIDER=pgvector
       - GRAPH_DATABASE_PROVIDER=falkordb
       - LLM_PROVIDER=openrouter
-      - LLM_MODEL=anthropic/claude-sonnet-4
+      - LLM_MODEL=anthropic/claude-sonnet-4.5
 
       # Browser Pool
       - BROWSER_POOL_URL=${BROWSER_POOL_URL:-}

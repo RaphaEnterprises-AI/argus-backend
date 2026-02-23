@@ -967,14 +967,14 @@ class BaseAgent(ABC):
 
         # Select model based on requirements
         if needs_computer_use:
-            return "anthropic/claude-sonnet-4"  # Best for computer use
+            return "anthropic/claude-sonnet-4.5"  # Best for computer use
         elif needs_reasoning:
             if tier == ModelTier.EXPERT:
-                return "anthropic/claude-opus-4"
+                return "anthropic/claude-opus-4.5"
             return "deepseek/deepseek-r1"  # Best reasoning for cost
         elif needs_vision:
             if tier in (ModelTier.PREMIUM, ModelTier.EXPERT):
-                return "anthropic/claude-sonnet-4"
+                return "anthropic/claude-sonnet-4.5"
             return "google/gemini-2.5-pro"  # Good vision, lower cost
         else:
             # Text-only models by tier
@@ -985,9 +985,9 @@ class BaseAgent(ABC):
             elif tier == ModelTier.STANDARD:
                 return "google/gemini-2.5-flash"
             elif tier == ModelTier.PREMIUM:
-                return "anthropic/claude-sonnet-4"
+                return "anthropic/claude-sonnet-4.5"
             else:  # EXPERT
-                return "anthropic/claude-opus-4"
+                return "anthropic/claude-opus-4.5"
 
     def _embed_images_in_messages(
         self,
@@ -1403,7 +1403,9 @@ class BaseAgent(ABC):
             from ..services.supabase_client import get_supabase_client
 
             supabase = get_supabase_client()
-            org_id = organization_id or "unknown"
+            # organization_id column is UUID NOT NULL — use sentinel for benchmarks/anonymous
+            ANONYMOUS_ORG_UUID = "00000000-0000-0000-0000-000000000000"
+            org_id = organization_id or ANONYMOUS_ORG_UUID
 
             evaluation = {
                 "organization_id": org_id,

@@ -119,8 +119,10 @@ class SwarmConfig:
     target_url: str | None = None
     target_flow: str | None = None
     pr_number: int | None = None
-    changed_files: list[str] | None = None
+    changed_files: list[dict] | None = None  # [{path, status, additions, deletions}]
     agent_types: list[str] | None = None  # Override default agents for mode
+    codebase_path: str | None = None  # Local path for code_analyzer
+    repository_url: str | None = None  # GitHub URL for code-aware analysis
 
 
 class SwarmOrchestrator:
@@ -414,19 +416,13 @@ class SwarmOrchestrator:
     ) -> dict[str, Any]:
         """Execute an agent and return its results as a dict.
 
-        This wraps the existing agents from src/agents/. Each agent returns
-        findings, summary, confidence, and cost.
+        Routes to real agent implementations. Each branch instantiates the
+        concrete agent, calls its execute/analyze method, and normalizes the
+        result into {findings, summary, confidence, cost_usd}.
 
-        For now, this is a structured stub that returns plausible results.
-        Each agent type will be wired to its real implementation incrementally.
+        Falls back to a stub result if the agent raises an exception, so the
+        swarm never crashes because of a single agent failure.
         """
-        # Import agents lazily to avoid circular imports
-        from src.agents import (
-            CodeAnalyzerAgent,
-            SelfHealerAgent,
-        )
-        from src.config import AgentConfig
-
         # Emit progress updates during execution
         await emitter.emit(
             StateDeltaEvent(
@@ -437,40 +433,363 @@ class SwarmOrchestrator:
             )
         )
 
-        # For the initial implementation, run a lightweight analysis
-        # using the code analyzer as a proof-of-concept.
-        # Other agent types return structured stubs.
-        if agent_type == "code_analyzer" and config.target_url:
-            try:
-                agent = CodeAnalyzerAgent(config=AgentConfig())
-                # Use the agent's lightweight analysis
+        # ── Dispatch to real agents ──────────────────────────────────
+
+        # 1. Security Scanner (URL-only)
+        if agent_type == "security_scanner" and config.target_url:
+            return await self._run_security_scanner(config, emitter, agent_id)
+
+        # 2. Accessibility Checker (URL-only)
+        if agent_type == "accessibility_checker" and config.target_url:
+            return await self._run_accessibility_checker(config, emitter, agent_id)
+
+        # 3. Performance Analyzer (URL-only)
+        if agent_type == "performance_analyzer" and config.target_url:
+            return await self._run_performance_analyzer(config, emitter, agent_id)
+
+        # 4. Auto Discovery (URL-only)
+        if agent_type == "auto_discovery" and config.target_url:
+            return await self._run_auto_discovery(config, emitter, agent_id)
+
+        # 5. Code Analyzer (needs codebase_path or target_url)
+        if agent_type == "code_analyzer":
+            return await self._run_code_analyzer(config, emitter, agent_id)
+
+        # 6. MR/PR Analyzer (needs changed_files)
+        if agent_type == "mr_analyzer":
+            return await self._run_mr_analyzer(config, emitter, agent_id)
+
+        # 7. Test Impact Analyzer (needs changed_files)
+        if agent_type == "test_impact_analyzer":
+            return await self._run_test_impact_analyzer(config, emitter, agent_id)
+
+        # 8. Smart Test Selector (needs changed_files)
+        if agent_type == "smart_test_selector":
+            return await self._run_smart_test_selector(config, emitter, agent_id)
+
+        # ── Agents that still need upstream context (stubs) ──────────
+        # TODO: Wire when TestSpec context is available
+        if agent_type == "ui_tester":
+            return self._stub_result(agent_type, "Needs TestSpec with steps/assertions")
+
+        # TODO: Wire when TestSpec context is available
+        if agent_type == "api_tester":
+            return self._stub_result(agent_type, "Needs TestSpec with endpoint definitions")
+
+        # TODO: Wire when prior failure details are available
+        if agent_type == "self_healer":
+            return self._stub_result(agent_type, "Needs prior failure context to heal")
+
+        # TODO: Wire when test execution history is available
+        if agent_type == "flaky_detector":
+            return self._stub_result(agent_type, "Needs test execution history")
+
+        # TODO: Wire when baseline screenshots are available
+        if agent_type == "visual_ai":
+            return self._stub_result(agent_type, "Needs baseline screenshots for comparison")
+
+        # Fallback for any unknown agent type
+        return self._stub_result(agent_type, "Unknown agent type")
+
+    # ── Individual agent runners ─────────────────────────────────────
+
+    async def _run_security_scanner(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        try:
+            from src.agents import SecurityScannerAgent
+
+            agent = SecurityScannerAgent()
+            result = await agent.execute(url=config.target_url, scan_type="standard")
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "security_scanner compiling results")
+
+            if result.success and result.data:
+                scan = result.data
                 return {
-                    "findings": [{"type": "code_structure", "message": "Analysis complete"}],
-                    "summary": f"Code analysis complete for {config.target_url}",
-                    "confidence": 0.8,
-                    "cost_usd": 0.01,
+                    "findings": [v.to_dict() for v in scan.vulnerabilities],
+                    "summary": scan.summary,
+                    "confidence": max(0.0, 1.0 - (scan.risk_score / 100.0)),
+                    "cost_usd": result.cost,
                 }
-            except Exception as e:
-                logger.warning("Agent execution failed, using stub", agent_type=agent_type, error=str(e))
+            return {
+                "findings": [],
+                "summary": result.error or "Security scan returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("security_scanner failed, using stub", error=str(e))
+            return self._stub_result("security_scanner", str(e))
 
-        # Structured stub for other agent types — will be wired incrementally
-        await asyncio.sleep(0.1)  # Simulate brief execution
+    async def _run_accessibility_checker(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        try:
+            from src.agents import AccessibilityCheckerAgent
 
-        await emitter.emit(
-            StateDeltaEvent(
-                agent_id=agent_id,
-                progress=70,
-                phase="reporting",
-                message=f"{agent_type} compiling results",
+            agent = AccessibilityCheckerAgent()
+            result = await agent.execute(url=config.target_url, wcag_level="AA")
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "accessibility_checker compiling results")
+
+            if result.success and result.data:
+                check = result.data
+                return {
+                    "findings": [i.to_dict() for i in check.issues],
+                    "summary": check.summary,
+                    "confidence": check.score / 100.0,
+                    "cost_usd": result.cost,
+                }
+            return {
+                "findings": [],
+                "summary": result.error or "Accessibility check returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("accessibility_checker failed, using stub", error=str(e))
+            return self._stub_result("accessibility_checker", str(e))
+
+    async def _run_performance_analyzer(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        try:
+            from src.agents import PerformanceAnalyzerAgent
+
+            agent = PerformanceAnalyzerAgent()
+            result = await agent.execute(url=config.target_url, device="mobile")
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "performance_analyzer compiling results")
+
+            if result.success and result.data:
+                perf = result.data
+                findings = [
+                    {"type": issue.category, "severity": issue.severity, "title": issue.title, "description": issue.description}
+                    for issue in perf.issues
+                ]
+                grade_confidence = {"excellent": 0.95, "good": 0.8, "needs_work": 0.5, "poor": 0.3}
+                return {
+                    "findings": findings,
+                    "summary": perf.summary,
+                    "confidence": grade_confidence.get(perf.overall_grade.value, 0.5),
+                    "cost_usd": result.cost,
+                }
+            return {
+                "findings": [],
+                "summary": result.error or "Performance analysis returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("performance_analyzer failed, using stub", error=str(e))
+            return self._stub_result("performance_analyzer", str(e))
+
+    async def _run_auto_discovery(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        try:
+            from src.agents import AutoDiscovery
+
+            discovery = AutoDiscovery(app_url=config.target_url, max_pages=10)
+            result = await discovery.discover()
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
+
+            return {
+                "findings": result.suggested_tests,
+                "summary": (
+                    f"Discovered {len(result.pages_discovered)} pages, "
+                    f"{len(result.flows_discovered)} flows, "
+                    f"{len(result.suggested_tests)} test suggestions"
+                ),
+                "confidence": 0.75,
+                "cost_usd": 0.0,  # AutoDiscovery doesn't track cost via AgentResult
+            }
+        except Exception as e:
+            logger.warning("auto_discovery failed, using stub", error=str(e))
+            return self._stub_result("auto_discovery", str(e))
+
+    async def _run_code_analyzer(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        try:
+            from src.agents import CodeAnalyzerAgent
+
+            agent = CodeAnalyzerAgent()
+            codebase_path = config.codebase_path or "."
+            app_url = config.target_url or "http://localhost:3000"
+
+            result = await agent.execute(
+                codebase_path=codebase_path,
+                app_url=app_url,
+                changed_files=[f.get("path", f) if isinstance(f, dict) else f for f in (config.changed_files or [])],
             )
-        )
 
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "code_analyzer compiling results")
+
+            if result.success and result.data:
+                analysis = result.data
+                findings = []
+                for surface in getattr(analysis, "testable_surfaces", []):
+                    if isinstance(surface, dict):
+                        findings.append(surface)
+                    else:
+                        findings.append({"type": "testable_surface", "data": str(surface)})
+                return {
+                    "findings": findings,
+                    "summary": getattr(analysis, "summary", f"Code analysis complete for {codebase_path}"),
+                    "confidence": 0.8,
+                    "cost_usd": result.cost,
+                }
+            return {
+                "findings": [],
+                "summary": result.error or "Code analysis returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("code_analyzer failed, using stub", error=str(e))
+            return self._stub_result("code_analyzer", str(e))
+
+    async def _run_mr_analyzer(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        if not config.changed_files:
+            return self._stub_result("mr_analyzer", "No changed_files provided")
+        try:
+            from src.agents import MRAnalyzerAgent
+
+            agent = MRAnalyzerAgent()
+            result = await agent.execute(
+                changes=config.changed_files,
+                project_id=config.project_id,
+            )
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "mr_analyzer compiling results")
+
+            if result.success and result.data:
+                data = result.data
+                suggestions = data.get("suggestions", [])
+                analysis = data.get("analysis", {})
+                return {
+                    "findings": suggestions,
+                    "summary": analysis.get("summary", f"Analyzed {len(config.changed_files)} changed files"),
+                    "confidence": analysis.get("confidence", 0.7),
+                    "cost_usd": result.cost,
+                }
+            return {
+                "findings": [],
+                "summary": result.error or "MR analysis returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("mr_analyzer failed, using stub", error=str(e))
+            return self._stub_result("mr_analyzer", str(e))
+
+    async def _run_test_impact_analyzer(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        if not config.changed_files:
+            return self._stub_result("test_impact_analyzer", "No changed_files provided")
+        try:
+            from src.agents import TestImpactAnalyzer, CodeChange
+            from datetime import datetime
+
+            analyzer = TestImpactAnalyzer()
+            change = CodeChange(
+                id=f"swarm_{config.pr_number or 'local'}",
+                files=config.changed_files,
+                message="Swarm analysis",
+                author=config.user_id,
+                timestamp=datetime.utcnow(),
+                branch="unknown",
+            )
+            impact = await analyzer.analyze_impact(change=change, all_tests=[])
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "test_impact_analyzer compiling results")
+
+            return {
+                "findings": [
+                    {"type": "affected_test", "test_id": t}
+                    for t in impact.affected_tests
+                ],
+                "summary": (
+                    f"{len(impact.affected_tests)} tests affected, "
+                    f"{len(impact.unaffected_tests)} safe to skip"
+                ),
+                "confidence": impact.confidence,
+                "cost_usd": 0.0,
+            }
+        except Exception as e:
+            logger.warning("test_impact_analyzer failed, using stub", error=str(e))
+            return self._stub_result("test_impact_analyzer", str(e))
+
+    async def _run_smart_test_selector(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        if not config.changed_files:
+            return self._stub_result("smart_test_selector", "No changed_files provided")
+        try:
+            from src.agents import TestImpactAnalyzer, SmartTestSelector, CodeChange
+            from datetime import datetime
+
+            analyzer = TestImpactAnalyzer()
+            selector = SmartTestSelector(impact_analyzer=analyzer)
+            change = CodeChange(
+                id=f"swarm_{config.pr_number or 'local'}",
+                files=config.changed_files,
+                message="Swarm analysis",
+                author=config.user_id,
+                timestamp=datetime.utcnow(),
+                branch="unknown",
+            )
+            selection = await selector.select_tests(change=change, all_tests=[])
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "smart_test_selector compiling results")
+
+            must_run = selection.get("must_run", [])
+            should_run = selection.get("should_run", [])
+            can_skip = selection.get("can_skip", [])
+            return {
+                "findings": [
+                    {"type": "must_run", "tests": must_run},
+                    {"type": "should_run", "tests": should_run},
+                    {"type": "can_skip", "tests": can_skip},
+                ],
+                "summary": (
+                    f"Selected {len(must_run)} must-run, {len(should_run)} should-run, "
+                    f"{len(can_skip)} skippable tests"
+                ),
+                "confidence": selection.get("coverage_estimate", 0.7),
+                "cost_usd": 0.0,
+            }
+        except Exception as e:
+            logger.warning("smart_test_selector failed, using stub", error=str(e))
+            return self._stub_result("smart_test_selector", str(e))
+
+    # ── Helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _stub_result(agent_type: str, reason: str = "") -> dict[str, Any]:
+        """Return a minimal stub result for agents that can't run yet."""
+        note = f" ({reason})" if reason else ""
         return {
             "findings": [],
-            "summary": f"{agent_type} analysis complete (stub)",
-            "confidence": 0.5,
+            "summary": f"{agent_type} not executed{note}",
+            "confidence": 0.0,
             "cost_usd": 0.0,
         }
+
+    @staticmethod
+    async def _emit_progress(
+        emitter: AGUIEmitter, agent_id: str, progress: int, phase: str, message: str,
+    ) -> None:
+        """Emit a progress update event."""
+        await emitter.emit(
+            StateDeltaEvent(agent_id=agent_id, progress=progress, phase=phase, message=message)
+        )
 
     def _compute_consensus(self, results: list[WorkerResult]) -> float:
         """Compute consensus score from worker results.

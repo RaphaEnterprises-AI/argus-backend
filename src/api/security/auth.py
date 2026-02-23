@@ -70,6 +70,8 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/oauth/linear/callback",
     # Clerk webhooks (verified via svix signature, not API key/JWT)
     "/api/v1/webhooks/clerk",
+    # Public benchmarks (no auth, global agent reliability data)
+    "/api/v1/benchmarks/public",
 }
 
 # Endpoints that only require API key (not full auth)

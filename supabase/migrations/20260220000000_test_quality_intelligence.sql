@@ -44,19 +44,21 @@ CREATE TABLE IF NOT EXISTS heal_validations (
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_heal_validations_test_id ON heal_validations (test_id, created_at DESC);
-CREATE INDEX idx_heal_validations_org_quality ON heal_validations (organization_id, heal_quality, created_at DESC);
-CREATE INDEX idx_heal_validations_project ON heal_validations (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_heal_validations_test_id ON heal_validations (test_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_heal_validations_org_quality ON heal_validations (organization_id, heal_quality, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_heal_validations_project ON heal_validations (project_id, created_at DESC);
 
 -- RLS
 ALTER TABLE heal_validations ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS heal_validations_org_isolation ON heal_validations;
 CREATE POLICY heal_validations_org_isolation ON heal_validations
     FOR ALL
     USING (organization_id::text = current_setting('request.jwt.claims', true)::json->>'organization_id')
     WITH CHECK (organization_id::text = current_setting('request.jwt.claims', true)::json->>'organization_id');
 
 -- Service role bypass
+DROP POLICY IF EXISTS heal_validations_service_role ON heal_validations;
 CREATE POLICY heal_validations_service_role ON heal_validations
     FOR ALL
     TO service_role
@@ -92,18 +94,20 @@ CREATE TABLE IF NOT EXISTS heal_monitoring (
 );
 
 -- Indexes
-CREATE INDEX idx_heal_monitoring_status ON heal_monitoring (monitoring_status, last_checked_at);
-CREATE INDEX idx_heal_monitoring_test ON heal_monitoring (test_id, heal_applied_at DESC);
-CREATE INDEX idx_heal_monitoring_project ON heal_monitoring (project_id, monitoring_status);
+CREATE INDEX IF NOT EXISTS idx_heal_monitoring_status ON heal_monitoring (monitoring_status, last_checked_at);
+CREATE INDEX IF NOT EXISTS idx_heal_monitoring_test ON heal_monitoring (test_id, heal_applied_at DESC);
+CREATE INDEX IF NOT EXISTS idx_heal_monitoring_project ON heal_monitoring (project_id, monitoring_status);
 
 -- RLS
 ALTER TABLE heal_monitoring ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS heal_monitoring_org_isolation ON heal_monitoring;
 CREATE POLICY heal_monitoring_org_isolation ON heal_monitoring
     FOR ALL
     USING (organization_id::text = current_setting('request.jwt.claims', true)::json->>'organization_id')
     WITH CHECK (organization_id::text = current_setting('request.jwt.claims', true)::json->>'organization_id');
 
+DROP POLICY IF EXISTS heal_monitoring_service_role ON heal_monitoring;
 CREATE POLICY heal_monitoring_service_role ON heal_monitoring
     FOR ALL
     TO service_role
@@ -120,10 +124,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS heal_validations_updated_at ON heal_validations;
 CREATE TRIGGER heal_validations_updated_at
     BEFORE UPDATE ON heal_validations
     FOR EACH ROW EXECUTE FUNCTION update_heal_tables_updated_at();
 
+DROP TRIGGER IF EXISTS heal_monitoring_updated_at ON heal_monitoring;
 CREATE TRIGGER heal_monitoring_updated_at
     BEFORE UPDATE ON heal_monitoring
     FOR EACH ROW EXECUTE FUNCTION update_heal_tables_updated_at();

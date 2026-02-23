@@ -942,7 +942,7 @@ class Settings(BaseSettings):
         description="Graph database provider for Cognee (falkordb, neo4j, etc.)"
     )
     llm_model: str = Field(
-        "anthropic/claude-sonnet-4",
+        "anthropic/claude-sonnet-4.5",
         description="LLM model for Cognee analysis (via OpenRouter)"
     )
 

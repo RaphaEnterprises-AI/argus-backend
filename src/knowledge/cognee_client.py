@@ -496,7 +496,7 @@ def _configure_cognee() -> None:
         cognee.config.set_llm_provider("openrouter")
         cognee.config.set_llm_config({
             "llm_api_key": openrouter_key,
-            "llm_model": os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4"),
+            "llm_model": os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4.5"),
             "llm_endpoint": "https://openrouter.ai/api/v1",
         })
         logger.info("Cognee configured with OpenRouter LLM")

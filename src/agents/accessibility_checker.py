@@ -191,6 +191,10 @@ You are a certified accessibility specialist (CPACC, WAS) with WCAG 2.1 expertis
         Returns:
             AccessibilityCheckResult with issues and recommendations
         """
+        # Coerce string to WCAGLevel enum if needed (e.g., "AA" → WCAGLevel.AA)
+        if isinstance(wcag_level, str):
+            wcag_level = WCAGLevel(wcag_level)
+
         try:
             # Step 1: Get page content
             page_html = await self._fetch_page(url)

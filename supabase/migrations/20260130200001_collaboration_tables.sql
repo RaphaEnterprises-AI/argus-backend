@@ -94,7 +94,8 @@ CREATE TABLE IF NOT EXISTS user_presence (
     connected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(user_id, workspace_id, COALESCE(test_id, ''))
+    -- Note: functional uniqueness via index below (COALESCE not allowed in UNIQUE constraint)
+    CONSTRAINT user_presence_user_workspace_test_uq UNIQUE (user_id, workspace_id, test_id)
 );
 
 -- Indexes for user_presence

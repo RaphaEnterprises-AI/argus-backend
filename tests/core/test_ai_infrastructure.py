@@ -255,7 +255,7 @@ class TestModelDiscovery:
         """Test _detect_provider function."""
         from src.core.model_discovery import ModelProvider, _detect_provider
 
-        assert _detect_provider("anthropic/claude-sonnet-4") == ModelProvider.ANTHROPIC
+        assert _detect_provider("anthropic/claude-sonnet-4.5") == ModelProvider.ANTHROPIC
         assert _detect_provider("claude-3-opus") == ModelProvider.ANTHROPIC
         assert _detect_provider("openai/gpt-4o") == ModelProvider.OPENAI
         assert _detect_provider("gpt-4-turbo") == ModelProvider.OPENAI
