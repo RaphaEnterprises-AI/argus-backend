@@ -1,0 +1,31 @@
+# Exclude non-backend packages
+dashboard/
+argus-mcp-server/
+cloudflare-worker/
+crawlee-service/
+extension/
+docs-site/
+status-page/
+browser-pool/
+docs/
+landing-*.png
+
+# Exclude virtual environments and caches
+.venv/
+venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.mypy_cache/
+
+# Exclude non-essential files
+*.png
+*.jpg
+*.svg
+.git/
+.serena/
+tests/
+scripts/
+data-layer/
