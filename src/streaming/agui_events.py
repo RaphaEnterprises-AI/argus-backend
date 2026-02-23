@@ -59,6 +59,9 @@ class RunStartedEvent(AGUIEvent):
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     swarm_id: str = ""
     thread_id: str = ""
+    mode: str = ""
+    worker_count: int = 0
+    agent_types: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -67,7 +70,15 @@ class RunFinishedEvent(AGUIEvent):
 
     type: AGUIEventType = field(default=AGUIEventType.RUN_FINISHED, init=False)
     run_id: str = ""
+    swarm_id: str = ""
     thread_id: str = ""
+    success: bool = True
+    total_duration_ms: float = 0.0
+    total_cost_usd: float = 0.0
+    workers_completed: int = 0
+    workers_failed: int = 0
+    consensus_score: float = 0.0
+    summary: str = ""
 
 
 @dataclass
@@ -87,8 +98,12 @@ class StepStartedEvent(AGUIEvent):
     type: AGUIEventType = field(default=AGUIEventType.STEP_STARTED, init=False)
     step_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str = ""
+    swarm_id: str = ""
+    agent_id: str = ""
     agent_name: str = ""
+    agent_type: str = ""
     step_name: str = ""
+    task: str = ""
 
 
 @dataclass
@@ -98,7 +113,14 @@ class StepFinishedEvent(AGUIEvent):
     type: AGUIEventType = field(default=AGUIEventType.STEP_FINISHED, init=False)
     step_id: str = ""
     run_id: str = ""
+    agent_id: str = ""
     agent_name: str = ""
+    agent_type: str = ""
+    success: bool = True
+    duration_ms: float = 0.0
+    cost_usd: float = 0.0
+    findings_count: int = 0
+    result_summary: str = ""
     output: dict[str, Any] = field(default_factory=dict)
 
 
@@ -145,4 +167,8 @@ class StateDeltaEvent(AGUIEvent):
     """Emitted with incremental state changes for the swarm."""
 
     type: AGUIEventType = field(default=AGUIEventType.STATE_DELTA, init=False)
+    agent_id: str = ""
+    progress: int = 0
+    phase: str = ""
+    message: str = ""
     delta: list[dict[str, Any]] = field(default_factory=list)
