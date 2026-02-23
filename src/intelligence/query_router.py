@@ -114,6 +114,8 @@ class QueryIntent(str, Enum):
     CODE_CONTEXT = "code_context"
     COVERAGE_GAPS = "coverage_gaps"
     SECURITY_IMPACT = "security_impact"
+    TEST_QUALITY = "test_quality"
+    HEAL_VALIDATION = "heal_validation"
 
 
 # Keyword patterns for intent detection
@@ -220,6 +222,33 @@ INTENT_KEYWORDS: dict[QueryIntent, list[str]] = {
         "authorization",
         "sensitive data",
         "encryption",
+    ],
+    QueryIntent.TEST_QUALITY: [
+        "test quality",
+        "trust score",
+        "suite health",
+        "signal to noise",
+        "test reliability",
+        "test trustworthiness",
+        "test confidence",
+        "assertion strength",
+        "test audit",
+        "suite audit",
+        "quality score",
+        "test integrity",
+    ],
+    QueryIntent.HEAL_VALIDATION: [
+        "heal quality",
+        "healing quality",
+        "masking regression",
+        "suspicious heal",
+        "regression masking",
+        "heal validation",
+        "heal trustworthy",
+        "is this heal safe",
+        "heal blocked",
+        "heal review",
+        "assertion weakening",
     ],
 }
 

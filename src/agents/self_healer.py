@@ -238,6 +238,8 @@ class SelfHealerAgent(BaseAgent):
         code_analyzer: object | None = None,
         cognee_patterns: list[dict] | None = None,
         llm_provider: str = "anthropic",
+        enable_heal_validation: bool = True,
+        heal_validation_service: object | None = None,
         **kwargs,
     ):
         """Initialize healer with configuration.
@@ -254,6 +256,8 @@ class SelfHealerAgent(BaseAgent):
             code_analyzer: Optional external code analyzer (GitHubCodeAnalyzer for remote repos)
             cognee_patterns: Pre-fetched Cognee patterns for healing (used before code-aware/LLM)
             llm_provider: LLM provider to use for fallback healing (default: anthropic)
+            enable_heal_validation: Whether to validate heals before auto-applying
+            heal_validation_service: Optional HealValidationService instance
         """
         super().__init__(**kwargs)
         self.auto_heal_threshold = auto_heal_threshold
@@ -296,6 +300,20 @@ class SelfHealerAgent(BaseAgent):
             )
         else:
             self.hybrid_retriever = None
+
+        # Initialize heal validation service
+        if enable_heal_validation:
+            if heal_validation_service is not None:
+                self._validation_service = heal_validation_service
+            else:
+                from ..services.heal_validator import HealValidationService
+                self._validation_service = HealValidationService()
+        else:
+            self._validation_service = None
+
+        # Store org/project for validation persistence
+        self._org_id = org_id
+        self._project_id = project_id
 
         # Override to use vision-capable model (only used in single-model mode)
         self.model = ModelName.SONNET
@@ -1210,6 +1228,61 @@ Analyze carefully and provide:
 
 Output must be valid JSON."""
 
+    async def _validate_heal(
+        self,
+        test_id: str,
+        original_test_spec: dict,
+        healed_test_spec: dict | None,
+        diagnosis_type: str,
+        healing_method: str,
+        original_selector: str | None = None,
+        healed_selector: str | None = None,
+        error_message: str | None = None,
+        failure_id: str | None = None,
+    ) -> bool:
+        """Run heal validation gate. Returns True if heal should proceed.
+
+        If validation blocks the heal, the caller should set auto_healed=False
+        and healed_test_spec=None to downgrade the heal to a suggestion.
+        """
+        if not self._validation_service:
+            return True
+
+        try:
+            result = await self._validation_service.validate(
+                test_id=test_id,
+                org_id=self._org_id or "",
+                project_id=self._project_id or "",
+                original_test_spec=original_test_spec,
+                healed_test_spec=healed_test_spec,
+                diagnosis_type=diagnosis_type,
+                healing_method=healing_method,
+                original_selector=original_selector,
+                healed_selector=healed_selector,
+                error_message=error_message,
+                failure_id=failure_id,
+            )
+
+            if result.blocking:
+                self.log.warning(
+                    "Heal validation blocked auto-apply",
+                    test_id=test_id,
+                    heal_quality=result.heal_quality.value,
+                    explanation=result.explanation,
+                )
+                return False
+
+            self.log.info(
+                "Heal validation passed",
+                test_id=test_id,
+                heal_quality=result.heal_quality.value,
+            )
+            return True
+
+        except Exception as e:
+            self.log.warning("Heal validation failed (allowing heal)", error=str(e))
+            return True  # Fail-open: don't block heals on validation errors
+
     async def execute(
         self,
         test_spec: dict,
@@ -1254,11 +1327,22 @@ Output must be valid JSON."""
 
                 healed_spec = await self._apply_fix(test_spec, cached_fix, failure_details)
 
+                # Validation gate
+                heal_approved = await self._validate_heal(
+                    test_id=test_id, original_test_spec=test_spec,
+                    healed_test_spec=healed_spec, diagnosis_type="selector_changed",
+                    healing_method="cache", original_selector=original_selector,
+                    healed_selector=cached_fix.new_value, error_message=error_message,
+                )
+                if not heal_approved:
+                    healed_spec = None
+
                 self.log.info(
                     "Applied cached healing pattern",
                     test_id=test_id,
                     original_selector=original_selector,
                     healed_selector=cached_fix.new_value,
+                    validation_approved=heal_approved,
                 )
 
                 return AgentResult(
@@ -1267,7 +1351,7 @@ Output must be valid JSON."""
                         test_id=test_id,
                         diagnosis=diagnosis,
                         suggested_fixes=[cached_fix],
-                        auto_healed=True,
+                        auto_healed=heal_approved,
                         healed_test_spec=healed_spec,
                     ),
                     input_tokens=0,  # No LLM call made
@@ -1302,12 +1386,23 @@ Output must be valid JSON."""
 
                     healed_spec = await self._apply_fix(test_spec, cognee_fix, failure_details)
 
+                    # Validation gate
+                    heal_approved = await self._validate_heal(
+                        test_id=test_id, original_test_spec=test_spec,
+                        healed_test_spec=healed_spec, diagnosis_type="selector_changed",
+                        healing_method="cognee", original_selector=original_selector,
+                        healed_selector=cognee_fix.new_value, error_message=error_message,
+                    )
+                    if not heal_approved:
+                        healed_spec = None
+
                     self.log.info(
                         "Applied pre-fetched Cognee pattern",
                         test_id=test_id,
                         pattern_id=pattern_id,
                         original_selector=original_selector,
                         healed_selector=cognee_fix.new_value,
+                        validation_approved=heal_approved,
                     )
 
                     # Store pattern_id for outcome tracking
@@ -1315,7 +1410,7 @@ Output must be valid JSON."""
                         test_id=test_id,
                         diagnosis=diagnosis,
                         suggested_fixes=[cognee_fix],
-                        auto_healed=True,
+                        auto_healed=heal_approved,
                         healed_test_spec=healed_spec,
                     )
                     result._cognee_pattern_id = pattern_id  # type: ignore
@@ -1355,12 +1450,23 @@ Output must be valid JSON."""
 
                     healed_spec = await self._apply_fix(test_spec, memory_fix, failure_details)
 
+                    # Validation gate
+                    heal_approved = await self._validate_heal(
+                        test_id=test_id, original_test_spec=test_spec,
+                        healed_test_spec=healed_spec, diagnosis_type="selector_changed",
+                        healing_method="memory_store", original_selector=original_selector,
+                        healed_selector=memory_fix.new_value, error_message=error_message,
+                    )
+                    if not heal_approved:
+                        healed_spec = None
+
                     self.log.info(
                         "Applied memory store healing pattern",
                         test_id=test_id,
                         pattern_id=pattern_id,
                         original_selector=original_selector,
                         healed_selector=memory_fix.new_value,
+                        validation_approved=heal_approved,
                     )
 
                     # Add pattern_id to result for outcome tracking
@@ -1368,7 +1474,7 @@ Output must be valid JSON."""
                         test_id=test_id,
                         diagnosis=diagnosis,
                         suggested_fixes=[memory_fix],
-                        auto_healed=True,
+                        auto_healed=heal_approved,
                         healed_test_spec=healed_spec,
                     )
                     # Store pattern_id for later outcome recording
@@ -1424,6 +1530,17 @@ Output must be valid JSON."""
                     healed_spec = await self._apply_fix(test_spec, code_fix, failure_details)
                     auto_healed = True
 
+                    # Validation gate
+                    heal_approved = await self._validate_heal(
+                        test_id=test_id, original_test_spec=test_spec,
+                        healed_test_spec=healed_spec, diagnosis_type=failure_type.value,
+                        healing_method="code_aware", original_selector=original_selector,
+                        healed_selector=code_fix.new_value, error_message=error_message,
+                    )
+                    if not heal_approved:
+                        healed_spec = None
+                        auto_healed = False
+
                     self.log.info(
                         "Code-aware healing succeeded",
                         test_id=test_id,
@@ -1431,6 +1548,7 @@ Output must be valid JSON."""
                         new_selector=code_fix.new_value,
                         commit=code_context.commit_sha[:7] if code_context.commit_sha else None,
                         author=code_context.commit_author,
+                        validation_approved=heal_approved,
                     )
 
                     # Store the healing pattern for future use (cache)
@@ -1554,11 +1672,27 @@ Output must be valid JSON."""
             if fixes and fixes[0].confidence >= self.auto_heal_threshold:
                 healed_spec = await self._apply_fix(test_spec, fixes[0], failure_details)
                 auto_healed = True
+
+                # Validation gate
+                heal_approved = await self._validate_heal(
+                    test_id=test_id, original_test_spec=test_spec,
+                    healed_test_spec=healed_spec,
+                    diagnosis_type=diagnosis.failure_type.value,
+                    healing_method="llm_analysis",
+                    original_selector=fixes[0].old_value,
+                    healed_selector=fixes[0].new_value,
+                    error_message=error_message,
+                )
+                if not heal_approved:
+                    healed_spec = None
+                    auto_healed = False
+
                 self.log.info(
                     "Auto-healed test",
                     test_id=test_id,
                     fix_type=fixes[0].fix_type.value,
                     confidence=fixes[0].confidence,
+                    validation_approved=heal_approved,
                 )
 
                 # Store successful healing pattern for future use (cache)

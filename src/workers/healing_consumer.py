@@ -433,6 +433,76 @@ class HealingConsumer:
             logger.error("Failed to send completion event", error=str(e))
             return False
 
+    async def _send_validation_event(
+        self,
+        event: HealingEvent,
+        healing_result: dict[str, Any],
+    ) -> bool:
+        """Send healing validated event to Kafka (argus.healing.validated).
+
+        Validation data is persisted directly to heal_validations table by
+        HealValidationService inside SelfHealerAgent. We query the most recent
+        validation record for this test/failure to populate the Kafka event.
+        """
+        if not self._producer:
+            return False
+
+        # Query latest validation record from DB (written by HealValidationService)
+        validation = None
+        try:
+            from src.services.supabase_client import get_supabase_client
+
+            supabase = get_supabase_client()
+            result = await supabase.request(
+                f"/heal_validations?select=heal_quality,blocking,assertion_weakening_detected,judge_confidence"
+                f"&test_id=eq.{event.test_id}"
+                f"&project_id=eq.{event.project_id}"
+                f"&order=created_at.desc"
+                f"&limit=1"
+            )
+            rows = result.get("data", [])
+            if rows:
+                validation = rows[0]
+        except Exception as e:
+            logger.debug("Could not fetch validation record", error=str(e))
+
+        if not validation:
+            return False
+
+        from src.events.topics import TOPIC_HEALING_VALIDATED
+
+        validated_event = {
+            "event_id": f"healing_validated_{event.event_id}",
+            "healing_request_id": event.event_id,
+            "failure_id": event.failure_id,
+            "test_id": event.test_id,
+            "org_id": event.org_id,
+            "project_id": event.project_id,
+            "heal_quality": validation.get("heal_quality", "valid_heal"),
+            "blocking": validation.get("blocking", False),
+            "healing_method": healing_result.get("strategy_used"),
+            "assertion_weakening_detected": validation.get("assertion_weakening_detected", False),
+            "judge_confidence": validation.get("judge_confidence", 0.0),
+            "original_selector": healing_result.get("original_selector"),
+            "healed_selector": healing_result.get("healed_selector"),
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        try:
+            await self._producer.send_and_wait(
+                TOPIC_HEALING_VALIDATED,
+                value=validated_event,
+            )
+            logger.info(
+                "Sent healing validation event",
+                event_id=event.event_id,
+                heal_quality=validation.get("heal_quality"),
+            )
+            return True
+        except Exception as e:
+            logger.warning("Failed to send validation event", error=str(e))
+            return False
+
     async def _send_to_dlq(self, event_data: dict, error: str) -> bool:
         """Send failed event to dead letter queue."""
         if not self._producer:
@@ -507,6 +577,9 @@ class HealingConsumer:
             # Generate test from error if appropriate
             if healing_result.get("success"):
                 await self._generate_test_from_error(event, healing_result)
+
+            # Send validation event (emitted regardless of heal outcome)
+            await self._send_validation_event(event, healing_result)
 
             # Send completion event
             await self._send_completion_event(event, healing_result, pattern_id)
