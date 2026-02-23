@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skopaq - Pitch Deck</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a2e;
+    --border: #2a2a3e;
+    --text: #e4e4ed;
+    --text-dim: #8888a0;
+    --accent: #6366f1;
+    --accent2: #8b5cf6;
+    --green: #22c55e;
+    --orange: #f59e0b;
+    --red: #ef4444;
+    --cyan: #06b6d4;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .slide {
+    width: 1024px;
+    height: 576px;
+    margin: 0 auto;
+    padding: 48px 56px;
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+    background: var(--bg);
+  }
+
+  @media print {
+    .slide {
+      margin: 0;
+      page-break-inside: avoid;
+    }
+    body { background: var(--bg); }
+  }
+
+  /* Slide 1: Title */
+  .slide-title {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background: radial-gradient(ellipse at 50% 50%, #1a1a3e 0%, var(--bg) 70%);
+  }
+  .slide-title .logo {
+    font-size: 56px;
+    font-weight: 900;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 16px;
+  }
+  .slide-title .tagline {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    letter-spacing: 0.5px;
+  }
+  .slide-title .url {
+    font-size: 14px;
+    color: var(--accent);
+    padding: 8px 24px;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    letter-spacing: 1px;
+  }
+  .slide-title .corner-text {
+    position: absolute;
+    bottom: 24px;
+    right: 56px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* Common */
+  .slide-header {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 28px;
+    letter-spacing: -0.5px;
+  }
+  .slide-header span {
+    color: var(--accent);
+  }
+
+  .slide-subtext {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* Slide 2: Problem */
+  .problem-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .problem-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .problem-card .stat {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--red);
+    margin-bottom: 8px;
+  }
+  .problem-card .label {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .problem-card .desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* Slide 3: Solution */
+  .solution-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .solution-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 14px;
+    text-align: center;
+    width: 140px;
+  }
+  .solution-step .icon { font-size: 24px; margin-bottom: 6px; }
+  .solution-step .name { font-size: 11px; font-weight: 600; }
+  .solution-arrow { color: var(--accent); font-size: 20px; }
+  .solution-features {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+  .solution-feat {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    padding: 12px 14px;
+    border-radius: 0 8px 8px 0;
+  }
+  .solution-feat .ft { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+  .solution-feat .fd { font-size: 10px; color: var(--text-dim); line-height: 1.4; }
+
+  /* Slide 4: How it works */
+  .arch-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
+  }
+  .arch-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .arch-row:last-child { margin-bottom: 0; }
+  .arch-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    width: 90px;
+    flex-shrink: 0;
+  }
+  .arch-items {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .arch-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .arch-item.highlight { border-color: var(--accent); color: var(--accent); }
+
+  /* Slide 5: Market */
+  .market-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .market-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .market-box h3 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .market-stat {
+    font-size: 40px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .market-stat.tam { color: var(--cyan); }
+  .market-stat.sam { color: var(--accent2); }
+  .market-label { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; }
+  .market-list { list-style: none; }
+  .market-list li {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .market-list li:last-child { border: none; }
+
+  /* Slide 6: Traction */
+  .traction-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .traction-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 16px;
+    text-align: center;
+  }
+  .traction-card .val {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .traction-card .val.v1 { color: var(--green); }
+  .traction-card .val.v2 { color: var(--accent); }
+  .traction-card .val.v3 { color: var(--cyan); }
+  .traction-card .val.v4 { color: var(--orange); }
+  .traction-card .lbl {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .milestones {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .milestone {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .milestone .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+  }
+  .milestone .mt { font-size: 11px; font-weight: 500; }
+
+  /* Slide 7: GPU / NVIDIA */
+  .gpu-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+  .gpu-table th {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent);
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border);
+  }
+  .gpu-table td {
+    font-size: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .gpu-table tr:last-child td { border: none; }
+  .gpu-improvement {
+    color: var(--green);
+    font-weight: 700;
+  }
+  .gpu-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .gpu-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .gpu-box h4 {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .gpu-box p { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .gpu-box .val { font-size: 22px; font-weight: 800; color: var(--green); }
+
+  /* Slide 8: Team & Ask */
+  .ask-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .team-member {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .team-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .team-name { font-size: 13px; font-weight: 600; }
+  .team-role { font-size: 10px; color: var(--text-dim); }
+  .ask-box {
+    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .ask-box h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .ask-item {
+    font-size: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(99,102,241,0.2);
+  }
+  .ask-item:last-child { border: none; }
+  .contact-row {
+    margin-top: 16px;
+    display: flex;
+    gap: 16px;
+  }
+  .contact-pill {
+    font-size: 11px;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: TITLE -->
+<div class="slide slide-title">
+  <div class="logo">skopaq</div>
+  <div class="tagline">Autonomous AI-Powered Software Quality Intelligence</div>
+  <div class="url">app.skopaq.ai</div>
+  <div class="corner-text">NVIDIA Inception Application &bull; February 2026</div>
+</div>
+
+<!-- SLIDE 2: PROBLEM -->
+<div class="slide">
+  <div class="slide-header">The <span>Problem</span></div>
+  <div class="problem-grid">
+    <div class="problem-card">
+      <div class="stat">68%</div>
+      <div class="label">Releases Ship With Bugs</div>
+      <div class="desc">Most software releases contain bugs that reach production, costing companies millions in downtime and lost trust.</div>
+    </div>
+    <div class="problem-card">
+      <div class="stat">40-60%</div>
+      <div class="label">Dev Time on Testing</div>
+      <div class="desc">Engineering teams spend nearly half their cycle on manual QA and test maintenance instead of building features.</div>
+    </div>
+    <div class="problem-card">
+      <div class="stat">#1 Reason</div>
+      <div class="label">Teams Abandon Automation</div>
+      <div class="desc">Test maintenance is the top reason teams give up on automation. Selectors break, APIs change, UIs evolve — tests rot.</div>
+    </div>
+    <div class="problem-card">
+      <div class="stat">$2.4B</div>
+      <div class="label">India QA Spend (Annual)</div>
+      <div class="desc">Indian enterprises spend $2.4B/year on quality assurance, with 70% still relying on manual testing processes.</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 3: SOLUTION -->
+<div class="slide">
+  <div class="slide-header">Our <span>Solution</span></div>
+  <div class="solution-flow">
+    <div class="solution-step">
+      <div class="icon">&#128269;</div>
+      <div class="name">Understand Code</div>
+    </div>
+    <div class="solution-arrow">&#8594;</div>
+    <div class="solution-step">
+      <div class="icon">&#128221;</div>
+      <div class="name">Generate Tests</div>
+    </div>
+    <div class="solution-arrow">&#8594;</div>
+    <div class="solution-step">
+      <div class="icon">&#9654;</div>
+      <div class="name">Execute Tests</div>
+    </div>
+    <div class="solution-arrow">&#8594;</div>
+    <div class="solution-step">
+      <div class="icon">&#128296;</div>
+      <div class="name">Self-Heal</div>
+    </div>
+    <div class="solution-arrow">&#8594;</div>
+    <div class="solution-step">
+      <div class="icon">&#128200;</div>
+      <div class="name">Report</div>
+    </div>
+  </div>
+  <div class="solution-features">
+    <div class="solution-feat">
+      <div class="ft">30+ AI Agents</div>
+      <div class="fd">Specialized agents for code analysis, UI testing, API testing, visual regression, self-healing, and more.</div>
+    </div>
+    <div class="solution-feat">
+      <div class="ft">Self-Healing Tests</div>
+      <div class="fd">Learns from every failure. Knowledge graph stores 50K+ patterns. Fixes broken selectors automatically.</div>
+    </div>
+    <div class="solution-feat">
+      <div class="ft">Zero Human Intervention</div>
+      <div class="fd">Fully autonomous pipeline. Understands codebase, generates plan, executes, heals, and reports.</div>
+    </div>
+    <div class="solution-feat">
+      <div class="ft">Visual AI</div>
+      <div class="fd">Screenshot-based comparison catches visual regressions that unit tests miss. Pixel-level accuracy.</div>
+    </div>
+    <div class="solution-feat">
+      <div class="ft">CI/CD Native</div>
+      <div class="fd">Integrates with GitHub, GitLab, Jenkins. Auto-analyzes PRs, assesses deployment risk, triggers tests.</div>
+    </div>
+    <div class="solution-feat">
+      <div class="ft">Quality Intelligence</div>
+      <div class="fd">Real-time dashboards: flaky tests, coverage gaps, failure clustering, test impact analysis.</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4: ARCHITECTURE -->
+<div class="slide">
+  <div class="slide-header">How It <span>Works</span></div>
+  <div class="arch-box">
+    <div class="arch-row">
+      <div class="arch-label">AI Layer</div>
+      <div class="arch-items">
+        <div class="arch-item highlight">Claude Sonnet 4.5</div>
+        <div class="arch-item highlight">30+ Agents</div>
+        <div class="arch-item">LangGraph Orchestrator</div>
+        <div class="arch-item">Multi-Agent Reasoning</div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-label">Knowledge</div>
+      <div class="arch-items">
+        <div class="arch-item highlight">FalkorDB Graph</div>
+        <div class="arch-item highlight">pgvector Embeddings</div>
+        <div class="arch-item">Cognee ECL Pipeline</div>
+        <div class="arch-item">Semantic Memory</div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-label">Execution</div>
+      <div class="arch-items">
+        <div class="arch-item">Playwright</div>
+        <div class="arch-item">Computer Use API</div>
+        <div class="arch-item">Selenium Grid</div>
+        <div class="arch-item">API Tester (httpx)</div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-label">Events</div>
+      <div class="arch-items">
+        <div class="arch-item">Redpanda (Kafka)</div>
+        <div class="arch-item">Apache Flink</div>
+        <div class="arch-item">12 Event Topics</div>
+        <div class="arch-item">Real-time SSE</div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-label">Infra</div>
+      <div class="arch-items">
+        <div class="arch-item">Supabase (PostgreSQL)</div>
+        <div class="arch-item">Vultr Kubernetes</div>
+        <div class="arch-item">Railway</div>
+        <div class="arch-item">Cloudflare R2</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-subtext" style="text-align: center;">
+    Event-driven architecture &bull; Durable execution &bull; Multi-tenant &bull; 441+ integration tests
+  </div>
+</div>
+
+<!-- SLIDE 5: MARKET -->
+<div class="slide">
+  <div class="slide-header">Market <span>Opportunity</span></div>
+  <div class="market-cols">
+    <div class="market-box">
+      <h3>Total Addressable Market</h3>
+      <div class="market-stat tam">$45B</div>
+      <div class="market-label">Global software testing market by 2028</div>
+      <ul class="market-list">
+        <li>AI-powered testing growing at 22% CAGR</li>
+        <li>Shift-left testing driving automation adoption</li>
+        <li>DevOps/CI-CD making testing continuous</li>
+        <li>India: $2.4B annual QA spend</li>
+      </ul>
+    </div>
+    <div class="market-box">
+      <h3>Competitive Landscape</h3>
+      <div class="market-stat sam" style="font-size: 28px;">No True Autonomous Player</div>
+      <div class="market-label" style="margin-top: 8px;">Existing tools assist. Skopaq replaces.</div>
+      <ul class="market-list">
+        <li><strong>Selenium/Playwright</strong> &mdash; frameworks, not intelligence</li>
+        <li><strong>Mabl/Testim</strong> &mdash; record & replay, limited AI</li>
+        <li><strong>Copilot/Codium</strong> &mdash; unit tests only, no E2E</li>
+        <li><strong>Skopaq</strong> &mdash; fully autonomous, self-healing, learns</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 6: TRACTION -->
+<div class="slide">
+  <div class="slide-header"><span>Traction</span> & Milestones</div>
+  <div class="traction-grid">
+    <div class="traction-card">
+      <div class="val v1">Live</div>
+      <div class="lbl">Production Platform</div>
+    </div>
+    <div class="traction-card">
+      <div class="val v2">30+</div>
+      <div class="lbl">AI Agents Built</div>
+    </div>
+    <div class="traction-card">
+      <div class="val v3">441+</div>
+      <div class="lbl">Integration Tests</div>
+    </div>
+    <div class="traction-card">
+      <div class="val v4">50K+</div>
+      <div class="lbl">Failure Patterns in KB</div>
+    </div>
+  </div>
+  <div class="milestones">
+    <div class="milestone">
+      <div class="dot"></div>
+      <div class="mt">Production deployment on Railway + Vultr K8s</div>
+    </div>
+    <div class="milestone">
+      <div class="dot"></div>
+      <div class="mt">Knowledge graph with semantic self-healing</div>
+    </div>
+    <div class="milestone">
+      <div class="dot"></div>
+      <div class="mt">Multi-agent orchestration (LangGraph)</div>
+    </div>
+    <div class="milestone">
+      <div class="dot"></div>
+      <div class="mt">CI/CD integration (GitHub, GitLab)</div>
+    </div>
+    <div class="milestone">
+      <div class="dot"></div>
+      <div class="mt">Visual regression AI with SSIM comparison</div>
+    </div>
+    <div class="milestone">
+      <div class="dot"></div>
+      <div class="mt">Real-time event streaming (Kafka/Flink)</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7: NVIDIA GPU USAGE -->
+<div class="slide">
+  <div class="slide-header">NVIDIA <span>GPU</span> Usage Plan</div>
+  <table class="gpu-table">
+    <thead>
+      <tr>
+        <th>Workload</th>
+        <th>Current (CPU/API)</th>
+        <th>With NVIDIA GPU</th>
+        <th>Improvement</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Embedding Generation</td>
+        <td>200ms/query (Cohere API)</td>
+        <td>5ms/query (self-hosted on H100)</td>
+        <td class="gpu-improvement">40x faster</td>
+      </tr>
+      <tr>
+        <td>Self-Healing Model</td>
+        <td>72% accuracy (generic LLM)</td>
+        <td>&gt;90% (fine-tuned via QLoRA)</td>
+        <td class="gpu-improvement">+25% accuracy</td>
+      </tr>
+      <tr>
+        <td>Visual Regression</td>
+        <td>2.5s/comparison (CPU)</td>
+        <td>250ms/comparison (CUDA)</td>
+        <td class="gpu-improvement">10x faster</td>
+      </tr>
+      <tr>
+        <td>Batch Intelligence</td>
+        <td>4.5 hours (CPU nightly)</td>
+        <td>25 minutes (RAPIDS cuML)</td>
+        <td class="gpu-improvement">10x faster</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="gpu-bottom">
+    <div class="gpu-box">
+      <h4>NVIDIA Tech Stack</h4>
+      <p><strong>TensorRT</strong> &mdash; Optimized model inference<br>
+      <strong>CUDA</strong> &mdash; Visual regression kernels<br>
+      <strong>RAPIDS cuML</strong> &mdash; GPU-accelerated ML<br>
+      <strong>vLLM</strong> &mdash; Fine-tuned model serving<br>
+      <strong>HF TEI</strong> &mdash; Embedding inference server</p>
+    </div>
+    <div class="gpu-box">
+      <h4>Cost Reduction</h4>
+      <div class="val">60%</div>
+      <p style="margin-top: 4px;">Reduction in AI infrastructure costs by self-hosting embeddings and fine-tuned models instead of API calls.</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: TEAM & ASK -->
+<div class="slide">
+  <div class="slide-header">Team & <span>Ask</span></div>
+  <div class="ask-cols">
+    <div>
+      <div class="team-member">
+        <div class="team-avatar">BK</div>
+        <div>
+          <div class="team-name">Vinay Kumar B</div>
+          <div class="team-role">Founder &amp; Lead Architect &bull; Full-stack AI + Infrastructure</div>
+        </div>
+      </div>
+      <div style="margin-top: 20px;">
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">Product Highlights</div>
+        <div style="font-size: 11px; color: var(--text-dim); line-height: 1.8;">
+          &#10003; 30+ specialized AI agents<br>
+          &#10003; Knowledge graph with 50K+ failure patterns<br>
+          &#10003; Self-healing improves with every test run<br>
+          &#10003; Multi-agent reasoning &amp; consensus<br>
+          &#10003; Event-driven architecture (12 Kafka topics)<br>
+          &#10003; Enterprise-ready (SOC 2 planned)
+        </div>
+      </div>
+      <div class="contact-row">
+        <div class="contact-pill">team@skopaq.ai</div>
+        <div class="contact-pill">skopaq.ai</div>
+      </div>
+    </div>
+    <div>
+      <div class="ask-box">
+        <h3>NVIDIA Inception Ask</h3>
+        <div class="ask-item">&#9654; GPU cloud credits for self-hosted embeddings</div>
+        <div class="ask-item">&#9654; H100 access for QLoRA fine-tuning (healing model)</div>
+        <div class="ask-item">&#9654; TensorRT optimization for inference pipeline</div>
+        <div class="ask-item">&#9654; Technical mentorship on GPU-accelerated ML</div>
+        <div class="ask-item">&#9654; Go-to-market support for enterprise AI/QA</div>
+      </div>
+      <div style="margin-top: 16px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;">
+        <div style="font-size: 11px; font-weight: 700; color: var(--green); margin-bottom: 6px;">BOOTSTRAPPED &bull; REVENUE-STAGE</div>
+        <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
+          Built and shipped to production by a single founder. Profitable unit economics. GPU access accelerates product moat.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
