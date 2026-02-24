@@ -178,28 +178,37 @@ class CogneeKafkaWorker:
         # Cohere embed-multilingual-v3.0 produces 1024-dimension vectors
         os.environ.setdefault("EMBEDDING_DIMENSIONS", "1024")
 
-        # Neo4j Aura Configuration
-        os.environ.setdefault("GRAPH_DATABASE_PROVIDER", "neo4j")
-        if self.config.neo4j.uri:
-            os.environ.setdefault("GRAPH_DATABASE_URL", self.config.neo4j.uri)
-        if self.config.neo4j.username:
-            os.environ.setdefault("GRAPH_DATABASE_USERNAME", self.config.neo4j.username)
-        if self.config.neo4j.password:
-            os.environ.setdefault("GRAPH_DATABASE_PASSWORD", self.config.neo4j.password)
+        # Graph Database Configuration
+        graph_provider = os.environ.get("GRAPH_DATABASE_PROVIDER", "neo4j")
+        os.environ.setdefault("GRAPH_DATABASE_PROVIDER", graph_provider)
+
+        if graph_provider == "neo4j":
+            if self.config.neo4j.uri:
+                os.environ.setdefault("GRAPH_DATABASE_URL", self.config.neo4j.uri)
+            if self.config.neo4j.username:
+                os.environ.setdefault("GRAPH_DATABASE_USERNAME", self.config.neo4j.username)
+            if self.config.neo4j.password:
+                os.environ.setdefault("GRAPH_DATABASE_PASSWORD", self.config.neo4j.password)
+        else:
+            # FalkorDB config is set via env vars in fly.toml:
+            # FALKORDB_HOST, FALKORDB_PORT, GRAPH_DATABASE_URL, GRAPH_DATABASE_PORT
+            if self.config.falkordb.password:
+                os.environ.setdefault("GRAPH_DATABASE_PASSWORD", self.config.falkordb.password)
 
         logger.info(f"Cognee LLM provider: {os.environ.get('LLM_PROVIDER')}")
         logger.info(f"Cognee embedding provider: {os.environ.get('EMBEDDING_PROVIDER')}")
-        logger.info(f"Cognee graph database: {os.environ.get('GRAPH_DATABASE_PROVIDER')}")
-        logger.info(f"Neo4j URI: {self.config.neo4j.uri[:30]}..." if self.config.neo4j.uri else "Neo4j URI not set")
+        logger.info(f"Cognee graph database: {graph_provider}")
 
         # Initialize Langfuse tracing for LLM calls via LiteLLM
         # Cognee uses LiteLLM under the hood, so we register Langfuse callbacks
         await self._setup_langfuse_tracing()
 
-        # Test Neo4j connection with retry for Aura cold starts
-        await self._test_neo4j_connection()
-
-        logger.info("Cognee configured with Neo4j Aura")
+        # Test graph database connection (only for Neo4j, FalkorDB uses Redis protocol)
+        if graph_provider == "neo4j":
+            await self._test_neo4j_connection()
+            logger.info("Cognee configured with Neo4j Aura")
+        else:
+            logger.info(f"Cognee configured with {graph_provider} (skipping Neo4j connection test)")
 
     async def _setup_langfuse_tracing(self):
         """Initialize Langfuse SDK for LLM observability.

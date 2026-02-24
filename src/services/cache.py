@@ -20,6 +20,7 @@ Cost comparison (1M reads + 100K writes/month):
 import hashlib
 import json
 import logging
+import socket
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
@@ -360,10 +361,25 @@ class ValkeyClient:
     async def _get_client(self) -> "redis.Redis":
         """Get or create Redis client."""
         if self._client is None:
+            # TCP keepalive options: Linux default is 7200s, Fly Proxy timeout is 60s.
+            # We probe at 30s to keep connections alive through the proxy.
+            keepalive_opts = {}
+            if hasattr(socket, "TCP_KEEPIDLE"):  # Linux
+                keepalive_opts = {
+                    socket.TCP_KEEPIDLE: 30,   # Start probes after 30s idle
+                    socket.TCP_KEEPINTVL: 10,  # Probe every 10s
+                    socket.TCP_KEEPCNT: 3,     # Close after 3 failed probes
+                }
             self._pool = redis.ConnectionPool.from_url(
                 self.url,
                 max_connections=10,
                 decode_responses=True,
+                health_check_interval=30,
+                socket_keepalive=True,
+                socket_keepalive_options=keepalive_opts or None,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
             )
             self._client = redis.Redis(connection_pool=self._pool)
         return self._client

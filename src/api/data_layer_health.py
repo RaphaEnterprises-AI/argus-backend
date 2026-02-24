@@ -13,6 +13,7 @@ real-time health status of all systems.
 
 import asyncio
 import os
+import socket
 from datetime import datetime
 from enum import Enum
 
@@ -25,6 +26,22 @@ from src.api.context import require_organization_id
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/health", tags=["Health"])
+
+# Persistent Redis connections for health checks — avoids 1200ms cold-connect overhead
+# on every health check call. Fly Proxy kills idle TCP after 60s, so we use TCP keepalive
+# at 30s intervals to keep the connection warm through the proxy.
+_falkordb_client = None
+_valkey_client = None
+
+# TCP keepalive options to prevent Fly Proxy 60s idle timeout from killing connections.
+# Linux default tcp_keepalive_time is 7200s — way too long. We probe at 30s.
+_KEEPALIVE_OPTIONS = {}
+if hasattr(socket, "TCP_KEEPIDLE"):  # Linux
+    _KEEPALIVE_OPTIONS = {
+        socket.TCP_KEEPIDLE: 30,   # Start probes after 30s idle
+        socket.TCP_KEEPINTVL: 10,  # Probe every 10s
+        socket.TCP_KEEPCNT: 3,     # Close after 3 failed probes
+    }
 
 # Cloudflare Access Service Token for Zero Trust authentication
 CF_ACCESS_CLIENT_ID = os.environ.get("CF_ACCESS_CLIENT_ID", "")
@@ -187,20 +204,21 @@ async def _check_falkordb_health() -> ComponentHealth:
     try:
         import redis.asyncio as redis
 
-        client = redis.Redis(
-            host=host,
-            port=port,
-            password=password if password else None,
-            socket_timeout=5.0,
-            decode_responses=True,
-        )
+        global _falkordb_client
+        if _falkordb_client is None:
+            _falkordb_client = redis.Redis(
+                host=host,
+                port=port,
+                password=password if password else None,
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+                socket_keepalive=True,
+                socket_keepalive_options=_KEEPALIVE_OPTIONS or None,
+                decode_responses=True,
+            )
 
-        # Ping to check connection
-        await client.ping()
-
-        # Get info for additional details
-        info = await client.info("server")
-        await client.close()
+        # Single PING to check connection (reuses warm connection after first call)
+        await _falkordb_client.ping()
 
         latency = (datetime.now() - start).total_seconds() * 1000
 
@@ -208,10 +226,9 @@ async def _check_falkordb_health() -> ComponentHealth:
             name="FalkorDB",
             status=HealthStatus.HEALTHY,
             latency_ms=round(latency, 2),
-            message=f"Connected to FalkorDB {info.get('redis_version', 'unknown')}",
+            message="Connected to FalkorDB",
             details={
-                "version": info.get("redis_version"),
-                "uptime_seconds": info.get("uptime_in_seconds"),
+                "host": host,
             },
             checked_at=datetime.now().isoformat(),
         )
@@ -224,6 +241,7 @@ async def _check_falkordb_health() -> ComponentHealth:
             checked_at=datetime.now().isoformat(),
         )
     except Exception as e:
+        _falkordb_client = None  # Reset on error so next call reconnects
         latency = (datetime.now() - start).total_seconds() * 1000
         error_str = str(e)
 
@@ -266,27 +284,29 @@ async def _check_valkey_health() -> ComponentHealth:
     try:
         import redis.asyncio as redis
 
-        client = redis.from_url(url, socket_timeout=5.0, decode_responses=True)
+        global _valkey_client
+        if _valkey_client is None:
+            _valkey_client = redis.from_url(
+                url,
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+                socket_keepalive=True,
+                socket_keepalive_options=_KEEPALIVE_OPTIONS or None,
+                decode_responses=True,
+            )
 
-        # Ping to check connection
-        await client.ping()
-
-        # Get memory info
-        info = await client.info("memory")
-        await client.close()
+        # Single PING to check connection (reuses warm connection after first call)
+        await _valkey_client.ping()
 
         latency = (datetime.now() - start).total_seconds() * 1000
-
-        used_memory_mb = info.get("used_memory", 0) / (1024 * 1024)
 
         return ComponentHealth(
             name="Valkey",
             status=HealthStatus.HEALTHY,
             latency_ms=round(latency, 2),
-            message=f"Cache operational, {used_memory_mb:.1f}MB used",
+            message="Cache operational",
             details={
-                "used_memory_mb": round(used_memory_mb, 2),
-                "maxmemory_policy": info.get("maxmemory_policy"),
+                "url_host": url.split("@")[-1].split(":")[0] if "@" in url else "configured",
             },
             checked_at=datetime.now().isoformat(),
         )
@@ -299,6 +319,7 @@ async def _check_valkey_health() -> ComponentHealth:
             checked_at=datetime.now().isoformat(),
         )
     except Exception as e:
+        _valkey_client = None  # Reset on error so next call reconnects
         latency = (datetime.now() - start).total_seconds() * 1000
         error_str = str(e)
 

@@ -28,6 +28,7 @@ def robust_json_parse(content: str) -> dict:
     - Single quotes instead of double quotes
     - Unquoted keys
     - Comments
+    - Truncated JSON (from max_tokens cutoff)
     """
     # Extract JSON from markdown code blocks
     if "```json" in content:
@@ -61,6 +62,66 @@ def robust_json_parse(content: str) -> dict:
     if start != -1 and end != -1 and end > start:
         try:
             return json.loads(content[start:end+1])
+        except json.JSONDecodeError:
+            pass
+
+    # Attempt to repair truncated JSON (common with max_tokens cutoff).
+    # Find the outermost opening brace and try to close unclosed brackets.
+    if start != -1:
+        fragment = content[start:]
+
+        def _track(s: str):
+            """Track bracket stack and string state through JSON fragment."""
+            stk: list[str] = []
+            in_s = False
+            esc = False
+            last_open = -1
+            for i, ch in enumerate(s):
+                if esc:
+                    esc = False
+                    continue
+                if ch == '\\' and in_s:
+                    esc = True
+                    continue
+                if ch == '"':
+                    if not in_s:
+                        last_open = i
+                    in_s = not in_s
+                    continue
+                if in_s:
+                    continue
+                if ch in ('{', '['):
+                    stk.append('}' if ch == '{' else ']')
+                elif ch in ('}', ']') and stk:
+                    stk.pop()
+            return stk, in_s, last_open
+
+        stack, in_string, last_str_open = _track(fragment)
+
+        # Case 1: Not in a string — remove trailing comma and close brackets
+        if not in_string and stack:
+            attempt = re.sub(r',\s*$', '', fragment.rstrip())
+            attempt += ''.join(reversed(stack))
+            try:
+                return json.loads(attempt)
+            except json.JSONDecodeError:
+                pass
+
+        # Case 2: Aggressive cleanup — strip trailing syntax artifacts
+        # (dangling colons, commas, bare key strings) then close brackets.
+        # Handles both mid-string truncation and post-colon truncation.
+        cut = fragment[:last_str_open] if (in_string and last_str_open > 0) else fragment.rstrip()
+        prev = None
+        while cut != prev:
+            prev = cut
+            cut = re.sub(r'[,:\s]+$', '', cut)
+            if cut == prev:
+                cut = re.sub(r',?\s*"[^"]*"\s*$', '', cut)
+        stack2, _, _ = _track(cut)
+        if stack2:
+            cut += ''.join(reversed(stack2))
+        try:
+            return json.loads(cut)
         except json.JSONDecodeError:
             pass
 
@@ -521,7 +582,7 @@ Prioritize:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=2000,
+                max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -540,6 +601,13 @@ Prioritize:
                     category=f.get("category", "user_journey"),
                 ))
 
+            if not flows:
+                self.log.warning(
+                    "Flow analysis returned no flows",
+                    stop_reason=response.stop_reason,
+                    content_len=len(content),
+                )
+
             return flows
 
         except Exception as e:
@@ -550,24 +618,41 @@ Prioritize:
         self,
         focus_areas: list[str] | None = None,
     ) -> list[dict]:
-        """Generate test suggestions from discovered flows."""
-        if not self.discovered_flows:
+        """Generate test suggestions from discovered flows and pages."""
+        # Build context from flows (if any) and pages
+        context_parts = []
+
+        if self.discovered_flows:
+            flows_summary = [
+                {
+                    "name": f.name,
+                    "description": f.description,
+                    "steps": f.steps,
+                    "priority": f.priority,
+                }
+                for f in self.discovered_flows
+            ]
+            context_parts.append(f"DISCOVERED FLOWS:\n{json.dumps(flows_summary, indent=2)}")
+
+        if self.discovered_pages:
+            pages_summary = [
+                {
+                    "url": p.url,
+                    "title": p.title,
+                    "forms": len(p.forms),
+                    "links": len(p.links),
+                    "elements": len(p.elements),
+                }
+                for p in self.discovered_pages
+            ]
+            context_parts.append(f"DISCOVERED PAGES:\n{json.dumps(pages_summary, indent=2)}")
+
+        if not context_parts:
             return []
 
-        flows_summary = [
-            {
-                "name": f.name,
-                "description": f.description,
-                "steps": f.steps,
-                "priority": f.priority,
-            }
-            for f in self.discovered_flows
-        ]
+        prompt = f"""Generate executable test specifications for this web application.
 
-        prompt = f"""Generate executable test specifications for these user flows.
-
-DISCOVERED FLOWS:
-{json.dumps(flows_summary, indent=2)}
+{chr(10).join(context_parts)}
 
 APP URL: {self.app_url}
 
