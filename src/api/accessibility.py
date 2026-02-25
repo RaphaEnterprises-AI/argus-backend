@@ -451,12 +451,15 @@ async def create_issues_batch(
             for issue in issues
         ]
 
-        result = await supabase.insert("accessibility_issues", issues_data)
+        created = 0
+        for issue_data in issues_data:
+            result = await supabase.insert("accessibility_issues", issue_data)
+            if result.get("error"):
+                logger.warning("Failed to insert accessibility issue", error=result["error"])
+            else:
+                created += 1
 
-        if result.get("error"):
-            raise HTTPException(status_code=500, detail="Failed to create issues")
-
-        return {"success": True, "created": len(issues_data)}
+        return {"success": True, "created": created}
 
     except HTTPException:
         raise

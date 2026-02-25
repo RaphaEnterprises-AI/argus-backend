@@ -127,6 +127,12 @@ class SupabaseClient:
         path += "&".join(f"{k}={v}" for k, v in filters.items())
         return await self.request(path, method="PATCH", body=data)
 
+    async def delete(self, table: str, filters: dict) -> dict[str, Any]:
+        """Delete records matching filters."""
+        path = f"/{table}?"
+        path += "&".join(f"{k}={v}" for k, v in filters.items())
+        return await self.request(path, method="DELETE")
+
     async def rpc(self, function_name: str, params: dict) -> dict[str, Any]:
         """Call a PostgreSQL function via PostgREST RPC.
 

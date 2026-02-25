@@ -420,7 +420,10 @@ class BrowserWorkerClient:
             if not response.is_success:
                 return None, {"error": f"Screenshot capture failed: {response.text}"}
 
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception:
+                return None, {"error": f"Browser worker returned non-JSON response (status {response.status_code})"}
             screenshot_b64 = data.get("screenshot")
 
             if not screenshot_b64:

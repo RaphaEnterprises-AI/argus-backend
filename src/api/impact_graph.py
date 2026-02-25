@@ -674,6 +674,7 @@ async def delete_mapping(
         )
 
         if result.get("error"):
+            logger.error("Failed to delete mapping", error=result["error"])
             raise HTTPException(status_code=500, detail="Failed to delete mapping")
 
         logger.info(

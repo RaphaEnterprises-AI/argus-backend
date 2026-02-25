@@ -146,7 +146,9 @@ class DataSource(BaseModel):
             if not self.data:
                 raise ValueError("Inline data source requires 'data' field with list of values")
         elif self.type in (DataSourceType.CSV, DataSourceType.JSON):
-            if not self.path:
+            # Allow JSON/CSV type without path if inline data is provided
+            # (used by import_data endpoint for inline content parsing)
+            if not self.path and not self.data:
                 raise ValueError(f"{self.type.value} data source requires 'path' field")
         elif self.type == DataSourceType.ENV:
             if not self.env_mapping and not self.env_prefix:
