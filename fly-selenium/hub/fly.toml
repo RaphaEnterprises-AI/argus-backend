@@ -1,0 +1,46 @@
+# Selenium Grid Hub — Fly.io
+# Receives WebDriver requests from Railway backend, dispatches to Chrome nodes.
+# Chrome nodes discover this hub via .internal DNS (skopaq-selenium-hub.internal).
+#
+# Event bus ports 4442/4443 are automatically reachable on .internal DNS —
+# Fly exposes ALL listening ports on the private WireGuard mesh.
+# Only port 4444 needs a public service definition.
+
+app = 'skopaq-selenium-hub'
+primary_region = 'iad'
+
+[build]
+  image = 'selenium/hub:4.27.0'
+
+[env]
+  SE_EVENT_BUS_HOST = 'skopaq-selenium-hub.internal'
+  SE_EVENT_BUS_PUBLISH_PORT = '4442'
+  SE_EVENT_BUS_SUBSCRIBE_PORT = '4443'
+  SE_SESSION_REQUEST_TIMEOUT = '300'
+  SE_SESSION_RETRY_INTERVAL = '2'
+  # Fly .internal DNS is IPv6-only — Java must bind on [::] not just 0.0.0.0
+  SE_JAVA_OPTS = '-Djava.net.preferIPv6Addresses=true'
+
+# Public HTTP — Railway backend connects here via HTTPS.
+[http_service]
+  internal_port = 4444
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 100
+    soft_limit = 80
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/status'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = 512

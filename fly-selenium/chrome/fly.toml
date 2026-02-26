@@ -1,0 +1,51 @@
+# Selenium Chrome Node — Fly.io
+# Connects to the hub's event bus to register and receive sessions.
+# No public ports — all communication is via .internal DNS.
+#
+# The node initiates outbound connections to the hub (4442/4443);
+# it does not need any inbound service definitions.
+
+app = 'skopaq-selenium-chrome'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  SE_EVENT_BUS_HOST = 'skopaq-selenium-hub.internal'
+  SE_EVENT_BUS_PUBLISH_PORT = '4442'
+  SE_EVENT_BUS_SUBSCRIBE_PORT = '4443'
+  SE_NODE_MAX_SESSIONS = '1'
+  SE_NODE_SESSION_TIMEOUT = '300'
+  SE_SCREEN_WIDTH = '1920'
+  SE_SCREEN_HEIGHT = '1080'
+  SE_SCREEN_DEPTH = '24'
+  SE_VNC_NO_PASSWORD = '1'
+  # Chrome flags for containerised environments
+  SE_CHROME_ARGS = '--disable-dev-shm-usage --no-sandbox --disable-gpu'
+  # Use /dev/null for dbus — Fly VMs may have limited /dev/shm
+  DBUS_SESSION_BUS_ADDRESS = '/dev/null'
+  # Fly .internal DNS is IPv6-only — Java must bind on [::] not just 0.0.0.0
+  SE_JAVA_OPTS = '-Djava.net.preferIPv6Addresses=true'
+
+# No public [http_service] — nodes only connect outbound to the hub.
+# Fly auto-exposes all listening ports on .internal DNS.
+
+# Minimal TCP service so Fly can health-check the node.
+[[services]]
+  protocol = 'tcp'
+  internal_port = 5555
+  auto_stop_machines = false
+  auto_start_machines = true
+
+  [[services.ports]]
+    port = 5555
+
+  [[services.tcp_checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '60s'
+
+[[vm]]
+  size = 'performance-1x'
+  memory = 2048

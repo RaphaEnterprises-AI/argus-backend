@@ -1,0 +1,63 @@
+app = 'skopaq-cognee-worker'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  # Kafka (Redpanda Cloud)
+  KAFKA_CONSUMER_GROUP = 'argus-cognee-workers'
+  KAFKA_AUTO_OFFSET_RESET = 'earliest'
+  KAFKA_SECURITY_PROTOCOL = 'SASL_SSL'
+  KAFKA_SASL_MECHANISM = 'SCRAM-SHA-256'
+
+  # FalkorDB (Fly internal DNS)
+  FALKORDB_HOST = 'skopaq-falkordb.internal'
+  FALKORDB_PORT = '6379'
+  GRAPH_DATABASE_PROVIDER = 'falkor'
+  GRAPH_DATABASE_URL = 'skopaq-falkordb.internal'
+  GRAPH_DATABASE_PORT = '6379'
+
+  # Valkey (Fly internal DNS)
+  VALKEY_HOST = 'skopaq-valkey.internal'
+  VALKEY_PORT = '6379'
+
+  # LLM / Embedding
+  LLM_PROVIDER = 'anthropic'
+  LLM_MODEL = 'claude-sonnet-4-5-20250929'
+  EMBEDDING_PROVIDER = 'cohere'
+  EMBEDDING_MODEL = 'embed-multilingual-v3.0'
+
+  # Cognee
+  ENABLE_BACKEND_ACCESS_CONTROL = 'false'
+  DATA_ROOT_DIRECTORY = '/app/data/cognee_data'
+  SYSTEM_ROOT_DIRECTORY = '/app/data/cognee_system'
+  CACHE_ROOT_DIRECTORY = '/app/data/cognee_cache'
+  STORAGE_BACKEND = 'local'
+  COGNEE_CHUNK_SIZE = '1024'
+  COGNEE_CHUNK_OVERLAP = '128'
+  COGNEE_BATCH_SIZE = '10'
+
+  # Processing
+  LOG_LEVEL = 'INFO'
+  MAX_RETRIES = '3'
+  RETRY_DELAY_SECONDS = '5'
+  HEALTH_CHECK_PORT = '8080'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '10s'
+    grace_period = '60s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-2x'
+  memory = 512
