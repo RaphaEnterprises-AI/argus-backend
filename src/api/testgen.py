@@ -195,8 +195,35 @@ async def _run_testgen_job(
         except ValueError:
             source_type_enum = SourceType.REQUIREMENTS_TEXT
 
-        # Convert config dict to TestGenConfig if provided
-        gen_config = TestGenConfig(**config) if config else None
+        # Convert config dict to TestGenConfig, handling enum fields
+        gen_config = None
+        if config:
+            from src.agents.testgen_agent import TestFramework, TestLanguage
+
+            safe_config = dict(config)
+            # Convert framework string to enum
+            if "framework" in safe_config:
+                try:
+                    safe_config["framework"] = TestFramework(safe_config["framework"])
+                except ValueError:
+                    # Try common aliases
+                    fw_map = {
+                        "playwright_python": TestFramework.PLAYWRIGHT,
+                        "playwright_typescript": TestFramework.PLAYWRIGHT,
+                        "playwright_ts": TestFramework.PLAYWRIGHT,
+                        "playwright_py": TestFramework.PLAYWRIGHT,
+                    }
+                    safe_config["framework"] = fw_map.get(
+                        safe_config["framework"], TestFramework.PLAYWRIGHT
+                    )
+            # Convert language string to enum
+            if "language" in safe_config:
+                try:
+                    safe_config["language"] = TestLanguage(safe_config["language"])
+                except ValueError:
+                    safe_config.pop("language", None)
+
+            gen_config = TestGenConfig(**safe_config)
 
         agent = TestGenAgent()
         result = await agent.generate(
