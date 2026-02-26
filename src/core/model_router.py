@@ -329,7 +329,7 @@ MODELS = {
 
     "sonnet": ModelConfig(
         provider=ModelProvider.OPENROUTER,
-        model_id="anthropic/claude-sonnet-4.5",
+        model_id="anthropic/claude-sonnet-4-5",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
@@ -360,7 +360,7 @@ MODELS = {
 
     "opus": ModelConfig(
         provider=ModelProvider.OPENROUTER,
-        model_id="anthropic/claude-opus-4.5",
+        model_id="anthropic/claude-opus-4-5",
         input_cost_per_1m=5.00,
         output_cost_per_1m=25.00,
         max_tokens=8192,
@@ -460,7 +460,7 @@ MODELS = {
 
     "haiku": ModelConfig(
         provider=ModelProvider.OPENROUTER,
-        model_id="anthropic/claude-haiku-4.5",
+        model_id="anthropic/claude-haiku-4-5",
         input_cost_per_1m=1.00,
         output_cost_per_1m=5.00,
         max_tokens=8192,
@@ -490,7 +490,7 @@ MODELS = {
 
     "claude-computer-use": ModelConfig(
         provider=ModelProvider.OPENROUTER,
-        model_id="anthropic/claude-sonnet-4.5",
+        model_id="anthropic/claude-sonnet-4-5",
         input_cost_per_1m=3.00,
         output_cost_per_1m=15.00,
         max_tokens=8192,
