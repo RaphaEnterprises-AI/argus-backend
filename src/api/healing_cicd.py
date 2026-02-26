@@ -168,12 +168,12 @@ async def _run_healing_scan(
             {
                 "status": "completed",
                 "progress": 100,
-                "tests_scanned": result.get("tests_scanned", 0),
-                "issues_found": result.get("issues_found", 0),
-                "fixes_proposed": result.get("fixes_proposed", 0),
-                "fix_proposals": result.get("fix_proposals", []),
-                "health_score_after": result.get("health_score_after"),
-                "ai_cost": result.get("ai_cost", 0),
+                "tests_scanned": result.tests_scanned,
+                "issues_found": result.issues_found,
+                "fixes_proposed": result.fixes_proposed,
+                "fix_proposals": result.fix_proposals,
+                "health_score_after": result.health_score_after,
+                "ai_cost": result.ai_cost,
                 "completed_at": now_z(),
             },
         )
@@ -181,8 +181,8 @@ async def _run_healing_scan(
         logger.info(
             "Healing scan completed",
             scan_id=scan_id,
-            tests_scanned=result.get("tests_scanned", 0),
-            issues_found=result.get("issues_found", 0),
+            tests_scanned=result.tests_scanned,
+            issues_found=result.issues_found,
         )
 
     except Exception as e:

@@ -178,7 +178,7 @@ async def _run_testgen_job(
     user_id: str,
 ):
     """Run the test generation pipeline in the background."""
-    from src.agents.testgen_agent import TestGenAgent
+    from src.agents.testgen_agent import TestGenAgent, SourceType, TestGenConfig
 
     supabase = get_supabase_client()
 
@@ -189,13 +189,22 @@ async def _run_testgen_job(
             {"status": "running", "started_at": _now_z()},
         )
 
+        # Convert source_type string to SourceType enum
+        try:
+            source_type_enum = SourceType(source_type)
+        except ValueError:
+            source_type_enum = SourceType.REQUIREMENTS_TEXT
+
+        # Convert config dict to TestGenConfig if provided
+        gen_config = TestGenConfig(**config) if config else None
+
         agent = TestGenAgent()
         result = await agent.generate(
             org_id=org_id,
             project_id=project_id,
-            source_type=source_type,
+            source_type=source_type_enum,
             source_data=source_data,
-            config=config,
+            config=gen_config,
             job_id=job_id,
         )
 

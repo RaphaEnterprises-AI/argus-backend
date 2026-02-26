@@ -141,7 +141,7 @@ async def _run_qa_analysis(
     user_id: str,
 ):
     """Run the QA analysis in the background."""
-    from src.agents.qa_engineer_agent import QAEngineerAgent
+    from src.agents.qa_engineer_agent import QAEngineerAgent, AnalysisType
 
     supabase = get_supabase_client()
 
@@ -152,8 +152,21 @@ async def _run_qa_analysis(
             {"status": "running", "started_at": now_z()},
         )
 
+        # Convert analysis_type string to AnalysisType enum
+        try:
+            analysis_type_enum = AnalysisType(analysis_type)
+        except ValueError:
+            analysis_type_enum = AnalysisType.FULL
+
         agent = QAEngineerAgent()
-        result = await agent.analyze(org_id, project_id, analysis_type, trigger_context, job_id)
+        result = await agent.analyze(org_id, project_id, analysis_type_enum, trigger_context, job_id)
+
+        # result is a QAAnalysisResult dataclass — use attribute access
+        quality_score_val = (
+            result.quality_score.final_score
+            if result.quality_score
+            else None
+        )
 
         await supabase.update(
             "qa_analysis_jobs",
@@ -161,12 +174,12 @@ async def _run_qa_analysis(
             {
                 "status": "completed",
                 "progress": 100,
-                "quality_score": result.get("quality_score"),
-                "components_analyzed": result.get("components", []),
-                "coverage_gaps": result.get("gaps", []),
-                "user_flows_discovered": result.get("user_flows", []),
-                "recommendations": result.get("recommendations", []),
-                "ai_cost": result.get("ai_cost", 0),
+                "quality_score": quality_score_val,
+                "components_analyzed": result.testable_surfaces,
+                "coverage_gaps": [g.to_dict() for g in result.gaps],
+                "user_flows_discovered": [f.to_dict() for f in result.user_flows],
+                "recommendations": [r.to_dict() for r in result.recommendations],
+                "ai_cost": result.ai_cost,
                 "completed_at": now_z(),
             },
         )
@@ -174,8 +187,8 @@ async def _run_qa_analysis(
         logger.info(
             "QA analysis completed",
             job_id=job_id,
-            quality_score=result.get("quality_score"),
-            gaps=len(result.get("gaps", [])),
+            quality_score=quality_score_val,
+            gaps=len(result.gaps),
         )
 
     except Exception as e:
