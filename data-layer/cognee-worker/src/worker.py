@@ -25,7 +25,7 @@ from aiohttp import web
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from config import WorkerConfig, load_config
-from handlers import ConfluenceHandler, GitHubPRHandler, JiraHandler, SentryHandler
+from handlers import ConfluenceHandler, GitHubPRHandler, JiraHandler, QAAssessmentHandler, SentryHandler, TestGenHandler
 
 # =============================================================================
 # Prometheus Metrics
@@ -139,6 +139,8 @@ class CogneeKafkaWorker:
         self.confluence_handler = ConfluenceHandler()
         self.jira_handler = JiraHandler()
         self.sentry_handler = SentryHandler()
+        self.testgen_handler = TestGenHandler()
+        self.qa_assessment_handler = QAAssessmentHandler()
 
     def _setup_logging(self):
         """Configure logging level from config."""
@@ -904,6 +906,10 @@ class CogneeKafkaWorker:
             event_type = "integration_sentry"
         elif topic == "argus.integration.jira":
             event_type = "integration_jira"
+        elif topic == "argus.requirements.analyzed":
+            event_type = "requirements_analyzed"
+        elif topic.startswith("argus.coverage."):
+            event_type = f"coverage_{topic.split('.')[-1]}"
         else:
             event_type = "unknown"
 
@@ -919,6 +925,8 @@ class CogneeKafkaWorker:
         try:
             if topic == "argus.codebase.ingested":
                 await self._process_codebase_ingested(key, value)
+            elif topic in ("argus.test.generated", "argus.requirements.analyzed"):
+                await self.testgen_handler.process(value)
             elif topic.startswith("argus.test."):
                 await self._process_test_event(topic, key, value)
             elif topic == "argus.healing.requested":
@@ -931,6 +939,8 @@ class CogneeKafkaWorker:
                 await self.sentry_handler.process(value)
             elif topic == "argus.integration.jira":
                 await self.jira_handler.process(value)
+            elif topic in ("argus.coverage.analyzed", "argus.coverage.gaps"):
+                await self.qa_assessment_handler.process(value)
             else:
                 logger.warning(f"Unknown topic: {topic}")
 

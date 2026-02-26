@@ -451,6 +451,7 @@ async def handle_pull_request_event(
 
     # Trigger impact analysis for opened, synchronize, or reopened PRs
     impact_result = None
+    impact_analysis_triggered = False
     if action in ("opened", "synchronize", "reopened") and head_sha:
         # Get changed files from PR (if available in payload)
         # GitHub doesn't include files in PR webhook, need to fetch separately
@@ -466,9 +467,44 @@ async def handle_pull_request_event(
             repository=repo_full_name,
         )
 
+        # QA Intelligence: Trigger PR-scoped quality analysis
+        try:
+            background_tasks.add_task(
+                trigger_qa_pr_analysis,
+                org_id=org_id,
+                project_id=project_id,
+                pr_number=pr_number,
+                changed_files=files_changed,
+                commit_sha=head_sha,
+                branch=head_branch,
+            )
+            impact_analysis_triggered = True
+            logger.info("Triggered QA PR analysis", pr=pr_number)
+        except Exception as exc:
+            logger.warning("Failed to trigger QA PR analysis", error=str(exc))
+
+        # QA Intelligence: Generate tests for PR changes
+        try:
+            background_tasks.add_task(
+                trigger_testgen_for_pr,
+                org_id=org_id,
+                project_id=project_id,
+                pr_data={
+                    "title": pr.get("title", ""),
+                    "body": pr.get("body", ""),
+                    "number": pr_number,
+                    "changed_files": files_changed,
+                    "head_sha": head_sha,
+                    "branch": head_branch,
+                },
+            )
+            logger.info("Triggered TestGen for PR", pr=pr_number)
+        except Exception as exc:
+            logger.warning("Failed to trigger TestGen for PR", error=str(exc))
+
     return {
         "sdlc_event_id": None,
-        "impact_analysis_triggered": impact_result is not None,
+        "impact_analysis_triggered": impact_result is not None or impact_analysis_triggered,
         "tests_affected": impact_result.tests_affected if impact_result else 0,
     }
 
@@ -494,6 +530,8 @@ async def handle_check_run_event(
         conclusion=check_run.get("conclusion"),
     )
 
+    conclusion = check_run.get("conclusion")
+
     # Emit internal event
     await emit_internal_event(
         event_type=EventType.INTEGRATION_GITHUB,
@@ -505,13 +543,31 @@ async def handle_check_run_event(
             "check_run_id": check_run.get("id"),
             "name": check_run.get("name"),
             "status": check_run.get("status"),
-            "conclusion": check_run.get("conclusion"),
+            "conclusion": conclusion,
             "head_sha": check_run.get("head_sha"),
             "repository": repo_full_name,
             "html_url": check_run.get("html_url"),
         },
         correlation_id=delivery_id,
     )
+
+    # QA Intelligence: Trigger healing for CI failures
+    if action == "completed" and conclusion == "failure":
+        try:
+            background_tasks.add_task(
+                trigger_healing_for_ci_failure,
+                org_id=org_id,
+                project_id=project_id,
+                ci_data={
+                    "run_url": check_run.get("html_url", ""),
+                    "commit_sha": check_run.get("head_sha", ""),
+                    "branch": check_run.get("check_suite", {}).get("head_branch", ""),
+                    "name": check_run.get("name", ""),
+                },
+            )
+            logger.info("Triggered healing for CI failure", check_run_name=check_run.get("name"))
+        except Exception as exc:
+            logger.warning("Failed to trigger healing for CI failure", error=str(exc))
 
     return {
         "sdlc_event_id": None,
@@ -715,3 +771,76 @@ async def list_github_webhook_events(
         "events": events,
         "total": len(events),
     }
+
+
+# =============================================================================
+# QA Intelligence Background Tasks
+# =============================================================================
+
+
+async def trigger_qa_pr_analysis(
+    org_id: str,
+    project_id: str,
+    pr_number: int,
+    changed_files: list[str],
+    commit_sha: str,
+    branch: str,
+) -> None:
+    """Background task: Trigger QA Engineer PR analysis."""
+    try:
+        from src.agents.qa_engineer_agent import QAEngineerAgent
+
+        agent = QAEngineerAgent()
+        await agent.analyze(
+            org_id=org_id,
+            project_id=project_id,
+            analysis_type="pr_review",
+            trigger_context={
+                "pr_number": pr_number,
+                "changed_files": changed_files,
+                "commit_sha": commit_sha,
+                "branch": branch,
+            },
+        )
+    except Exception as e:
+        logger.error("QA PR analysis failed", error=str(e), pr=pr_number)
+
+
+async def trigger_testgen_for_pr(
+    org_id: str,
+    project_id: str,
+    pr_data: dict,
+) -> None:
+    """Background task: Generate tests for PR changes."""
+    try:
+        from src.agents.testgen_agent import TestGenAgent
+
+        agent = TestGenAgent()
+        await agent.generate(
+            org_id=org_id,
+            project_id=project_id,
+            source_type="github_pr",
+            source_data=pr_data,
+            config={"framework": "playwright", "max_tests": 10},
+        )
+    except Exception as e:
+        logger.error("TestGen for PR failed", error=str(e), pr=pr_data.get("number"))
+
+
+async def trigger_healing_for_ci_failure(
+    org_id: str,
+    project_id: str,
+    ci_data: dict,
+) -> None:
+    """Background task: Trigger healing scan for CI failure."""
+    try:
+        from src.agents.testhealer_cicd_agent import TestHealerCICDAgent
+
+        agent = TestHealerCICDAgent()
+        await agent.process_ci_failure(
+            org_id=org_id,
+            project_id=project_id,
+            ci_data=ci_data,
+        )
+    except Exception as e:
+        logger.error("Healing for CI failure failed", error=str(e))

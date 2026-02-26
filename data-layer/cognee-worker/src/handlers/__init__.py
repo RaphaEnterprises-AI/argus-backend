@@ -7,6 +7,15 @@ Modular handlers for processing different event types through the Cognee pipelin
 from .confluence_handler import ConfluenceHandler
 from .github_pr_handler import GitHubPRHandler
 from .jira_handler import JiraHandler
+from .qa_assessment_handler import QAAssessmentHandler
 from .sentry_handler import SentryHandler
+from .testgen_handler import TestGenHandler
 
-__all__ = ["ConfluenceHandler", "GitHubPRHandler", "JiraHandler", "SentryHandler"]
+__all__ = [
+    "ConfluenceHandler",
+    "GitHubPRHandler",
+    "JiraHandler",
+    "QAAssessmentHandler",
+    "SentryHandler",
+    "TestGenHandler",
+]

@@ -123,6 +123,10 @@ AGENTS = [
     "tool_discovery",
     # Penetration testing
     "pentest_coordinator",
+    # QA Intelligence agents
+    "testgen_agent",
+    "testhealer_cicd",
+    "qa_engineer",
 ]
 
 AGENT_DESCRIPTIONS = {
@@ -137,6 +141,10 @@ AGENT_DESCRIPTIONS = {
     "corrective_rag": "Self-correcting retrieval agent that finds relevant documentation, code context, and historical patterns. Use when you need accurate context from knowledge bases, when initial retrieval seems incomplete, or for complex queries requiring multiple sources.",
     "tool_discovery": "Discovers and creates tools dynamically from API documentation (OpenAPI, GraphQL, MCP). Use when existing tools are insufficient, when integrating new APIs, or when capability gaps are identified.",
     "pentest_coordinator": "AI-driven penetration testing coordinator. Runs recon, vulnerability scanning (Nuclei + SQLMap + AI), and controlled exploitation in Docker sandboxes. Use when the user requests security testing, penetration testing, or vulnerability assessment of a web application.",
+    # QA Intelligence agents
+    "testgen_agent": "Generates test suites from requirements (Jira/Figma/text), codebase analysis, PR diffs, or natural language. Use when new tests need to be created, when coverage gaps are identified, or when a PR needs test suggestions.",
+    "testhealer_cicd": "CI/CD-aware healing orchestration. Processes CI failures, runs proactive scans, computes health scores, posts fix suggestions to PRs. Use for automated test maintenance, CI failure analysis, or proactive fragility detection.",
+    "qa_engineer": "Autonomous QA engineer. Analyzes repo coverage, discovers user flows, identifies gaps with risk scoring, generates missing tests, computes quality scores. Use for quality audits, PR reviews requiring coverage analysis, or when comprehensive testing assessment is needed.",
 }
 
 PHASE_DESCRIPTIONS = {
@@ -149,6 +157,10 @@ PHASE_DESCRIPTIONS = {
     "incident_response": "Correlating failures, triaging alerts, executing runbooks for infrastructure issues",
     "knowledge_retrieval": "Finding relevant documentation and historical patterns for context",
     "tool_creation": "Discovering or creating new tools to fill capability gaps",
+    # QA Intelligence phases
+    "test_generation": "Generating new test cases from requirements or coverage gaps",
+    "healing_scan": "Proactively scanning and healing fragile tests",
+    "quality_audit": "Analyzing test coverage and computing quality scores",
 }
 
 
@@ -410,6 +422,12 @@ async def supervisor_node(state: SupervisorState, config: RunnableConfig) -> dic
             new_phase = "knowledge_retrieval"
         elif next_agent == "tool_discovery":
             new_phase = "tool_creation"
+        elif next_agent == "testgen_agent":
+            new_phase = "test_generation"
+        elif next_agent == "testhealer_cicd":
+            new_phase = "healing_scan"
+        elif next_agent == "qa_engineer":
+            new_phase = "quality_audit"
 
         log.info("Supervisor routing", next_agent=next_agent, new_phase=new_phase)
 
@@ -1021,6 +1039,171 @@ async def supervisor_pentest_coordinator_node(state: SupervisorState) -> dict:
         }
 
 
+async def supervisor_testgen_agent_node(state: SupervisorState) -> dict:
+    """Wrapper for TestGen Agent that works with supervisor state."""
+    from src.agents.testgen_agent import TestGenAgent
+
+    log = logger.bind(node="supervisor_testgen_agent")
+    log.info("Running TestGen agent")
+
+    try:
+        agent = TestGenAgent()
+
+        # Build source data from state context
+        source_data = {}
+        source_type = "codebase_analysis"
+
+        if state.get("changed_files"):
+            source_type = "github_pr"
+            source_data = {
+                "title": f"PR #{state.get('pr_number', 'unknown')}",
+                "changed_files": state.get("changed_files", []),
+                "body": "",
+            }
+        elif state.get("testable_surfaces"):
+            source_type = "codebase_analysis"
+            source_data = {
+                "functions": [s for s in state.get("testable_surfaces", []) if s.get("type") == "function"],
+                "endpoints": [s for s in state.get("testable_surfaces", []) if s.get("type") == "endpoint"],
+                "components": [s for s in state.get("testable_surfaces", []) if s.get("type") == "component"],
+            }
+
+        result = await agent.generate(
+            org_id=state.get("org_id", "default"),
+            project_id=state.get("project_id", "default"),
+            source_type=source_type,
+            source_data=source_data,
+            config={},
+        )
+
+        tests_count = result.get("tests_generated", 0) if isinstance(result, dict) else getattr(result, "tests_generated", 0)
+        summary = f"Generated {tests_count} tests from {source_type}."
+
+        return {
+            "messages": [AIMessage(content=f"TestGen: {summary}")],
+            "current_phase": "execution",
+            "results": {
+                **state.get("results", {}),
+                "test_generation": {
+                    "tests_generated": tests_count,
+                    "source_type": source_type,
+                }
+            },
+        }
+    except Exception as e:
+        log.error("TestGen agent failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"TestGen error: {str(e)}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+
+async def supervisor_testhealer_cicd_node(state: SupervisorState) -> dict:
+    """Wrapper for TestHealer CI/CD Agent that works with supervisor state."""
+    from src.agents.testhealer_cicd_agent import TestHealerCICDAgent
+
+    log = logger.bind(node="supervisor_testhealer_cicd")
+    log.info("Running TestHealer CI/CD agent")
+
+    try:
+        agent = TestHealerCICDAgent()
+
+        # Determine scan type from context
+        scan_type = "manual"
+        trigger_context = {}
+
+        if state.get("failures"):
+            scan_type = "ci_failure"
+            trigger_context = {
+                "failures": [f.get("error_message", "")[:200] for f in state.get("failures", [])[:5]],
+                "failed_count": state.get("failed_count", 0),
+            }
+        else:
+            scan_type = "proactive"
+
+        result = await agent.scan(
+            org_id=state.get("org_id", "default"),
+            project_id=state.get("project_id", "default"),
+            scan_type=scan_type,
+            trigger_context=trigger_context,
+        )
+
+        fixes = result.get("fixes_proposed", 0) if isinstance(result, dict) else 0
+        health = result.get("health_score_after", 0) if isinstance(result, dict) else 0
+        summary = f"Healing scan ({scan_type}): {fixes} fixes proposed, health score: {health:.0f}"
+
+        return {
+            "messages": [AIMessage(content=f"TestHealer CI/CD: {summary}")],
+            "current_phase": "healing" if fixes > 0 else state.get("current_phase", "execution"),
+            "results": {
+                **state.get("results", {}),
+                "healing_scan": {
+                    "scan_type": scan_type,
+                    "fixes_proposed": fixes,
+                    "health_score": health,
+                }
+            },
+        }
+    except Exception as e:
+        log.error("TestHealer CI/CD agent failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"TestHealer CI/CD error: {str(e)}")],
+            "current_phase": state.get("current_phase", "execution"),
+        }
+
+
+async def supervisor_qa_engineer_node(state: SupervisorState) -> dict:
+    """Wrapper for QA Engineer Agent that works with supervisor state."""
+    from src.agents.qa_engineer_agent import QAEngineerAgent
+
+    log = logger.bind(node="supervisor_qa_engineer")
+    log.info("Running QA Engineer agent")
+
+    try:
+        agent = QAEngineerAgent()
+
+        # Determine analysis type
+        analysis_type = "full"
+        trigger_context = {}
+
+        if state.get("pr_number"):
+            analysis_type = "pr_review"
+            trigger_context = {
+                "pr_number": state.get("pr_number"),
+                "changed_files": state.get("changed_files", []),
+            }
+
+        result = await agent.analyze(
+            org_id=state.get("org_id", "default"),
+            project_id=state.get("project_id", "default"),
+            analysis_type=analysis_type,
+            trigger_context=trigger_context,
+        )
+
+        quality = result.get("quality_score", 0) if isinstance(result, dict) else 0
+        gaps = result.get("gap_count", 0) if isinstance(result, dict) else 0
+        summary = f"QA analysis ({analysis_type}): quality score {quality:.0f}/100, {gaps} coverage gaps"
+
+        return {
+            "messages": [AIMessage(content=f"QA Engineer: {summary}")],
+            "current_phase": "test_generation" if gaps > 5 else "reporting",
+            "results": {
+                **state.get("results", {}),
+                "qa_analysis": {
+                    "quality_score": quality,
+                    "gap_count": gaps,
+                    "analysis_type": analysis_type,
+                }
+            },
+        }
+    except Exception as e:
+        log.error("QA Engineer agent failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"QA Engineer error: {str(e)}")],
+            "current_phase": state.get("current_phase", "analysis"),
+        }
+
+
 def create_supervisor_graph() -> StateGraph:
     """Create the multi-agent supervisor graph.
 
@@ -1082,6 +1265,11 @@ def create_supervisor_graph() -> StateGraph:
     # Penetration testing
     graph.add_node("pentest_coordinator", supervisor_pentest_coordinator_node)
 
+    # QA Intelligence agent nodes
+    graph.add_node("testgen_agent", supervisor_testgen_agent_node)
+    graph.add_node("testhealer_cicd", supervisor_testhealer_cicd_node)
+    graph.add_node("qa_engineer", supervisor_qa_engineer_node)
+
     # Entry point
     graph.set_entry_point("supervisor")
 
@@ -1102,6 +1290,10 @@ def create_supervisor_graph() -> StateGraph:
             "tool_discovery": "tool_discovery",
             # Penetration testing
             "pentest_coordinator": "pentest_coordinator",
+            # QA Intelligence agents
+            "testgen_agent": "testgen_agent",
+            "testhealer_cicd": "testhealer_cicd",
+            "qa_engineer": "qa_engineer",
             "end": END,
         }
     )

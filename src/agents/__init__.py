@@ -165,6 +165,11 @@ from .test_quality_agent import (
     TrustScore,
 )
 
+# QA Intelligence Agents
+from .testgen_agent import TestGenAgent
+from .testhealer_cicd_agent import TestHealerCICDAgent
+from .qa_engineer_agent import QAEngineerAgent
+
 # SRE Agent - Unified incident correlation, remediation, optimization (RAP-253)
 from .sre_agent import (
     CorrelatedIncident,
@@ -332,4 +337,8 @@ __all__ = [
     "create_hallucination_detector",
     "create_hallucination_middleware",
     "quick_hallucination_check",
+    # QA Intelligence Agents
+    "TestGenAgent",
+    "TestHealerCICDAgent",
+    "QAEngineerAgent",
 ]

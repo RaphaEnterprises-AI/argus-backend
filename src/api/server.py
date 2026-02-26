@@ -94,6 +94,9 @@ from src.api.swarms import router as swarms_router
 from src.api.sync import router as sync_router
 from src.api.teams import router as teams_router
 from src.api.test_quality import router as test_quality_router
+from src.api.testgen import router as testgen_router
+from src.api.healing_cicd import router as healing_cicd_router
+from src.api.qa_engineer import router as qa_engineer_router
 from src.api.tests import router as tests_router
 from src.api.test_runs import router as test_runs_router
 from src.api.time_travel import router as time_travel_router
@@ -490,6 +493,9 @@ app.include_router(pentest_router)
 app.include_router(benchmarks_router)
 app.include_router(test_quality_router)
 app.include_router(swarms_router)
+app.include_router(testgen_router)
+app.include_router(healing_cicd_router)
+app.include_router(qa_engineer_router)
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}

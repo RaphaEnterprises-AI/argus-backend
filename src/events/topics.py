@@ -50,6 +50,13 @@ TOPIC_PATTERNS_FAILURE_CLUSTER = "argus.patterns.failure-cluster"
 TOPIC_SWARM_STARTED = "argus.swarm.started"
 TOPIC_SWARM_COMPLETED = "argus.swarm.completed"
 
+# QA Intelligence Topics
+TOPIC_TEST_GENERATED = "argus.test.generated"
+TOPIC_REQUIREMENTS_ANALYZED = "argus.requirements.analyzed"
+TOPIC_HEALING_SCAN_STARTED = "argus.healing.scan.started"
+TOPIC_COVERAGE_ANALYZED = "argus.coverage.analyzed"
+TOPIC_COVERAGE_GAPS = "argus.coverage.gaps"
+
 
 @dataclass
 class TopicConfig:
@@ -222,6 +229,37 @@ TOPIC_CONFIGS: dict[str, TopicConfig] = {
         retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
         consumer_group="argus-healers",  # Consumed by self-healing agents
     ),
+    # QA Intelligence Topics
+    TOPIC_TEST_GENERATED: TopicConfig(
+        name=TOPIC_TEST_GENERATED,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
+    TOPIC_REQUIREMENTS_ANALYZED: TopicConfig(
+        name=TOPIC_REQUIREMENTS_ANALYZED,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
+    TOPIC_HEALING_SCAN_STARTED: TopicConfig(
+        name=TOPIC_HEALING_SCAN_STARTED,
+        partitions=6,
+        retention_ms=14 * 24 * 60 * 60 * 1000,  # 14 days
+        consumer_group="argus-healers",
+    ),
+    TOPIC_COVERAGE_ANALYZED: TopicConfig(
+        name=TOPIC_COVERAGE_ANALYZED,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
+    TOPIC_COVERAGE_GAPS: TopicConfig(
+        name=TOPIC_COVERAGE_GAPS,
+        partitions=6,
+        retention_ms=30 * 24 * 60 * 60 * 1000,  # 30 days
+        consumer_group="argus-cognee-workers",
+    ),
 }
 
 
@@ -256,6 +294,12 @@ EVENT_TYPE_TO_TOPIC: dict[EventType, str] = {
     # Swarm
     EventType.SWARM_STARTED: TOPIC_SWARM_STARTED,
     EventType.SWARM_COMPLETED: TOPIC_SWARM_COMPLETED,
+    # QA Intelligence
+    EventType.TEST_GENERATED: TOPIC_TEST_GENERATED,
+    EventType.REQUIREMENTS_ANALYZED: TOPIC_REQUIREMENTS_ANALYZED,
+    EventType.HEALING_SCAN_STARTED: TOPIC_HEALING_SCAN_STARTED,
+    EventType.COVERAGE_ANALYZED: TOPIC_COVERAGE_ANALYZED,
+    EventType.COVERAGE_GAPS_IDENTIFIED: TOPIC_COVERAGE_GAPS,
 }
 
 

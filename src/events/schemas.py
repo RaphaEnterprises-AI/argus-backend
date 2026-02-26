@@ -49,6 +49,13 @@ class EventType(str, Enum):
     SWARM_WORKER_STARTED = "swarm.worker.started"
     SWARM_WORKER_COMPLETED = "swarm.worker.completed"
 
+    # QA Intelligence Events
+    TEST_GENERATED = "test.generated"
+    REQUIREMENTS_ANALYZED = "requirements.analyzed"
+    HEALING_SCAN_STARTED = "healing.scan.started"
+    COVERAGE_ANALYZED = "coverage.analyzed"
+    COVERAGE_GAPS_IDENTIFIED = "coverage.gaps"
+
 
 class TenantInfo(BaseModel):
     """Tenant context for multi-tenant isolation.
@@ -581,3 +588,84 @@ class PentestCompletedEvent(BaseEvent):
     verified_count: int = Field(default=0, description="Exploited/verified count")
     risk_score: float = Field(default=0.0, description="Overall risk score 0-100")
     duration_ms: int = Field(default=0, description="Total scan duration")
+
+
+# =============================================================================
+# QA Intelligence Events
+# =============================================================================
+
+
+class TestGeneratedEvent(BaseEvent):
+    """Emitted when test generation completes."""
+
+    event_type: EventType = Field(default=EventType.TEST_GENERATED, frozen=True)
+
+    # Payload
+    job_id: str = Field(..., description="TestGen job ID")
+    tests_generated: int = Field(default=0, description="Number of tests generated")
+    framework: str = Field(default="playwright", description="Test framework used")
+    source_type: str = Field(..., description="Source: requirements_text, jira, github_pr, codebase_analysis")
+    quality_score: float = Field(default=0.0, description="Quality score from AgentAsJudge 0.0-1.0")
+    requirements_count: int = Field(default=0, description="Number of requirements processed")
+    coverage_matrix_entries: int = Field(default=0, description="Traceability matrix entries created")
+    ai_cost: float = Field(default=0.0, description="AI cost for this generation")
+
+
+class RequirementsAnalyzedEvent(BaseEvent):
+    """Emitted when requirements analysis completes (ambiguity detection, parsing)."""
+
+    event_type: EventType = Field(default=EventType.REQUIREMENTS_ANALYZED, frozen=True)
+
+    # Payload
+    job_id: str = Field(..., description="TestGen job ID")
+    requirements_count: int = Field(default=0, description="Number of requirements parsed")
+    ambiguous_count: int = Field(default=0, description="Number of ambiguous requirements")
+    avg_ambiguity_score: float = Field(default=0.0, description="Average ambiguity score 0.0-1.0")
+    source_type: str = Field(..., description="Source type for requirements")
+    cognee_namespace: str = Field(default="", description="Cognee namespace where stored")
+
+
+class HealingScanStartedEvent(BaseEvent):
+    """Emitted when a proactive/CI healing scan starts."""
+
+    event_type: EventType = Field(default=EventType.HEALING_SCAN_STARTED, frozen=True)
+
+    # Payload
+    scan_id: str = Field(..., description="Healing scan job ID")
+    scan_type: str = Field(..., description="Scan type: proactive, ci_failure, pr_review, manual")
+    trigger_context: dict[str, Any] = Field(default_factory=dict, description="CI run URL, PR, commit, etc.")
+    tests_to_scan: int = Field(default=0, description="Number of tests to scan")
+
+
+class CoverageAnalyzedEvent(BaseEvent):
+    """Emitted when QA Engineer coverage analysis completes."""
+
+    event_type: EventType = Field(default=EventType.COVERAGE_ANALYZED, frozen=True)
+
+    # Payload
+    job_id: str = Field(..., description="QA analysis job ID")
+    analysis_type: str = Field(..., description="Type: full, pr_review, coverage_only, incremental")
+    quality_score: float = Field(default=0.0, description="Overall quality score 0-100")
+    test_coverage_pct: float = Field(default=0.0, description="Test coverage percentage")
+    components_analyzed: int = Field(default=0, description="Number of components analyzed")
+    user_flows_discovered: int = Field(default=0, description="Number of user flows found")
+    gap_count: int = Field(default=0, description="Total coverage gaps found")
+    critical_gaps: int = Field(default=0, description="Critical risk gaps")
+    commit_sha: str | None = Field(None, description="Commit SHA analyzed")
+    cognee_namespace: str = Field(default="", description="Cognee namespace for this analysis")
+
+
+class CoverageGapsIdentifiedEvent(BaseEvent):
+    """Emitted when coverage gaps are identified with risk scores."""
+
+    event_type: EventType = Field(default=EventType.COVERAGE_GAPS_IDENTIFIED, frozen=True)
+
+    # Payload
+    job_id: str = Field(..., description="QA analysis job ID")
+    total_gaps: int = Field(default=0, description="Total gaps found")
+    critical_gaps: int = Field(default=0, description="CRITICAL risk gaps")
+    high_gaps: int = Field(default=0, description="HIGH risk gaps")
+    medium_gaps: int = Field(default=0, description="MEDIUM risk gaps")
+    low_gaps: int = Field(default=0, description="LOW risk gaps")
+    top_gaps: list[dict[str, Any]] = Field(default_factory=list, description="Top 10 gaps with details")
+    auto_generation_triggered: bool = Field(default=False, description="Whether TestGen was auto-triggered")

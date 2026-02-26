@@ -191,7 +191,7 @@ class WorkerConfig:
     # Default: core event topics only. Integration topics should be added when ready.
     input_topics: list[str] = field(default_factory=lambda: os.getenv(
         "KAFKA_INPUT_TOPICS",
-        "argus.codebase.ingested,argus.test.created,argus.test.executed,argus.test.failed,argus.healing.requested"
+        "argus.codebase.ingested,argus.test.created,argus.test.executed,argus.test.failed,argus.test.generated,argus.healing.requested,argus.requirements.analyzed,argus.coverage.analyzed,argus.coverage.gaps"
     ).split(","))
 
     # Output topics
