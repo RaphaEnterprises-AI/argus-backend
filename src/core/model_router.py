@@ -1027,8 +1027,14 @@ class AnthropicClient(BaseModelClient):
             else:
                 filtered_messages.append(msg)
 
+        # Strip provider prefix (e.g. "anthropic/claude-sonnet-4-5" → "claude-sonnet-4-5")
+        # This handles model configs from OpenRouter being passed to Anthropic's API
+        model_id = model_config.model_id
+        if "/" in model_id:
+            model_id = model_id.split("/", 1)[1]
+
         kwargs = {
-            "model": model_config.model_id,
+            "model": model_id,
             "max_tokens": max_tokens,
             "messages": filtered_messages,
         }
