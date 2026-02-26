@@ -531,7 +531,7 @@ class InfrastructureTester:
 
             client = anthropic.Anthropic(api_key=api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-5-20241022",
+                model="claude-sonnet-4-5",
                 max_tokens=50,
                 messages=[{"role": "user", "content": "Say 'OK' if you can hear me."}],
             )
@@ -608,7 +608,7 @@ async def test_claude_api_connectivity():
     client = anthropic.Anthropic(api_key=api_key)
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20241022",
+            model="claude-sonnet-4-5",
             max_tokens=10,
             messages=[{"role": "user", "content": "Say OK"}],
         )

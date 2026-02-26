@@ -179,7 +179,8 @@ class TestFullOrchestrationFlow:
         }
 
         next_node = route_after_execution(state)
-        assert next_node == "report"
+        # After all tests complete with no healing, routes to flaky detection before reporting
+        assert next_node == "detect_flaky"
 
     @pytest.mark.asyncio
     async def test_routing_after_execution_needs_healing(self):
@@ -316,7 +317,7 @@ class TestChatGraphFlow:
 
         assert "http://example.com" in prompt
         assert "Argus" in prompt
-        assert "E2E Testing" in prompt
+        assert "quality assurance" in prompt.lower()
 
 
 class TestOrchestratorMethods:

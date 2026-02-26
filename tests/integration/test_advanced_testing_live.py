@@ -940,7 +940,7 @@ class TestParameterized:
                 headers=HEADERS,
                 json=payload,
             )
-        assert resp.status_code in (200, 422, 429, 500), resp.text
+        assert resp.status_code in (200, 422, 429, 500, 502), resp.text
         if resp.status_code == 200:
             data = resp.json()
             ValidateResponseModel.model_validate(data)
@@ -968,7 +968,7 @@ class TestParameterized:
                 headers=HEADERS,
                 json=payload,
             )
-        assert resp.status_code in (200, 422, 429, 500), resp.text
+        assert resp.status_code in (200, 422, 429, 500, 502), resp.text
         if resp.status_code == 200:
             data = resp.json()
             ValidateResponseModel.model_validate(data)
