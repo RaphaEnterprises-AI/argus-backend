@@ -64,7 +64,7 @@ done
 
 check_health() {
     local name=$1
-    local health_url="https://${name}.up.railway.app/health"
+    local health_url="https://${name}-production.up.railway.app/health"
 
     echo -n "  Checking ${name}... "
     local response
@@ -84,7 +84,7 @@ wait_for_health() {
 
     echo -n "  Waiting for ${name}..."
     while [ $attempt -lt $max_attempts ]; do
-        if curl -sf --max-time 5 "https://${name}.up.railway.app/health" >/dev/null 2>&1; then
+        if curl -sf --max-time 5 "https://${name}-production.up.railway.app/health" >/dev/null 2>&1; then
             echo -e " ${GREEN}ready${NC}"
             return 0
         fi
@@ -178,8 +178,8 @@ if [ $failed -gt 0 ]; then
 fi
 echo ""
 echo "Service URLs:"
-echo "  JSON API:          https://jsonapi-testbench.up.railway.app"
-echo "  Chaos App:         https://chaos-testbench.up.railway.app"
-echo "  Conduit:           https://conduit-testbench.up.railway.app"
-echo "  Plane:             https://plane-testbench.up.railway.app"
-echo "  Chaos Controller:  https://chaos-ctrl-testbench.up.railway.app"
+echo "  JSON API:          https://jsonapi-testbench-production.up.railway.app"
+echo "  Chaos App:         https://chaos-testbench-production.up.railway.app"
+echo "  Conduit:           https://conduit-testbench-production.up.railway.app"
+echo "  Plane:             https://plane-testbench-production.up.railway.app"
+echo "  Chaos Controller:  https://chaos-ctrl-testbench-production.up.railway.app"

@@ -6,11 +6,11 @@ Sample apps deployed on Railway to dogfood Argus end-to-end.
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| Conduit | conduit-testbench.up.railway.app | Simple blog (RealWorld) |
-| Plane | plane-testbench.up.railway.app | Project management SaaS |
-| JSON API | jsonapi-testbench.up.railway.app | Pure REST with OpenAPI spec |
-| Chaos App | chaos-testbench.up.railway.app | E-commerce with 30 toggleable bugs |
-| Chaos Controller | chaos-ctrl-testbench.up.railway.app | Scenario orchestrator |
+| Conduit | conduit-testbench-production.up.railway.app | Simple blog (RealWorld) |
+| Plane | plane-testbench-production.up.railway.app | Project management SaaS |
+| JSON API | jsonapi-testbench-production.up.railway.app | Pure REST with OpenAPI spec |
+| Chaos App | chaos-testbench-production.up.railway.app | E-commerce with 30 toggleable bugs |
+| Chaos Controller | chaos-ctrl-testbench-production.up.railway.app | Scenario orchestrator |
 
 ## Quick Start
 
@@ -19,15 +19,15 @@ Sample apps deployed on Railway to dogfood Argus end-to-end.
 ./testbench/deploy.sh
 
 # Run a scenario
-curl -X POST https://chaos-ctrl-testbench.up.railway.app/scenarios/run \
+curl -X POST https://chaos-ctrl-testbench-production.up.railway.app/scenarios/run \
   -H "Content-Type: application/json" \
   -d '{"scenario": "golden-path"}'
 
 # Toggle a bug
-curl -X POST https://chaos-testbench.up.railway.app/chaos/bugs/selector-login-id/enable
+curl -X POST https://chaos-testbench-production.up.railway.app/chaos/bugs/selector-login-id/enable
 
 # Reset all bugs
-curl -X POST https://chaos-testbench.up.railway.app/chaos/bugs/reset
+curl -X POST https://chaos-testbench-production.up.railway.app/chaos/bugs/reset
 ```
 
 ## Architecture

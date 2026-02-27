@@ -11,7 +11,7 @@ on:
         default: ''
 
 env:
-  CONTROLLER_URL: https://chaos-ctrl-testbench.up.railway.app
+  CONTROLLER_URL: https://chaos-ctrl-testbench-production.up.railway.app
 
 jobs:
   health-check:
@@ -22,11 +22,11 @@ jobs:
       - name: Check all services
         run: |
           SERVICES=(
-            "https://jsonapi-testbench.up.railway.app/health"
-            "https://chaos-testbench.up.railway.app/health"
-            "https://conduit-testbench.up.railway.app/health"
-            "https://plane-testbench.up.railway.app/health"
-            "https://chaos-ctrl-testbench.up.railway.app/health"
+            "https://jsonapi-testbench-production.up.railway.app/health"
+            "https://chaos-testbench-production.up.railway.app/health"
+            "https://conduit-testbench-production.up.railway.app/health"
+            "https://plane-testbench-production.up.railway.app/health"
+            "https://chaos-ctrl-testbench-production.up.railway.app/health"
           )
 
           ALL_HEALTHY=true
