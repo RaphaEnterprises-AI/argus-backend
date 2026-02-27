@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plane - Project Management</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-hover: #1c2333;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #f85149;
+      --success: #3fb950;
+      --warning: #d29922;
+      --purple: #a855f7;
+      --radius: 6px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* Layout */
+    .app { display: flex; flex-direction: column; min-height: 100vh; }
+    .navbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .navbar-brand { font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+    .navbar-brand svg { width: 24px; height: 24px; }
+    .navbar-user { display: flex; align-items: center; gap: 12px; }
+    .navbar-user span { color: var(--text-muted); font-size: 14px; }
+    .main-content { flex: 1; padding: 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: var(--radius);
+      font-size: 14px; font-weight: 500; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--text); transition: all 0.15s;
+    }
+    .btn:hover { background: var(--surface-hover); }
+    .btn-primary { background: var(--primary); border-color: var(--primary); }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-danger { background: var(--danger); border-color: var(--danger); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-ghost { background: transparent; border-color: transparent; }
+    .btn-ghost:hover { background: var(--surface-hover); }
+
+    /* Forms */
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+    input, textarea, select {
+      width: 100%; padding: 8px 12px; border-radius: var(--radius);
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); font-size: 14px; font-family: inherit;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); }
+    textarea { resize: vertical; min-height: 80px; }
+
+    /* Cards */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+    }
+
+    /* Login page */
+    #login-page {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    #login-form {
+      width: 100%; max-width: 400px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 12px; padding: 32px;
+    }
+    #login-form h1 { font-size: 24px; margin-bottom: 4px; }
+    #login-form p { color: var(--text-muted); margin-bottom: 24px; font-size: 14px; }
+    #login-error { color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none; }
+
+    /* Workspace page */
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .page-header h1 { font-size: 24px; }
+    .project-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .project-card:hover { border-color: var(--primary); background: var(--surface-hover); }
+    .project-card h3 { margin-bottom: 6px; }
+    .project-card .identifier { color: var(--text-muted); font-size: 13px; }
+    .project-card .description { color: var(--text-muted); font-size: 14px; margin-top: 8px; }
+    .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+
+    /* Issue board */
+    .board-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .board-header h2 { font-size: 20px; }
+    .board-controls { display: flex; gap: 8px; align-items: center; }
+    .board-controls select { width: auto; }
+    #issue-board { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px; }
+    .board-column {
+      min-width: 280px; max-width: 320px; flex-shrink: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); display: flex; flex-direction: column;
+    }
+    .column-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .column-count {
+      background: var(--bg); border-radius: 10px; padding: 2px 8px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .column-issues { padding: 8px; flex: 1; overflow-y: auto; max-height: 600px; }
+    .issue-card {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; margin-bottom: 8px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .issue-card:hover { border-color: var(--primary); }
+    .issue-card .issue-id { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .issue-card .issue-title { font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+    .issue-card .issue-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .priority-badge {
+      font-size: 11px; padding: 2px 6px; border-radius: 3px; font-weight: 500;
+    }
+    .priority-urgent { background: #f8514933; color: #f85149; }
+    .priority-high { background: #d2992233; color: #d29922; }
+    .priority-medium { background: #3b82f633; color: #3b82f6; }
+    .priority-low { background: #3fb95033; color: #3fb950; }
+    .priority-none { background: #8b949e33; color: #8b949e; }
+    .label-tag {
+      font-size: 11px; padding: 2px 6px; border-radius: 3px;
+      display: inline-block;
+    }
+    .assignee-avatar {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--primary); display: inline-flex; align-items: center;
+      justify-content: center; font-size: 10px; font-weight: 600; color: #fff;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); display: flex; align-items: center;
+      justify-content: center; z-index: 1000; padding: 24px;
+    }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; width: 100%; max-width: 640px; max-height: 90vh;
+      overflow-y: auto; padding: 24px;
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .modal-header h2 { font-size: 20px; }
+    .close-btn { cursor: pointer; color: var(--text-muted); font-size: 24px; background: none; border: none; }
+    .close-btn:hover { color: var(--text); }
+
+    /* Issue detail */
+    .issue-detail-state { margin-bottom: 16px; }
+    .issue-detail-meta { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
+    .issue-detail-meta .meta-item { font-size: 13px; }
+    .issue-detail-meta .meta-item .meta-label { color: var(--text-muted); margin-right: 6px; }
+    .issue-detail-description { margin-bottom: 20px; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+    .comments-section { border-top: 1px solid var(--border); padding-top: 16px; }
+    .comments-section h3 { font-size: 14px; margin-bottom: 12px; }
+    .comment { margin-bottom: 12px; padding: 12px; background: var(--bg); border-radius: var(--radius); }
+    .comment-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .comment-author { font-size: 13px; font-weight: 500; }
+    .comment-date { font-size: 12px; color: var(--text-muted); }
+    .comment-body { font-size: 14px; color: var(--text-muted); }
+    .add-comment { display: flex; gap: 8px; margin-top: 12px; }
+    .add-comment input { flex: 1; }
+
+    /* Breadcrumb */
+    .breadcrumb { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 14px; }
+    .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+    .breadcrumb a:hover { color: var(--text); }
+    .breadcrumb .sep { color: var(--text-muted); }
+
+    /* Utility */
+    .hidden { display: none !important; }
+    .text-muted { color: var(--text-muted); }
+    .mt-2 { margin-top: 8px; }
+    .mt-4 { margin-top: 16px; }
+    .mb-2 { margin-bottom: 8px; }
+    .flex { display: flex; }
+    .gap-2 { gap: 8px; }
+  </style>
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- LOGIN PAGE -->
+    <div id="login-page">
+      <form id="login-form" onsubmit="handleLogin(event)">
+        <h1>Plane</h1>
+        <p>Project management for modern teams</p>
+        <div id="login-error"></div>
+        <div class="form-group">
+          <label for="email-input">Email</label>
+          <input type="email" id="email-input" placeholder="admin@acme.com" value="admin@acme.com" required />
+        </div>
+        <div class="form-group">
+          <label for="password-input">Password</label>
+          <input type="password" id="password-input" placeholder="password123" value="password123" required />
+        </div>
+        <button type="submit" id="login-btn" class="btn btn-primary" style="width:100%">Sign in</button>
+        <p class="mt-4 text-muted" style="font-size:12px;text-align:center;">
+          Demo: admin@acme.com / password123
+        </p>
+      </form>
+    </div>
+
+    <!-- WORKSPACE PAGE -->
+    <div id="workspace-page" class="hidden">
+      <nav class="navbar">
+        <div class="navbar-brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18M3 9h18"/></svg>
+          Plane
+        </div>
+        <div class="navbar-user">
+          <span id="user-name"></span>
+          <button class="btn btn-sm btn-ghost" onclick="handleLogout()">Sign out</button>
+        </div>
+      </nav>
+      <div class="main-content">
+        <div class="page-header">
+          <h1 id="workspace-title"></h1>
+        </div>
+        <h2 class="mb-2" style="font-size:16px;color:var(--text-muted)">Projects</h2>
+        <div id="workspace-list" class="project-grid"></div>
+      </div>
+    </div>
+
+    <!-- PROJECT BOARD PAGE -->
+    <div id="project-page" class="hidden">
+      <nav class="navbar">
+        <div class="navbar-brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18M3 9h18"/></svg>
+          Plane
+        </div>
+        <div class="navbar-user">
+          <span id="user-name-2"></span>
+          <button class="btn btn-sm btn-ghost" onclick="handleLogout()">Sign out</button>
+        </div>
+      </nav>
+      <div class="main-content">
+        <div class="breadcrumb">
+          <a href="#" onclick="showWorkspace(); return false;">Acme Corp</a>
+          <span class="sep">/</span>
+          <span id="project-name-breadcrumb"></span>
+        </div>
+        <div class="board-header">
+          <h2 id="project-title"></h2>
+          <div class="board-controls">
+            <select id="filter-priority" onchange="renderBoard()">
+              <option value="">All priorities</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="none">None</option>
+            </select>
+            <button id="create-issue-btn" class="btn btn-primary btn-sm" onclick="showCreateIssueModal()">+ Issue</button>
+          </div>
+        </div>
+        <div id="issue-board"></div>
+      </div>
+    </div>
+
+    <!-- CREATE ISSUE MODAL -->
+    <div id="create-issue-modal" class="modal-overlay hidden" onclick="closeModal(event, 'create-issue-modal')">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <h2>Create Issue</h2>
+          <button class="close-btn" onclick="hideModal('create-issue-modal')">&times;</button>
+        </div>
+        <form id="issue-form" onsubmit="handleCreateIssue(event)">
+          <div class="form-group">
+            <label for="issue-title">Title</label>
+            <input type="text" id="issue-title" placeholder="Issue title" required />
+          </div>
+          <div class="form-group">
+            <label for="issue-description">Description</label>
+            <textarea id="issue-description" placeholder="Add a description..."></textarea>
+          </div>
+          <div style="display:flex;gap:12px">
+            <div class="form-group" style="flex:1">
+              <label for="issue-state">State</label>
+              <select id="issue-state">
+                <option value="backlog">Backlog</option>
+                <option value="todo" selected>Todo</option>
+                <option value="in_progress">In Progress</option>
+                <option value="done">Done</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label for="issue-priority">Priority</label>
+              <select id="issue-priority">
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%">Create Issue</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ISSUE DETAIL MODAL -->
+    <div id="issue-detail-modal" class="modal-overlay hidden" onclick="closeModal(event, 'issue-detail-modal')">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <h2 id="detail-issue-id"></h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-sm btn-danger" id="delete-issue-btn" onclick="handleDeleteIssue()">Delete</button>
+            <button class="close-btn" onclick="hideModal('issue-detail-modal')">&times;</button>
+          </div>
+        </div>
+        <h3 id="detail-issue-title" style="font-size:18px;margin-bottom:12px"></h3>
+        <div class="issue-detail-meta" id="detail-issue-meta"></div>
+        <div class="issue-detail-description" id="detail-issue-description"></div>
+        <div class="comments-section">
+          <h3>Comments</h3>
+          <div id="detail-comments"></div>
+          <div class="add-comment">
+            <input type="text" id="comment-input" placeholder="Add a comment..." />
+            <button class="btn btn-sm btn-primary" onclick="handleAddComment()">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---------------------------------------------------------------
+    // State
+    // ---------------------------------------------------------------
+    var token = localStorage.getItem('plane_token');
+    var currentUser = null;
+    var currentWorkspace = null;
+    var currentProject = null;
+    var currentProjectId = null;
+    var currentIssues = [];
+    var currentIssue = null;
+    var allProjects = [];
+    var allMembers = [];
+    var allLabels = [];
+
+    var API = '';
+    var WORKSPACE_SLUG = 'acme-corp';
+    var STATES = ['backlog', 'todo', 'in_progress', 'done', 'cancelled'];
+    var STATE_LABELS = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', cancelled: 'Cancelled' };
+
+    // ---------------------------------------------------------------
+    // Escaping helper - uses DOM textContent to safely escape HTML
+    // ---------------------------------------------------------------
+    function esc(str) {
+      var d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    // Safe DOM element builder helper
+    function el(tag, attrs, children) {
+      var node = document.createElement(tag);
+      if (attrs) {
+        Object.keys(attrs).forEach(function(k) {
+          if (k === 'className') node.className = attrs[k];
+          else if (k === 'onclick') node.onclick = attrs[k];
+          else if (k === 'style') node.style.cssText = attrs[k];
+          else node.setAttribute(k, attrs[k]);
+        });
+      }
+      if (children) {
+        if (typeof children === 'string') node.textContent = children;
+        else if (Array.isArray(children)) children.forEach(function(c) { if (c) node.appendChild(c); });
+        else node.appendChild(children);
+      }
+      return node;
+    }
+
+    // ---------------------------------------------------------------
+    // API helpers
+    // ---------------------------------------------------------------
+    function api(path, opts) {
+      opts = opts || {};
+      var headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      if (opts.headers) {
+        Object.keys(opts.headers).forEach(function(k) { headers[k] = opts.headers[k]; });
+      }
+      opts.headers = headers;
+      return fetch(API + path, opts).then(function(res) {
+        if (res.status === 401) { handleLogout(); throw new Error('Unauthorized'); }
+        return res.json().then(function(data) {
+          if (!res.ok) throw new Error(data.error || 'API error');
+          return data;
+        });
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // Auth
+    // ---------------------------------------------------------------
+    function handleLogin(e) {
+      e.preventDefault();
+      var email = document.getElementById('email-input').value;
+      var password = document.getElementById('password-input').value;
+      var errEl = document.getElementById('login-error');
+      errEl.style.display = 'none';
+      api('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: email, password: password }),
+      }).then(function(data) {
+        token = data.token;
+        currentUser = data.user;
+        localStorage.setItem('plane_token', token);
+        showWorkspace();
+      }).catch(function(err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      });
+    }
+
+    function handleLogout() {
+      token = null;
+      currentUser = null;
+      localStorage.removeItem('plane_token');
+      showPage('login-page');
+    }
+
+    function loadCurrentUser() {
+      return api('/api/auth/me').then(function(data) {
+        currentUser = data.user;
+      }).catch(function() {
+        handleLogout();
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // Navigation
+    // ---------------------------------------------------------------
+    function showPage(pageId) {
+      ['login-page', 'workspace-page', 'project-page'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (id === pageId) el.classList.remove('hidden');
+        else el.classList.add('hidden');
+      });
+    }
+
+    function showWorkspace() {
+      if (!token) { showPage('login-page'); return; }
+
+      var ready = currentUser ? Promise.resolve() : loadCurrentUser();
+      ready.then(function() {
+        if (!currentUser) return;
+
+        document.getElementById('user-name').textContent = currentUser.name;
+        document.getElementById('user-name-2').textContent = currentUser.name;
+
+        return Promise.all([
+          api('/api/workspaces/' + WORKSPACE_SLUG),
+          api('/api/workspaces/' + WORKSPACE_SLUG + '/projects'),
+          api('/api/workspaces/' + WORKSPACE_SLUG + '/members'),
+        ]);
+      }).then(function(results) {
+        if (!results) return;
+        currentWorkspace = results[0];
+        document.getElementById('workspace-title').textContent = results[0].name;
+        allProjects = results[1].results;
+        allMembers = results[2].results;
+        renderProjectList();
+        showPage('workspace-page');
+      }).catch(function(err) {
+        console.error('Failed to load workspace:', err);
+      });
+    }
+
+    function renderProjectList() {
+      var container = document.getElementById('workspace-list');
+      // Clear existing children
+      while (container.firstChild) container.removeChild(container.firstChild);
+
+      allProjects.forEach(function(p) {
+        var card = el('div', { className: 'project-card', onclick: function() { showProject(p.id); } }, [
+          el('div', { className: 'identifier' }, p.identifier),
+          el('h3', null, p.name),
+          el('div', { className: 'description' }, p.description || ''),
+        ]);
+        container.appendChild(card);
+      });
+    }
+
+    function showProject(projectId) {
+      currentProjectId = projectId;
+      currentProject = allProjects.find(function(p) { return p.id === projectId; });
+      document.getElementById('project-title').textContent = currentProject.name;
+      document.getElementById('project-name-breadcrumb').textContent = currentProject.name;
+
+      api('/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + projectId + '/labels')
+        .then(function(data) { allLabels = data.results; })
+        .catch(function() { allLabels = []; })
+        .then(function() { return loadIssues(); })
+        .then(function() { showPage('project-page'); });
+    }
+
+    function loadIssues() {
+      var priority = document.getElementById('filter-priority').value;
+      var url = '/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + currentProjectId + '/issues?limit=100';
+      if (priority) url += '&priority=' + priority;
+      return api(url).then(function(data) {
+        currentIssues = data.results;
+        renderBoard();
+      }).catch(function(err) {
+        console.error('Failed to load issues:', err);
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // Board rendering (safe DOM construction)
+    // ---------------------------------------------------------------
+    function renderBoard() {
+      var priority = document.getElementById('filter-priority').value;
+      var filtered = currentIssues;
+      if (priority) filtered = filtered.filter(function(i) { return i.priority === priority; });
+
+      var board = document.getElementById('issue-board');
+      while (board.firstChild) board.removeChild(board.firstChild);
+
+      STATES.forEach(function(state) {
+        var stateIssues = filtered.filter(function(i) { return i.state === state; });
+
+        var issuesContainer = el('div', { className: 'column-issues' });
+        stateIssues.forEach(function(i) {
+          issuesContainer.appendChild(buildIssueCard(i));
+        });
+
+        var column = el('div', { className: 'board-column', 'data-state': state }, [
+          el('div', { className: 'column-header' }, [
+            el('span', null, STATE_LABELS[state]),
+            el('span', { className: 'column-count' }, String(stateIssues.length)),
+          ]),
+          issuesContainer,
+        ]);
+        board.appendChild(column);
+      });
+    }
+
+    function buildIssueCard(issue) {
+      var project = allProjects.find(function(p) { return p.id === issue.project_id; });
+      var identifier = project ? project.identifier + '-' + issue.sequence_id : '#' + issue.sequence_id;
+      var assignee = allMembers.find(function(m) { return m.user_id === issue.assignee_id; });
+
+      var metaContainer = el('div', { className: 'issue-meta' });
+      metaContainer.appendChild(el('span', { className: 'priority-badge priority-' + issue.priority }, issue.priority));
+
+      (issue.labels || []).forEach(function(lid) {
+        var label = allLabels.find(function(l) { return l.id === lid; });
+        if (label) {
+          metaContainer.appendChild(el('span', {
+            className: 'label-tag',
+            style: 'background:' + label.color + '33;color:' + label.color,
+          }, label.name));
+        }
+      });
+
+      if (assignee && assignee.user) {
+        var avatar = el('span', {
+          className: 'assignee-avatar',
+          title: assignee.user.name,
+        }, assignee.user.name.charAt(0).toUpperCase());
+        metaContainer.appendChild(avatar);
+      }
+
+      var card = el('div', {
+        className: 'issue-card',
+        onclick: function() { showIssueDetail(issue.id); },
+      }, [
+        el('div', { className: 'issue-id' }, identifier),
+        el('div', { className: 'issue-title' }, issue.title),
+        metaContainer,
+      ]);
+
+      return card;
+    }
+
+    // ---------------------------------------------------------------
+    // Issue detail (safe DOM construction)
+    // ---------------------------------------------------------------
+    function showIssueDetail(issueId) {
+      api('/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + currentProjectId + '/issues/' + issueId)
+        .then(function(issue) {
+          currentIssue = issue;
+          var project = allProjects.find(function(p) { return p.id === issue.project_id; });
+          var identifier = project ? project.identifier + '-' + issue.sequence_id : '#' + issue.sequence_id;
+          var assignee = allMembers.find(function(m) { return m.user_id === issue.assignee_id; });
+
+          document.getElementById('detail-issue-id').textContent = identifier;
+          document.getElementById('detail-issue-title').textContent = issue.title;
+          document.getElementById('detail-issue-description').textContent = issue.description || 'No description provided.';
+
+          // Build meta safely
+          var metaEl = document.getElementById('detail-issue-meta');
+          while (metaEl.firstChild) metaEl.removeChild(metaEl.firstChild);
+
+          var stateClass = issue.state === 'in_progress' ? 'medium' : issue.state === 'done' ? 'low' : issue.state === 'cancelled' ? 'none' : 'high';
+          var stateItem = el('div', { className: 'meta-item' }, [
+            el('span', { className: 'meta-label' }, 'State: '),
+            el('span', { className: 'priority-badge priority-' + stateClass }, STATE_LABELS[issue.state]),
+          ]);
+          metaEl.appendChild(stateItem);
+
+          var priorityItem = el('div', { className: 'meta-item' }, [
+            el('span', { className: 'meta-label' }, 'Priority: '),
+            el('span', { className: 'priority-badge priority-' + issue.priority }, issue.priority),
+          ]);
+          metaEl.appendChild(priorityItem);
+
+          var assigneeItem = el('div', { className: 'meta-item' });
+          assigneeItem.appendChild(el('span', { className: 'meta-label' }, 'Assignee: '));
+          if (assignee && assignee.user) {
+            assigneeItem.appendChild(document.createTextNode(assignee.user.name));
+          } else {
+            assigneeItem.appendChild(el('span', { className: 'text-muted' }, 'Unassigned'));
+          }
+          metaEl.appendChild(assigneeItem);
+
+          if (issue.labels && issue.labels.length > 0) {
+            var labelsItem = el('div', { className: 'meta-item' });
+            labelsItem.appendChild(el('span', { className: 'meta-label' }, 'Labels: '));
+            issue.labels.forEach(function(lid) {
+              var label = allLabels.find(function(l) { return l.id === lid; });
+              if (label) {
+                labelsItem.appendChild(el('span', {
+                  className: 'label-tag',
+                  style: 'background:' + label.color + '33;color:' + label.color,
+                }, label.name));
+              }
+            });
+            metaEl.appendChild(labelsItem);
+          }
+
+          // Load comments
+          return api('/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + currentProjectId + '/issues/' + issueId + '/comments');
+        })
+        .then(function(commentsData) {
+          var commentsEl = document.getElementById('detail-comments');
+          while (commentsEl.firstChild) commentsEl.removeChild(commentsEl.firstChild);
+
+          if (commentsData.results.length === 0) {
+            commentsEl.appendChild(el('p', { className: 'text-muted', style: 'font-size:13px;margin-bottom:12px' }, 'No comments yet.'));
+          } else {
+            commentsData.results.forEach(function(c) {
+              var comment = el('div', { className: 'comment' }, [
+                el('div', { className: 'comment-header' }, [
+                  el('span', { className: 'comment-author' }, c.user ? c.user.name : 'Unknown'),
+                  el('span', { className: 'comment-date' }, new Date(c.created_at).toLocaleString()),
+                ]),
+                el('div', { className: 'comment-body' }, c.body),
+              ]);
+              commentsEl.appendChild(comment);
+            });
+          }
+
+          document.getElementById('comment-input').value = '';
+          document.getElementById('issue-detail-modal').classList.remove('hidden');
+        })
+        .catch(function(err) {
+          console.error('Failed to load issue:', err);
+        });
+    }
+
+    function handleAddComment() {
+      var body = document.getElementById('comment-input').value.trim();
+      if (!body || !currentIssue) return;
+      api('/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + currentProjectId + '/issues/' + currentIssue.id + '/comments', {
+        method: 'POST',
+        body: JSON.stringify({ body: body }),
+      }).then(function() {
+        showIssueDetail(currentIssue.id);
+      }).catch(function(err) {
+        console.error('Failed to add comment:', err);
+      });
+    }
+
+    function handleDeleteIssue() {
+      if (!currentIssue) return;
+      if (!confirm('Delete this issue?')) return;
+      api('/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + currentProjectId + '/issues/' + currentIssue.id, {
+        method: 'DELETE',
+      }).then(function() {
+        hideModal('issue-detail-modal');
+        loadIssues();
+      }).catch(function(err) {
+        console.error('Failed to delete issue:', err);
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // Create issue
+    // ---------------------------------------------------------------
+    function showCreateIssueModal() {
+      document.getElementById('issue-title').value = '';
+      document.getElementById('issue-description').value = '';
+      document.getElementById('issue-state').value = 'todo';
+      document.getElementById('issue-priority').value = 'medium';
+      document.getElementById('create-issue-modal').classList.remove('hidden');
+    }
+
+    function handleCreateIssue(e) {
+      e.preventDefault();
+      var title = document.getElementById('issue-title').value.trim();
+      var description = document.getElementById('issue-description').value.trim();
+      var state = document.getElementById('issue-state').value;
+      var priority = document.getElementById('issue-priority').value;
+      if (!title) return;
+      api('/api/workspaces/' + WORKSPACE_SLUG + '/projects/' + currentProjectId + '/issues', {
+        method: 'POST',
+        body: JSON.stringify({ title: title, description: description, state: state, priority: priority }),
+      }).then(function() {
+        hideModal('create-issue-modal');
+        loadIssues();
+      }).catch(function(err) {
+        console.error('Failed to create issue:', err);
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // Modals
+    // ---------------------------------------------------------------
+    function hideModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function closeModal(e, id) {
+      if (e.target === document.getElementById(id)) hideModal(id);
+    }
+
+    // ---------------------------------------------------------------
+    // Boot
+    // ---------------------------------------------------------------
+    (function boot() {
+      if (token) {
+        showWorkspace();
+      } else {
+        showPage('login-page');
+      }
+    })();
+  </script>
+</body>
+</html>
