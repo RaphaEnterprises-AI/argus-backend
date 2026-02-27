@@ -1,0 +1,19 @@
+{
+  "name": "conduit-testbench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Conduit (RealWorld) blog app for Argus testbench",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "uuid": "^9.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "bcryptjs": "^2.4.3",
+    "slugify": "^1.6.6"
+  }
+}
