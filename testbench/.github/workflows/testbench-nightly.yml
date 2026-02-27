@@ -1,0 +1,202 @@
+name: Argus Testbench Nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 3 AM UTC daily
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Specific scenario to run (leave empty for all)'
+        required: false
+        default: ''
+
+env:
+  CONTROLLER_URL: https://chaos-ctrl-testbench.up.railway.app
+
+jobs:
+  health-check:
+    name: Service Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check all services
+        run: |
+          SERVICES=(
+            "https://jsonapi-testbench.up.railway.app/health"
+            "https://chaos-testbench.up.railway.app/health"
+            "https://conduit-testbench.up.railway.app/health"
+            "https://plane-testbench.up.railway.app/health"
+            "https://chaos-ctrl-testbench.up.railway.app/health"
+          )
+
+          ALL_HEALTHY=true
+          for url in "${SERVICES[@]}"; do
+            echo -n "Checking $url... "
+            if curl -sf --max-time 10 "$url" > /dev/null 2>&1; then
+              echo "OK"
+            else
+              echo "UNHEALTHY"
+              ALL_HEALTHY=false
+            fi
+          done
+
+          if [ "$ALL_HEALTHY" = false ]; then
+            echo "::warning::Some services are unhealthy"
+          fi
+
+  run-scenarios:
+    name: Run Test Scenarios
+    needs: health-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Reset all bugs
+        run: |
+          curl -sf -X POST "$CONTROLLER_URL/chaos/chaos-app/reset" || echo "Warning: reset failed"
+
+      - name: Determine scenarios to run
+        id: determine
+        env:
+          INPUT_SCENARIO: ${{ github.event.inputs.scenario }}
+        run: |
+          if [ -n "$INPUT_SCENARIO" ]; then
+            echo "scenarios=$INPUT_SCENARIO" >> $GITHUB_OUTPUT
+          else
+            echo "scenarios=onboard-conduit onboard-api heal-selector-drift heal-cascade regress-visual regress-perf regress-api security-scan flaky-detect golden-path" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run scenarios
+        id: run
+        env:
+          SCENARIOS: ${{ steps.determine.outputs.scenarios }}
+        run: |
+          PASSED=0
+          FAILED=0
+          ERRORS=0
+          RESULTS=""
+
+          for scenario in $SCENARIOS; do
+            echo ""
+            echo "========================================="
+            echo "Running scenario: $scenario"
+            echo "========================================="
+
+            # Trigger scenario
+            RESPONSE=$(curl -sf -X POST "$CONTROLLER_URL/scenarios/run" \
+              -H "Content-Type: application/json" \
+              -d "{\"scenario\": \"$scenario\"}" 2>&1) || {
+              echo "ERROR: Failed to trigger $scenario"
+              ERRORS=$((ERRORS + 1))
+              RESULTS="${RESULTS}:x: ${scenario} (trigger failed)\n"
+              continue
+            }
+
+            RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
+            if [ -z "$RUN_ID" ]; then
+              echo "ERROR: No run_id in response"
+              ERRORS=$((ERRORS + 1))
+              RESULTS="${RESULTS}:x: ${scenario} (no run_id)\n"
+              continue
+            fi
+
+            echo "Run ID: $RUN_ID"
+
+            # Poll for completion (max 10 min per scenario)
+            STATUS="running"
+            for i in $(seq 1 60); do
+              sleep 10
+              STATUS_RESPONSE=$(curl -sf "$CONTROLLER_URL/scenarios/$RUN_ID/status" 2>/dev/null || echo '{}')
+              STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status // "unknown"')
+              STEP_COUNT=$(echo "$STATUS_RESPONSE" | jq -r '.steps | length // 0')
+              echo "  Poll $i: status=$STATUS, steps=$STEP_COUNT"
+
+              if [ "$STATUS" = "passed" ] || [ "$STATUS" = "failed" ]; then
+                break
+              fi
+            done
+
+            # Record result
+            if [ "$STATUS" = "passed" ]; then
+              PASSED=$((PASSED + 1))
+              RESULTS="${RESULTS}:white_check_mark: ${scenario}\n"
+              echo "PASSED: $scenario"
+            else
+              FAILED=$((FAILED + 1))
+              ERROR_MSG=$(echo "$STATUS_RESPONSE" | jq -r '.error // "unknown error"')
+              RESULTS="${RESULTS}:x: ${scenario} (${ERROR_MSG})\n"
+              echo "FAILED: $scenario - $ERROR_MSG"
+            fi
+
+            # Brief pause between scenarios
+            sleep 5
+          done
+
+          # Output summary
+          TOTAL=$((PASSED + FAILED + ERRORS))
+          echo ""
+          echo "========================================="
+          echo "Results: $PASSED passed, $FAILED failed, $ERRORS errors out of $TOTAL"
+          echo "========================================="
+
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          {
+            echo "results<<EOF"
+            echo -e "$RESULTS"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Post results to Slack
+        if: always() && env.TESTBENCH_SLACK_WEBHOOK != ''
+        env:
+          TESTBENCH_SLACK_WEBHOOK: ${{ secrets.TESTBENCH_SLACK_WEBHOOK }}
+          RUN_PASSED: ${{ steps.run.outputs.passed }}
+          RUN_FAILED: ${{ steps.run.outputs.failed }}
+          RUN_TOTAL: ${{ steps.run.outputs.total }}
+          RUN_RESULTS: ${{ steps.run.outputs.results }}
+        run: |
+          if [ "$RUN_FAILED" = "0" ]; then
+            EMOJI=":white_check_mark:"
+          else
+            EMOJI=":x:"
+          fi
+
+          curl -sf -X POST "$TESTBENCH_SLACK_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \"${EMOJI} *Argus Testbench Nightly* — ${RUN_PASSED}/${RUN_TOTAL} passed\n${RUN_RESULTS}\"
+            }" || echo "Warning: Slack notification failed"
+
+      - name: Create summary
+        if: always()
+        env:
+          RUN_PASSED: ${{ steps.run.outputs.passed }}
+          RUN_FAILED: ${{ steps.run.outputs.failed }}
+          RUN_ERRORS: ${{ steps.run.outputs.errors }}
+          RUN_TOTAL: ${{ steps.run.outputs.total }}
+          RUN_RESULTS: ${{ steps.run.outputs.results }}
+        run: |
+          echo "## Argus Testbench Nightly Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | $RUN_PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | $RUN_FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Errors | $RUN_ERRORS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total  | $RUN_TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Scenario Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo -e "$RUN_RESULTS" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if any scenario failed
+        env:
+          RUN_FAILED: ${{ steps.run.outputs.failed }}
+          RUN_ERRORS: ${{ steps.run.outputs.errors }}
+        run: |
+          if [ "$RUN_FAILED" != "0" ] || [ "$RUN_ERRORS" != "0" ]; then
+            echo "::error::${RUN_FAILED} scenarios failed, ${RUN_ERRORS} errors"
+            exit 1
+          fi
