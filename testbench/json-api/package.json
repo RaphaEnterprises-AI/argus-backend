@@ -1,0 +1,16 @@
+{
+  "name": "argus-testbench-json-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "swagger-ui-express": "^5.0.0",
+    "yamljs": "^0.3.0",
+    "cors": "^2.8.5",
+    "uuid": "^10.0.0"
+  }
+}
