@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # Controller
     port: int = 8000
+    secret: str = ""  # Bearer token for API auth
 
     model_config = {"env_prefix": "TESTBENCH_"}
 

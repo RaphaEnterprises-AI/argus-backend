@@ -1,11 +1,12 @@
 import asyncio
 import json
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from src.clients.argus import ArgusClient
 from src.clients.chaos import ChaosClient
@@ -22,6 +23,9 @@ runs: dict[str, ScenarioRunStatus] = {}
 argus_client = ArgusClient()
 chaos_client = ChaosClient()
 
+# Paths that don't require authentication
+PUBLIC_PATHS = {"/health", "/openapi.json", "/docs", "/redoc"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,6 +37,23 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Require bearer token for all endpoints except health."""
+    if not settings.secret or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"detail": "Missing bearer token"})
+
+    token = auth[7:]
+    if not secrets.compare_digest(token, settings.secret):
+        return JSONResponse(status_code=401, content={"detail": "Invalid bearer token"})
+
+    return await call_next(request)
 
 
 @app.get("/health")

@@ -9,11 +9,15 @@ class ChaosClient:
     def __init__(self, base_url: str | None = None):
         self.base_url = base_url or settings.chaos_app_url
         self.timeout = httpx.Timeout(30.0, connect=10.0)
+        self.headers = {}
+        if settings.secret:
+            self.headers["Authorization"] = f"Bearer {settings.secret}"
 
     async def enable_bug(self, bug_id: str) -> dict:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
-                f"{self.base_url}/chaos/bugs/{bug_id}/enable"
+                f"{self.base_url}/chaos/bugs/{bug_id}/enable",
+                headers=self.headers,
             )
             resp.raise_for_status()
             return resp.json()
@@ -21,28 +25,36 @@ class ChaosClient:
     async def disable_bug(self, bug_id: str) -> dict:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
-                f"{self.base_url}/chaos/bugs/{bug_id}/disable"
+                f"{self.base_url}/chaos/bugs/{bug_id}/disable",
+                headers=self.headers,
             )
             resp.raise_for_status()
             return resp.json()
 
     async def reset_all(self) -> dict:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(f"{self.base_url}/chaos/bugs/reset")
+            resp = await client.post(
+                f"{self.base_url}/chaos/bugs/reset",
+                headers=self.headers,
+            )
             resp.raise_for_status()
             return resp.json()
 
     async def enable_scenario(self, scenario_name: str) -> dict:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
-                f"{self.base_url}/chaos/bugs/scenario/{scenario_name}"
+                f"{self.base_url}/chaos/bugs/scenario/{scenario_name}",
+                headers=self.headers,
             )
             resp.raise_for_status()
             return resp.json()
 
     async def list_bugs(self) -> list[dict]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.get(f"{self.base_url}/chaos/bugs")
+            resp = await client.get(
+                f"{self.base_url}/chaos/bugs",
+                headers=self.headers,
+            )
             resp.raise_for_status()
             return resp.json()
 

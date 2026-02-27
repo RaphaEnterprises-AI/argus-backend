@@ -59,8 +59,16 @@ app.use('/api/orders', ordersRouter);
 // SSRF endpoint (only active when sec-ssrf bug is enabled)
 app.post('/api/images/fetch', handleSsrf);
 
-// Chaos toggle API (no auth required — this is a testing tool)
-app.use('/chaos', chaosRouter);
+// Chaos toggle API — protected by bearer token if TESTBENCH_SECRET is set
+const TESTBENCH_SECRET = process.env.TESTBENCH_SECRET;
+app.use('/chaos', (req, res, next) => {
+  if (!TESTBENCH_SECRET) return next();
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ') || auth.slice(7) !== TESTBENCH_SECRET) {
+    return res.status(401).json({ error: 'Invalid or missing bearer token' });
+  }
+  next();
+}, chaosRouter);
 
 // ------------------------------------
 // SPA fallback — non-API routes serve index.html

@@ -51,8 +51,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Reset all bugs
+        env:
+          TESTBENCH_SECRET: ${{ secrets.TESTBENCH_SECRET }}
         run: |
-          curl -sf -X POST "$CONTROLLER_URL/chaos/chaos-app/reset" || echo "Warning: reset failed"
+          curl -sf -X POST "$CONTROLLER_URL/chaos/chaos-app/reset" \
+            -H "Authorization: Bearer $TESTBENCH_SECRET" || echo "Warning: reset failed"
 
       - name: Determine scenarios to run
         id: determine
@@ -69,6 +72,7 @@ jobs:
         id: run
         env:
           SCENARIOS: ${{ steps.determine.outputs.scenarios }}
+          TESTBENCH_SECRET: ${{ secrets.TESTBENCH_SECRET }}
         run: |
           PASSED=0
           FAILED=0
@@ -84,6 +88,7 @@ jobs:
             # Trigger scenario
             RESPONSE=$(curl -sf -X POST "$CONTROLLER_URL/scenarios/run" \
               -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $TESTBENCH_SECRET" \
               -d "{\"scenario\": \"$scenario\"}" 2>&1) || {
               echo "ERROR: Failed to trigger $scenario"
               ERRORS=$((ERRORS + 1))
@@ -105,7 +110,8 @@ jobs:
             STATUS="running"
             for i in $(seq 1 60); do
               sleep 10
-              STATUS_RESPONSE=$(curl -sf "$CONTROLLER_URL/scenarios/$RUN_ID/status" 2>/dev/null || echo '{}')
+              STATUS_RESPONSE=$(curl -sf "$CONTROLLER_URL/scenarios/$RUN_ID/status" \
+                -H "Authorization: Bearer $TESTBENCH_SECRET" 2>/dev/null || echo '{}')
               STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status // "unknown"')
               STEP_COUNT=$(echo "$STATUS_RESPONSE" | jq -r '.steps | length // 0')
               echo "  Poll $i: status=$STATUS, steps=$STEP_COUNT"

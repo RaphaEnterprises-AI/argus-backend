@@ -276,12 +276,15 @@ async def create_project(
     project_data = {
         "organization_id": supabase_org_id,
         "name": body.name,
-        "description": body.description,
-        "app_url": body.app_url,
-        "repository_url": body.repository_url,
         "settings": {},
         "is_active": True,
     }
+    if body.description is not None:
+        project_data["description"] = body.description
+    if body.app_url is not None:
+        project_data["app_url"] = body.app_url
+    if body.repository_url is not None:
+        project_data["repository_url"] = body.repository_url
 
     result = await supabase.insert("projects", project_data)
 

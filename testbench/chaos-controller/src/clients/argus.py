@@ -41,7 +41,7 @@ class ArgusClient:
             "/api/v1/projects",
             json={
                 "name": name,
-                "url": url,
+                "app_url": url,
                 "description": f"Testbench: {name}",
             },
         )
