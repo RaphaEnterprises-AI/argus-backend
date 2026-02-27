@@ -14,5 +14,8 @@ dependencies = [
     "pydantic-settings>=2.0.0",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "pytest-httpx"]
