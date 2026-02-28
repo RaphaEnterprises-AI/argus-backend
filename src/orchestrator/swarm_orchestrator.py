@@ -1006,13 +1006,19 @@ class SwarmOrchestrator:
             findings = []
             for test_id, runs in by_test.items():
                 for run in runs:
+                    from datetime import datetime as _dt
+
                     from src.agents.flaky_detector import TestRun
+                    raw_ts = run.get("created_at", "")
+                    try:
+                        ts = _dt.fromisoformat(raw_ts.replace("Z", "+00:00")) if raw_ts else _dt.now()
+                    except (ValueError, AttributeError):
+                        ts = _dt.now()
                     detector.record_run(TestRun(
                         test_id=test_id,
-                        test_name=run.get("test_name", test_id),
                         passed=run.get("status") == "passed",
                         duration_ms=run.get("duration_ms", 0),
-                        timestamp=run.get("created_at", ""),
+                        timestamp=ts,
                     ))
 
                 report = detector.analyze_test(test_id=test_id)
