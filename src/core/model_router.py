@@ -388,6 +388,243 @@ MODELS = {
     ),
 
     # =============================================================================
+    # TOGETHER AI MODELS (PRIMARY PROVIDER - Feb 2026)
+    # =============================================================================
+    # Together AI hosts top agentic open-weight models at direct pricing
+    # (no 5.5% OpenRouter markup). Primary provider for all non-CU tasks.
+    # Fallback to OpenRouter aliases above if Together is down.
+    # =============================================================================
+
+    # ─── FLASH ($0.02-0.10/1M) ─────────────────────────────────────────────
+    "gemma-3n": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="google/gemma-3n-E4B-it",
+        input_cost_per_1m=0.02,
+        output_cost_per_1m=0.04,
+        max_tokens=8192,
+        context_window=32000,
+        supports_vision=False,
+        supports_tools=False,
+        supports_json_mode=False,
+        latency_ms=100,
+    ),
+
+    "gpt-oss-20b": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="openai/gpt-oss-20b",
+        input_cost_per_1m=0.05,
+        output_cost_per_1m=0.20,
+        max_tokens=8192,
+        context_window=128000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=150,
+    ),
+
+    "mistral-small-3": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="mistralai/Mistral-Small-24B-Instruct-2501",
+        input_cost_per_1m=0.10,
+        output_cost_per_1m=0.30,
+        max_tokens=8192,
+        context_window=32000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=120,
+    ),
+
+    # ─── VALUE ($0.15-0.30/1M) ─────────────────────────────────────────────
+    "qwen3-next-80b": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="Qwen/Qwen3-Next-80B-A3B-Instruct",
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=1.50,
+        max_tokens=8192,
+        context_window=131000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=200,
+    ),
+
+    "qwen3-235b": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=0.60,
+        max_tokens=8192,
+        context_window=40000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=300,
+    ),
+
+    "glm-4.5-air": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="zai-org/GLM-4.5-Air-FP8",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=1.10,
+        max_tokens=8192,
+        context_window=131000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=250,
+    ),
+
+    "llama-4-maverick": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        input_cost_per_1m=0.27,
+        output_cost_per_1m=0.85,
+        max_tokens=8192,
+        context_window=1000000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=300,
+    ),
+
+    "minimax-m2.5": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="MiniMaxAI/MiniMax-M2.5",
+        input_cost_per_1m=0.30,
+        output_cost_per_1m=1.20,
+        max_tokens=8192,
+        context_window=131000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=250,
+    ),
+
+    # ─── STANDARD ($0.45-0.60/1M) ─────────────────────────────────────────
+    "glm-4.7": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="zai-org/GLM-4.7",
+        input_cost_per_1m=0.45,
+        output_cost_per_1m=2.00,
+        max_tokens=8192,
+        context_window=131000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=400,
+    ),
+
+    "qwen3-coder-next": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="Qwen/Qwen3-Coder-Next-FP8",
+        input_cost_per_1m=0.50,
+        output_cost_per_1m=1.20,
+        max_tokens=8192,
+        context_window=262000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=350,
+    ),
+
+    "kimi-k2.5": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="moonshotai/Kimi-K2.5",
+        input_cost_per_1m=0.50,
+        output_cost_per_1m=2.80,
+        max_tokens=8192,
+        context_window=262000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=400,
+    ),
+
+    "deepseek-v3.1": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="deepseek-ai/DeepSeek-V3.1",
+        input_cost_per_1m=0.60,
+        output_cost_per_1m=1.70,
+        max_tokens=8192,
+        context_window=131000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=350,
+    ),
+
+    # ─── REASONING/PREMIUM ($0.65-1.20/1M) ────────────────────────────────
+    "qwen3-235b-thinking": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="Qwen/Qwen3-235B-A22B-Thinking-2507",
+        input_cost_per_1m=0.65,
+        output_cost_per_1m=3.00,
+        max_tokens=8192,
+        context_window=40000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=800,
+    ),
+
+    "glm-5": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="zai-org/GLM-5",
+        input_cost_per_1m=1.00,
+        output_cost_per_1m=3.20,
+        max_tokens=8192,
+        context_window=131000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=600,
+    ),
+
+    "kimi-k2-thinking": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="moonshotai/Kimi-K2-Thinking",
+        input_cost_per_1m=1.20,
+        output_cost_per_1m=4.00,
+        max_tokens=8192,
+        context_window=262000,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=800,
+    ),
+
+    # ─── EXPERT ($2.00-7.00/1M) ───────────────────────────────────────────
+    "qwen3-coder-480b": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+        input_cost_per_1m=2.00,
+        output_cost_per_1m=2.00,
+        max_tokens=8192,
+        context_window=262000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=1000,
+    ),
+
+    "deepseek-r1-0528": ModelConfig(
+        provider=ModelProvider.TOGETHER,
+        model_id="deepseek-ai/DeepSeek-R1-0528",
+        input_cost_per_1m=3.00,
+        output_cost_per_1m=7.00,
+        max_tokens=8192,
+        context_window=65000,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        supports_thinking=True,
+        latency_ms=2000,
+    ),
+
+    # =============================================================================
     # LEGACY ALIASES (for backward compatibility)
     # These map to the recommended models above
     # =============================================================================
@@ -902,70 +1139,129 @@ MODELS = {
         supports_computer_use=False,
         latency_ms=300,
     ),
+
+    # =============================================================================
+    # XAI GROK 4 MODELS (July 2025)
+    # =============================================================================
+    # Available for explicit selection via preferred_provider="xai".
+    # Not in TASK_MODEL_MAPPING — Together AI stays primary for auto-routing.
+
+    "grok-4": ModelConfig(
+        provider=ModelProvider.XAI,
+        model_id="grok-4-0709",
+        input_cost_per_1m=3.00,
+        output_cost_per_1m=15.00,
+        max_tokens=32768,
+        context_window=262144,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=2000,
+    ),
+
+    "grok-4-fast": ModelConfig(
+        provider=ModelProvider.XAI,
+        model_id="grok-4-fast-reasoning",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=0.50,
+        max_tokens=65536,
+        context_window=2097152,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=500,
+    ),
+
+    "grok-4.1-fast": ModelConfig(
+        provider=ModelProvider.XAI,
+        model_id="grok-4-1-fast-reasoning",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=0.50,
+        max_tokens=65536,
+        context_window=2097152,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=500,
+    ),
+
+    "grok-code": ModelConfig(
+        provider=ModelProvider.XAI,
+        model_id="grok-code-fast-1",
+        input_cost_per_1m=0.20,
+        output_cost_per_1m=1.50,
+        max_tokens=32768,
+        context_window=262144,
+        supports_vision=False,
+        supports_tools=True,
+        supports_json_mode=True,
+        latency_ms=400,
+    ),
 }
 
 
 # =============================================================================
-# TASK TO MODEL MAPPING - Simplified for OpenRouter (Jan 2026)
+# TASK TO MODEL MAPPING - Together AI Primary (Feb 2026)
 # =============================================================================
 #
-# STRATEGY (via OpenRouter - single provider):
-# - TRIVIAL: flash-lite ($0.10) or qwen-fast ($0.12) - cheapest
-# - MODERATE: deepseek ($0.14) - 90% cheaper than Claude, excellent quality
-# - COMPLEX: deepseek-reasoning ($0.55) - 10% cost of o1
-# - COMPUTER USE: sonnet ($3.00) - Claude is still best for browser automation
+# STRATEGY (Three-Provider Architecture):
+# - TRIVIAL: Together AI flash models ($0.02-0.10/1M) — cheapest available
+# - MODERATE: Together AI value/standard ($0.15-0.60/1M) — MiniMax, Qwen, GLM
+# - COMPLEX: Together AI reasoning ($0.65-1.20/1M) — GLM-5 (#2 agentic), Kimi K2.5 (#6)
+# - EXPERT: Together AI expert ($2-7/1M) — Qwen3 Coder 480B, DeepSeek R1
+# - COMPUTER USE: Claude/Gemini via OpenRouter (Together doesn't host CU models)
 #
-# All models accessed via ONE OpenRouter API key.
+# OpenRouter models kept as fallback entries in each list.
 # =============================================================================
 
 TASK_MODEL_MAPPING: dict[TaskType, list[str]] = {
     # ─────────────────────────────────────────────────────────────────────────────
-    # TRIVIAL TASKS - Use cheapest models ($0.05-0.15/1M)
+    # TRIVIAL TASKS - Together AI flash ($0.02-0.10/1M)
     # ─────────────────────────────────────────────────────────────────────────────
-    TaskType.ELEMENT_CLASSIFICATION: ["flash-lite", "qwen-fast", "llama-small"],
-    TaskType.ACTION_EXTRACTION: ["qwen-fast", "flash-lite", "llama-small"],
-    TaskType.SELECTOR_VALIDATION: ["flash-lite", "qwen-fast", "gpt-4o-mini"],
-    TaskType.TEXT_EXTRACTION: ["qwen-fast", "flash-lite", "llama-small"],
-    TaskType.JSON_PARSING: ["qwen-fast", "flash-lite", "deepseek"],
+    TaskType.ELEMENT_CLASSIFICATION: ["gemma-3n", "gpt-oss-20b", "mistral-small-3", "flash-lite"],
+    TaskType.ACTION_EXTRACTION: ["gpt-oss-20b", "gemma-3n", "mistral-small-3", "qwen-fast"],
+    TaskType.SELECTOR_VALIDATION: ["gpt-oss-20b", "mistral-small-3", "gemma-3n", "flash-lite"],
+    TaskType.TEXT_EXTRACTION: ["gemma-3n", "gpt-oss-20b", "mistral-small-3", "qwen-fast"],
+    TaskType.JSON_PARSING: ["gemma-3n", "gpt-oss-20b", "mistral-small-3", "deepseek"],
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # MODERATE TASKS - DeepSeek for value ($0.14-0.30/1M)
-    # 90% cheaper than Claude for similar quality
+    # MODERATE TASKS - Together AI value ($0.15-0.60/1M)
+    # MiniMax M2.5 (SWE-bench 80.2%) + Qwen3 Coder for code tasks
     # ─────────────────────────────────────────────────────────────────────────────
-    TaskType.CODE_ANALYSIS: ["deepseek", "qwen-large", "gemini-flash", "sonnet"],
-    TaskType.TEST_GENERATION: ["deepseek", "gemini-flash", "llama-large", "sonnet"],
-    TaskType.ASSERTION_GENERATION: ["deepseek", "qwen-large", "gemini-flash", "gpt-4o"],
-    TaskType.ERROR_CLASSIFICATION: ["qwen-fast", "deepseek", "llama-large", "haiku"],
+    TaskType.CODE_ANALYSIS: ["minimax-m2.5", "qwen3-coder-next", "qwen3-235b", "glm-4.5-air"],
+    TaskType.TEST_GENERATION: ["minimax-m2.5", "qwen3-coder-next", "llama-4-maverick", "qwen3-235b"],
+    TaskType.ASSERTION_GENERATION: ["qwen3-coder-next", "minimax-m2.5", "qwen3-235b", "deepseek"],
+    TaskType.ERROR_CLASSIFICATION: ["qwen3-next-80b", "mistral-small-3", "glm-4.5-air", "qwen-fast"],
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # COMPLEX TASKS - Vision or Strong Reasoning ($0.55-2.00/1M)
+    # COMPLEX TASKS - Together AI standard/reasoning ($0.50-1.20/1M)
+    # GLM-5 (#2 global agentic), Kimi K2.5 (#6 global agentic)
     # ─────────────────────────────────────────────────────────────────────────────
-    TaskType.VISUAL_COMPARISON: ["gemini-pro", "gpt-4o", "sonnet"],
-    TaskType.SEMANTIC_UNDERSTANDING: ["deepseek", "qwen-large", "gemini-pro", "sonnet"],
-    TaskType.FLOW_DISCOVERY: ["gemini-pro", "deepseek", "gpt-4o", "sonnet"],
-    TaskType.ROOT_CAUSE_ANALYSIS: ["deepseek-reasoning", "gemini-pro", "sonnet", "opus"],
+    TaskType.VISUAL_COMPARISON: ["llama-4-maverick", "kimi-k2.5", "sonnet"],
+    TaskType.SEMANTIC_UNDERSTANDING: ["kimi-k2.5", "glm-5", "qwen3-235b", "sonnet"],
+    TaskType.FLOW_DISCOVERY: ["kimi-k2.5", "glm-5", "minimax-m2.5", "gemini-pro"],
+    TaskType.ROOT_CAUSE_ANALYSIS: ["glm-5", "kimi-k2.5", "deepseek-r1-0528", "sonnet"],
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # EXPERT TASKS - Deep Reasoning ($0.55-15/1M)
-    # DeepSeek R1 = 10% cost of o1 for similar reasoning
+    # EXPERT TASKS - Together AI reasoning/expert ($0.65-7.00/1M)
+    # GLM-5 for agentic, DeepSeek R1 for deep reasoning
     # ─────────────────────────────────────────────────────────────────────────────
-    TaskType.SELF_HEALING: ["deepseek-reasoning", "sonnet", "gemini-pro", "opus"],
-    TaskType.FAILURE_PREDICTION: ["deepseek-reasoning", "gemini-pro", "sonnet", "opus"],
-    TaskType.COGNITIVE_MODELING: ["deepseek-reasoning", "opus", "o1", "sonnet"],
-    TaskType.COMPLEX_DEBUGGING: ["deepseek-reasoning", "sonnet", "opus", "o1"],
+    TaskType.SELF_HEALING: ["glm-5", "kimi-k2.5", "deepseek-r1-0528", "opus"],
+    TaskType.FAILURE_PREDICTION: ["glm-5", "qwen3-235b-thinking", "kimi-k2-thinking", "sonnet"],
+    TaskType.COGNITIVE_MODELING: ["glm-5", "deepseek-r1-0528", "kimi-k2-thinking", "opus"],
+    TaskType.COMPLEX_DEBUGGING: ["glm-5", "minimax-m2.5", "deepseek-r1-0528", "sonnet"],
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # COMPUTER USE - Browser Automation ($1.25-3.00/1M)
-    # Claude Sonnet still best for browser automation
+    # COMPUTER USE - Claude/Gemini only (Together doesn't host CU models)
     # ─────────────────────────────────────────────────────────────────────────────
     TaskType.COMPUTER_USE_SIMPLE: ["gemini-computer-use", "claude-computer-use"],
     TaskType.COMPUTER_USE_COMPLEX: ["claude-computer-use", "sonnet", "gemini-computer-use"],
     TaskType.COMPUTER_USE_MOBILE: ["gemini-computer-use", "claude-computer-use"],
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # GENERAL FALLBACK
+    # GENERAL FALLBACK - Together AI value tier
     # ─────────────────────────────────────────────────────────────────────────────
-    TaskType.GENERAL: ["deepseek", "gemini-flash", "qwen-large", "sonnet"],
+    TaskType.GENERAL: ["qwen3-235b", "minimax-m2.5", "llama-4-maverick", "glm-4.5-air"],
 }
 
 
@@ -1717,6 +2013,170 @@ class DeepSeekClient(BaseModelClient):
         max_tokens: int = 4096,
     ) -> dict:
         raise NotImplementedError("DeepSeek doesn't support vision models yet")
+
+
+class TogetherClient(BaseModelClient):
+    """
+    Client for Together AI (primary inference provider) with Langfuse instrumentation.
+
+    Together AI hosts 17 curated open-weight models across all tiers, from
+    ultra-cheap Gemma 3n ($0.02/1M) to expert DeepSeek R1 ($3/1M).
+    Uses OpenAI-compatible API at https://api.together.xyz/v1.
+
+    If TOGETHER_API_KEY is not set, falls back to OpenRouter as gateway.
+    """
+
+    def __init__(self):
+        self._client = None
+        self._fallback_client = None
+
+    @property
+    def client(self):
+        """Lazy load Together AI client with Langfuse instrumentation."""
+        if self._client is None:
+            api_key = os.environ.get("TOGETHER_API_KEY")
+            if not api_key:
+                logger.warning(
+                    "TOGETHER_API_KEY not set, falling back to OpenRouter for Together models"
+                )
+                return None
+
+            from .ai_client import get_async_openai_client
+
+            self._client = get_async_openai_client(
+                api_key=api_key,
+                base_url="https://api.together.xyz/v1",
+                trace_name="model_router:together",
+                tags=["model_router", "together"],
+                metadata={"component": "ModelRouter"},
+            )
+        return self._client
+
+    @property
+    def fallback(self):
+        """Get OpenRouter fallback client."""
+        if self._fallback_client is None:
+            self._fallback_client = OpenRouterClient()
+        return self._fallback_client
+
+    async def complete(
+        self,
+        messages: list[dict],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        json_mode: bool = False,
+        tools: list | None = None,
+    ) -> dict:
+        client = self.client
+        if client is None:
+            # Fallback to OpenRouter if no Together key
+            return await self.fallback.complete(
+                messages, model_config, max_tokens, temperature, json_mode, tools
+            )
+
+        kwargs = {
+            "model": model_config.model_id,
+            "max_tokens": max_tokens,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+
+        try:
+            response = await client.chat.completions.create(**kwargs)
+        except Exception as e:
+            logger.warning(
+                "Together AI request failed, falling back to OpenRouter",
+                error=str(e),
+                model=model_config.model_id,
+            )
+            return await self.fallback.complete(
+                messages, model_config, max_tokens, temperature, json_mode, tools
+            )
+
+        return {
+            "content": response.choices[0].message.content or "",
+            "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+            "output_tokens": response.usage.completion_tokens if response.usage else 0,
+            "model": model_config.model_id,
+        }
+
+    def _convert_tools(self, tools: list) -> list:
+        """Convert Anthropic tool format to OpenAI format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.get("name"),
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", {}),
+                }
+            }
+            for t in tools
+        ]
+
+    async def complete_with_vision(
+        self,
+        messages: list[dict],
+        images: list[bytes],
+        model_config: ModelConfig,
+        max_tokens: int = 4096,
+    ) -> dict:
+        client = self.client
+        if client is None:
+            return await self.fallback.complete_with_vision(
+                messages, images, model_config, max_tokens
+            )
+
+        # Together AI supports vision via OpenAI-compatible format
+        import base64
+
+        vision_messages = list(messages)
+        if images:
+            image_content = []
+            for img in images:
+                b64_img = base64.b64encode(img).decode()
+                image_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64_img}"},
+                })
+
+            # Add images to the last user message
+            if vision_messages and vision_messages[-1].get("role") == "user":
+                text_content = vision_messages[-1].get("content", "")
+                vision_messages[-1] = {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text_content},
+                        *image_content,
+                    ],
+                }
+
+        try:
+            response = await client.chat.completions.create(
+                model=model_config.model_id,
+                max_tokens=max_tokens,
+                messages=vision_messages,
+            )
+        except Exception as e:
+            logger.warning(
+                "Together AI vision request failed, falling back to OpenRouter",
+                error=str(e),
+            )
+            return await self.fallback.complete_with_vision(
+                messages, images, model_config, max_tokens
+            )
+
+        return {
+            "content": response.choices[0].message.content or "",
+            "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+            "output_tokens": response.usage.completion_tokens if response.usage else 0,
+            "model": model_config.model_id,
+        }
 
 
 class OpenRouterClient(BaseModelClient):
@@ -2741,10 +3201,18 @@ class ModelRouter:
                     use_azure_ad=use_azure_ad,
                 )
 
+            # Together AI - Primary inference provider (Feb 2026)
+            elif provider == ModelProvider.TOGETHER:
+                logger.info(
+                    "Using Together AI as primary inference provider",
+                    provider=provider.value,
+                    has_key=bool(os.environ.get("TOGETHER_API_KEY")),
+                )
+                self._clients[provider] = TogetherClient()
+
             # Less common providers - fallback to OpenRouter if not configured
             elif provider in (ModelProvider.CEREBRAS, ModelProvider.DEEPSEEK,
-                              ModelProvider.TOGETHER, ModelProvider.VERTEX_AI):
-                # These can be accessed via OpenRouter, so fallback if no direct API key
+                              ModelProvider.VERTEX_AI):
                 logger.info(
                     f"Provider {provider.value} requested, using OpenRouter as gateway",
                     provider=provider.value,

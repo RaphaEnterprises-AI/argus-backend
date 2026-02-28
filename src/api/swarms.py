@@ -47,6 +47,12 @@ class LaunchSwarmRequest(BaseModel):
     )
     codebase_path: str | None = Field(None, description="Local codebase path for code_analyzer")
     repository_url: str | None = Field(None, description="GitHub repo URL for code-aware analysis")
+    max_discovery_agents: int | None = Field(
+        None,
+        ge=1,
+        le=100,
+        description="Max agents to spawn in discovery_swarm mode (default: tier limit)",
+    )
 
 
 class LaunchSwarmResponse(BaseModel):
@@ -88,6 +94,7 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
         agent_types=body.agent_types,
         codebase_path=body.codebase_path,
         repository_url=body.repository_url,
+        max_discovery_agents=body.max_discovery_agents,
     )
 
     orchestrator = get_swarm_orchestrator()

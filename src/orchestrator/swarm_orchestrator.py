@@ -37,6 +37,7 @@ from src.streaming.agui_events import (
     StepStartedEvent,
 )
 
+from .intent_verifier import IntentVerdict, verify_intent
 from .swarm_throttler import get_swarm_throttler
 
 logger = structlog.get_logger()
@@ -48,6 +49,7 @@ class SwarmMode(str, Enum):
     FULL_CRAWL = "full_crawl"
     TARGETED_BLITZ = "targeted_blitz"
     PR_ANALYSIS = "pr_analysis"
+    DISCOVERY_SWARM = "discovery_swarm"
 
 
 # Agent types for each swarm mode
@@ -75,6 +77,9 @@ SWARM_MODE_AGENTS: dict[SwarmMode, list[str]] = {
         "security_scanner",
         "mr_analyzer",
         "flaky_detector",
+    ],
+    SwarmMode.DISCOVERY_SWARM: [
+        "auto_discovery",  # Phase 1 only — Phase 2 agents are dynamic
     ],
 }
 
@@ -106,6 +111,7 @@ class SwarmResult:
     worker_results: list[WorkerResult] = field(default_factory=list)
     consensus_score: float = 0.0
     summary: str = ""
+    intent_verdict: "IntentVerdict | None" = None
 
 
 @dataclass
@@ -123,6 +129,7 @@ class SwarmConfig:
     agent_types: list[str] | None = None  # Override default agents for mode
     codebase_path: str | None = None  # Local path for code_analyzer
     repository_url: str | None = None  # GitHub URL for code-aware analysis
+    max_discovery_agents: int | None = None  # Cap for DISCOVERY_SWARM Phase 2
 
 
 class SwarmOrchestrator:
@@ -192,6 +199,12 @@ class SwarmOrchestrator:
                 )
             )
 
+            # Discovery swarm: two-phase execution
+            if config.mode == SwarmMode.DISCOVERY_SWARM and config.target_url:
+                return await self._run_discovery_swarm(
+                    swarm_id, config, emitter, throttler
+                )
+
             # Scatter: spawn all workers concurrently
             tasks = []
             for agent_type in agent_types:
@@ -238,6 +251,13 @@ class SwarmOrchestrator:
 
             summary = self._build_summary(config.mode, results, consensus_score)
 
+            # Intent verification — lightweight post-check
+            verdict = await self._verify_intent(config, results, total_cost)
+            if verdict:
+                summary += f" | Intent: {verdict.verdict} ({verdict.completion_score:.0%})"
+                if verdict.gaps:
+                    summary += f" — gaps: {', '.join(verdict.gaps[:3])}"
+
             # Emit RUN_FINISHED
             await emitter.emit(
                 RunFinishedEvent(
@@ -262,6 +282,7 @@ class SwarmOrchestrator:
                 worker_results=results,
                 consensus_score=consensus_score,
                 summary=summary,
+                intent_verdict=verdict,
             )
 
             return result
@@ -467,26 +488,25 @@ class SwarmOrchestrator:
         if agent_type == "smart_test_selector":
             return await self._run_smart_test_selector(config, emitter, agent_id)
 
-        # ── Agents that still need upstream context (stubs) ──────────
-        # TODO: Wire when TestSpec context is available
-        if agent_type == "ui_tester":
-            return self._stub_result(agent_type, "Needs TestSpec with steps/assertions")
+        # 9. UI Tester (exploratory — needs target_url)
+        if agent_type == "ui_tester" and config.target_url:
+            return await self._run_ui_tester(config, emitter, agent_id)
 
-        # TODO: Wire when TestSpec context is available
-        if agent_type == "api_tester":
-            return self._stub_result(agent_type, "Needs TestSpec with endpoint definitions")
+        # 10. API Tester (exploratory endpoint probe — needs target_url)
+        if agent_type == "api_tester" and config.target_url:
+            return await self._run_api_tester(config, emitter, agent_id)
 
-        # TODO: Wire when prior failure details are available
+        # 11. Self Healer (queries DB for recent failures)
         if agent_type == "self_healer":
-            return self._stub_result(agent_type, "Needs prior failure context to heal")
+            return await self._run_self_healer(config, emitter, agent_id)
 
-        # TODO: Wire when test execution history is available
+        # 12. Flaky Detector (statistical analysis from DB)
         if agent_type == "flaky_detector":
-            return self._stub_result(agent_type, "Needs test execution history")
+            return await self._run_flaky_detector(config, emitter, agent_id)
 
-        # TODO: Wire when baseline screenshots are available
-        if agent_type == "visual_ai":
-            return self._stub_result(agent_type, "Needs baseline screenshots for comparison")
+        # 13. Visual AI (single-screenshot analysis — needs target_url)
+        if agent_type == "visual_ai" and config.target_url:
+            return await self._run_visual_ai(config, emitter, agent_id)
 
         # Fallback for any unknown agent type
         return self._stub_result(agent_type, "Unknown agent type")
@@ -768,6 +788,568 @@ class SwarmOrchestrator:
         except Exception as e:
             logger.warning("smart_test_selector failed, using stub", error=str(e))
             return self._stub_result("smart_test_selector", str(e))
+
+    # ── Newly wired agent runners ─────────────────────────────────────
+
+    async def _run_ui_tester(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        """Exploratory UI test: navigate to target_url, screenshot, verify body."""
+        try:
+            from src.agents import UITesterAgent
+
+            agent = UITesterAgent()
+            test_spec = {
+                "id": f"swarm_ui_{uuid.uuid4().hex[:8]}",
+                "name": "Swarm exploratory UI check",
+                "steps": [
+                    {"action": "goto", "url": config.target_url},
+                    {"action": "wait", "timeout": 3000},
+                    {"action": "screenshot"},
+                    {"action": "assert", "selector": "body", "state": "visible"},
+                ],
+            }
+            result = await agent.execute(
+                test_spec=test_spec,
+                app_url=config.target_url,
+                capture_screenshots=True,
+            )
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "ui_tester compiling results")
+
+            if result.success and result.data:
+                ui = result.data
+                findings = [
+                    {"type": "ui_step", "step": s.action if hasattr(s, "action") else str(s), "status": getattr(s, "status", "unknown")}
+                    for s in getattr(ui, "steps", [])
+                ]
+                return {
+                    "findings": findings,
+                    "summary": f"UI check {'passed' if ui.status == 'passed' else 'failed'}: {config.target_url}",
+                    "confidence": 0.8 if ui.status == "passed" else 0.4,
+                    "cost_usd": result.cost,
+                }
+            return {
+                "findings": [],
+                "summary": result.error or "UI test returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("ui_tester failed, using stub", error=str(e))
+            return self._stub_result("ui_tester", str(e))
+
+    async def _run_api_tester(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        """Exploratory API probe: check common endpoints for reachability."""
+        try:
+            from src.agents import APITesterAgent
+
+            agent = APITesterAgent()
+            probe_paths = ["/", "/api", "/health", "/api/v1/health"]
+            test_spec = {
+                "id": f"swarm_api_{uuid.uuid4().hex[:8]}",
+                "name": "Swarm exploratory API probe",
+                "requests": [
+                    {"method": "GET", "path": path, "expected_status": [200, 301, 302, 404]}
+                    for path in probe_paths
+                ],
+            }
+            result = await agent.execute(
+                test_spec=test_spec,
+                app_url=config.target_url,
+            )
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "api_tester compiling results")
+
+            if result.success and result.data:
+                api = result.data
+                findings = [
+                    {
+                        "type": "api_endpoint",
+                        "path": getattr(r, "path", "unknown"),
+                        "status_code": getattr(r, "status_code", 0),
+                        "success": getattr(r, "success", False),
+                    }
+                    for r in getattr(api, "requests", [])
+                ]
+                return {
+                    "findings": findings,
+                    "summary": f"API probe: {sum(1 for f in findings if f.get('success'))}/{len(findings)} endpoints reachable",
+                    "confidence": 0.7,
+                    "cost_usd": result.cost,
+                }
+            return {
+                "findings": [],
+                "summary": result.error or "API test returned no results",
+                "confidence": 0.0,
+                "cost_usd": result.cost,
+            }
+        except Exception as e:
+            logger.warning("api_tester failed, using stub", error=str(e))
+            return self._stub_result("api_tester", str(e))
+
+    async def _run_self_healer(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        """Query recent failures from DB and attempt healing."""
+        try:
+            from src.integrations.supabase import get_supabase
+
+            supabase = await get_supabase()
+            if not supabase:
+                return self._stub_result("self_healer", "Supabase not available")
+
+            # Fetch recent failures for this project
+            failures = await supabase.select(
+                "test_results",
+                filters={"project_id": f"eq.{config.project_id}", "status": "eq.failed"},
+                limit=3,
+                order="created_at.desc",
+            )
+
+            await self._emit_progress(emitter, agent_id, 50, "analyzing", "self_healer reviewing failures")
+
+            if not failures:
+                return {
+                    "findings": [],
+                    "summary": "No recent failures to heal",
+                    "confidence": 1.0,
+                    "cost_usd": 0.0,
+                }
+
+            # Use SelfHealerAgent on the failures
+            from src.agents import SelfHealerAgent
+
+            healer = SelfHealerAgent(
+                org_id=config.org_id,
+                project_id=config.project_id,
+            )
+
+            findings = []
+            total_cost = 0.0
+            for failure in failures:
+                try:
+                    from src.orchestrator.state import TestingState
+                    state = TestingState(
+                        messages=[],
+                        codebase_path=config.codebase_path or ".",
+                        failures=[failure],
+                        healing_attempts=0,
+                    )
+                    healed_state = await healer.execute(state=state)
+                    for healed in getattr(healed_state, "healed_tests", []):
+                        findings.append({
+                            "type": "healing_suggestion",
+                            "test_id": failure.get("test_id", "unknown"),
+                            "suggestion": str(healed),
+                        })
+                except Exception as heal_err:
+                    findings.append({
+                        "type": "healing_failed",
+                        "test_id": failure.get("test_id", "unknown"),
+                        "error": str(heal_err),
+                    })
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "self_healer compiling results")
+
+            return {
+                "findings": findings,
+                "summary": f"Analyzed {len(failures)} failures, produced {len(findings)} healing suggestions",
+                "confidence": 0.6,
+                "cost_usd": total_cost,
+            }
+        except Exception as e:
+            logger.warning("self_healer failed, using stub", error=str(e))
+            return self._stub_result("self_healer", str(e))
+
+    async def _run_flaky_detector(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        """Statistical flaky test analysis from DB — zero AI cost."""
+        try:
+            from src.agents import FlakyTestDetector
+            from src.integrations.supabase import get_supabase
+
+            supabase = await get_supabase()
+            if not supabase:
+                return self._stub_result("flaky_detector", "Supabase not available")
+
+            # Fetch recent test results for statistical analysis
+            rows = await supabase.select(
+                "test_results",
+                filters={"project_id": f"eq.{config.project_id}"},
+                limit=500,
+                order="created_at.desc",
+            )
+
+            await self._emit_progress(emitter, agent_id, 50, "analyzing", "flaky_detector crunching statistics")
+
+            if not rows:
+                return {
+                    "findings": [],
+                    "summary": "No test history available for flaky analysis",
+                    "confidence": 1.0,
+                    "cost_usd": 0.0,
+                }
+
+            detector = FlakyTestDetector()
+
+            # Group runs by test_id and feed into detector
+            from collections import defaultdict
+            by_test: dict[str, list] = defaultdict(list)
+            for row in rows:
+                tid = row.get("test_id") or row.get("id", "unknown")
+                by_test[tid].append(row)
+
+            findings = []
+            for test_id, runs in by_test.items():
+                for run in runs:
+                    from src.agents.flaky_detector import TestRun
+                    detector.record_run(TestRun(
+                        test_id=test_id,
+                        test_name=run.get("test_name", test_id),
+                        passed=run.get("status") == "passed",
+                        duration_ms=run.get("duration_ms", 0),
+                        timestamp=run.get("created_at", ""),
+                    ))
+
+                report = detector.analyze_test(test_id=test_id)
+                if report.flakiness_score > 0.1:
+                    findings.append({
+                        "type": "flaky_test",
+                        "test_id": test_id,
+                        "flakiness_score": round(report.flakiness_score, 3),
+                        "level": report.flakiness_level.value,
+                        "pass_rate": round(report.pass_rate, 3),
+                        "total_runs": report.total_runs,
+                        "likely_cause": report.likely_cause.value,
+                        "should_quarantine": report.should_quarantine,
+                    })
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "flaky_detector compiling results")
+
+            findings.sort(key=lambda f: f["flakiness_score"], reverse=True)
+            return {
+                "findings": findings[:20],  # Top 20 flakiest
+                "summary": f"Analyzed {len(by_test)} tests from {len(rows)} runs, found {len(findings)} flaky",
+                "confidence": 0.85,
+                "cost_usd": 0.0,  # Pure statistics, no AI cost
+            }
+        except Exception as e:
+            logger.warning("flaky_detector failed, using stub", error=str(e))
+            return self._stub_result("flaky_detector", str(e))
+
+    async def _run_visual_ai(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        """Single-screenshot analysis of target_url (no baseline needed)."""
+        try:
+            import tempfile
+            from src.agents import VisualAI
+            from src.browser.pool_client import BrowserPoolClient
+
+            await self._emit_progress(emitter, agent_id, 40, "capturing", "visual_ai taking screenshot")
+
+            # Take screenshot via Browser Worker
+            screenshot_path = None
+            try:
+                async with BrowserPoolClient() as browser:
+                    screenshot_bytes = await browser.screenshot(url=config.target_url)
+                    if screenshot_bytes:
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                            f.write(screenshot_bytes)
+                            screenshot_path = f.name
+            except Exception as browser_err:
+                logger.warning("Browser screenshot failed for visual_ai", error=str(browser_err))
+                return self._stub_result("visual_ai", f"Browser unavailable: {browser_err}")
+
+            if not screenshot_path:
+                return self._stub_result("visual_ai", "No screenshot captured")
+
+            await self._emit_progress(emitter, agent_id, 60, "analyzing", "visual_ai analyzing screenshot")
+
+            visual = VisualAI()
+            analysis = await visual.analyze_single(
+                screenshot=screenshot_path,
+                context=f"Target URL: {config.target_url}",
+            )
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "visual_ai compiling results")
+
+            issues = analysis.get("issues", [])
+            elements = analysis.get("main_elements", [])
+            health = analysis.get("overall_health", "unknown")
+
+            health_confidence = {"healthy": 0.9, "degraded": 0.5, "broken": 0.2}
+            findings = [{"type": "visual_element", "element": e} for e in elements]
+            if issues:
+                findings.extend([{"type": "visual_issue", "issue": i} for i in issues])
+
+            return {
+                "findings": findings,
+                "summary": f"Visual analysis: {health}, {len(elements)} elements, {len(issues)} issues",
+                "confidence": health_confidence.get(health, 0.5),
+                "cost_usd": 0.01,  # Approximate single-vision-call cost
+            }
+        except Exception as e:
+            logger.warning("visual_ai failed, using stub", error=str(e))
+            return self._stub_result("visual_ai", str(e))
+
+    # ── Discovery Swarm ─────────────────────────────────────────────
+
+    async def _run_discovery_swarm(
+        self,
+        swarm_id: str,
+        config: SwarmConfig,
+        emitter: AGUIEmitter,
+        throttler: "SwarmThrottler",
+    ) -> SwarmResult:
+        """Two-phase discovery swarm: discover targets, then test each one.
+
+        Phase 1: Run AutoDiscovery on target_url to find pages, flows, endpoints.
+        Phase 2: Spawn one agent per discovered target (up to tier max).
+        """
+        from .swarm_throttler import TIER_CONFIGS, ThrottlerTier
+
+        start_time = time.time()
+
+        # Determine max agents from config or tier
+        org_config = throttler._get_config_for_org(config.org_id)
+        max_agents = config.max_discovery_agents or org_config.max_workers_per_swarm
+
+        # ── Phase 1: Discovery ─────────────────────────
+        await emitter.emit(
+            StateDeltaEvent(
+                agent_id="discovery_phase",
+                progress=10,
+                phase="discovering",
+                message="Phase 1: Discovering application structure",
+            )
+        )
+
+        try:
+            from src.agents import AutoDiscovery
+
+            discovery = AutoDiscovery(app_url=config.target_url, max_pages=max_agents)
+            discovery_result = await discovery.discover()
+        except Exception as e:
+            logger.error("Discovery phase failed", error=str(e))
+            total_duration = (time.time() - start_time) * 1000
+            await emitter.emit(
+                RunFinishedEvent(
+                    run_id=swarm_id,
+                    swarm_id=swarm_id,
+                    success=False,
+                    total_duration_ms=total_duration,
+                    total_cost_usd=0.0,
+                    workers_completed=0,
+                    workers_failed=1,
+                    consensus_score=0.0,
+                    summary=f"Discovery phase failed: {e}",
+                )
+            )
+            return SwarmResult(
+                swarm_id=swarm_id,
+                mode=config.mode,
+                success=False,
+                total_duration_ms=total_duration,
+                total_cost_usd=0.0,
+                summary=f"Discovery phase failed: {e}",
+            )
+
+        await emitter.emit(
+            StateDeltaEvent(
+                agent_id="discovery_phase",
+                progress=40,
+                phase="planning",
+                message=(
+                    f"Phase 1 complete: {len(discovery_result.pages_discovered)} pages, "
+                    f"{len(discovery_result.flows_discovered)} flows"
+                ),
+            )
+        )
+
+        # ── Phase 2: Fan out agents per target ─────────
+        targets = self._build_discovery_targets(discovery_result, max_agents)
+
+        if not targets:
+            total_duration = (time.time() - start_time) * 1000
+            await emitter.emit(
+                RunFinishedEvent(
+                    run_id=swarm_id,
+                    swarm_id=swarm_id,
+                    success=True,
+                    total_duration_ms=total_duration,
+                    total_cost_usd=0.0,
+                    workers_completed=0,
+                    workers_failed=0,
+                    consensus_score=1.0,
+                    summary="Discovery found no testable targets",
+                )
+            )
+            return SwarmResult(
+                swarm_id=swarm_id,
+                mode=config.mode,
+                success=True,
+                total_duration_ms=total_duration,
+                total_cost_usd=0.0,
+                consensus_score=1.0,
+                summary="Discovery found no testable targets",
+            )
+
+        # Spawn one worker per target
+        tasks = []
+        for i, (agent_type, target_url) in enumerate(targets):
+            agent_id = f"{agent_type}_disc_{i}_{uuid.uuid4().hex[:6]}"
+            # Create a per-target config with the specific URL
+            target_config = SwarmConfig(
+                mode=config.mode,
+                org_id=config.org_id,
+                project_id=config.project_id,
+                user_id=config.user_id,
+                target_url=target_url,
+                codebase_path=config.codebase_path,
+                repository_url=config.repository_url,
+            )
+            task = asyncio.create_task(
+                self._run_worker(
+                    swarm_id=swarm_id,
+                    agent_id=agent_id,
+                    agent_type=agent_type,
+                    config=target_config,
+                    emitter=emitter,
+                    throttler=throttler,
+                )
+            )
+            tasks.append(task)
+
+        # Gather all Phase 2 results
+        worker_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+        results: list[WorkerResult] = []
+        for r in worker_results_raw:
+            if isinstance(r, Exception):
+                results.append(
+                    WorkerResult(
+                        agent_id="unknown",
+                        agent_type="unknown",
+                        success=False,
+                        duration_ms=0,
+                        cost_usd=0,
+                        error=str(r),
+                    )
+                )
+            else:
+                results.append(r)
+
+        consensus_score = self._compute_consensus(results)
+        total_duration = (time.time() - start_time) * 1000
+        total_cost = sum(r.cost_usd for r in results)
+        workers_completed = sum(1 for r in results if r.success)
+        workers_failed = len(results) - workers_completed
+
+        summary = (
+            f"Discovery swarm: discovered {len(discovery_result.pages_discovered)} pages, "
+            f"spawned {len(targets)} agents, "
+            f"{workers_completed}/{len(results)} completed, "
+            f"{consensus_score:.0%} consensus"
+        )
+
+        # Intent verification
+        verdict = await self._verify_intent(config, results, total_cost)
+        if verdict:
+            summary += f" | Intent: {verdict.verdict} ({verdict.completion_score:.0%})"
+            if verdict.gaps:
+                summary += f" — gaps: {', '.join(verdict.gaps[:3])}"
+
+        await emitter.emit(
+            RunFinishedEvent(
+                run_id=swarm_id,
+                swarm_id=swarm_id,
+                success=workers_failed == 0,
+                total_duration_ms=total_duration,
+                total_cost_usd=total_cost,
+                workers_completed=workers_completed,
+                workers_failed=workers_failed,
+                consensus_score=consensus_score,
+                summary=summary,
+            )
+        )
+
+        return SwarmResult(
+            swarm_id=swarm_id,
+            mode=config.mode,
+            success=workers_failed == 0,
+            total_duration_ms=total_duration,
+            total_cost_usd=total_cost,
+            worker_results=results,
+            consensus_score=consensus_score,
+            summary=summary,
+            intent_verdict=verdict,
+        )
+
+    @staticmethod
+    def _select_agent_for_target(target_type: str) -> str:
+        """Pick the right agent type based on what was discovered."""
+        mapping = {
+            "page": "ui_tester",
+            "form": "ui_tester",
+            "flow": "ui_tester",
+            "api_endpoint": "api_tester",
+            "endpoint": "api_tester",
+        }
+        return mapping.get(target_type, "ui_tester")
+
+    @staticmethod
+    def _build_discovery_targets(
+        discovery_result: Any, max_agents: int,
+    ) -> list[tuple[str, str]]:
+        """Build (agent_type, url) pairs from discovery results, capped at max_agents."""
+        targets: list[tuple[str, str]] = []
+
+        # Pages → ui_tester
+        for page in getattr(discovery_result, "pages_discovered", []):
+            url = getattr(page, "url", None)
+            if url:
+                targets.append(("ui_tester", url))
+
+        # Flows → ui_tester (use first step URL or app_url)
+        for flow in getattr(discovery_result, "flows_discovered", []):
+            steps = getattr(flow, "steps", [])
+            if steps and isinstance(steps[0], dict) and steps[0].get("url"):
+                targets.append(("ui_tester", steps[0]["url"]))
+
+        # Suggested tests may reference API endpoints
+        for suggestion in getattr(discovery_result, "suggested_tests", []):
+            if isinstance(suggestion, dict):
+                stype = suggestion.get("type", "")
+                url = suggestion.get("url") or suggestion.get("endpoint", "")
+                if "api" in stype.lower() and url:
+                    targets.append(("api_tester", url))
+
+        # Deduplicate by URL, cap at max_agents
+        seen: set[str] = set()
+        unique: list[tuple[str, str]] = []
+        for agent_type, url in targets:
+            if url not in seen:
+                seen.add(url)
+                unique.append((agent_type, url))
+        return unique[:max_agents]
+
+    # ── Intent verification ─────────────────────────────────────────
+
+    @staticmethod
+    async def _verify_intent(
+        config: SwarmConfig, results: list[WorkerResult], total_cost: float,
+    ) -> IntentVerdict | None:
+        """Run lightweight intent check. Never blocks the pipeline on failure."""
+        try:
+            return await verify_intent(config, results, total_cost)
+        except Exception as e:
+            logger.warning("Intent verification failed entirely", error=str(e))
+            return None
 
     # ── Helpers ──────────────────────────────────────────────────────
 

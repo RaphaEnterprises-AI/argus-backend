@@ -3,6 +3,9 @@
 Layer 1: Semaphore-based concurrency limiting for AI calls.
 Layer 2: Per-org swarm count limiting.
 Layer 3: Cost budget enforcement per swarm and per org per hour.
+
+Supports tiered configurations (FREE, PRO, ENTERPRISE) for scaling
+from 8 to 100 concurrent workers per swarm.
 """
 
 from __future__ import annotations
@@ -11,7 +14,16 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import AsyncIterator
+
+
+class ThrottlerTier(str, Enum):
+    """Organization throttling tiers."""
+
+    FREE = "free"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
 
 
 @dataclass
@@ -30,19 +42,50 @@ class ThrottlerConfig:
     max_cost_per_org_per_hour: float = 10.00
 
 
+# Pre-built configs for each tier
+TIER_CONFIGS: dict[ThrottlerTier, ThrottlerConfig] = {
+    ThrottlerTier.FREE: ThrottlerConfig(
+        max_concurrent_calls=8,
+        max_workers_per_swarm=8,
+        max_concurrent_swarms_per_org=3,
+        max_cost_per_swarm=2.00,
+        max_cost_per_org_per_hour=10.00,
+    ),
+    ThrottlerTier.PRO: ThrottlerConfig(
+        max_concurrent_calls=25,
+        max_workers_per_swarm=50,
+        max_concurrent_swarms_per_org=5,
+        max_cost_per_swarm=10.00,
+        max_cost_per_org_per_hour=50.00,
+    ),
+    ThrottlerTier.ENTERPRISE: ThrottlerConfig(
+        max_concurrent_calls=50,
+        max_workers_per_swarm=100,
+        max_concurrent_swarms_per_org=10,
+        max_cost_per_swarm=50.00,
+        max_cost_per_org_per_hour=200.00,
+    ),
+}
+
+
 class SwarmThrottler:
     """3-layer throttler controlling concurrency, swarm counts, and cost budgets.
 
     Layer 1 - Semaphore: Limits total concurrent AI calls across all swarms.
     Layer 2 - Swarm tracking: Limits concurrent swarms per organization.
     Layer 3 - Cost tracking: Enforces per-swarm and per-org-per-hour budgets.
+
+    Supports per-org tier overrides via set_org_tier().
     """
 
     def __init__(self, config: ThrottlerConfig | None = None) -> None:
         self.config = config or ThrottlerConfig()
 
-        # Layer 1: Global concurrency semaphore
+        # Layer 1: Global concurrency semaphore (default tier)
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent_calls)
+
+        # Per-org semaphores for tiered concurrency
+        self._org_semaphores: dict[str, asyncio.Semaphore] = {}
 
         # Layer 2: org_id -> set of active swarm_ids
         self._active_swarms: dict[str, set[str]] = {}
@@ -52,6 +95,27 @@ class SwarmThrottler:
         # org_id -> list of (timestamp, cost) tuples for hourly tracking
         self._org_hourly_costs: dict[str, list[tuple[float, float]]] = {}
 
+        # Tier overrides: org_id -> ThrottlerTier
+        self._org_tiers: dict[str, ThrottlerTier] = {}
+
+    # ── Tier management ───────────────────────────────────────────────
+
+    def set_org_tier(self, org_id: str, tier: ThrottlerTier) -> None:
+        """Set the throttling tier for an organization.
+
+        Creates a per-org semaphore with the tier's concurrency limit.
+        """
+        self._org_tiers[org_id] = tier
+        tier_config = TIER_CONFIGS[tier]
+        self._org_semaphores[org_id] = asyncio.Semaphore(tier_config.max_concurrent_calls)
+
+    def _get_config_for_org(self, org_id: str) -> ThrottlerConfig:
+        """Get the effective ThrottlerConfig for an org (tier override or default)."""
+        tier = self._org_tiers.get(org_id)
+        if tier is not None:
+            return TIER_CONFIGS[tier]
+        return self.config
+
     # ── Layer 2: Swarm reservation ──────────────────────────────────────
 
     def reserve_swarm(self, org_id: str, swarm_id: str) -> None:
@@ -60,13 +124,15 @@ class SwarmThrottler:
         Raises:
             RuntimeError: If the org has reached its concurrent swarm limit.
         """
+        cfg = self._get_config_for_org(org_id)
+
         if org_id not in self._active_swarms:
             self._active_swarms[org_id] = set()
 
-        if len(self._active_swarms[org_id]) >= self.config.max_concurrent_swarms_per_org:
+        if len(self._active_swarms[org_id]) >= cfg.max_concurrent_swarms_per_org:
             raise RuntimeError(
                 f"Organization {org_id} has reached the maximum of "
-                f"{self.config.max_concurrent_swarms_per_org} concurrent swarms"
+                f"{cfg.max_concurrent_swarms_per_org} concurrent swarms"
             )
 
         self._active_swarms[org_id].add(swarm_id)
@@ -89,13 +155,15 @@ class SwarmThrottler:
         Raises:
             RuntimeError: If either budget would be exceeded.
         """
+        cfg = self._get_config_for_org(org_id)
+
         # Check per-swarm budget
         current_swarm_cost = self._swarm_costs.get(swarm_id, 0.0)
-        if current_swarm_cost + additional_cost > self.config.max_cost_per_swarm:
+        if current_swarm_cost + additional_cost > cfg.max_cost_per_swarm:
             raise RuntimeError(
                 f"Swarm {swarm_id} would exceed budget: "
                 f"${current_swarm_cost + additional_cost:.2f} > "
-                f"${self.config.max_cost_per_swarm:.2f}"
+                f"${cfg.max_cost_per_swarm:.2f}"
             )
 
         # Check per-org hourly budget
@@ -108,11 +176,11 @@ class SwarmThrottler:
         self._org_hourly_costs[org_id] = hourly_entries
 
         org_hourly_total = sum(cost for _, cost in hourly_entries) + additional_cost
-        if org_hourly_total > self.config.max_cost_per_org_per_hour:
+        if org_hourly_total > cfg.max_cost_per_org_per_hour:
             raise RuntimeError(
                 f"Organization {org_id} would exceed hourly budget: "
                 f"${org_hourly_total:.2f} > "
-                f"${self.config.max_cost_per_org_per_hour:.2f}"
+                f"${cfg.max_cost_per_org_per_hour:.2f}"
             )
 
     def record_cost(self, org_id: str, swarm_id: str, cost: float) -> None:
@@ -131,6 +199,8 @@ class SwarmThrottler:
     ) -> AsyncIterator[None]:
         """Acquire a worker slot, enforcing all 3 throttling layers.
 
+        Uses per-org semaphore if a tier is set, otherwise the global semaphore.
+
         Usage::
 
             async with throttler.acquire_worker(org_id, swarm_id):
@@ -141,8 +211,9 @@ class SwarmThrottler:
         # Layer 3: Pre-flight budget check (zero additional — just verify not already over)
         self.check_budget(org_id, swarm_id)
 
-        # Layer 1: Acquire semaphore slot
-        async with self._semaphore:
+        # Layer 1: Acquire semaphore slot (per-org if tiered, else global)
+        sem = self._org_semaphores.get(org_id, self._semaphore)
+        async with sem:
             yield
 
 
