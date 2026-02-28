@@ -43,6 +43,19 @@ app.get('/health', (req, res) => {
 });
 
 // ------------------------------------
+// Bearer token auth — everything below /health requires TESTBENCH_SECRET
+// ------------------------------------
+const TESTBENCH_SECRET = process.env.TESTBENCH_SECRET;
+app.use((req, res, next) => {
+  if (!TESTBENCH_SECRET) return next();
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ') || auth.slice(7) !== TESTBENCH_SECRET) {
+    return res.status(401).json({ error: 'Invalid or missing bearer token' });
+  }
+  next();
+});
+
+// ------------------------------------
 // Chaos middleware — MUST be before routes
 // ------------------------------------
 app.use(chaosMiddleware);
@@ -59,16 +72,8 @@ app.use('/api/orders', ordersRouter);
 // SSRF endpoint (only active when sec-ssrf bug is enabled)
 app.post('/api/images/fetch', handleSsrf);
 
-// Chaos toggle API — protected by bearer token if TESTBENCH_SECRET is set
-const TESTBENCH_SECRET = process.env.TESTBENCH_SECRET;
-app.use('/chaos', (req, res, next) => {
-  if (!TESTBENCH_SECRET) return next();
-  const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ') || auth.slice(7) !== TESTBENCH_SECRET) {
-    return res.status(401).json({ error: 'Invalid or missing bearer token' });
-  }
-  next();
-}, chaosRouter);
+// Chaos toggle API
+app.use('/chaos', chaosRouter);
 
 // ------------------------------------
 // SPA fallback — non-API routes serve index.html

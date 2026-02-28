@@ -19,13 +19,24 @@ app.use(express.json());
 // Load OpenAPI spec
 const openapiSpec = YAML.load(path.join(__dirname, 'openapi.yaml'));
 
-// Health check
+// Health check (always public)
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'json-api',
     uptime: process.uptime(),
   });
+});
+
+// Bearer token auth — all routes below require TESTBENCH_SECRET
+const TESTBENCH_SECRET = process.env.TESTBENCH_SECRET;
+app.use((req, res, next) => {
+  if (!TESTBENCH_SECRET) return next();
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ') || auth.slice(7) !== TESTBENCH_SECRET) {
+    return res.status(401).json({ error: 'Invalid or missing bearer token' });
+  }
+  next();
 });
 
 // OpenAPI JSON endpoint
