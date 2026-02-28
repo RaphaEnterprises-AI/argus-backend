@@ -17,9 +17,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'plane-testbench-secret-key';
 app.use(cors());
 app.use(express.json());
 
-// Serve static SPA
-app.use(express.static(path.join(__dirname, 'public')));
-
 // Auth middleware - extracts user from JWT if present
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -97,6 +94,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Serve static SPA (after auth)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ===================================================================
 // AUTH

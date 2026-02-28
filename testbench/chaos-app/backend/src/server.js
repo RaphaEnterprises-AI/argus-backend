@@ -25,12 +25,8 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Serve static files from public directory (React build)
-const publicDir = path.join(__dirname, '..', 'public');
-app.use(express.static(publicDir));
-
 // ------------------------------------
-// Health check (before chaos middleware)
+// Health check (always public, before auth)
 // ------------------------------------
 app.get('/health', (req, res) => {
   res.json({
@@ -43,7 +39,7 @@ app.get('/health', (req, res) => {
 });
 
 // ------------------------------------
-// Bearer token auth — everything below /health requires TESTBENCH_SECRET
+// Bearer token auth — everything below requires TESTBENCH_SECRET
 // ------------------------------------
 const TESTBENCH_SECRET = process.env.TESTBENCH_SECRET;
 app.use((req, res, next) => {
@@ -54,6 +50,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Serve static files (after auth)
+const publicDir = path.join(__dirname, '..', 'public');
+app.use(express.static(publicDir));
 
 // ------------------------------------
 // Chaos middleware — MUST be before routes
