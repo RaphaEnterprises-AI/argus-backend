@@ -803,10 +803,10 @@ class SwarmOrchestrator:
                 "id": f"swarm_ui_{uuid.uuid4().hex[:8]}",
                 "name": "Swarm exploratory UI check",
                 "steps": [
-                    {"action": "goto", "url": config.target_url},
+                    {"action": "goto", "target": config.target_url},
                     {"action": "wait", "timeout": 3000},
                     {"action": "screenshot"},
-                    {"action": "assert", "selector": "body", "state": "visible"},
+                    {"action": "assert", "target": "body", "value": "visible"},
                 ],
             }
             result = await agent.execute(
@@ -906,7 +906,8 @@ class SwarmOrchestrator:
                 "test_results",
                 filters={"project_id": f"eq.{config.project_id}", "status": "eq.failed"},
                 limit=3,
-                order="created_at.desc",
+                order_by="created_at",
+                ascending=False,
             )
 
             await self._emit_progress(emitter, agent_id, 50, "analyzing", "self_healer reviewing failures")
@@ -981,7 +982,8 @@ class SwarmOrchestrator:
                 "test_results",
                 filters={"project_id": f"eq.{config.project_id}"},
                 limit=500,
-                order="created_at.desc",
+                order_by="created_at",
+                ascending=False,
             )
 
             await self._emit_progress(emitter, agent_id, 50, "analyzing", "flaky_detector crunching statistics")
