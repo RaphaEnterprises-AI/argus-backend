@@ -118,7 +118,7 @@ Rules:
 - Score 1.0 = all goals met, 0.5 = major gaps, 0.0 = nothing useful
 - "complete" if score >= 0.8, "partial" if >= 0.4, "incomplete" otherwise
 - List specific gaps, not vague observations
-- An agent that failed but had a valid stub reason is a gap"""
+- An agent that failed or returned an error result is a gap"""
 
     try:
         from src.core.model_router import ModelRouter, TaskType
@@ -178,10 +178,10 @@ def _heuristic_verdict(worker_results: list) -> IntentVerdict:
 
     gaps = [f"{r.agent_type} failed: {r.error or 'unknown error'}" for r in failed]
 
-    # Flag stub results (confidence == 0, no findings)
+    # Flag error/empty results (confidence == 0, no findings)
     for r in successful:
         if r.confidence == 0.0 and not r.findings:
-            gaps.append(f"{r.agent_type} returned empty results (stub)")
+            gaps.append(f"{r.agent_type} returned empty results")
 
     verdict = "complete" if score >= 0.8 else "partial" if score >= 0.4 else "incomplete"
 

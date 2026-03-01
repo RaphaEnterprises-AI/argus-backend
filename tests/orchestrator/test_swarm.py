@@ -125,7 +125,7 @@ class TestUITesterRunner:
 
     @pytest.mark.asyncio
     async def test_ui_tester_dispatches_with_target_url(self, swarm_config, mock_emitter):
-        """ui_tester should be dispatched (not stubbed) when target_url is set."""
+        """ui_tester should be dispatched (not error-skipped) when target_url is set."""
         from src.orchestrator.swarm_orchestrator import SwarmOrchestrator
 
         orch = SwarmOrchestrator()
@@ -149,8 +149,8 @@ class TestUITesterRunner:
         assert "passed" in result["summary"]
 
     @pytest.mark.asyncio
-    async def test_ui_tester_falls_back_to_stub_on_error(self, swarm_config, mock_emitter):
-        """If UITesterAgent raises, should gracefully return a stub."""
+    async def test_ui_tester_falls_back_to_error_result_on_error(self, swarm_config, mock_emitter):
+        """If UITesterAgent raises, should gracefully return an error result."""
         from src.orchestrator.swarm_orchestrator import SwarmOrchestrator
 
         orch = SwarmOrchestrator()
@@ -196,8 +196,8 @@ class TestAPITesterRunner:
         assert len(result["findings"]) == 4
 
     @pytest.mark.asyncio
-    async def test_api_tester_stub_without_url(self, mock_emitter):
-        """api_tester should be skipped if no target_url."""
+    async def test_api_tester_error_without_url(self, mock_emitter):
+        """api_tester should return error result if no target_url."""
         from src.orchestrator.swarm_orchestrator import SwarmConfig, SwarmMode, SwarmOrchestrator
 
         config = SwarmConfig(
@@ -209,7 +209,7 @@ class TestAPITesterRunner:
         )
         orch = SwarmOrchestrator()
         result = await orch._execute_agent("api_tester", config, mock_emitter, "agent_1")
-        assert result["confidence"] == 0.0, "Should be stub when no URL"
+        assert result["confidence"] == 0.0, "Should be error result when no URL"
 
 
 class TestSelfHealerRunner:
@@ -239,10 +239,10 @@ class TestSelfHealerRunner:
         assert result["cost_usd"] == 0.0
 
     @pytest.mark.asyncio
-    async def test_self_healer_stub_when_supabase_unavailable(
+    async def test_self_healer_error_when_supabase_unavailable(
         self, swarm_config, mock_emitter,
     ):
-        """Should gracefully stub when Supabase is down."""
+        """Should gracefully return error result when Supabase is down."""
         from src.orchestrator.swarm_orchestrator import SwarmOrchestrator
 
         orch = SwarmOrchestrator()
@@ -366,8 +366,8 @@ class TestVisualAIRunner:
         assert len(result["findings"]) == 4  # 4 elements
 
     @pytest.mark.asyncio
-    async def test_visual_ai_stub_when_browser_unavailable(self, swarm_config, mock_emitter):
-        """Should return stub if browser can't take screenshot."""
+    async def test_visual_ai_error_when_browser_unavailable(self, swarm_config, mock_emitter):
+        """Should return error result if browser can't take screenshot."""
         from src.orchestrator.swarm_orchestrator import SwarmOrchestrator
 
         orch = SwarmOrchestrator()
@@ -685,20 +685,20 @@ class TestIntentVerifier:
         assert len(verdict.gaps) == 2
 
     @pytest.mark.asyncio
-    async def test_heuristic_flags_stub_results(self):
-        """Workers that returned stubs (confidence=0, no findings) should be flagged."""
+    async def test_heuristic_flags_empty_results(self):
+        """Workers that returned empty results (confidence=0, no findings) should be flagged."""
         from src.orchestrator.intent_verifier import _heuristic_verdict
         from src.orchestrator.swarm_orchestrator import WorkerResult
 
         results = [
             WorkerResult("a1", "security_scanner", True, 100, 0.01, [{"x": 1}], "ok", 0.9),
-            WorkerResult("a2", "visual_ai", True, 100, 0.0, [], "stub", 0.0),  # stub
+            WorkerResult("a2", "visual_ai", True, 100, 0.0, [], "error", 0.0),  # error result
         ]
 
         verdict = _heuristic_verdict(results)
         gap_text = " ".join(verdict.gaps)
         assert "visual_ai" in gap_text
-        assert "stub" in gap_text.lower() or "empty" in gap_text.lower()
+        assert "empty" in gap_text.lower() or "error" in gap_text.lower()
 
     @pytest.mark.asyncio
     async def test_intent_verdict_in_swarm_result(self, swarm_config):
@@ -734,7 +734,7 @@ class TestSwarmDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_routes_all_13_agent_types(self, swarm_config, mock_emitter):
-        """All 13 agent types should have a dispatch path (no unknown stub)."""
+        """All 13 agent types should have a dispatch path (no unknown error)."""
         from src.orchestrator.swarm_orchestrator import SwarmOrchestrator
 
         orch = SwarmOrchestrator()
@@ -780,18 +780,18 @@ class TestSwarmDispatch:
                 )
 
             result = await orch._execute_agent(agent_type, config, mock_emitter, f"{agent_type}_1")
-            assert "Unknown agent type" not in result.get("summary", ""), (
+            assert "unrecognized agent type" not in result.get("summary", ""), (
                 f"{agent_type} dispatched as unknown"
             )
 
     @pytest.mark.asyncio
-    async def test_unknown_agent_returns_stub(self, swarm_config, mock_emitter):
-        """A truly unknown agent type should get the fallback stub."""
+    async def test_unknown_agent_returns_error(self, swarm_config, mock_emitter):
+        """A truly unknown agent type should get the fallback error result."""
         from src.orchestrator.swarm_orchestrator import SwarmOrchestrator
 
         orch = SwarmOrchestrator()
         result = await orch._execute_agent("nonexistent_agent", swarm_config, mock_emitter, "x_1")
-        assert "Unknown agent type" in result["summary"]
+        assert "unrecognized agent type" in result["summary"]
         assert result["confidence"] == 0.0
 
 

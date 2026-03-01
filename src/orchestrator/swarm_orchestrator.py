@@ -441,7 +441,7 @@ class SwarmOrchestrator:
         concrete agent, calls its execute/analyze method, and normalizes the
         result into {findings, summary, confidence, cost_usd}.
 
-        Falls back to a stub result if the agent raises an exception, so the
+        Falls back to an error result if the agent raises an exception, so the
         swarm never crashes because of a single agent failure.
         """
         # Emit progress updates during execution
@@ -509,7 +509,7 @@ class SwarmOrchestrator:
             return await self._run_visual_ai(config, emitter, agent_id)
 
         # Fallback for any unknown agent type
-        return self._stub_result(agent_type, "Unknown agent type")
+        return self._error_result(agent_type, "unrecognized agent type")
 
     # ── Individual agent runners ─────────────────────────────────────
 
@@ -539,8 +539,8 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("security_scanner failed, using stub", error=str(e))
-            return self._stub_result("security_scanner", str(e))
+            logger.warning("security_scanner failed, returning error result", error=str(e))
+            return self._error_result("security_scanner", str(e))
 
     async def _run_accessibility_checker(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -568,8 +568,8 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("accessibility_checker failed, using stub", error=str(e))
-            return self._stub_result("accessibility_checker", str(e))
+            logger.warning("accessibility_checker failed, returning error result", error=str(e))
+            return self._error_result("accessibility_checker", str(e))
 
     async def _run_performance_analyzer(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -602,8 +602,8 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("performance_analyzer failed, using stub", error=str(e))
-            return self._stub_result("performance_analyzer", str(e))
+            logger.warning("performance_analyzer failed, returning error result", error=str(e))
+            return self._error_result("performance_analyzer", str(e))
 
     async def _run_auto_discovery(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -627,8 +627,8 @@ class SwarmOrchestrator:
                 "cost_usd": 0.0,  # AutoDiscovery doesn't track cost via AgentResult
             }
         except Exception as e:
-            logger.warning("auto_discovery failed, using stub", error=str(e))
-            return self._stub_result("auto_discovery", str(e))
+            logger.warning("auto_discovery failed, returning error result", error=str(e))
+            return self._error_result("auto_discovery", str(e))
 
     async def _run_code_analyzer(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -669,14 +669,14 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("code_analyzer failed, using stub", error=str(e))
-            return self._stub_result("code_analyzer", str(e))
+            logger.warning("code_analyzer failed, returning error result", error=str(e))
+            return self._error_result("code_analyzer", str(e))
 
     async def _run_mr_analyzer(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
     ) -> dict[str, Any]:
         if not config.changed_files:
-            return self._stub_result("mr_analyzer", "No changed_files provided")
+            return self._error_result("mr_analyzer", "No changed_files provided")
         try:
             from src.agents import MRAnalyzerAgent
 
@@ -705,14 +705,14 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("mr_analyzer failed, using stub", error=str(e))
-            return self._stub_result("mr_analyzer", str(e))
+            logger.warning("mr_analyzer failed, returning error result", error=str(e))
+            return self._error_result("mr_analyzer", str(e))
 
     async def _run_test_impact_analyzer(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
     ) -> dict[str, Any]:
         if not config.changed_files:
-            return self._stub_result("test_impact_analyzer", "No changed_files provided")
+            return self._error_result("test_impact_analyzer", "No changed_files provided")
         try:
             from src.agents import TestImpactAnalyzer, CodeChange
             from datetime import datetime
@@ -743,14 +743,14 @@ class SwarmOrchestrator:
                 "cost_usd": 0.0,
             }
         except Exception as e:
-            logger.warning("test_impact_analyzer failed, using stub", error=str(e))
-            return self._stub_result("test_impact_analyzer", str(e))
+            logger.warning("test_impact_analyzer failed, returning error result", error=str(e))
+            return self._error_result("test_impact_analyzer", str(e))
 
     async def _run_smart_test_selector(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
     ) -> dict[str, Any]:
         if not config.changed_files:
-            return self._stub_result("smart_test_selector", "No changed_files provided")
+            return self._error_result("smart_test_selector", "No changed_files provided")
         try:
             from src.agents import TestImpactAnalyzer, SmartTestSelector, CodeChange
             from datetime import datetime
@@ -786,8 +786,8 @@ class SwarmOrchestrator:
                 "cost_usd": 0.0,
             }
         except Exception as e:
-            logger.warning("smart_test_selector failed, using stub", error=str(e))
-            return self._stub_result("smart_test_selector", str(e))
+            logger.warning("smart_test_selector failed, returning error result", error=str(e))
+            return self._error_result("smart_test_selector", str(e))
 
     # ── Newly wired agent runners ─────────────────────────────────────
 
@@ -836,8 +836,8 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("ui_tester failed, using stub", error=str(e))
-            return self._stub_result("ui_tester", str(e))
+            logger.warning("ui_tester failed, returning error result", error=str(e))
+            return self._error_result("ui_tester", str(e))
 
     async def _run_api_tester(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -887,8 +887,8 @@ class SwarmOrchestrator:
                 "cost_usd": result.cost,
             }
         except Exception as e:
-            logger.warning("api_tester failed, using stub", error=str(e))
-            return self._stub_result("api_tester", str(e))
+            logger.warning("api_tester failed, returning error result", error=str(e))
+            return self._error_result("api_tester", str(e))
 
     async def _run_self_healer(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -899,7 +899,7 @@ class SwarmOrchestrator:
 
             supabase = await get_supabase()
             if not supabase:
-                return self._stub_result("self_healer", "Supabase not available")
+                return self._error_result("self_healer", "Supabase not available")
 
             # Fetch recent failures for this project
             failures = await supabase.select(
@@ -962,8 +962,8 @@ class SwarmOrchestrator:
                 "cost_usd": total_cost,
             }
         except Exception as e:
-            logger.warning("self_healer failed, using stub", error=str(e))
-            return self._stub_result("self_healer", str(e))
+            logger.warning("self_healer failed, returning error result", error=str(e))
+            return self._error_result("self_healer", str(e))
 
     async def _run_flaky_detector(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -975,7 +975,7 @@ class SwarmOrchestrator:
 
             supabase = await get_supabase()
             if not supabase:
-                return self._stub_result("flaky_detector", "Supabase not available")
+                return self._error_result("flaky_detector", "Supabase not available")
 
             # Fetch recent test results for statistical analysis
             rows = await supabase.select(
@@ -1046,8 +1046,8 @@ class SwarmOrchestrator:
                 "cost_usd": 0.0,  # Pure statistics, no AI cost
             }
         except Exception as e:
-            logger.warning("flaky_detector failed, using stub", error=str(e))
-            return self._stub_result("flaky_detector", str(e))
+            logger.warning("flaky_detector failed, returning error result", error=str(e))
+            return self._error_result("flaky_detector", str(e))
 
     async def _run_visual_ai(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -1071,10 +1071,10 @@ class SwarmOrchestrator:
                             screenshot_path = f.name
             except Exception as browser_err:
                 logger.warning("Browser screenshot failed for visual_ai", error=str(browser_err))
-                return self._stub_result("visual_ai", f"Browser unavailable: {browser_err}")
+                return self._error_result("visual_ai", f"Browser unavailable: {browser_err}")
 
             if not screenshot_path:
-                return self._stub_result("visual_ai", "No screenshot captured")
+                return self._error_result("visual_ai", "No screenshot captured")
 
             await self._emit_progress(emitter, agent_id, 60, "analyzing", "visual_ai analyzing screenshot")
 
@@ -1102,8 +1102,8 @@ class SwarmOrchestrator:
                 "cost_usd": 0.01,  # Approximate single-vision-call cost
             }
         except Exception as e:
-            logger.warning("visual_ai failed, using stub", error=str(e))
-            return self._stub_result("visual_ai", str(e))
+            logger.warning("visual_ai failed, returning error result", error=str(e))
+            return self._error_result("visual_ai", str(e))
 
     # ── Discovery Swarm ─────────────────────────────────────────────
 
@@ -1362,12 +1362,12 @@ class SwarmOrchestrator:
     # ── Helpers ──────────────────────────────────────────────────────
 
     @staticmethod
-    def _stub_result(agent_type: str, reason: str = "") -> dict[str, Any]:
-        """Return a minimal stub result for agents that can't run yet."""
-        note = f" ({reason})" if reason else ""
+    def _error_result(agent_type: str, reason: str = "") -> dict[str, Any]:
+        """Return a minimal error/skip result when an agent cannot produce real output."""
+        note = f": {reason}" if reason else ""
         return {
             "findings": [],
-            "summary": f"{agent_type} not executed{note}",
+            "summary": f"{agent_type} error{note}",
             "confidence": 0.0,
             "cost_usd": 0.0,
         }
