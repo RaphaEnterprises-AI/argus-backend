@@ -33,24 +33,27 @@ router = APIRouter(prefix="/api/v1/swarms", tags=["Swarms"])
 class LaunchSwarmRequest(BaseModel):
     """Request to launch a new agent swarm."""
 
+    model_config = {"populate_by_name": True}
+
     mode: str = Field(
         ...,
         description="Swarm mode: full_crawl, targeted_blitz, or pr_analysis",
     )
-    project_id: str = Field(..., description="Project ID")
-    target_url: str | None = Field(None, description="URL to test (full_crawl/blitz)")
-    target_flow: str | None = Field(None, description="Specific flow to test (blitz)")
-    pr_number: int | None = Field(None, description="PR number (pr_analysis)")
-    changed_files: list[dict] | None = Field(None, description="Changed files [{path, status, additions, deletions}]")
+    project_id: str = Field(..., alias="projectId", description="Project ID")
+    target_url: str | None = Field(None, alias="targetUrl", description="URL to test (full_crawl/blitz)")
+    target_flow: str | None = Field(None, alias="targetFlow", description="Specific flow to test (blitz)")
+    pr_number: int | None = Field(None, alias="prNumber", description="PR number (pr_analysis)")
+    changed_files: list[dict] | None = Field(None, alias="changedFiles", description="Changed files [{path, status, additions, deletions}]")
     agent_types: list[str] | None = Field(
-        None, description="Override default agent types for the mode"
+        None, alias="agentTypes", description="Override default agent types for the mode"
     )
-    codebase_path: str | None = Field(None, description="Local codebase path for code_analyzer")
-    repository_url: str | None = Field(None, description="GitHub repo URL for code-aware analysis")
+    codebase_path: str | None = Field(None, alias="codebasePath", description="Local codebase path for code_analyzer")
+    repository_url: str | None = Field(None, alias="repositoryUrl", description="GitHub repo URL for code-aware analysis")
     max_discovery_agents: int | None = Field(
         None,
         ge=1,
         le=100,
+        alias="maxDiscoveryAgents",
         description="Max agents to spawn in discovery_swarm mode (default: tier limit)",
     )
 
@@ -58,13 +61,15 @@ class LaunchSwarmRequest(BaseModel):
 class LaunchSwarmResponse(BaseModel):
     """Response from launching a swarm."""
 
-    swarm_id: str
+    model_config = {"populate_by_name": True}
+
+    swarm_id: str = Field(..., alias="swarmId")
     mode: str
-    worker_count: int
-    stream_url: str
+    worker_count: int = Field(..., alias="workerCount")
+    stream_url: str = Field(..., alias="streamUrl")
 
 
-@router.post("/launch")
+@router.post("/launch", response_model=LaunchSwarmResponse, response_model_by_alias=True)
 async def launch_swarm(request: Request, body: LaunchSwarmRequest):
     """Launch a new agent swarm.
 
