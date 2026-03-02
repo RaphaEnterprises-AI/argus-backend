@@ -181,6 +181,8 @@ class RateLimitConfig:
 # In-memory cache of provisioned user IDs to avoid repeated DB lookups.
 # This is per-process; restarts re-check, which is fine (idempotent).
 _provisioned_users: set[str] = set()
+# Cache user_id → org_id so repeated requests skip the Supabase round-trip.
+_provisioned_org_ids: dict[str, str] = {}
 
 
 async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | None:
@@ -188,14 +190,17 @@ async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | Non
 
     Called from the auth middleware for interactive users (JWT/OAuth) whose
     Clerk JWT does not carry an org_id.  The function is idempotent — safe to
-    call on every request, but the in-memory cache makes subsequent calls free.
+    call on every request, and the in-memory org_id cache makes repeated calls
+    free (no DB round-trip after the first resolution).
 
     Returns:
         The user's organization UUID, or None if provisioning fails.
     """
     if user_id in _provisioned_users:
-        # Fast path: already provisioned this process lifetime.
-        # Still need to resolve their org_id for the current request.
+        # Ultra-fast path: org_id already resolved and cached in memory.
+        if user_id in _provisioned_org_ids:
+            return _provisioned_org_ids[user_id]
+        # org_id evicted (e.g., user removed from org) — re-resolve via DB.
         from src.services.supabase_client import get_supabase_client
 
         supabase = get_supabase_client()
@@ -204,7 +209,9 @@ async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | Non
             f"&select=organization_id&limit=1"
         )
         if result.get("data") and len(result["data"]) > 0:
-            return result["data"][0]["organization_id"]
+            org_id = result["data"][0]["organization_id"]
+            _provisioned_org_ids[user_id] = org_id
+            return org_id
         # User lost all memberships (e.g., kicked from only org) — evict
         # from cache and fall through to full provisioning below.
         _provisioned_users.discard(user_id)
@@ -224,8 +231,10 @@ async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | Non
             f"&select=organization_id&limit=1"
         )
         if result.get("data") and len(result["data"]) > 0:
+            org_id = result["data"][0]["organization_id"]
             _provisioned_users.add(user_id)
-            return result["data"][0]["organization_id"]
+            _provisioned_org_ids[user_id] = org_id
+            return org_id
 
         # 3. Also try by email
         if email:
@@ -234,8 +243,10 @@ async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | Non
                 f"&select=organization_id&limit=1"
             )
             if result.get("data") and len(result["data"]) > 0:
+                org_id = result["data"][0]["organization_id"]
                 _provisioned_users.add(user_id)
-                return result["data"][0]["organization_id"]
+                _provisioned_org_ids[user_id] = org_id
+                return org_id
 
         # 4. No org at all — create a personal workspace
         logger.info(
@@ -245,6 +256,7 @@ async def _ensure_user_provisioned(user_id: str, email: str | None) -> str | Non
         personal_org = await _create_personal_organization(user_id, email)
         if personal_org:
             _provisioned_users.add(user_id)
+            _provisioned_org_ids[user_id] = personal_org.id
             return personal_org.id
 
         logger.warning("Failed to provision organization", user_id=user_id)
