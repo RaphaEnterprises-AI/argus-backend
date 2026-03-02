@@ -781,6 +781,11 @@ def is_public_endpoint(path: str) -> bool:
         if prefix.endswith("/") and path.startswith(prefix):
             return True
 
+    # Swarm SSE streams are public — the swarm_id is an unguessable UUID token.
+    # EventSource API cannot send Authorization headers, so auth must be skipped.
+    if path.startswith("/api/v1/swarms/") and path.endswith("/stream"):
+        return True
+
     return False
 
 

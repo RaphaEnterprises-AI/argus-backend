@@ -36,6 +36,9 @@ STREAMING_ENDPOINTS: Set[str] = {
     # Chat streaming (SSE)
     "/api/v1/chat/stream",
 
+    # Swarm AG-UI streaming (SSE via EventSource)
+    "/api/v1/swarms/",
+
     # Test streaming endpoint
     "/api/v1/stream/test",
 
