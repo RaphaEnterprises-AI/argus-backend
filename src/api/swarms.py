@@ -30,6 +30,16 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/swarms", tags=["Swarms"])
 
 
+def _normalize_url(url: str | None) -> str | None:
+    """Ensure URL has a protocol scheme, defaulting to https://."""
+    if url is None:
+        return None
+    url = url.strip().rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    return url
+
+
 class LaunchSwarmRequest(BaseModel):
     """Request to launch a new agent swarm."""
 
@@ -92,7 +102,7 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
         org_id=org_id,
         project_id=body.project_id,
         user_id=user["user_id"],
-        target_url=body.target_url,
+        target_url=_normalize_url(body.target_url),
         target_flow=body.target_flow,
         pr_number=body.pr_number,
         changed_files=body.changed_files,
