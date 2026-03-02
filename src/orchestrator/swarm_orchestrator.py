@@ -50,6 +50,7 @@ class SwarmMode(str, Enum):
     TARGETED_BLITZ = "targeted_blitz"
     PR_ANALYSIS = "pr_analysis"
     DISCOVERY_SWARM = "discovery_swarm"
+    QA_DISCOVERY = "qa_discovery"
 
 
 # Agent types for each swarm mode
@@ -80,6 +81,10 @@ SWARM_MODE_AGENTS: dict[SwarmMode, list[str]] = {
     ],
     SwarmMode.DISCOVERY_SWARM: [
         "auto_discovery",  # Phase 1 only — Phase 2 agents are dynamic
+    ],
+    SwarmMode.QA_DISCOVERY: [
+        "auto_discovery",  # Phase 1 — crawl the app
+        "testgen",         # Phase 2 — generate BDD scenarios + test code
     ],
 }
 
@@ -203,6 +208,12 @@ class SwarmOrchestrator:
             if config.mode == SwarmMode.DISCOVERY_SWARM and config.target_url:
                 return await self._run_discovery_swarm(
                     swarm_id, config, emitter, throttler
+                )
+
+            # QA discovery: crawl → generate BDD scenarios + test code
+            if config.mode == SwarmMode.QA_DISCOVERY and config.target_url:
+                return await self._run_qa_discovery_swarm(
+                    swarm_id, config, emitter
                 )
 
             # Scatter: spawn all workers concurrently
@@ -1167,6 +1178,219 @@ class SwarmOrchestrator:
         except Exception as e:
             logger.warning("visual_ai failed, returning error result", error=str(e))
             return self._error_result("visual_ai", str(e))
+
+    # ── QA Discovery Swarm ───────────────────────────────────────────
+
+    async def _run_qa_discovery_swarm(
+        self,
+        swarm_id: str,
+        config: SwarmConfig,
+        emitter: AGUIEmitter,
+    ) -> SwarmResult:
+        """QA discovery via supervisor: progressive crawl → interleaved test generation.
+
+        Delegates to the LangGraph supervisor which alternates between
+        auto_discovery (batch crawl) and testgen_agent (generate BDD + code).
+        The supervisor LLM decides agent ordering based on shared state.
+        """
+        start_time = time.time()
+
+        try:
+            from src.orchestrator.supervisor import (
+                create_initial_supervisor_state,
+                create_supervisor_graph,
+            )
+
+            # Build initial state with QA discovery context
+            initial_state = create_initial_supervisor_state(
+                codebase_path=config.codebase_path or ".",
+                app_url=config.target_url,
+                initial_message=(
+                    f"Discover the application at {config.target_url} and generate "
+                    f"comprehensive BDD test scenarios with executable Playwright code. "
+                    f"Use auto_discovery to crawl pages in batches, then testgen_agent "
+                    f"to generate tests for each batch. Alternate between discovery and "
+                    f"test generation until all pages are covered."
+                ),
+            )
+            initial_state["org_id"] = config.org_id
+            initial_state["project_id"] = config.project_id
+            initial_state["discovery_complete"] = False
+
+            # Compile and run the supervisor graph
+            graph = create_supervisor_graph()
+
+            from src.orchestrator.checkpointer import get_checkpointer
+            checkpointer = get_checkpointer()
+            app = graph.compile(checkpointer=checkpointer)
+
+            thread_id = f"qa_discovery_{swarm_id}"
+            run_config = {"configurable": {"thread_id": thread_id}}
+
+            # Stream state updates for SSE
+            prev_phase = None
+            prev_pages = 0
+            prev_tests_count = 0
+            final_state = None
+
+            async for event in app.astream(initial_state, run_config, stream_mode="values"):
+                final_state = event
+
+                # Emit SSE progress based on state changes
+                cur_phase = event.get("current_phase", "")
+                cur_pages = event.get("discovery_pages_found", 0)
+                cur_tests = len(event.get("generated_tests") or [])
+
+                if cur_phase != prev_phase:
+                    if cur_phase == "discovery":
+                        await emitter.emit(StateDeltaEvent(
+                            agent_id="auto_discovery",
+                            progress=min(90, cur_pages * 10),
+                            phase="crawling",
+                            message=f"Discovering pages... ({cur_pages} found)",
+                        ))
+                    elif cur_phase == "test_generation":
+                        await emitter.emit(StateDeltaEvent(
+                            agent_id="testgen",
+                            progress=min(90, cur_tests * 5),
+                            phase="generating",
+                            message=f"Generating tests... ({cur_tests} so far)",
+                        ))
+                    elif cur_phase == "reporting":
+                        await emitter.emit(StateDeltaEvent(
+                            agent_id="reporter",
+                            progress=90,
+                            phase="reporting",
+                            message="Compiling final report...",
+                        ))
+
+                if cur_pages > prev_pages:
+                    await emitter.emit(StateDeltaEvent(
+                        agent_id="auto_discovery",
+                        progress=min(90, cur_pages * 10),
+                        phase="crawling",
+                        message=f"Found {cur_pages} pages",
+                    ))
+
+                if cur_tests > prev_tests_count:
+                    await emitter.emit(StateDeltaEvent(
+                        agent_id="testgen",
+                        progress=min(90, cur_tests * 5),
+                        phase="generating",
+                        message=f"Generated {cur_tests} tests",
+                    ))
+
+                prev_phase = cur_phase
+                prev_pages = cur_pages
+                prev_tests_count = cur_tests
+
+            if final_state is None:
+                raise RuntimeError("Supervisor graph produced no output")
+
+            # Convert supervisor state → WorkerResults
+            total_duration = (time.time() - start_time) * 1000
+            total_cost = final_state.get("total_cost", 0.0)
+            generated_tests = final_state.get("generated_tests") or []
+            pages_found = final_state.get("discovery_pages_found", 0)
+
+            worker_results = []
+
+            # Discovery worker result
+            worker_results.append(WorkerResult(
+                agent_id="auto_discovery",
+                agent_type="auto_discovery",
+                success=pages_found > 0,
+                duration_ms=total_duration * 0.4,
+                cost_usd=0.0,
+                findings=[
+                    {"type": "page", "url": s.get("url", "")}
+                    for s in (final_state.get("testable_surfaces") or [])
+                ],
+                summary=f"Discovered {pages_found} pages in {final_state.get('discovery_batch_index', 0)} batches",
+                confidence=0.75 if pages_found > 0 else 0.0,
+            ))
+
+            # Testgen worker result
+            worker_results.append(WorkerResult(
+                agent_id="testgen",
+                agent_type="testgen",
+                success=len(generated_tests) > 0,
+                duration_ms=total_duration * 0.6,
+                cost_usd=total_cost,
+                findings=[
+                    {"type": "test_case", "name": t.get("name", "test")}
+                    for t in generated_tests
+                ],
+                summary=f"Generated {len(generated_tests)} tests, {len(final_state.get('generated_requirements') or [])} requirements",
+                confidence=0.85 if generated_tests else 0.0,
+            ))
+
+            consensus_score = self._compute_consensus(worker_results)
+            workers_completed = sum(1 for r in worker_results if r.success)
+            workers_failed = len(worker_results) - workers_completed
+
+            summary = (
+                f"QA discovery: {pages_found} pages, {len(generated_tests)} tests, "
+                f"{workers_completed}/{len(worker_results)} phases completed, "
+                f"{consensus_score:.0%} consensus"
+            )
+
+            verdict = await self._verify_intent(config, worker_results, total_cost)
+            if verdict:
+                summary += f" | Intent: {verdict.verdict} ({verdict.completion_score:.0%})"
+
+            await emitter.emit(
+                RunFinishedEvent(
+                    run_id=swarm_id,
+                    swarm_id=swarm_id,
+                    success=workers_failed == 0,
+                    total_duration_ms=total_duration,
+                    total_cost_usd=total_cost,
+                    workers_completed=workers_completed,
+                    workers_failed=workers_failed,
+                    consensus_score=consensus_score,
+                    summary=summary,
+                )
+            )
+
+            return SwarmResult(
+                swarm_id=swarm_id,
+                mode=config.mode,
+                success=workers_failed == 0,
+                total_duration_ms=total_duration,
+                total_cost_usd=total_cost,
+                worker_results=worker_results,
+                consensus_score=consensus_score,
+                summary=summary,
+                intent_verdict=verdict,
+            )
+
+        except Exception as e:
+            logger.exception("QA discovery supervisor run failed", swarm_id=swarm_id)
+            total_duration = (time.time() - start_time) * 1000
+
+            await emitter.emit(
+                RunFinishedEvent(
+                    run_id=swarm_id,
+                    swarm_id=swarm_id,
+                    success=False,
+                    total_duration_ms=total_duration,
+                    total_cost_usd=0.0,
+                    workers_completed=0,
+                    workers_failed=1,
+                    consensus_score=0.0,
+                    summary=f"QA discovery failed: {e}",
+                )
+            )
+
+            return SwarmResult(
+                swarm_id=swarm_id,
+                mode=config.mode,
+                success=False,
+                total_duration_ms=total_duration,
+                total_cost_usd=0.0,
+                summary=f"QA discovery failed: {e}",
+            )
 
     # ── Discovery Swarm ─────────────────────────────────────────────
 

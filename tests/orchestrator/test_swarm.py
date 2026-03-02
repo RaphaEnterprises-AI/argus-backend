@@ -12,7 +12,7 @@ Covers:
 import asyncio
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -825,3 +825,163 @@ class TestSwarmConsensus:
         orch = SwarmOrchestrator()
         score = orch._compute_consensus(worker_results)
         assert 0.0 < score < 1.0
+
+
+# ===========================================================================
+# 7. QA Discovery Swarm
+# ===========================================================================
+
+
+class TestQADiscoverySwarm:
+    """Test QA_DISCOVERY mode: enum, agent list, phase chaining, conversion."""
+
+    def test_qa_discovery_mode_exists(self):
+        """QA_DISCOVERY should be a valid SwarmMode enum value."""
+        from src.orchestrator.swarm_orchestrator import SwarmMode
+
+        assert SwarmMode.QA_DISCOVERY == "qa_discovery"
+
+    def test_qa_discovery_in_swarm_mode_agents(self):
+        """SWARM_MODE_AGENTS should list auto_discovery + testgen."""
+        from src.orchestrator.swarm_orchestrator import SWARM_MODE_AGENTS, SwarmMode
+
+        agents = SWARM_MODE_AGENTS[SwarmMode.QA_DISCOVERY]
+        assert "auto_discovery" in agents
+        assert "testgen" in agents
+        assert len(agents) == 2
+
+    def test_format_discovery_queue(self):
+        """_format_discovery_queue should format pages and flows as text."""
+        from src.orchestrator.supervisor import _format_discovery_queue
+
+        queue = [
+            {"url": "https://example.com/", "title": "Home", "description": "Landing page", "forms": [], "type": "page"},
+            {"name": "Login Flow", "description": "User logs in", "category": "auth", "steps": [{"action": "click", "target": "Login"}], "type": "flow"},
+        ]
+        text = _format_discovery_queue(queue, "https://example.com")
+        assert "Home" in text
+        assert "Landing page" in text
+        assert "Login Flow" in text
+        assert "auth" in text
+
+    @pytest.mark.asyncio
+    async def test_qa_discovery_uses_supervisor(self, mock_emitter):
+        """QA discovery should delegate to the supervisor graph."""
+        from src.orchestrator.swarm_orchestrator import SwarmConfig, SwarmMode, SwarmOrchestrator
+
+        orch = SwarmOrchestrator()
+        config = SwarmConfig(
+            mode=SwarmMode.QA_DISCOVERY,
+            org_id="test-org",
+            project_id="test-project",
+            user_id="test-user",
+            target_url="https://example.com",
+        )
+
+        # Mock the supervisor graph to return a final state
+        mock_final_state = {
+            "task_complete": True,
+            "current_phase": "complete",
+            "iteration": 5,
+            "total_cost": 0.05,
+            "discovery_pages_found": 3,
+            "discovery_batch_index": 1,
+            "discovery_complete": True,
+            "testable_surfaces": [
+                {"url": "https://example.com/", "title": "Home", "type": "page"},
+                {"url": "https://example.com/login", "title": "Login", "type": "page"},
+            ],
+            "generated_tests": [
+                {"name": "test_home_loads", "framework": "playwright"},
+                {"name": "test_login_flow", "framework": "playwright"},
+            ],
+            "generated_requirements": [{"title": "Home page loads"}],
+            "results": {},
+        }
+
+        # Mock astream to yield the final state
+        async def mock_astream(initial_state, config, stream_mode="values"):
+            yield mock_final_state
+
+        mock_graph = MagicMock()
+        mock_compiled = MagicMock()
+        mock_compiled.astream = mock_astream
+        mock_graph.compile = MagicMock(return_value=mock_compiled)
+
+        with (
+            patch("src.orchestrator.supervisor.create_supervisor_graph", return_value=mock_graph),
+            patch("src.orchestrator.supervisor.create_initial_supervisor_state", return_value={
+                "messages": [], "discovery_complete": False, "discovery_queue": [],
+                "generated_tests": [], "org_id": "test-org", "project_id": "test-project",
+                "discovery_pages_found": 0, "discovery_batch_index": 0,
+                "testable_surfaces": [], "results": {}, "total_cost": 0,
+            }),
+            patch("src.orchestrator.checkpointer.get_checkpointer", return_value=MagicMock()),
+            patch(
+                "src.orchestrator.swarm_orchestrator.SwarmOrchestrator._verify_intent",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await orch._run_qa_discovery_swarm(
+                swarm_id="swarm_test",
+                config=config,
+                emitter=mock_emitter,
+            )
+
+        assert result.success is True
+        assert len(result.worker_results) == 2
+        assert result.worker_results[0].agent_type == "auto_discovery"
+        assert result.worker_results[1].agent_type == "testgen"
+        assert result.total_cost_usd == 0.05
+
+    @pytest.mark.asyncio
+    async def test_qa_discovery_handles_supervisor_failure(self, mock_emitter):
+        """If supervisor graph fails, should return error result."""
+        from src.orchestrator.swarm_orchestrator import SwarmConfig, SwarmMode, SwarmOrchestrator
+
+        orch = SwarmOrchestrator()
+        config = SwarmConfig(
+            mode=SwarmMode.QA_DISCOVERY,
+            org_id="test-org",
+            project_id="test-project",
+            user_id="test-user",
+            target_url="https://example.com",
+        )
+
+        with (
+            patch(
+                "src.orchestrator.supervisor.create_supervisor_graph",
+                side_effect=RuntimeError("Graph compilation failed"),
+            ),
+            patch("src.orchestrator.supervisor.create_initial_supervisor_state", return_value={
+                "messages": [], "discovery_complete": False, "discovery_queue": [],
+                "generated_tests": [], "org_id": "test-org", "project_id": "test-project",
+                "discovery_pages_found": 0, "discovery_batch_index": 0,
+                "testable_surfaces": [], "results": {}, "total_cost": 0,
+            }),
+            patch(
+                "src.orchestrator.swarm_orchestrator.SwarmOrchestrator._verify_intent",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await orch._run_qa_discovery_swarm(
+                swarm_id="swarm_test",
+                config=config,
+                emitter=mock_emitter,
+            )
+
+        assert result.success is False
+        assert "QA discovery failed" in result.summary
+
+    def test_launch_swarm_request_accepts_qa_discovery_mode(self):
+        """API model should accept qa_discovery mode."""
+        from src.api.swarms import LaunchSwarmRequest
+
+        req = LaunchSwarmRequest(
+            mode="qa_discovery",
+            project_id="proj-1",
+            target_url="https://example.com",
+        )
+        assert req.mode == "qa_discovery"

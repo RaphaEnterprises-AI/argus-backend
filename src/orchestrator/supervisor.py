@@ -48,7 +48,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.config import get_settings
-from src.core.model_registry import get_default_api_model_id
+from src.core.model_registry import get_orchestrator_api_model_id
 from src.orchestrator.langfuse_integration import get_langfuse_handler, flush_langfuse, score_trace
 
 logger = structlog.get_logger()
@@ -108,6 +108,20 @@ class SupervisorState(TypedDict):
     # Error handling
     error: str | None
 
+    # Discovery streaming (QA Discovery mode)
+    discovery_queue: list[dict] | None       # Pages/flows awaiting testgen processing
+    discovery_complete: bool                 # True when crawling finished or timed out
+    discovery_pages_found: int               # Total pages discovered across all batches
+    discovery_batch_index: int               # Current batch number (for resume)
+
+    # Test generation accumulator (QA Discovery mode)
+    generated_tests: list[dict] | None       # Accumulated BDD scenarios + test cases
+    generated_requirements: list[dict] | None  # Accumulated parsed requirements
+
+    # Multi-tenant context
+    org_id: str | None
+    project_id: str | None
+
 
 # Available agents and their capabilities
 AGENTS = [
@@ -127,6 +141,8 @@ AGENTS = [
     "testgen_agent",
     "testhealer_cicd",
     "qa_engineer",
+    # Discovery
+    "auto_discovery",
 ]
 
 AGENT_DESCRIPTIONS = {
@@ -145,6 +161,8 @@ AGENT_DESCRIPTIONS = {
     "testgen_agent": "Generates test suites from requirements (Jira/Figma/text), codebase analysis, PR diffs, or natural language. Use when new tests need to be created, when coverage gaps are identified, or when a PR needs test suggestions.",
     "testhealer_cicd": "CI/CD-aware healing orchestration. Processes CI failures, runs proactive scans, computes health scores, posts fix suggestions to PRs. Use for automated test maintenance, CI failure analysis, or proactive fragility detection.",
     "qa_engineer": "Autonomous QA engineer. Analyzes repo coverage, discovers user flows, identifies gaps with risk scoring, generates missing tests, computes quality scores. Use for quality audits, PR reviews requiring coverage analysis, or when comprehensive testing assessment is needed.",
+    # Discovery
+    "auto_discovery": "Crawls a web application to discover pages, forms, user flows, and API endpoints. Use when app_url is set and discovery_complete is False. Returns batches of 3-5 pages per invocation. Call repeatedly until discovery_complete is True.",
 }
 
 PHASE_DESCRIPTIONS = {
@@ -161,6 +179,7 @@ PHASE_DESCRIPTIONS = {
     "test_generation": "Generating new test cases from requirements or coverage gaps",
     "healing_scan": "Proactively scanning and healing fragile tests",
     "quality_audit": "Analyzing test coverage and computing quality scores",
+    "discovery": "Crawling the target application to discover pages, forms, flows, and testable surfaces",
 }
 
 
@@ -192,6 +211,7 @@ Workflow Guidelines:
 - For infrastructure issues or incident correlation, use sre_agent
 - When context is unclear or retrieval seems incomplete, use corrective_rag
 - If tools are missing for a task, use tool_discovery to create them
+- For QA discovery: alternate between auto_discovery (crawl batch) and testgen_agent (generate tests for batch)
 - Always end with reporter to generate final reports
 
 Decision Rules:
@@ -202,6 +222,9 @@ Decision Rules:
 - If infrastructure issues, alerts, or incident correlation is needed, use sre_agent
 - If you need documentation, historical patterns, or context retrieval, use corrective_rag
 - If existing tools are insufficient or API integration is needed, use tool_discovery
+- If app_url is set and discovery_complete is False and discovery_queue is empty, use auto_discovery
+- If discovery_queue has items waiting to be processed, use testgen_agent
+- If discovery_complete is True and discovery_queue is empty and generated_tests exist, use reporter
 - If all tests are complete or an error occurred, use reporter
 
 IMPORTANT: Respond with EXACTLY ONE of these options:
@@ -259,6 +282,15 @@ def create_initial_supervisor_state(
         total_input_tokens=0,
         total_output_tokens=0,
         error=None,
+        # Discovery streaming defaults
+        discovery_queue=[],
+        discovery_complete=False,
+        discovery_pages_found=0,
+        discovery_batch_index=0,
+        generated_tests=[],
+        generated_requirements=[],
+        org_id=None,
+        project_id=None,
     )
 
 
@@ -308,9 +340,9 @@ async def supervisor_node(state: SupervisorState, config: RunnableConfig) -> dic
             api_key = api_key.get_secret_value()
 
         llm = ChatAnthropic(
-            model=get_default_api_model_id(),
+            model=get_orchestrator_api_model_id(),
             api_key=api_key,
-            max_tokens=1024,
+            max_tokens=4096,
         )
 
         system_prompt = create_supervisor_prompt()
@@ -428,6 +460,8 @@ async def supervisor_node(state: SupervisorState, config: RunnableConfig) -> dic
             new_phase = "healing_scan"
         elif next_agent == "qa_engineer":
             new_phase = "quality_audit"
+        elif next_agent == "auto_discovery":
+            new_phase = "discovery"
 
         log.info("Supervisor routing", next_agent=next_agent, new_phase=new_phase)
 
@@ -1039,29 +1073,91 @@ async def supervisor_pentest_coordinator_node(state: SupervisorState) -> dict:
         }
 
 
+def _format_discovery_queue(queue: list[dict], app_url: str) -> str:
+    """Format discovery queue items as user story text for TestGenAgent."""
+    parts = [f"# Discovered Pages and Flows: {app_url}\n"]
+
+    pages = [item for item in queue if item.get("type") == "page"]
+    flows = [item for item in queue if item.get("type") == "flow"]
+
+    if pages:
+        parts.append("## Pages\n")
+        for i, page in enumerate(pages, 1):
+            title = page.get("title") or page.get("url", f"Page {i}")
+            parts.append(f"### {title}")
+            parts.append(f"URL: {page.get('url', '')}")
+            if page.get("description"):
+                parts.append(f"Description: {page['description']}")
+            forms = page.get("forms", [])
+            if forms:
+                parts.append("Forms: " + ", ".join(
+                    f.get("action", str(f)) if isinstance(f, dict) else str(f)
+                    for f in forms[:5]
+                ))
+            parts.append("")
+
+    if flows:
+        parts.append("## User Flows\n")
+        for flow in flows:
+            parts.append(f"### {flow.get('name', 'Flow')}")
+            if flow.get("category"):
+                parts.append(f"Category: {flow['category']}")
+            if flow.get("description"):
+                parts.append(f"Description: {flow['description']}")
+            steps = flow.get("steps", [])
+            if steps:
+                parts.append("Steps:")
+                for j, step in enumerate(steps[:10], 1):
+                    if isinstance(step, dict):
+                        parts.append(f"  {j}. {step.get('action', 'navigate')}: {step.get('target', step.get('url', ''))}")
+                    else:
+                        parts.append(f"  {j}. {step}")
+            parts.append("")
+
+    return "\n".join(parts)
+
+
 async def supervisor_testgen_agent_node(state: SupervisorState) -> dict:
-    """Wrapper for TestGen Agent that works with supervisor state."""
-    from src.agents.testgen_agent import TestGenAgent
+    """Wrapper for TestGen Agent that works with supervisor state.
+
+    Handles three source types in priority order:
+    1. discovery_queue (from auto_discovery batches)
+    2. changed_files (from PR analysis)
+    3. testable_surfaces (from code analysis)
+    """
+    from src.agents.testgen_agent import TestGenAgent, TestGenConfig
 
     log = logger.bind(node="supervisor_testgen_agent")
     log.info("Running TestGen agent")
 
     try:
         agent = TestGenAgent()
-
-        # Build source data from state context
         source_data = {}
-        source_type = "codebase_analysis"
+        source_type_str = "codebase_analysis"
+        gen_config = None
 
-        if state.get("changed_files"):
-            source_type = "github_pr"
+        # Priority 1: Discovery queue (from progressive QA discovery)
+        discovery_queue = state.get("discovery_queue") or []
+        if discovery_queue:
+            source_type_str = "user_story"
+            source_data = _format_discovery_queue(discovery_queue, state.get("app_url", ""))
+            gen_config = TestGenConfig(
+                app_url=state.get("app_url"),
+                bdd_style=True,
+            )
+
+        # Priority 2: Changed files (PR analysis)
+        elif state.get("changed_files"):
+            source_type_str = "github_pr"
             source_data = {
                 "title": f"PR #{state.get('pr_number', 'unknown')}",
                 "changed_files": state.get("changed_files", []),
                 "body": "",
             }
+
+        # Priority 3: Testable surfaces (code analysis)
         elif state.get("testable_surfaces"):
-            source_type = "codebase_analysis"
+            source_type_str = "codebase_analysis"
             source_data = {
                 "functions": [s for s in state.get("testable_surfaces", []) if s.get("type") == "function"],
                 "endpoints": [s for s in state.get("testable_surfaces", []) if s.get("type") == "endpoint"],
@@ -1071,22 +1167,60 @@ async def supervisor_testgen_agent_node(state: SupervisorState) -> dict:
         result = await agent.generate(
             org_id=state.get("org_id", "default"),
             project_id=state.get("project_id", "default"),
-            source_type=source_type,
+            source_type=source_type_str,
             source_data=source_data,
-            config={},
+            config=gen_config or {},
         )
 
-        tests_count = result.get("tests_generated", 0) if isinstance(result, dict) else getattr(result, "tests_generated", 0)
-        summary = f"Generated {tests_count} tests from {source_type}."
+        # Extract results from either object or dict response
+        if hasattr(result, "tests"):
+            new_tests = [t.to_dict() if hasattr(t, "to_dict") else {"name": t.name} for t in result.tests]
+            new_reqs = [r.to_dict() if hasattr(r, "to_dict") else {"title": r.title} for r in getattr(result, "requirements", [])]
+            tests_count = len(new_tests)
+            quality = getattr(result, "quality_score", 0)
+            cost = getattr(result, "ai_cost", 0)
+        elif isinstance(result, dict):
+            tests_count = result.get("tests_generated", 0)
+            new_tests = result.get("tests", [])
+            new_reqs = result.get("requirements", [])
+            quality = result.get("quality_score", 0)
+            cost = result.get("cost", 0)
+        else:
+            tests_count = 0
+            new_tests = []
+            new_reqs = []
+            quality = 0
+            cost = 0
+
+        # Accumulate tests across batches
+        accumulated_tests = list(state.get("generated_tests") or []) + new_tests
+        accumulated_reqs = list(state.get("generated_requirements") or []) + new_reqs
+
+        # Determine next phase
+        discovery_complete = state.get("discovery_complete", True)
+        if not discovery_complete:
+            next_phase = "discovery"  # Go back for more pages
+        else:
+            next_phase = "reporting"  # All done
+
+        summary = f"Generated {tests_count} tests from {source_type_str} (total: {len(accumulated_tests)})"
+        if quality:
+            summary += f", quality: {quality:.0%}"
 
         return {
             "messages": [AIMessage(content=f"TestGen: {summary}")],
-            "current_phase": "execution",
+            "discovery_queue": [],  # Clear processed queue
+            "generated_tests": accumulated_tests,
+            "generated_requirements": accumulated_reqs,
+            "current_phase": next_phase,
+            "total_cost": state.get("total_cost", 0) + cost,
             "results": {
                 **state.get("results", {}),
                 "test_generation": {
-                    "tests_generated": tests_count,
-                    "source_type": source_type,
+                    "tests_generated": len(accumulated_tests),
+                    "source_type": source_type_str,
+                    "quality_score": quality,
+                    "batch_count": len([k for k in state.get("results", {}) if k.startswith("discovery_batch")]),
                 }
             },
         }
@@ -1204,6 +1338,174 @@ async def supervisor_qa_engineer_node(state: SupervisorState) -> dict:
         }
 
 
+async def supervisor_auto_discovery_node(state: SupervisorState) -> dict:
+    """Wrapper for AutoDiscovery that yields page batches into supervisor state.
+
+    Each invocation crawls up to BATCH_SIZE pages and writes them to
+    discovery_queue for testgen to process. Sets discovery_complete=True
+    when no more pages to crawl or max batches reached.
+    """
+    from src.agents import AutoDiscovery
+
+    log = logger.bind(node="supervisor_auto_discovery")
+
+    BATCH_SIZE = 5
+    MAX_BATCHES = 10
+    BATCH_TIMEOUT = 30  # seconds
+
+    app_url = state.get("app_url")
+    if not app_url:
+        return {
+            "messages": [AIMessage(content="Auto-discovery: No app_url provided.")],
+            "discovery_complete": True,
+            "current_phase": "reporting",
+        }
+
+    batch_index = state.get("discovery_batch_index", 0)
+    pages_found_so_far = state.get("discovery_pages_found", 0)
+
+    if batch_index >= MAX_BATCHES:
+        log.info("Max discovery batches reached", batches=batch_index)
+        return {
+            "messages": [AIMessage(content=f"Discovery complete: reached max {MAX_BATCHES} batches ({pages_found_so_far} pages total).")],
+            "discovery_complete": True,
+            "current_phase": "test_generation" if pages_found_so_far > 0 else "reporting",
+        }
+
+    log.info("Running discovery batch", batch=batch_index, pages_so_far=pages_found_so_far)
+
+    try:
+        import asyncio
+
+        discovery = AutoDiscovery(app_url=app_url, max_pages=BATCH_SIZE)
+
+        # Track already-discovered URLs to avoid duplicates
+        existing_surfaces = state.get("testable_surfaces") or []
+        already_discovered_urls = {
+            s.get("url", "") for s in existing_surfaces if s.get("url")
+        }
+
+        try:
+            result = await asyncio.wait_for(
+                discovery.discover(),
+                timeout=BATCH_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.warning("Discovery batch timed out", batch=batch_index)
+            return {
+                "messages": [AIMessage(content=f"Discovery batch {batch_index + 1} timed out after {BATCH_TIMEOUT}s. Continuing with what we have.")],
+                "discovery_complete": True,
+                "current_phase": "test_generation" if pages_found_so_far > 0 else "reporting",
+            }
+        except Exception as playwright_err:
+            # Selenium Grid fallback
+            log.warning("Playwright unavailable, trying Selenium Grid", error=str(playwright_err))
+            try:
+                from src.browser.selenium_grid_client import SeleniumGridClient
+                async with SeleniumGridClient() as grid:
+                    grid_result = await asyncio.wait_for(
+                        grid.discover(start_url=app_url, max_pages=BATCH_SIZE, max_depth=2),
+                        timeout=BATCH_TIMEOUT,
+                    )
+                    new_pages = [
+                        {"url": p.url, "title": getattr(p, "title", ""), "type": "page"}
+                        for p in grid_result.pages
+                        if p.url not in already_discovered_urls
+                    ]
+                    return {
+                        "messages": [AIMessage(content=f"Discovery (Selenium Grid): found {len(new_pages)} pages.")],
+                        "discovery_queue": new_pages,
+                        "discovery_complete": True,
+                        "discovery_pages_found": pages_found_so_far + len(new_pages),
+                        "discovery_batch_index": batch_index + 1,
+                        "testable_surfaces": [
+                            *(state.get("testable_surfaces") or []),
+                            *new_pages,
+                        ],
+                        "current_phase": "test_generation" if new_pages else "reporting",
+                    }
+            except Exception as grid_err:
+                log.error("Both Playwright and Selenium Grid failed", error=str(grid_err))
+                return {
+                    "messages": [AIMessage(content=f"Discovery failed: Playwright ({playwright_err}), Selenium Grid ({grid_err})")],
+                    "discovery_complete": True,
+                    "error": f"Discovery failed: {grid_err}",
+                    "current_phase": "reporting",
+                }
+
+        # Convert DiscoveryResult pages to queue items (filter already-seen)
+        new_pages = []
+        for page in result.pages_discovered:
+            url = getattr(page, "url", "")
+            if url and url not in already_discovered_urls:
+                new_pages.append({
+                    "url": url,
+                    "title": getattr(page, "title", ""),
+                    "description": getattr(page, "description", ""),
+                    "forms": [
+                        f if isinstance(f, dict) else str(f)
+                        for f in getattr(page, "forms", [])[:5]
+                    ],
+                    "type": "page",
+                })
+
+        new_flows = []
+        for flow in result.flows_discovered:
+            new_flows.append({
+                "name": getattr(flow, "name", ""),
+                "description": getattr(flow, "description", ""),
+                "category": getattr(flow, "category", ""),
+                "priority": getattr(flow, "priority", "medium"),
+                "steps": getattr(flow, "steps", [])[:10],
+                "type": "flow",
+            })
+
+        queue_items = new_pages + new_flows
+        new_surfaces = [{"url": p["url"], "title": p["title"], "type": "page"} for p in new_pages]
+
+        # Done if this batch found fewer pages than BATCH_SIZE (exhausted)
+        is_done = len(result.pages_discovered) < BATCH_SIZE
+
+        total_pages = pages_found_so_far + len(new_pages)
+        summary_parts = [f"Batch {batch_index + 1}: {len(new_pages)} pages"]
+        if new_flows:
+            summary_parts.append(f"{len(new_flows)} flows")
+        summary_parts.append(f"({total_pages} total)")
+        if is_done:
+            summary_parts.append("- crawling complete")
+
+        summary = "Discovery " + ", ".join(summary_parts)
+
+        return {
+            "messages": [AIMessage(content=summary)],
+            "discovery_queue": queue_items,
+            "discovery_complete": is_done,
+            "discovery_pages_found": total_pages,
+            "discovery_batch_index": batch_index + 1,
+            "testable_surfaces": [
+                *(state.get("testable_surfaces") or []),
+                *new_surfaces,
+            ],
+            "current_phase": "test_generation",
+            "results": {
+                **state.get("results", {}),
+                f"discovery_batch_{batch_index}": {
+                    "pages": len(new_pages),
+                    "flows": len(new_flows),
+                    "total_pages": total_pages,
+                },
+            },
+        }
+
+    except Exception as e:
+        log.error("Auto-discovery node failed", error=str(e))
+        return {
+            "messages": [AIMessage(content=f"Discovery error: {str(e)}")],
+            "discovery_complete": True,
+            "current_phase": "reporting" if pages_found_so_far == 0 else "test_generation",
+        }
+
+
 def create_supervisor_graph() -> StateGraph:
     """Create the multi-agent supervisor graph.
 
@@ -1270,6 +1572,9 @@ def create_supervisor_graph() -> StateGraph:
     graph.add_node("testhealer_cicd", supervisor_testhealer_cicd_node)
     graph.add_node("qa_engineer", supervisor_qa_engineer_node)
 
+    # Discovery
+    graph.add_node("auto_discovery", supervisor_auto_discovery_node)
+
     # Entry point
     graph.set_entry_point("supervisor")
 
@@ -1294,6 +1599,8 @@ def create_supervisor_graph() -> StateGraph:
             "testgen_agent": "testgen_agent",
             "testhealer_cicd": "testhealer_cicd",
             "qa_engineer": "qa_engineer",
+            # Discovery
+            "auto_discovery": "auto_discovery",
             "end": END,
         }
     )
