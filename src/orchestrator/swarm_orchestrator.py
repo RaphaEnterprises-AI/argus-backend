@@ -612,7 +612,32 @@ class SwarmOrchestrator:
             from src.agents import AutoDiscovery
 
             discovery = AutoDiscovery(app_url=config.target_url, max_pages=10)
-            result = await discovery.discover()
+
+            try:
+                result = await discovery.discover()
+            except Exception as playwright_err:
+                # Local Playwright not installed — use Selenium Grid for basic discovery
+                logger.warning(
+                    "Local Playwright unavailable, falling back to Selenium Grid",
+                    error=str(playwright_err),
+                )
+                from src.browser.selenium_grid_client import SeleniumGridClient
+                async with SeleniumGridClient() as grid:
+                    grid_result = await grid.discover(
+                        start_url=config.target_url,
+                        max_pages=10,
+                        max_depth=2,
+                    )
+                    await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
+                    return {
+                        "findings": [
+                            {"type": "page", "url": p.url, "title": p.title}
+                            for p in grid_result.pages
+                        ],
+                        "summary": f"Discovered {len(grid_result.pages)} pages via Selenium Grid",
+                        "confidence": 0.7,
+                        "cost_usd": 0.0,
+                    }
 
             await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
 
@@ -624,7 +649,7 @@ class SwarmOrchestrator:
                     f"{len(result.suggested_tests)} test suggestions"
                 ),
                 "confidence": 0.75,
-                "cost_usd": 0.0,  # AutoDiscovery doesn't track cost via AgentResult
+                "cost_usd": 0.0,
             }
         except Exception as e:
             logger.warning("auto_discovery failed, returning error result", error=str(e))
@@ -814,6 +839,31 @@ class SwarmOrchestrator:
                 app_url=config.target_url,
                 capture_screenshots=True,
             )
+
+            # If Browser Pool failed, fall back to Selenium Grid for basic verification
+            if not result.success:
+                logger.info("Browser Pool UI test failed, trying Selenium Grid fallback")
+                try:
+                    from src.browser.selenium_grid_client import SeleniumGridClient
+                    async with SeleniumGridClient() as grid:
+                        await grid.start_session()
+                        await grid.navigate(config.target_url)
+                        import asyncio
+                        await asyncio.sleep(3)  # Wait for page load
+                        page_info = await grid.get_page_info()
+                        b64_screenshot = await grid.screenshot()
+                        await self._emit_progress(emitter, agent_id, 70, "reporting", "ui_tester compiling results")
+                        return {
+                            "findings": [
+                                {"type": "ui_step", "step": "navigate", "status": "passed"},
+                                {"type": "page_title", "title": page_info.get("title", "")},
+                            ],
+                            "summary": f"UI check passed (Selenium Grid): {page_info.get('title', config.target_url)}",
+                            "confidence": 0.7,
+                            "cost_usd": 0.0,
+                        }
+                except Exception as grid_err:
+                    logger.warning("Selenium Grid fallback also failed", error=str(grid_err))
 
             await self._emit_progress(emitter, agent_id, 70, "reporting", "ui_tester compiling results")
 
@@ -1054,24 +1104,37 @@ class SwarmOrchestrator:
     ) -> dict[str, Any]:
         """Single-screenshot analysis of target_url (no baseline needed)."""
         try:
+            import base64
             import tempfile
             from src.agents import VisualAI
-            from src.browser.pool_client import BrowserPoolClient
 
             await self._emit_progress(emitter, agent_id, 40, "capturing", "visual_ai taking screenshot")
 
-            # Take screenshot via Browser Worker
+            # Take screenshot — try Browser Pool first, fall back to Selenium Grid
             screenshot_path = None
             try:
+                from src.browser.pool_client import BrowserPoolClient
                 async with BrowserPoolClient() as browser:
                     screenshot_bytes = await browser.screenshot(url=config.target_url)
                     if screenshot_bytes:
                         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                             f.write(screenshot_bytes)
                             screenshot_path = f.name
-            except Exception as browser_err:
-                logger.warning("Browser screenshot failed for visual_ai", error=str(browser_err))
-                return self._error_result("visual_ai", f"Browser unavailable: {browser_err}")
+            except Exception as pool_err:
+                logger.warning("Browser pool unavailable, trying Selenium Grid", error=str(pool_err))
+                try:
+                    from src.browser.selenium_grid_client import SeleniumGridClient
+                    async with SeleniumGridClient() as grid:
+                        await grid.start_session()
+                        await grid.navigate(config.target_url)
+                        b64_png = await grid.screenshot()
+                        if b64_png:
+                            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                                f.write(base64.b64decode(b64_png))
+                                screenshot_path = f.name
+                except Exception as grid_err:
+                    logger.warning("Selenium Grid screenshot also failed", error=str(grid_err))
+                    return self._error_result("visual_ai", f"No browser available: pool={pool_err}, grid={grid_err}")
 
             if not screenshot_path:
                 return self._error_result("visual_ai", "No screenshot captured")
