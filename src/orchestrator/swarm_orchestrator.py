@@ -135,6 +135,7 @@ class SwarmConfig:
     codebase_path: str | None = None  # Local path for code_analyzer
     repository_url: str | None = None  # GitHub URL for code-aware analysis
     max_discovery_agents: int | None = None  # Cap for DISCOVERY_SWARM Phase 2
+    recon_context: dict | None = None  # Pre-flight reconnaissance results
 
 
 class SwarmOrchestrator:
@@ -215,6 +216,24 @@ class SwarmOrchestrator:
                 return await self._run_qa_discovery_swarm(
                     swarm_id, config, emitter
                 )
+
+            # Pre-flight reconnaissance — understand the target before launching agents.
+            # Gives every agent rich context: public pages, auth type, OpenAPI spec.
+            if config.target_url and not config.recon_context:
+                import dataclasses as _dc
+                try:
+                    recon = await self._preflight_recon(config.target_url)
+                    config = _dc.replace(config, recon_context=recon)
+                    logger.info(
+                        "Pre-flight recon complete",
+                        target=config.target_url,
+                        public_pages=len(recon.get("public_pages", [])),
+                        auth_detected=recon.get("auth_detected"),
+                        openapi_found=recon.get("openapi_spec") is not None,
+                        api_endpoints=len(recon.get("api_endpoints", [])),
+                    )
+                except Exception as recon_err:
+                    logger.warning("Pre-flight recon failed, continuing without context", error=str(recon_err))
 
             # Scatter: spawn all workers concurrently
             tasks = []
@@ -622,6 +641,20 @@ class SwarmOrchestrator:
         try:
             from src.agents import AutoDiscovery
 
+            # Pre-seed findings from recon — available immediately
+            recon = config.recon_context or {}
+            recon_pages = recon.get("public_pages", [])
+            recon_findings: list[dict] = [
+                {"type": "page", "url": p["url"], "title": p.get("title", ""), "source": "recon"}
+                for p in recon_pages if not p.get("auth_redirect")
+            ]
+            if recon.get("auth_detected"):
+                recon_findings.append({
+                    "type": "auth_wall",
+                    "auth_provider": recon.get("auth_provider") or recon.get("auth_type", "unknown"),
+                    "message": "Auth-protected pages skipped. Provide credentials for full crawl.",
+                })
+
             discovery = AutoDiscovery(app_url=config.target_url, max_pages=10)
 
             try:
@@ -640,30 +673,49 @@ class SwarmOrchestrator:
                         max_depth=2,
                     )
                     await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
+                    grid_findings = [
+                        {"type": "page", "url": p.url, "title": p.title}
+                        for p in grid_result.pages
+                    ]
+                    all_findings = recon_findings + grid_findings
                     return {
-                        "findings": [
-                            {"type": "page", "url": p.url, "title": p.title}
-                            for p in grid_result.pages
-                        ],
-                        "summary": f"Discovered {len(grid_result.pages)} pages via Selenium Grid",
+                        "findings": all_findings,
+                        "summary": (
+                            f"Discovered {len(grid_result.pages)} pages via Selenium Grid"
+                            + (f", {len(recon_findings)} from recon" if recon_findings else "")
+                        ),
                         "confidence": 0.7,
                         "cost_usd": 0.0,
                     }
 
             await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
 
+            crawl_findings = result.suggested_tests or []
+            all_findings = recon_findings + crawl_findings
             return {
-                "findings": result.suggested_tests,
+                "findings": all_findings,
                 "summary": (
                     f"Discovered {len(result.pages_discovered)} pages, "
                     f"{len(result.flows_discovered)} flows, "
                     f"{len(result.suggested_tests)} test suggestions"
+                    + (f" | {len(recon_findings)} pages from recon" if recon_findings else "")
                 ),
                 "confidence": 0.75,
                 "cost_usd": 0.0,
             }
         except Exception as e:
             logger.warning("auto_discovery failed, returning error result", error=str(e))
+            # Still return recon findings if the browser crawl failed
+            if recon_findings:
+                return {
+                    "findings": recon_findings,
+                    "summary": (
+                        f"Browser crawl failed ({e}); "
+                        f"{len(recon_findings)} pages found via recon"
+                    ),
+                    "confidence": 0.5,
+                    "cost_usd": 0.0,
+                }
             return self._error_result("auto_discovery", str(e))
 
     async def _run_code_analyzer(
@@ -673,13 +725,32 @@ class SwarmOrchestrator:
             from src.agents import CodeAnalyzerAgent
 
             agent = CodeAnalyzerAgent()
-            codebase_path = config.codebase_path or "."
             app_url = config.target_url or "http://localhost:3000"
 
+            recon = config.recon_context or {}
+            # If no local codebase is provided, inject page HTML and recon signals
+            # as synthetic "file contents" so the analyzer has something meaningful.
+            if not config.codebase_path:
+                recon_summary = (
+                    f"Target: {app_url}\n"
+                    f"Framework: {recon.get('framework', 'unknown')}\n"
+                    f"Title: {recon.get('title', '')}\n"
+                    f"Description: {recon.get('description', '')}\n"
+                    f"Auth detected: {recon.get('auth_detected')} ({recon.get('auth_provider', '')})\n"
+                    f"Public pages: {[p['url'] for p in recon.get('public_pages', [])[:10]]}\n"
+                    f"API endpoints: {[e['path'] for e in recon.get('api_endpoints', [])[:20]]}\n"
+                    f"\n--- Page HTML snippet ---\n{recon.get('raw_html_snippet', '')[:2000]}"
+                )
+                file_contents = {"index.html": recon_summary}
+            else:
+                file_contents = None
+
+            codebase_path = config.codebase_path or "."
             result = await agent.execute(
                 codebase_path=codebase_path,
                 app_url=app_url,
                 changed_files=[f.get("path", f) if isinstance(f, dict) else f for f in (config.changed_files or [])],
+                file_contents=file_contents,
             )
 
             await self._emit_progress(emitter, agent_id, 70, "reporting", "code_analyzer compiling results")
@@ -830,21 +901,46 @@ class SwarmOrchestrator:
     async def _run_ui_tester(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
     ) -> dict[str, Any]:
-        """Exploratory UI test: navigate to target_url, screenshot, verify body."""
+        """UI tests enriched by pre-flight recon public page list.
+
+        Tests every public page discovered during recon (capped at 5) instead
+        of just a single "goto + assert body" spec.  Also records whether pages
+        load correctly behind auth (expected redirect) vs. actual UI errors.
+        """
+        recon = config.recon_context or {}
+        public_pages = recon.get("public_pages", [])
+        auth_detected = recon.get("auth_detected", False)
+
+        # Build test steps for each public page (cap at 5 to stay within budget)
+        pages_to_test = [
+            p for p in public_pages
+            if not p.get("auth_redirect") and not p.get("from_sitemap")
+        ][:5]
+
+        if not pages_to_test:
+            # Fallback: test the root URL
+            pages_to_test = [{"url": config.target_url}]
+
+        steps: list[dict] = []
+        for page in pages_to_test:
+            url = page.get("url", config.target_url)
+            steps += [
+                {"action": "goto", "target": url},
+                {"action": "wait", "timeout": 2000},
+                {"action": "screenshot"},
+                {"action": "assert", "target": "body", "value": "visible"},
+            ]
+
+        test_spec = {
+            "id": f"swarm_ui_{uuid.uuid4().hex[:8]}",
+            "name": f"Swarm UI check ({len(pages_to_test)} public pages)",
+            "steps": steps,
+        }
+
         try:
             from src.agents import UITesterAgent
 
             agent = UITesterAgent()
-            test_spec = {
-                "id": f"swarm_ui_{uuid.uuid4().hex[:8]}",
-                "name": "Swarm exploratory UI check",
-                "steps": [
-                    {"action": "goto", "target": config.target_url},
-                    {"action": "wait", "timeout": 3000},
-                    {"action": "screenshot"},
-                    {"action": "assert", "target": "body", "value": "visible"},
-                ],
-            }
             result = await agent.execute(
                 test_spec=test_spec,
                 app_url=config.target_url,
@@ -881,74 +977,209 @@ class SwarmOrchestrator:
             if result.success and result.data:
                 ui = result.data
                 findings = [
-                    {"type": "ui_step", "step": s.action if hasattr(s, "action") else str(s), "status": getattr(s, "status", "unknown")}
+                    {
+                        "type": "ui_step",
+                        "step": s.action if hasattr(s, "action") else str(s),
+                        "status": getattr(s, "status", "unknown"),
+                    }
                     for s in getattr(ui, "steps", [])
+                ]
+                # Append recon-derived context findings
+                if auth_detected:
+                    findings.append({
+                        "type": "auth_detected",
+                        "auth_provider": recon.get("auth_provider") or recon.get("auth_type", "unknown"),
+                        "message": "App requires authentication. Tested only public pages.",
+                    })
+                findings += [
+                    {"type": "public_page", "url": p["url"], "status": p.get("status")}
+                    for p in public_pages if not p.get("auth_redirect")
                 ]
                 return {
                     "findings": findings,
-                    "summary": f"UI check {'passed' if ui.status == 'passed' else 'failed'}: {config.target_url}",
+                    "summary": (
+                        f"UI: {'passed' if ui.status == 'passed' else 'failed'} "
+                        f"({len(pages_to_test)} public pages tested)"
+                        + (" | Auth required for app pages" if auth_detected else "")
+                    ),
                     "confidence": 0.8 if ui.status == "passed" else 0.4,
                     "cost_usd": result.cost,
                 }
+
+            # Agent failed — still return recon-derived page inventory
+            recon_findings: list[dict] = []
+            if auth_detected:
+                recon_findings.append({
+                    "type": "auth_detected",
+                    "auth_provider": recon.get("auth_provider") or recon.get("auth_type", "unknown"),
+                    "message": "App requires authentication. Only public pages can be tested without credentials.",
+                })
+            recon_findings += [
+                {"type": "public_page", "url": p["url"], "status": p.get("status")}
+                for p in public_pages if not p.get("auth_redirect")
+            ]
             return {
-                "findings": [],
-                "summary": result.error or "UI test returned no results",
-                "confidence": 0.0,
+                "findings": recon_findings,
+                "summary": result.error or "UI agent unavailable; page inventory from recon",
+                "confidence": 0.4 if recon_findings else 0.0,
                 "cost_usd": result.cost,
             }
         except Exception as e:
             logger.warning("ui_tester failed, returning error result", error=str(e))
+            # Even on total failure, surface recon findings
+            fallback = [
+                {"type": "public_page", "url": p["url"], "status": p.get("status")}
+                for p in public_pages if not p.get("auth_redirect")
+            ]
+            if fallback:
+                return {
+                    "findings": fallback,
+                    "summary": f"UI agent error ({e}); {len(fallback)} public pages found via recon",
+                    "confidence": 0.3,
+                    "cost_usd": 0.0,
+                }
             return self._error_result("ui_tester", str(e))
 
     async def _run_api_tester(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
     ) -> dict[str, Any]:
-        """Exploratory API probe: check common endpoints for reachability."""
+        """API probe enriched with OpenAPI spec from pre-flight recon.
+
+        If the recon phase found an OpenAPI spec, we build test requests from the
+        actual endpoint definitions (GET-only, no required path params) and execute
+        them against the correct server base URL.  This replaces the old 4-path
+        hardcoded probe with real endpoint coverage.
+
+        If no spec is available, falls back to probing common health / robots paths.
+        Either way, auth detection and spec discovery are reported as findings.
+        """
+        recon = config.recon_context or {}
+        openapi_spec = recon.get("openapi_spec")
+        findings: list[dict[str, Any]] = []
+
+        # ── Report what recon found (always surfaced as findings) ─────
+        if recon.get("auth_detected"):
+            findings.append({
+                "type": "auth_required",
+                "auth_provider": recon.get("auth_provider") or recon.get("auth_type", "unknown"),
+                "severity": "info",
+                "message": (
+                    f"Authentication detected ({recon.get('auth_provider') or recon.get('auth_type', 'unknown')}). "
+                    "Provide credentials for full API coverage."
+                ),
+            })
+
+        if openapi_spec:
+            spec_paths = openapi_spec.get("paths", {})
+            findings.append({
+                "type": "openapi_spec_found",
+                "url": recon.get("openapi_url"),
+                "endpoint_count": len(spec_paths),
+                "title": openapi_spec.get("info", {}).get("title", ""),
+                "version": openapi_spec.get("info", {}).get("version", ""),
+            })
+
+        # ── Build test requests ───────────────────────────────────────
+        if openapi_spec:
+            spec_paths = openapi_spec.get("paths", {})
+            servers = openapi_spec.get("servers", [])
+            # Prefer the spec's server URL; fall back to target_url
+            api_base_url = (servers[0]["url"] if servers else config.target_url) or config.target_url
+            if api_base_url and not api_base_url.startswith("http"):
+                api_base_url = config.target_url  # relative base — use target
+
+            test_requests = []
+            for path, methods in list(spec_paths.items())[:20]:
+                # Skip paths with required path parameters (would return 404/422)
+                if "{" in path:
+                    continue
+                for method in ("get", "head"):
+                    if method in methods:
+                        test_requests.append({
+                            "method": method.upper(),
+                            "path": path,
+                            # Accept auth errors — we want to know if endpoint exists
+                            "expected_status": [200, 201, 204, 301, 302, 401, 403, 404],
+                        })
+                        break
+
+            if not test_requests:
+                # Spec found but all paths have path params; probe health endpoints
+                test_requests = [
+                    {"method": "GET", "path": "/health", "expected_status": [200, 404]},
+                    {"method": "GET", "path": "/api/v1/health", "expected_status": [200, 404]},
+                ]
+        else:
+            api_base_url = config.target_url
+            test_requests = [
+                {"method": "GET", "path": "/",                  "expected_status": [200, 301, 302]},
+                {"method": "GET", "path": "/health",            "expected_status": [200, 404]},
+                {"method": "GET", "path": "/api/health",        "expected_status": [200, 404]},
+                {"method": "GET", "path": "/api/v1/health",     "expected_status": [200, 404]},
+                {"method": "GET", "path": "/sitemap.xml",       "expected_status": [200, 404]},
+                {"method": "GET", "path": "/robots.txt",        "expected_status": [200, 404]},
+            ]
+
+        test_spec = {
+            "id": f"swarm_api_{uuid.uuid4().hex[:8]}",
+            "name": "OpenAPI-driven API probe" if openapi_spec else "Exploratory API probe",
+            "requests": test_requests,
+        }
+
         try:
             from src.agents import APITesterAgent
 
             agent = APITesterAgent()
-            probe_paths = ["/", "/api", "/health", "/api/v1/health"]
-            test_spec = {
-                "id": f"swarm_api_{uuid.uuid4().hex[:8]}",
-                "name": "Swarm exploratory API probe",
-                "requests": [
-                    {"method": "GET", "path": path, "expected_status": [200, 301, 302, 404]}
-                    for path in probe_paths
-                ],
-            }
-            result = await agent.execute(
-                test_spec=test_spec,
-                app_url=config.target_url,
-            )
+            result = await agent.execute(test_spec=test_spec, app_url=api_base_url)
 
             await self._emit_progress(emitter, agent_id, 70, "reporting", "api_tester compiling results")
 
             if result.success and result.data:
                 api = result.data
-                findings = [
-                    {
+                for r in getattr(api, "requests", []):
+                    sc = getattr(r, "status_code", 0)
+                    findings.append({
                         "type": "api_endpoint",
                         "path": getattr(r, "path", "unknown"),
-                        "status_code": getattr(r, "status_code", 0),
+                        "status_code": sc,
                         "success": getattr(r, "success", False),
-                    }
-                    for r in getattr(api, "requests", [])
-                ]
+                        "duration_ms": getattr(r, "duration_ms", 0),
+                        "auth_required": sc in (401, 403),
+                    })
+
+                probed = [f for f in findings if f["type"] == "api_endpoint"]
+                reachable = sum(1 for f in probed if f.get("success"))
+                spec_note = (
+                    f" | OpenAPI: {len(openapi_spec.get('paths', {}))} endpoints declared"
+                    if openapi_spec else ""
+                )
                 return {
                     "findings": findings,
-                    "summary": f"API probe: {sum(1 for f in findings if f.get('success'))}/{len(findings)} endpoints reachable",
-                    "confidence": 0.7,
-                    "cost_usd": result.cost,
+                    "summary": f"API: {reachable}/{len(probed)} reachable{spec_note}",
+                    "confidence": 0.85 if openapi_spec else 0.6,
+                    "cost_usd": getattr(result, "cost", 0.0),
                 }
+
+            # Agent failed internally — still surface the recon findings
             return {
-                "findings": [],
-                "summary": result.error or "API test returned no results",
-                "confidence": 0.0,
-                "cost_usd": result.cost,
+                "findings": findings,
+                "summary": (
+                    result.error or "API agent could not execute probe requests. "
+                    + (f"OpenAPI spec found with {len(openapi_spec.get('paths', {}))} endpoints." if openapi_spec else "No OpenAPI spec found.")
+                ),
+                "confidence": 0.3 if findings else 0.0,
+                "cost_usd": getattr(result, "cost", 0.0),
             }
         except Exception as e:
-            logger.warning("api_tester failed, returning error result", error=str(e))
+            logger.warning("api_tester agent raised exception", error=str(e))
+            # Still surface recon findings even when agent crashes
+            if findings:
+                return {
+                    "findings": findings,
+                    "summary": f"API agent error ({e}); recon findings still available",
+                    "confidence": 0.3,
+                    "cost_usd": 0.0,
+                }
             return self._error_result("api_tester", str(e))
 
     async def _run_self_healer(
@@ -1178,6 +1409,187 @@ class SwarmOrchestrator:
         except Exception as e:
             logger.warning("visual_ai failed, returning error result", error=str(e))
             return self._error_result("visual_ai", str(e))
+
+    # ── Pre-flight reconnaissance ─────────────────────────────────────
+
+    async def _preflight_recon(self, target_url: str) -> dict[str, Any]:
+        """Intelligent pre-flight reconnaissance before launching the agent swarm.
+
+        Uses cheap HTTP probes (no AI, no browser) to discover:
+        - Which pages are publicly accessible (no auth required)
+        - What authentication system is in use (Clerk, Auth0, etc.)
+        - Whether an OpenAPI/Swagger spec is available
+        - Security headers present on the root response
+        - Page title, description, and framework signals
+
+        This context is threaded through SwarmConfig.recon_context so every
+        agent runner can make smarter decisions (e.g. APITester tests real
+        endpoints from the spec instead of 4 hardcoded probe paths).
+        """
+        import re
+        from urllib.parse import urlparse
+
+        import httpx
+
+        base = target_url.rstrip("/")
+        recon: dict[str, Any] = {
+            "public_pages": [],
+            "api_endpoints": [],
+            "auth_detected": False,
+            "auth_type": None,
+            "auth_provider": None,
+            "openapi_spec": None,
+            "openapi_url": None,
+            "response_headers": {},
+            "security_headers": {},
+            "title": "",
+            "description": "",
+            "framework": None,
+            "raw_html_snippet": "",
+        }
+
+        SECURITY_HEADER_NAMES = {
+            "x-frame-options", "content-security-policy",
+            "x-content-type-options", "strict-transport-security",
+            "x-xss-protection", "referrer-policy",
+            "permissions-policy", "access-control-allow-origin",
+        }
+
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
+            headers={"User-Agent": "Skopaq/1.0 ReconBot (+https://skopaq.ai)"},
+        ) as client:
+
+            # ── 1. Root page ──────────────────────────────────────────
+            try:
+                resp = await client.get(base)
+                final_url = str(resp.url)
+                body_text = resp.text
+                body_lower = body_text.lower()
+
+                recon["response_headers"] = dict(resp.headers)
+                recon["security_headers"] = {
+                    k: v for k, v in resp.headers.items()
+                    if k.lower() in SECURITY_HEADER_NAMES
+                }
+
+                # Auth detection — redirect or body signals
+                if any(kw in final_url for kw in ["/sign-in", "/login", "/auth", "/signin"]):
+                    recon["auth_detected"] = True
+                    recon["auth_type"] = "redirect"
+                if "__clerk" in body_lower or "clerk" in body_lower:
+                    recon["auth_detected"] = True
+                    recon["auth_type"] = "clerk"
+                    recon["auth_provider"] = "Clerk"
+                elif "auth0" in body_lower:
+                    recon["auth_detected"] = True
+                    recon["auth_type"] = "auth0"
+                    recon["auth_provider"] = "Auth0"
+
+                # Title and meta description
+                title_m = re.search(r"<title[^>]*>(.*?)</title>", body_text, re.I | re.S)
+                if title_m:
+                    recon["title"] = title_m.group(1).strip()[:120]
+                desc_m = re.search(
+                    r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)',
+                    body_text, re.I,
+                )
+                if desc_m:
+                    recon["description"] = desc_m.group(1).strip()[:200]
+
+                # Framework signals
+                if "__next" in body_text or "_next" in body_text:
+                    recon["framework"] = "Next.js"
+                elif "nuxt" in body_lower:
+                    recon["framework"] = "Nuxt.js"
+                elif "gatsby" in body_lower:
+                    recon["framework"] = "Gatsby"
+
+                recon["raw_html_snippet"] = body_text[:4000]
+                recon["public_pages"].append({
+                    "url": base,
+                    "final_url": final_url,
+                    "status": resp.status_code,
+                    "title": recon["title"],
+                    "auth_redirect": recon["auth_detected"],
+                })
+            except Exception as e:
+                logger.debug("Recon root fetch failed", url=base, error=str(e))
+
+            # ── 2. Probe common public paths (HEAD for speed) ──────────
+            probe_paths = [
+                "/blog", "/pricing", "/about", "/docs", "/changelog",
+                "/features", "/trust", "/legal", "/status", "/api-docs",
+            ]
+            for path in probe_paths:
+                url = f"{base}{path}"
+                try:
+                    r = await client.head(url, timeout=httpx.Timeout(3.0))
+                    if r.status_code < 400:
+                        recon["public_pages"].append({"url": url, "status": r.status_code})
+                except Exception:
+                    pass
+
+            # ── 3. Sitemap.xml ────────────────────────────────────────
+            try:
+                sm = await client.get(f"{base}/sitemap.xml", timeout=httpx.Timeout(5.0))
+                if sm.status_code == 200:
+                    existing_urls = {p["url"] for p in recon["public_pages"]}
+                    for u in re.findall(r"<loc>(.*?)</loc>", sm.text)[:25]:
+                        if u not in existing_urls:
+                            recon["public_pages"].append({"url": u, "status": 200, "from_sitemap": True})
+            except Exception:
+                pass
+
+            # ── 4. OpenAPI/Swagger spec discovery ─────────────────────
+            openapi_probe_paths = [
+                "/openapi.json", "/swagger.json",
+                "/api/openapi.json", "/api/v1/openapi.json",
+                "/api/docs/openapi.json", "/api/openapi-spec",
+                "/docs/openapi.json",
+            ]
+            for path in openapi_probe_paths:
+                try:
+                    r = await client.get(f"{base}{path}", timeout=httpx.Timeout(5.0))
+                    if r.status_code == 200:
+                        ct = r.headers.get("content-type", "")
+                        if "json" in ct or "yaml" in ct or "openapi" in r.text.lower()[:200]:
+                            spec = r.json()
+                            recon["openapi_spec"] = spec
+                            recon["openapi_url"] = f"{base}{path}"
+                            recon["api_endpoints"] = [
+                                {"path": p, "methods": list(methods.keys())}
+                                for p, methods in list(spec.get("paths", {}).items())[:40]
+                            ]
+                            break
+                except Exception:
+                    pass
+
+            # ── 5. Try sibling API subdomain (app.X → api.X) ──────────
+            if not recon["openapi_spec"]:
+                parsed = urlparse(base)
+                host = parsed.hostname or ""
+                if host.startswith("app."):
+                    api_base = f"{parsed.scheme}://api.{host[4:]}"
+                    for path in ["/openapi.json", "/api/v1/openapi.json", "/api/openapi.json"]:
+                        try:
+                            r = await client.get(f"{api_base}{path}", timeout=httpx.Timeout(5.0))
+                            if r.status_code == 200 and "openapi" in r.text.lower()[:300]:
+                                spec = r.json()
+                                recon["openapi_spec"] = spec
+                                recon["openapi_url"] = f"{api_base}{path}"
+                                recon["api_endpoints"] = [
+                                    {"path": p, "methods": list(methods.keys())}
+                                    for p, methods in list(spec.get("paths", {}).items())[:40]
+                                ]
+                                break
+                        except Exception:
+                            pass
+                    if recon["openapi_spec"]:
+                        pass  # found it
+
+        return recon
 
     # ── QA Discovery Swarm ───────────────────────────────────────────
 
