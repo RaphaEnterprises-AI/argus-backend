@@ -376,6 +376,7 @@ app.add_middleware(
         "X-Organization-ID",
         "Accept",
         "Origin",
+        "Cache-Control",  # Required for EventSource (SSE) — browsers send Cache-Control: no-cache
     ],
     expose_headers=[
         "X-Request-ID",
