@@ -21,6 +21,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -263,6 +264,165 @@ class SeleniumGridClient:
             logger.error("Failed to end session", session_id=session_id, error=str(e))
             self._session_id = None
             return {"success": False, "error": str(e)}
+
+    # ── Browser interaction primitives (W3C WebDriver) ───────────────
+
+    _W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf"
+
+    async def execute_script(self, script: str, args: list | None = None) -> Any:
+        """Execute JavaScript synchronously and return the result."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+        await self._ensure_client()
+        resp = await self._client.post(
+            f"session/{self._session_id}/execute/sync",
+            json={"script": script, "args": args or []},
+        )
+        resp.raise_for_status()
+        return resp.json().get("value")
+
+    async def find_element(self, css_selector: str) -> str | None:
+        """Find element by CSS selector. Returns W3C element ID or None."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+        await self._ensure_client()
+        try:
+            resp = await self._client.post(
+                f"session/{self._session_id}/element",
+                json={"using": "css selector", "value": css_selector},
+            )
+            if resp.status_code == 200:
+                value = resp.json().get("value", {})
+                return value.get(self._W3C_ELEMENT_KEY) or value.get("ELEMENT")
+        except Exception:
+            pass
+        return None
+
+    async def send_keys(self, element_id: str, text: str) -> None:
+        """Type text into a form element."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+        await self._ensure_client()
+        await self._client.post(
+            f"session/{self._session_id}/element/{element_id}/value",
+            json={"text": text},
+        )
+
+    async def click_element(self, element_id: str) -> None:
+        """Click an element."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+        await self._ensure_client()
+        await self._client.post(
+            f"session/{self._session_id}/element/{element_id}/click",
+            json={},
+        )
+
+    async def get_cookies(self) -> list[dict]:
+        """Return all cookies for the current page."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+        await self._ensure_client()
+        resp = await self._client.get(f"session/{self._session_id}/cookie")
+        resp.raise_for_status()
+        return resp.json().get("value", [])
+
+    async def get_local_storage(self) -> list[dict]:
+        """Return all localStorage items as [{name, value}] list."""
+        result = await self.execute_script(
+            "var items = [];"
+            "for (var i = 0; i < localStorage.length; i++) {"
+            "  var k = localStorage.key(i);"
+            "  items.push({name: k, value: localStorage.getItem(k)});"
+            "}"
+            "return items;"
+        )
+        return result or []
+
+    async def get_current_url(self) -> str:
+        """Return the current page URL."""
+        if not self._session_id:
+            raise SeleniumGridError("No active session")
+        await self._ensure_client()
+        resp = await self._client.get(f"session/{self._session_id}/url")
+        resp.raise_for_status()
+        return resp.json().get("value", "")
+
+    async def inject_storage_state(self, storage_state_path: str) -> None:
+        """Inject Playwright storageState (cookies + localStorage) into the current session.
+
+        Call this after start_session() and after navigating to the target domain
+        (the browser must be on the right domain for cookies to be accepted).
+        Then call navigate() again — the page reloads with the authenticated state.
+
+        Format: Playwright's context.storage_state() JSON output.
+        """
+        import json
+
+        if not self._session_id:
+            raise SeleniumGridError("No active session — call start_session() first")
+
+        try:
+            with open(storage_state_path) as f:
+                state = json.load(f)
+        except Exception as e:
+            logger.warning("Failed to load storage state file", path=storage_state_path, error=str(e))
+            return
+
+        await self._ensure_client()
+        cookies_injected = 0
+        ls_injected = 0
+
+        # Inject cookies via W3C WebDriver /cookie endpoint
+        for cookie in state.get("cookies", []):
+            # WebDriver requires sameSite to be one of "Strict", "Lax", "None"
+            same_site = cookie.get("sameSite", "Lax")
+            if same_site not in ("Strict", "Lax", "None"):
+                same_site = "Lax"
+
+            wd_cookie: dict = {
+                "name": cookie["name"],
+                "value": cookie["value"],
+                "path": cookie.get("path", "/"),
+                "secure": cookie.get("secure", False),
+                "httpOnly": cookie.get("httpOnly", False),
+                "sameSite": same_site,
+            }
+            # domain is optional — omit if empty to avoid WebDriver rejecting it
+            if cookie.get("domain"):
+                wd_cookie["domain"] = cookie["domain"].lstrip(".")
+
+            try:
+                resp = await self._client.post(
+                    f"session/{self._session_id}/cookie",
+                    json={"cookie": wd_cookie},
+                )
+                resp.raise_for_status()
+                cookies_injected += 1
+            except Exception as e:
+                logger.debug("Cookie injection skipped", name=cookie.get("name"), error=str(e))
+
+        # Inject localStorage via execute/sync (one call per key)
+        for origin_data in state.get("origins", []):
+            for item in origin_data.get("localStorage", []):
+                try:
+                    resp = await self._client.post(
+                        f"session/{self._session_id}/execute/sync",
+                        json={
+                            "script": "window.localStorage.setItem(arguments[0], arguments[1])",
+                            "args": [item["name"], item["value"]],
+                        },
+                    )
+                    resp.raise_for_status()
+                    ls_injected += 1
+                except Exception as e:
+                    logger.debug("localStorage injection skipped", key=item.get("name"), error=str(e))
+
+        logger.info(
+            "Storage state injected",
+            cookies=cookies_injected,
+            localStorage_keys=ls_injected,
+        )
 
     async def navigate(self, url: str) -> bool:
         """Navigate to a URL."""
@@ -620,6 +780,7 @@ class SeleniumGridClient:
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
         capture_screenshots: bool = True,
+        storage_state_path: str | None = None,
     ) -> SeleniumDiscoveryResult:
         """
         Discover pages by crawling from a starting URL.
@@ -667,6 +828,15 @@ class SeleniumGridClient:
         try:
             # Start session (video recording begins)
             session_id = await self.start_session()
+
+            # If storageState was captured by preflight auth login, inject it now.
+            # Navigate to the domain first (cookies require the right domain context),
+            # inject state, then the crawl loop will navigate with auth active.
+            if storage_state_path:
+                await self.navigate(start_url)
+                await asyncio.sleep(1)
+                await self.inject_storage_state(storage_state_path)
+                logger.info("Auth session injected for discovery", path=storage_state_path)
 
             while queue and len(discovered_pages) < max_pages:
                 url, depth = queue.pop(0)

@@ -539,11 +539,36 @@ class Settings(BaseSettings):
     # ==========================================================================
     # Selenium Grid Configuration (Video Recording)
     # ==========================================================================
-    # Selenium Grid is a separate system from browser-pool, used specifically for
-    # video recording. It runs with ffmpeg sidecars that auto-upload to R2.
+    # Selenium Grid is kept for VIDEO RECORDING only (ffmpeg sidecars → R2).
+    # For browser automation (auth preflight, discovery) use Steel.dev instead.
     selenium_grid_url: str | None = Field(
         None,
         description="URL of the Selenium Grid hub (e.g., http://65.20.71.218:4444). Used for video recording."
+    )
+
+    # ==========================================================================
+    # Steel.dev Configuration (AI-native browser sessions)
+    # ==========================================================================
+    # Steel.dev is a CDP-native browser session pool purpose-built for AI agents.
+    # Self-hosted on Fly.io: https://github.com/steel-dev/steel-browser
+    # Cloud: https://steel.dev
+    #
+    # How it fits in Argus:
+    #   Auth preflight + discovery  →  BrowserUseClient + Steel.dev  (this config)
+    #   Video recording             →  SeleniumGridClient             (above)
+    steel_api_key: str | None = Field(
+        None,
+        description=(
+            "Steel.dev API key. Use 'local' for self-hosted Steel without auth. "
+            "Leave empty to fall back to local Playwright (dev only)."
+        ),
+    )
+    steel_api_url: str | None = Field(
+        None,
+        description=(
+            "Steel.dev API base URL. Defaults to https://api.steel.dev (cloud). "
+            "Set to your self-hosted URL, e.g. https://skopaq-steel.fly.dev"
+        ),
     )
 
     # ==========================================================================

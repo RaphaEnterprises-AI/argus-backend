@@ -90,6 +90,14 @@ from .selenium_grid_client import (
     is_selenium_grid_available,
 )
 
+# AI-native browser client (Browser Use + Steel.dev)
+from .browser_use_client import (
+    BrowserUseClient,
+    BrowserUseDiscoveryResult,
+    get_browser_use_client,
+    is_steel_available,
+)
+
 __all__ = [
     # Primary (New)
     "BrowserPoolClient",
@@ -120,4 +128,9 @@ __all__ = [
     "SeleniumGridError",
     "get_selenium_grid_client",
     "is_selenium_grid_available",
+    # AI-native browser (Browser Use + Steel.dev)
+    "BrowserUseClient",
+    "BrowserUseDiscoveryResult",
+    "get_browser_use_client",
+    "is_steel_available",
 ]

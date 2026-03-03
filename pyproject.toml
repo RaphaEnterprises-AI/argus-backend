@@ -22,6 +22,9 @@ dependencies = [
     "playwright>=1.48.0",
     "selenium>=4.25.0",
     "webdriver-manager>=4.0.0",
+    # AI-native browser automation
+    "browser-use>=0.1.40",   # LLM-driven browser agent (wraps Playwright + langchain)
+    "steel-sdk>=0.2.0",      # Steel.dev CDP browser pool client (optional, graceful import)
     "httpx>=0.27.0",
     "websockets>=13.0",
     # Cloud storage (S3-compatible)

@@ -136,6 +136,8 @@ class SwarmConfig:
     repository_url: str | None = None  # GitHub URL for code-aware analysis
     max_discovery_agents: int | None = None  # Cap for DISCOVERY_SWARM Phase 2
     recon_context: dict | None = None  # Pre-flight reconnaissance results
+    credentials: dict | None = None  # {username, password, auth_url?} for auth-protected targets
+    storage_state_path: str | None = None  # Path to Playwright storageState JSON after auth login
 
 
 class SwarmOrchestrator:
@@ -216,6 +218,18 @@ class SwarmOrchestrator:
                 return await self._run_qa_discovery_swarm(
                     swarm_id, config, emitter
                 )
+
+            # Pre-flight auth login — if credentials provided, login once and capture session.
+            # All browser-based agents will reuse this authenticated session state.
+            if config.credentials and config.target_url:
+                import dataclasses as _dc
+                try:
+                    storage_path = await self._preflight_auth_login(swarm_id, config, emitter)
+                    if storage_path:
+                        config = _dc.replace(config, storage_state_path=storage_path)
+                        logger.info("Auth login successful, session captured", path=storage_path)
+                except Exception as auth_err:
+                    logger.warning("Auth login failed, continuing without session", error=str(auth_err))
 
             # Pre-flight reconnaissance — understand the target before launching agents.
             # Gives every agent rich context: public pages, auth type, OpenAPI spec.
@@ -413,7 +427,7 @@ class SwarmOrchestrator:
                 confidence=result.get("confidence", 0.5),
             )
 
-            # Emit STEP_FINISHED
+            # Emit STEP_FINISHED — include findings in output so dashboard receives them
             await emitter.emit(
                 StepFinishedEvent(
                     step_id=agent_id,
@@ -424,6 +438,11 @@ class SwarmOrchestrator:
                     cost_usd=cost,
                     findings_count=len(worker_result.findings),
                     result_summary=worker_result.summary,
+                    output={
+                        "findings": worker_result.findings,
+                        "confidence": worker_result.confidence,
+                        "summary": worker_result.summary,
+                    },
                 )
             )
 
@@ -639,8 +658,6 @@ class SwarmOrchestrator:
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
     ) -> dict[str, Any]:
         try:
-            from src.agents import AutoDiscovery
-
             # Pre-seed findings from recon — available immediately
             recon = config.recon_context or {}
             recon_pages = recon.get("public_pages", [])
@@ -648,75 +665,78 @@ class SwarmOrchestrator:
                 {"type": "page", "url": p["url"], "title": p.get("title", ""), "source": "recon"}
                 for p in recon_pages if not p.get("auth_redirect")
             ]
-            if recon.get("auth_detected"):
+            auth_detected = recon.get("auth_detected", False)
+            if auth_detected:
                 recon_findings.append({
                     "type": "auth_wall",
                     "auth_provider": recon.get("auth_provider") or recon.get("auth_type", "unknown"),
                     "message": "Auth-protected pages skipped. Provide credentials for full crawl.",
                 })
 
-            discovery = AutoDiscovery(app_url=config.target_url, max_pages=10)
+            # Use BrowserUseClient (Steel.dev + Playwright CDP) for discovery.
+            # Steel.dev scales independently of the API server — no risk of killing infra.
+            # Skip browser crawl if auth is detected AND no credentials were provided.
+            has_auth_session = config.storage_state_path is not None
+            if auth_detected and not has_auth_session:
+                logger.info("Auth wall detected, no credentials provided — skipping browser crawl")
+                await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery using recon (auth wall)")
+                return {
+                    "findings": recon_findings,
+                    "summary": f"Auth wall detected ({recon.get('auth_type','unknown')}). {len(recon_findings)-1} public pages found via recon. Provide credentials for full crawl.",
+                    "confidence": 0.65,
+                    "cost_usd": 0.0,
+                }
 
-            try:
-                result = await discovery.discover()
-            except Exception as playwright_err:
-                # Local Playwright not installed — use Selenium Grid for basic discovery
-                logger.warning(
-                    "Local Playwright unavailable, falling back to Selenium Grid",
-                    error=str(playwright_err),
-                )
-                from src.browser.selenium_grid_client import SeleniumGridClient
-                async with SeleniumGridClient() as grid:
-                    grid_result = await grid.discover(
+            from src.browser.browser_use_client import BrowserUseClient
+            async with BrowserUseClient() as browser:
+                crawl_result = await asyncio.wait_for(
+                    browser.discover(
                         start_url=config.target_url,
                         max_pages=10,
                         max_depth=2,
-                    )
-                    await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
-                    grid_findings = [
-                        {"type": "page", "url": p.url, "title": p.title}
-                        for p in grid_result.pages
-                    ]
-                    all_findings = recon_findings + grid_findings
-                    return {
-                        "findings": all_findings,
-                        "summary": (
-                            f"Discovered {len(grid_result.pages)} pages via Selenium Grid"
-                            + (f", {len(recon_findings)} from recon" if recon_findings else "")
-                        ),
-                        "confidence": 0.7,
-                        "cost_usd": 0.0,
-                    }
-
+                        storage_state_path=config.storage_state_path,
+                    ),
+                    timeout=60.0,
+                )
             await self._emit_progress(emitter, agent_id, 70, "reporting", "auto_discovery compiling results")
-
-            crawl_findings = result.suggested_tests or []
-            all_findings = recon_findings + crawl_findings
+            crawl_findings = [
+                {"type": "page", "url": p["url"], "title": p.get("title", "")}
+                for p in crawl_result.pages
+            ]
+            # Merge recon + browser crawl, de-duplicate by URL
+            seen_urls = {f["url"] for f in recon_findings if f.get("url")}
+            for cf in crawl_findings:
+                if cf["url"] not in seen_urls:
+                    recon_findings.append(cf)
+                    seen_urls.add(cf["url"])
             return {
-                "findings": all_findings,
+                "findings": recon_findings,
                 "summary": (
-                    f"Discovered {len(result.pages_discovered)} pages, "
-                    f"{len(result.flows_discovered)} flows, "
-                    f"{len(result.suggested_tests)} test suggestions"
-                    + (f" | {len(recon_findings)} pages from recon" if recon_findings else "")
+                    f"Discovered {len(crawl_result.pages)} pages via Steel.dev"
+                    + (f", {len(recon_pages)} from recon" if recon_pages else "")
                 ),
                 "confidence": 0.75,
                 "cost_usd": 0.0,
             }
-        except Exception as e:
-            logger.warning("auto_discovery failed, returning error result", error=str(e))
-            # Still return recon findings if the browser crawl failed
-            if recon_findings:
+
+        except (asyncio.TimeoutError, Exception) as e:
+            err_str = str(e) or type(e).__name__
+            logger.warning("auto_discovery failed, returning error result", error=err_str, error_type=type(e).__name__)
+            recon = config.recon_context or {}
+            recon_pages = recon.get("public_pages", [])
+            recon_findings_fallback: list[dict] = [
+                {"type": "page", "url": p["url"], "title": p.get("title", ""), "source": "recon"}
+                for p in recon_pages if not p.get("auth_redirect")
+            ]
+            if recon_findings_fallback:
                 return {
-                    "findings": recon_findings,
-                    "summary": (
-                        f"Browser crawl failed ({e}); "
-                        f"{len(recon_findings)} pages found via recon"
-                    ),
+                    "findings": recon_findings_fallback,
+                    "summary": f"Browser crawl failed ({err_str}); {len(recon_findings_fallback)} pages found via recon",
                     "confidence": 0.5,
                     "cost_usd": 0.0,
                 }
-            return self._error_result("auto_discovery", str(e))
+
+        return self._error_result("auto_discovery", "No findings")
 
     async def _run_code_analyzer(
         self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
@@ -1357,6 +1377,7 @@ class SwarmOrchestrator:
 
             # Take screenshot — try Browser Pool first, fall back to Selenium Grid
             screenshot_path = None
+            pool_err_msg = None
             try:
                 from src.browser.pool_client import BrowserPoolClient
                 async with BrowserPoolClient() as browser:
@@ -1365,8 +1386,15 @@ class SwarmOrchestrator:
                         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                             f.write(screenshot_bytes)
                             screenshot_path = f.name
+                    else:
+                        pool_err_msg = "Browser pool returned no screenshot"
             except Exception as pool_err:
-                logger.warning("Browser pool unavailable, trying Selenium Grid", error=str(pool_err))
+                pool_err_msg = str(pool_err)
+                logger.warning("Browser pool unavailable, trying Selenium Grid", error=pool_err_msg)
+
+            # Fall back to Selenium Grid if pool didn't produce a screenshot
+            if not screenshot_path:
+                logger.info("Trying Selenium Grid for screenshot", pool_error=pool_err_msg)
                 try:
                     from src.browser.selenium_grid_client import SeleniumGridClient
                     async with SeleniumGridClient() as grid:
@@ -1379,10 +1407,9 @@ class SwarmOrchestrator:
                                 screenshot_path = f.name
                 except Exception as grid_err:
                     logger.warning("Selenium Grid screenshot also failed", error=str(grid_err))
-                    return self._error_result("visual_ai", f"No browser available: pool={pool_err}, grid={grid_err}")
 
             if not screenshot_path:
-                return self._error_result("visual_ai", "No screenshot captured")
+                return self._error_result("visual_ai", f"No screenshot captured (pool: {pool_err_msg})")
 
             await self._emit_progress(emitter, agent_id, 60, "analyzing", "visual_ai analyzing screenshot")
 
@@ -1412,6 +1439,121 @@ class SwarmOrchestrator:
         except Exception as e:
             logger.warning("visual_ai failed, returning error result", error=str(e))
             return self._error_result("visual_ai", str(e))
+
+    # ── Pre-flight auth login ─────────────────────────────────────────
+
+    async def _preflight_auth_login(
+        self,
+        swarm_id: str,
+        config: "SwarmConfig",
+        emitter: AGUIEmitter,
+    ) -> str | None:
+        """Log in to the target app via Browser Use + Steel.dev and save session state.
+
+        Uses BrowserUseClient which:
+        - Opens a Steel.dev browser session (CDP-native, Fly.io, scales horizontally)
+        - Runs a Browser Use Agent (Claude Haiku) to fill the login form using NL
+        - Handles any form layout automatically: Clerk, Auth0, Okta, custom forms
+        - Captures storageState (cookies + localStorage) after successful login
+        - Saves it as a JSON file that all downstream agent sessions will inject
+
+        The API server itself never runs a browser — all browser work goes through
+        Steel.dev (same as our agents), which scales independently of the API server.
+
+        Returns the storage state file path on success, None on failure.
+        """
+        import json
+        import os
+
+        from src.browser.browser_use_client import BrowserUseClient
+
+        credentials = config.credentials or {}
+        auth_url = credentials.get("auth_url") or config.target_url
+
+        if not credentials.get("username") or not credentials.get("password") or not auth_url:
+            return None
+
+        await emitter.emit(
+            StateDeltaEvent(
+                agent_id="auth_login",
+                progress=0,
+                phase="authenticating",
+                message=f"Launching AI-driven login for {auth_url} via Steel.dev...",
+            )
+        )
+
+        try:
+            async with BrowserUseClient() as browser:
+                await emitter.emit(
+                    StateDeltaEvent(
+                        agent_id="auth_login",
+                        progress=20,
+                        phase="authenticating",
+                        message="Browser Use agent navigating login form...",
+                    )
+                )
+
+                storage_state = await browser.login_and_capture_session(
+                    target_url=auth_url,
+                    credentials=credentials,
+                )
+
+            if not storage_state:
+                logger.warning("Browser Use login returned no session state")
+                await emitter.emit(
+                    StateDeltaEvent(
+                        agent_id="auth_login",
+                        progress=100,
+                        phase="authenticating",
+                        message="Login failed or produced no session — continuing without auth.",
+                    )
+                )
+                return None
+
+            # Persist storageState to a temp file so all agents can load it
+            storage_state_path = f"/tmp/swarm_auth_{swarm_id}.json"
+            with open(storage_state_path, "w") as f:
+                json.dump(storage_state, f)
+
+            cookies = storage_state.get("cookies", [])
+            ls_entries: list[dict] = []
+            for origin in storage_state.get("origins", []):
+                ls_entries.extend(origin.get("localStorage", []))
+
+            size = os.path.getsize(storage_state_path)
+            await emitter.emit(
+                StateDeltaEvent(
+                    agent_id="auth_login",
+                    progress=100,
+                    phase="authenticating",
+                    message=(
+                        f"Session captured — {len(cookies)} cookies, "
+                        f"{len(ls_entries)} localStorage keys. "
+                        "All agents will run authenticated."
+                    ),
+                )
+            )
+            logger.info(
+                "Auth login complete via Browser Use + Steel.dev",
+                path=storage_state_path,
+                size=size,
+                cookies=len(cookies),
+                local_storage_keys=len(ls_entries),
+            )
+            return storage_state_path
+
+        except Exception as e:
+            err_str = str(e) or type(e).__name__
+            logger.warning("Browser Use auth login failed", error=err_str)
+            await emitter.emit(
+                StateDeltaEvent(
+                    agent_id="auth_login",
+                    progress=100,
+                    phase="authenticating",
+                    message=f"Login failed: {err_str}. Continuing without auth.",
+                )
+            )
+            return None
 
     # ── Pre-flight reconnaissance ─────────────────────────────────────
 
