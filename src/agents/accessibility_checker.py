@@ -268,7 +268,18 @@ You are a certified accessibility specialist (CPACC, WAS) with WCAG 2.1 expertis
 
     async def _fetch_page(self, url: str) -> str:
         """Fetch page HTML content."""
-        return ""
+        import httpx
+        try:
+            async with httpx.AsyncClient(
+                timeout=15,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; SkopaqBot/1.0)"},
+            ) as client:
+                resp = await client.get(url)
+                return resp.text
+        except Exception as e:
+            self.log.warning("Failed to fetch page for accessibility check", url=url, error=str(e))
+            return ""
 
     def _check_images(self, html: str, url: str) -> list[AccessibilityIssue]:
         """Check images for alt text."""
@@ -521,7 +532,7 @@ RESPOND IN JSON:
         response = await self._call_model(
             messages=[{"role": "user", "content": prompt}],
             task_type=TaskType.TEXT_EXTRACTION,
-            max_tokens=1200,
+            max_tokens=4096,
         )
 
         return self._parse_json_response(response["content"], {

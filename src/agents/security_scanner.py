@@ -330,6 +330,34 @@ You are an elite application security engineer with expertise in OWASP Top 10.
             )
             vulnerabilities.append(vuln)
 
+        # Check for CSP misconfigurations even when the header is present
+        csp_value = headers.content_security_policy or ""
+        if csp_value:
+            if "'unsafe-inline'" in csp_value:
+                vulnerabilities.append(Vulnerability(
+                    id="SEC-HDR-CSP-UnsafeInline",
+                    category=VulnerabilityCategory.SECURITY_MISCONFIG,
+                    severity=VulnerabilitySeverity.MEDIUM,
+                    title="CSP allows 'unsafe-inline'",
+                    description="Content-Security-Policy contains 'unsafe-inline', which allows inline scripts/styles and negates XSS protection.",
+                    location=url,
+                    evidence=f"CSP: {csp_value[:200]}",
+                    cwe_id="CWE-1021",
+                    remediation="Remove 'unsafe-inline' from CSP and use nonces or hashes instead.",
+                ))
+            if "'unsafe-eval'" in csp_value:
+                vulnerabilities.append(Vulnerability(
+                    id="SEC-HDR-CSP-UnsafeEval",
+                    category=VulnerabilityCategory.SECURITY_MISCONFIG,
+                    severity=VulnerabilitySeverity.MEDIUM,
+                    title="CSP allows 'unsafe-eval'",
+                    description="Content-Security-Policy contains 'unsafe-eval', which enables dynamic code execution and increases XSS risk.",
+                    location=url,
+                    evidence=f"CSP: {csp_value[:200]}",
+                    cwe_id="CWE-1021",
+                    remediation="Remove 'unsafe-eval' from CSP.",
+                ))
+
         return vulnerabilities
 
     async def _test_xss(self, url: str, content: str) -> list[Vulnerability]:
@@ -490,7 +518,7 @@ RESPOND IN JSON:
         response = await self._call_model(
             messages=[{"role": "user", "content": prompt}],
             task_type=TaskType.CODE_ANALYSIS,
-            max_tokens=1500,
+            max_tokens=4096,
         )
 
         return self._parse_json_response(response["content"], {
