@@ -176,14 +176,15 @@ class BrowserPoolClient:
             user_context: User context for audit logging (optional)
             config: Optional configuration override
         """
-        # Resolve pool URL — only use env var if it's explicitly set to a non-empty value.
-        # Never default to localhost or legacy heyargus.ai URLs (those are dead infra).
-        env_pool_url = os.getenv("BROWSER_POOL_URL") or os.getenv("BROWSER_WORKER_URL")
-        self.pool_url = pool_url or env_pool_url or ""
+        # Resolve pool URL — only use env var if it's explicitly set to a non-empty,
+        # non-placeholder value.  "none" / "disabled" / empty string → disabled.
+        _sentinel = {"", "none", "false", "disabled", "0"}
+        env_pool_url = (os.getenv("BROWSER_POOL_URL", "") or os.getenv("BROWSER_WORKER_URL", "")).strip()
+        self.pool_url = (pool_url or env_pool_url).strip()
 
         # Mark as disabled when no valid URL is configured so callers get a clean
         # BrowserPoolError instead of a remote connection error / Cloudflare 530.
-        self.disabled = not bool(self.pool_url)
+        self.disabled = self.pool_url.lower() in _sentinel or not self.pool_url.startswith("http")
         if self.disabled:
             logger.debug("BrowserPoolClient: BROWSER_POOL_URL not set — pool disabled; callers should use BrowserUseClient instead")
 
