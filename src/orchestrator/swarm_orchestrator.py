@@ -1088,42 +1088,41 @@ class SwarmOrchestrator:
             if api_base_url and not api_base_url.startswith("http"):
                 api_base_url = config.target_url  # relative base — use target
 
-            test_requests = []
+            test_steps = []
             for path, methods in list(spec_paths.items())[:20]:
                 # Skip paths with required path parameters (would return 404/422)
                 if "{" in path:
                     continue
                 for method in ("get", "head"):
                     if method in methods:
-                        test_requests.append({
-                            "method": method.upper(),
-                            "path": path,
-                            # Accept auth errors — we want to know if endpoint exists
-                            "expected_status": [200, 201, 204, 301, 302, 401, 403, 404],
+                        # Use "action"/"target" keys — format expected by APITesterAgent._execute_request()
+                        test_steps.append({
+                            "action": method,
+                            "target": path,
                         })
                         break
 
-            if not test_requests:
+            if not test_steps:
                 # Spec found but all paths have path params; probe health endpoints
-                test_requests = [
-                    {"method": "GET", "path": "/health", "expected_status": [200, 404]},
-                    {"method": "GET", "path": "/api/v1/health", "expected_status": [200, 404]},
+                test_steps = [
+                    {"action": "get", "target": "/health"},
+                    {"action": "get", "target": "/api/v1/health"},
                 ]
         else:
             api_base_url = config.target_url
-            test_requests = [
-                {"method": "GET", "path": "/",                  "expected_status": [200, 301, 302]},
-                {"method": "GET", "path": "/health",            "expected_status": [200, 404]},
-                {"method": "GET", "path": "/api/health",        "expected_status": [200, 404]},
-                {"method": "GET", "path": "/api/v1/health",     "expected_status": [200, 404]},
-                {"method": "GET", "path": "/sitemap.xml",       "expected_status": [200, 404]},
-                {"method": "GET", "path": "/robots.txt",        "expected_status": [200, 404]},
+            test_steps = [
+                {"action": "get", "target": "/"},
+                {"action": "get", "target": "/health"},
+                {"action": "get", "target": "/api/health"},
+                {"action": "get", "target": "/api/v1/health"},
+                {"action": "get", "target": "/sitemap.xml"},
+                {"action": "get", "target": "/robots.txt"},
             ]
 
         test_spec = {
             "id": f"swarm_api_{uuid.uuid4().hex[:8]}",
             "name": "OpenAPI-driven API probe" if openapi_spec else "Exploratory API probe",
-            "requests": test_requests,
+            "steps": test_steps,   # Agent reads "steps", not "requests"
         }
 
         try:
@@ -1140,10 +1139,10 @@ class SwarmOrchestrator:
                     sc = getattr(r, "status_code", 0)
                     findings.append({
                         "type": "api_endpoint",
-                        "path": getattr(r, "path", "unknown"),
+                        "path": getattr(r, "url", "unknown"),          # APIRequestResult.url
                         "status_code": sc,
                         "success": getattr(r, "success", False),
-                        "duration_ms": getattr(r, "duration_ms", 0),
+                        "duration_ms": getattr(r, "response_time_ms", 0),  # APIRequestResult.response_time_ms
                         "auth_required": sc in (401, 403),
                     })
 
