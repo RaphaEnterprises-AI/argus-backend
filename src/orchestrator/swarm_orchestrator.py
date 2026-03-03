@@ -1088,6 +1088,8 @@ class SwarmOrchestrator:
             if api_base_url and not api_base_url.startswith("http"):
                 api_base_url = config.target_url  # relative base — use target
 
+            # Accept redirects + auth errors as "success" so we don't break early
+            _probe_ok = [200, 201, 204, 301, 302, 307, 308, 401, 403, 404]
             test_steps = []
             for path, methods in list(spec_paths.items())[:20]:
                 # Skip paths with required path parameters (would return 404/422)
@@ -1099,24 +1101,26 @@ class SwarmOrchestrator:
                         test_steps.append({
                             "action": method,
                             "target": path,
+                            "expected_status": _probe_ok,
                         })
                         break
 
             if not test_steps:
                 # Spec found but all paths have path params; probe health endpoints
                 test_steps = [
-                    {"action": "get", "target": "/health"},
-                    {"action": "get", "target": "/api/v1/health"},
+                    {"action": "get", "target": "/health",        "expected_status": _probe_ok},
+                    {"action": "get", "target": "/api/v1/health", "expected_status": _probe_ok},
                 ]
         else:
+            _probe_ok = [200, 201, 204, 301, 302, 307, 308, 401, 403, 404]
             api_base_url = config.target_url
             test_steps = [
-                {"action": "get", "target": "/"},
-                {"action": "get", "target": "/health"},
-                {"action": "get", "target": "/api/health"},
-                {"action": "get", "target": "/api/v1/health"},
-                {"action": "get", "target": "/sitemap.xml"},
-                {"action": "get", "target": "/robots.txt"},
+                {"action": "get", "target": "/",             "expected_status": _probe_ok},
+                {"action": "get", "target": "/health",       "expected_status": _probe_ok},
+                {"action": "get", "target": "/api/health",   "expected_status": _probe_ok},
+                {"action": "get", "target": "/api/v1/health","expected_status": _probe_ok},
+                {"action": "get", "target": "/sitemap.xml",  "expected_status": _probe_ok},
+                {"action": "get", "target": "/robots.txt",   "expected_status": _probe_ok},
             ]
 
         test_spec = {
