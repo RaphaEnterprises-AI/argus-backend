@@ -1375,26 +1375,24 @@ class SwarmOrchestrator:
 
             await self._emit_progress(emitter, agent_id, 40, "capturing", "visual_ai taking screenshot")
 
-            # Take screenshot — try Browser Pool first, fall back to Selenium Grid
+            # Take screenshot via BrowserUseClient (Steel.dev → local Playwright)
             screenshot_path = None
-            pool_err_msg = None
             try:
-                from src.browser.pool_client import BrowserPoolClient
-                async with BrowserPoolClient() as browser:
-                    screenshot_bytes = await browser.screenshot(url=config.target_url)
+                from src.browser.browser_use_client import BrowserUseClient
+                async with BrowserUseClient() as browser:
+                    screenshot_bytes = await browser.screenshot(
+                        url=config.target_url,
+                        storage_state_path=config.storage_state_path,
+                    )
                     if screenshot_bytes:
                         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                             f.write(screenshot_bytes)
                             screenshot_path = f.name
-                    else:
-                        pool_err_msg = "Browser pool returned no screenshot"
-            except Exception as pool_err:
-                pool_err_msg = str(pool_err)
-                logger.warning("Browser pool unavailable, trying Selenium Grid", error=pool_err_msg)
+            except Exception as browser_err:
+                logger.warning("BrowserUseClient screenshot failed, trying Selenium Grid", error=str(browser_err))
 
-            # Fall back to Selenium Grid if pool didn't produce a screenshot
+            # Selenium Grid fallback (video-recording infra, kept for compatibility)
             if not screenshot_path:
-                logger.info("Trying Selenium Grid for screenshot", pool_error=pool_err_msg)
                 try:
                     from src.browser.selenium_grid_client import SeleniumGridClient
                     async with SeleniumGridClient() as grid:

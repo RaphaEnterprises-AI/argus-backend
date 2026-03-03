@@ -176,10 +176,16 @@ class BrowserPoolClient:
             user_context: User context for audit logging (optional)
             config: Optional configuration override
         """
-        self.pool_url = pool_url or os.getenv(
-            "BROWSER_POOL_URL",
-            os.getenv("BROWSER_WORKER_URL", "http://localhost:8080")
-        )
+        # Resolve pool URL — only use env var if it's explicitly set to a non-empty value.
+        # Never default to localhost or legacy heyargus.ai URLs (those are dead infra).
+        env_pool_url = os.getenv("BROWSER_POOL_URL") or os.getenv("BROWSER_WORKER_URL")
+        self.pool_url = pool_url or env_pool_url or ""
+
+        # Mark as disabled when no valid URL is configured so callers get a clean
+        # BrowserPoolError instead of a remote connection error / Cloudflare 530.
+        self.disabled = not bool(self.pool_url)
+        if self.disabled:
+            logger.debug("BrowserPoolClient: BROWSER_POOL_URL not set — pool disabled; callers should use BrowserUseClient instead")
 
         # Production: JWT secret for signing tokens
         self.jwt_secret = jwt_secret or os.getenv("BROWSER_POOL_JWT_SECRET")
@@ -208,13 +214,13 @@ class BrowserPoolClient:
         # Vision fallback client (lazy initialized)
         self._vision_client = None
 
-        # Log auth mode
-        if self.jwt_secret:
-            logger.info("BrowserPoolClient initialized with JWT authentication")
-        elif self.api_key:
-            logger.warning("BrowserPoolClient using deprecated API key auth. Migrate to JWT.")
-        else:
-            logger.warning("BrowserPoolClient running without authentication")
+        if not self.disabled:
+            if self.jwt_secret:
+                logger.info("BrowserPoolClient initialized with JWT authentication", pool_url=self.pool_url)
+            elif self.api_key:
+                logger.warning("BrowserPoolClient using deprecated API key auth. Migrate to JWT.")
+            else:
+                logger.warning("BrowserPoolClient running without authentication")
 
     async def __aenter__(self) -> "BrowserPoolClient":
         """Async context manager entry."""
@@ -227,6 +233,8 @@ class BrowserPoolClient:
 
     async def _ensure_client(self) -> None:
         """Ensure HTTP client is initialized."""
+        if self.disabled:
+            raise BrowserPoolError("BrowserPoolClient is disabled — set BROWSER_POOL_URL to enable it")
         if self._client is None:
             # Base headers (auth added per-request for JWT)
             headers = {"Content-Type": "application/json"}
@@ -358,6 +366,9 @@ class BrowserPoolClient:
         Returns:
             PoolHealth with status information
         """
+        if self.disabled:
+            return PoolHealth(healthy=False, pool_url="")
+
         # Check cache
         if use_cache and self._health_cache:
             if time.time() - self._health_cache_time < 30:

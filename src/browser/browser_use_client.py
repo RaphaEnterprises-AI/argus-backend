@@ -415,6 +415,63 @@ class BrowserUseClient:
             duration_ms=int((time.time() - start_time) * 1000),
         )
 
+    async def screenshot(
+        self,
+        url: str,
+        storage_state_path: str | None = None,
+    ) -> bytes | None:
+        """Take a screenshot of *url* and return raw PNG bytes.
+
+        Connects to Steel.dev via CDP if configured; otherwise launches a local
+        headless Chromium instance.  Returns ``None`` on failure.
+        """
+        session_id, cdp_url = await self._create_steel_session()
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as pw:
+                if cdp_url:
+                    browser = await pw.chromium.connect_over_cdp(cdp_url)
+                    context = (
+                        browser.contexts[0]
+                        if browser.contexts
+                        else await browser.new_context()
+                    )
+                else:
+                    browser = await pw.chromium.launch(headless=True)
+                    context = await browser.new_context()
+
+                if storage_state_path:
+                    try:
+                        with open(storage_state_path) as f:
+                            import json as _json
+                            ss = _json.load(f)
+                        cookies = ss.get("cookies", [])
+                        if cookies:
+                            await context.add_cookies(cookies)
+                    except Exception as e:
+                        logger.warning("screenshot: failed to load storage state", error=str(e))
+
+                page = await context.new_page()
+                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                png_bytes: bytes = await page.screenshot(full_page=False)
+                await browser.close()
+                return png_bytes
+
+        except ImportError:
+            logger.warning("screenshot: playwright not installed")
+        except Exception as e:
+            logger.warning("screenshot failed", url=url, error=str(e))
+        finally:
+            if session_id:
+                try:
+                    client = self._get_steel_client()
+                    if client:
+                        client.sessions.release(session_id)
+                except Exception:
+                    pass
+        return None
+
     # ── Internal helpers ──────────────────────────────────────────────────
 
     async def _extract_and_enqueue(
