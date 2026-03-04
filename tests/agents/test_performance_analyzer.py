@@ -302,16 +302,16 @@ class TestPerformanceAnalyzerAgent:
     @pytest.mark.asyncio
     async def test_execute_failure(self, mock_env_vars):
         """Test performance analysis execution failure."""
-        with patch("src.agents.base.anthropic.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.side_effect = Exception("API error")
-            mock_anthropic.return_value = mock_client
-
+        with patch("src.agents.base.anthropic.Anthropic"):
             agent = PerformanceAnalyzerAgent()
-            result = await agent.execute(url="https://example.com")
 
-            assert result.success is False
-            assert result.error is not None
+            with patch.object(agent, '_call_model', new_callable=AsyncMock) as mock_ai:
+                mock_ai.side_effect = Exception("API error")
+
+                result = await agent.execute(url="https://example.com")
+
+                assert result.success is False
+                assert result.error is not None
 
     @pytest.mark.asyncio
     async def test_execute_with_different_devices(self, mock_env_vars):

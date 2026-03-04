@@ -1,0 +1,98 @@
+[
+  {
+    "id": "halluc_001_fabricated_function",
+    "description": "Agent claims a function exists that doesn't",
+    "query": "How does the user authentication work in this codebase?",
+    "context": "The codebase uses Clerk for authentication via @clerk/nextjs. The middleware.ts file exports a clerkMiddleware() that protects routes. Sign-in is handled by Clerk's hosted UI at /sign-in.",
+    "response": "The authentication uses a custom AuthManager class in src/lib/auth-manager.ts that implements OAuth2 PKCE flow with a custom token refresh mechanism. The refreshToken() method handles automatic renewal every 15 minutes.",
+    "ground_truth": {
+      "is_hallucination": true,
+      "hallucination_type": "fabricated_reference",
+      "reason": "No AuthManager class or auth-manager.ts file exists. The system uses Clerk, not custom OAuth2."
+    }
+  },
+  {
+    "id": "halluc_002_correct_answer",
+    "description": "Agent gives accurate response about actual code",
+    "query": "What database does this project use?",
+    "context": "The project uses Supabase (PostgreSQL) with the @supabase/supabase-js client. Database migrations are in supabase/migrations/. The main tables include users, projects, test_runs, and test_results. pgvector is used for embedding similarity search.",
+    "response": "The project uses Supabase, which is built on PostgreSQL. Migrations are managed in the supabase/migrations/ directory. Key tables include users, projects, test_runs, and test_results. The project also uses pgvector for embedding-based similarity search.",
+    "ground_truth": {
+      "is_hallucination": false,
+      "hallucination_type": null,
+      "reason": "Response accurately reflects the provided context"
+    }
+  },
+  {
+    "id": "halluc_003_wrong_version",
+    "description": "Agent hallucinates specific version numbers",
+    "query": "What version of React is used?",
+    "context": "The dashboard uses Next.js 15 with React. The package.json shows next: 15.1.0 and react: 19.0.0 as dependencies.",
+    "response": "The project uses React 18.2.0 with Next.js 14.1.3. These are the latest stable versions as of early 2024.",
+    "ground_truth": {
+      "is_hallucination": true,
+      "hallucination_type": "incorrect_facts",
+      "reason": "Wrong version numbers (React 19 not 18.2.0, Next.js 15 not 14.1.3) and wrong date context"
+    }
+  },
+  {
+    "id": "halluc_004_mixed_correct_incorrect",
+    "description": "Response mixes real facts with fabricated details",
+    "query": "Explain the self-healing pipeline",
+    "context": "Self-healing is triggered by Kafka events on the argus.healing.requested topic. The HealingConsumer in src/workers/healing_consumer.py picks up events and delegates to SelfHealerAgent. The agent uses cached patterns first, then Cognee semantic search, then LLM fallback.",
+    "response": "Self-healing works through a Kafka pipeline. Events arrive on the argus.healing.requested topic. The HealingConsumer processes them and uses SelfHealerAgent which first checks a Redis cache for exact pattern matches, then falls back to OpenAI embeddings for semantic similarity, and finally uses GPT-4 for novel failures.",
+    "ground_truth": {
+      "is_hallucination": true,
+      "hallucination_type": "incorrect_facts",
+      "reason": "Correct: Kafka topic and HealingConsumer. Wrong: uses Cognee not Redis, uses Cohere embeddings not OpenAI, uses Claude not GPT-4"
+    }
+  },
+  {
+    "id": "halluc_005_fabricated_metric",
+    "description": "Agent invents a specific metric not in context",
+    "query": "What is the test coverage of this project?",
+    "context": "The project has tests in the tests/ directory organized by type: unit tests, integration tests, and evaluation tests. There are 441+ integration tests across 8 batch files. No coverage report is currently configured.",
+    "response": "The project maintains 87.3% line coverage and 91.2% branch coverage. There are 441 integration tests organized in 8 batch files, along with comprehensive unit tests achieving 95% coverage for the core modules.",
+    "ground_truth": {
+      "is_hallucination": true,
+      "hallucination_type": "fabricated_statistic",
+      "reason": "Coverage percentages (87.3%, 91.2%, 95%) are completely fabricated - no coverage reporting exists"
+    }
+  },
+  {
+    "id": "halluc_006_accurate_architecture",
+    "description": "Accurate description of the agent architecture",
+    "query": "How are agents orchestrated?",
+    "context": "LangGraph orchestrates agents via a supervisor pattern in src/orchestrator/supervisor.py. The supervisor uses an LLM to dynamically route tasks to specialized agents. Agents include CodeAnalyzer, UITester, APITester, SelfHealer, Reporter, and SREAgent. State is persisted via PostgresSaver.",
+    "response": "The system uses LangGraph with a supervisor pattern. A supervisor agent in src/orchestrator/supervisor.py uses an LLM to dynamically route tasks to specialized worker agents like CodeAnalyzer, UITester, APITester, SelfHealer, Reporter, and SREAgent. All state is durably persisted through PostgresSaver.",
+    "ground_truth": {
+      "is_hallucination": false,
+      "hallucination_type": null,
+      "reason": "Accurate reflection of the architecture context"
+    }
+  },
+  {
+    "id": "halluc_007_subtle_api_hallucination",
+    "description": "Subtly wrong API endpoint details",
+    "query": "How do I trigger a test run via API?",
+    "context": "Test runs are triggered via POST /api/v1/tests/run with a JSON body containing project_id, test_ids (optional), and config. Authentication requires an X-API-Key header with an argus_sk_ prefixed key.",
+    "response": "You can trigger a test run by sending a POST request to /api/v1/test-runs/execute. Include your API key in the Authorization: Bearer header. The body should contain projectId, testIds array, and runConfig object.",
+    "ground_truth": {
+      "is_hallucination": true,
+      "hallucination_type": "incorrect_facts",
+      "reason": "Wrong endpoint (/test-runs/execute vs /tests/run), wrong auth header (Authorization: Bearer vs X-API-Key), wrong field names (camelCase vs snake_case)"
+    }
+  },
+  {
+    "id": "halluc_008_correct_deployment",
+    "description": "Correct deployment information",
+    "query": "Where is the backend deployed?",
+    "context": "The backend runs on Railway at https://argus-brain-production.up.railway.app. The dashboard is on Vercel at https://app.skopaq.ai. Data layer (Kafka, FalkorDB, Valkey) runs on Vultr VKE Kubernetes.",
+    "response": "The backend is deployed on Railway at https://argus-brain-production.up.railway.app. The frontend dashboard runs on Vercel at https://app.skopaq.ai, and the data layer components (Kafka, FalkorDB, Valkey) are on a Vultr VKE Kubernetes cluster.",
+    "ground_truth": {
+      "is_hallucination": false,
+      "hallucination_type": null,
+      "reason": "All deployment details match the context exactly"
+    }
+  }
+]

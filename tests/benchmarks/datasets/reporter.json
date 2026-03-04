@@ -1,0 +1,117 @@
+{
+  "suite": "reporter",
+  "version": "1.0",
+  "description": "Benchmark scenarios for ReporterAgent. Tests report generation from test results including summary statistics, failure categorization, and actionable recommendations.",
+  "scenarios": [
+    {
+      "id": "all_passing",
+      "description": "All 10 tests pass — report should reflect 100% pass rate with positive summary",
+      "input": {
+        "run_id": "run_bench_001",
+        "project_id": "proj_ecommerce",
+        "test_results": [
+          {"test_id": "t1", "test_name": "test_homepage_loads", "status": "passed", "duration_ms": 1200},
+          {"test_id": "t2", "test_name": "test_login_valid_credentials", "status": "passed", "duration_ms": 2300},
+          {"test_id": "t3", "test_name": "test_product_search", "status": "passed", "duration_ms": 1800},
+          {"test_id": "t4", "test_name": "test_add_to_cart", "status": "passed", "duration_ms": 2100},
+          {"test_id": "t5", "test_name": "test_cart_update_quantity", "status": "passed", "duration_ms": 1500},
+          {"test_id": "t6", "test_name": "test_checkout_flow", "status": "passed", "duration_ms": 4500},
+          {"test_id": "t7", "test_name": "test_payment_processing", "status": "passed", "duration_ms": 3200},
+          {"test_id": "t8", "test_name": "test_order_confirmation", "status": "passed", "duration_ms": 1700},
+          {"test_id": "t9", "test_name": "test_user_profile", "status": "passed", "duration_ms": 1400},
+          {"test_id": "t10", "test_name": "test_logout", "status": "passed", "duration_ms": 900}
+        ]
+      },
+      "ground_truth": {
+        "summary": {
+          "total_tests": 10,
+          "passed": 10,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "pass_rate": 100.0
+        },
+        "failure_count": 0,
+        "has_positive_summary": true,
+        "total_duration_ms_approx": 20600,
+        "recommendations_max": 1,
+        "notes": "Report should confirm all tests passing. May include minor recommendations like test run duration or suggestions for expanding coverage."
+      }
+    },
+    {
+      "id": "mixed_results",
+      "description": "7 passing and 3 failing tests with different failure types — report should categorize failures and provide recommendations",
+      "input": {
+        "run_id": "run_bench_002",
+        "project_id": "proj_ecommerce",
+        "test_results": [
+          {"test_id": "t1", "test_name": "test_homepage_loads", "status": "passed", "duration_ms": 1200},
+          {"test_id": "t2", "test_name": "test_login_valid_credentials", "status": "passed", "duration_ms": 2300},
+          {"test_id": "t3", "test_name": "test_product_search", "status": "failed", "duration_ms": 5000, "error_message": "Element not found: [data-testid='search-results']. Timeout 5000ms exceeded.", "failure_type": "selector_not_found"},
+          {"test_id": "t4", "test_name": "test_add_to_cart", "status": "passed", "duration_ms": 2100},
+          {"test_id": "t5", "test_name": "test_cart_update_quantity", "status": "passed", "duration_ms": 1500},
+          {"test_id": "t6", "test_name": "test_checkout_flow", "status": "failed", "duration_ms": 8000, "error_message": "Assertion failed: Expected total to be $99.99 but got $109.99", "failure_type": "assertion_failed"},
+          {"test_id": "t7", "test_name": "test_payment_processing", "status": "failed", "duration_ms": 30000, "error_message": "Timeout 30000ms exceeded waiting for payment confirmation", "failure_type": "timeout"},
+          {"test_id": "t8", "test_name": "test_order_confirmation", "status": "passed", "duration_ms": 1700},
+          {"test_id": "t9", "test_name": "test_user_profile", "status": "passed", "duration_ms": 1400},
+          {"test_id": "t10", "test_name": "test_logout", "status": "passed", "duration_ms": 900}
+        ]
+      },
+      "ground_truth": {
+        "summary": {
+          "total_tests": 10,
+          "passed": 7,
+          "failed": 3,
+          "errors": 0,
+          "skipped": 0,
+          "pass_rate": 70.0
+        },
+        "failure_count": 3,
+        "must_categorize_failures": ["selector_not_found", "assertion_failed", "timeout"],
+        "min_recommendations": 2,
+        "must_mention_in_recommendations": ["selector", "timeout", "assertion"],
+        "failure_priorities": {
+          "test_payment_processing": "high",
+          "test_checkout_flow": "medium"
+        },
+        "notes": "Report should categorize the 3 failures by type, prioritize payment timeout as highest risk, and recommend specific investigation actions."
+      }
+    },
+    {
+      "id": "all_failing",
+      "description": "All 10 tests fail — report should provide detailed failure analysis and urgent recommendations",
+      "input": {
+        "run_id": "run_bench_003",
+        "project_id": "proj_ecommerce",
+        "test_results": [
+          {"test_id": "t1", "test_name": "test_homepage_loads", "status": "failed", "duration_ms": 30000, "error_message": "Navigation timeout: https://app.example.com took longer than 30000ms", "failure_type": "timeout"},
+          {"test_id": "t2", "test_name": "test_login_valid_credentials", "status": "failed", "duration_ms": 30000, "error_message": "Navigation timeout: https://app.example.com/login took longer than 30000ms", "failure_type": "timeout"},
+          {"test_id": "t3", "test_name": "test_product_search", "status": "failed", "duration_ms": 30000, "error_message": "Navigation timeout: https://app.example.com/search took longer than 30000ms", "failure_type": "timeout"},
+          {"test_id": "t4", "test_name": "test_add_to_cart", "status": "failed", "duration_ms": 30000, "error_message": "Navigation timeout: https://app.example.com/products/1 took longer than 30000ms", "failure_type": "timeout"},
+          {"test_id": "t5", "test_name": "test_cart_update_quantity", "status": "failed", "duration_ms": 30000, "error_message": "Navigation timeout: https://app.example.com/cart took longer than 30000ms", "failure_type": "timeout"},
+          {"test_id": "t6", "test_name": "test_checkout_flow", "status": "error", "duration_ms": 500, "error_message": "ERR_CONNECTION_REFUSED: Could not connect to https://app.example.com", "failure_type": "connection_error"},
+          {"test_id": "t7", "test_name": "test_payment_processing", "status": "error", "duration_ms": 500, "error_message": "ERR_CONNECTION_REFUSED: Could not connect to https://app.example.com", "failure_type": "connection_error"},
+          {"test_id": "t8", "test_name": "test_order_confirmation", "status": "error", "duration_ms": 500, "error_message": "ERR_CONNECTION_REFUSED: Could not connect to https://app.example.com", "failure_type": "connection_error"},
+          {"test_id": "t9", "test_name": "test_user_profile", "status": "error", "duration_ms": 500, "error_message": "ERR_CONNECTION_REFUSED: Could not connect to https://app.example.com", "failure_type": "connection_error"},
+          {"test_id": "t10", "test_name": "test_logout", "status": "error", "duration_ms": 500, "error_message": "ERR_CONNECTION_REFUSED: Could not connect to https://app.example.com", "failure_type": "connection_error"}
+        ]
+      },
+      "ground_truth": {
+        "summary": {
+          "total_tests": 10,
+          "passed": 0,
+          "failed": 5,
+          "errors": 5,
+          "skipped": 0,
+          "pass_rate": 0.0
+        },
+        "failure_count": 10,
+        "must_detect_root_cause": "infrastructure",
+        "must_mention": ["connection refused", "application down", "infrastructure", "environment"],
+        "min_recommendations": 2,
+        "must_recommend": ["verify application is running", "check infrastructure", "environment health"],
+        "notes": "All failures share a common root cause: the application is unreachable. Report should identify this as an infrastructure/environment issue, not individual test problems. Should recommend checking if the application is deployed and healthy before re-running tests."
+      }
+    }
+  ]
+}

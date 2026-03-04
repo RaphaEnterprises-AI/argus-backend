@@ -1,0 +1,145 @@
+{
+  "suite": "auto_discovery",
+  "version": "1.0",
+  "description": "Benchmark scenarios for AutoDiscovery agent — evaluates ability to autonomously crawl an application and discover testable user flows.",
+  "scenarios": [
+    {
+      "id": "ecommerce_app",
+      "description": "E-commerce site should yield product browsing, cart management, and checkout flows",
+      "input": {
+        "app_url": "https://demo-ecommerce.example.com",
+        "app_type": "ecommerce",
+        "sitemap": {
+          "pages": [
+            {"url": "/", "title": "Home", "links": ["/products", "/categories", "/deals", "/login", "/cart"]},
+            {"url": "/products", "title": "All Products", "links": ["/products/widget-a", "/products/widget-b", "/products?category=electronics", "/products?sort=price-asc"]},
+            {"url": "/products/widget-a", "title": "Widget A - $29.99", "links": ["/cart"], "interactive_elements": ["button.add-to-cart", "select.quantity", "button.wishlist"]},
+            {"url": "/products/widget-b", "title": "Widget B - $49.99", "links": ["/cart"], "interactive_elements": ["button.add-to-cart", "select.quantity", "button.wishlist"]},
+            {"url": "/categories", "title": "Categories", "links": ["/products?category=electronics", "/products?category=clothing", "/products?category=home"]},
+            {"url": "/cart", "title": "Shopping Cart", "links": ["/checkout", "/products"], "interactive_elements": ["button.remove-item", "input.quantity", "button.update-cart", "input.promo-code", "button.apply-promo"]},
+            {"url": "/checkout", "title": "Checkout", "links": ["/confirmation"], "interactive_elements": ["input.email", "input.address", "input.card-number", "input.expiry", "input.cvv", "button.place-order"], "requires_auth": false},
+            {"url": "/login", "title": "Sign In", "interactive_elements": ["input.email", "input.password", "button.login", "a.forgot-password", "a.register"]},
+            {"url": "/register", "title": "Create Account", "interactive_elements": ["input.name", "input.email", "input.password", "input.confirm-password", "button.register"]},
+            {"url": "/deals", "title": "Today's Deals", "links": ["/products/widget-a", "/products/widget-b"]}
+          ]
+        },
+        "discovery_config": {
+          "max_depth": 3,
+          "max_pages": 50,
+          "timeout_per_page_ms": 10000
+        }
+      },
+      "ground_truth": {
+        "min_flows_discovered": 3,
+        "must_discover_flows": ["product_browsing", "cart_management", "checkout"],
+        "flow_details": {
+          "product_browsing": {
+            "must_include_pages": ["/products"],
+            "must_include_actions": ["navigate", "filter", "click product"]
+          },
+          "cart_management": {
+            "must_include_pages": ["/cart"],
+            "must_include_actions": ["add to cart", "update quantity", "remove item"]
+          },
+          "checkout": {
+            "must_include_pages": ["/checkout"],
+            "must_include_actions": ["fill form", "place order"]
+          }
+        },
+        "must_find_interactive_elements_min": 10
+      }
+    },
+    {
+      "id": "saas_dashboard",
+      "description": "SaaS dashboard app should yield login, settings management, and data management flows",
+      "input": {
+        "app_url": "https://demo-saas.example.com",
+        "app_type": "saas_dashboard",
+        "sitemap": {
+          "pages": [
+            {"url": "/login", "title": "Sign In", "interactive_elements": ["input.email", "input.password", "button.login", "a.sso-login", "a.forgot-password"]},
+            {"url": "/dashboard", "title": "Dashboard", "links": ["/projects", "/team", "/settings", "/reports", "/billing"], "requires_auth": true, "interactive_elements": ["button.new-project", "input.search", "select.date-range"]},
+            {"url": "/projects", "title": "Projects", "links": ["/projects/new", "/projects/proj-1", "/projects/proj-2"], "requires_auth": true, "interactive_elements": ["button.new-project", "input.filter", "select.status-filter", "button.bulk-actions"]},
+            {"url": "/projects/new", "title": "Create Project", "requires_auth": true, "interactive_elements": ["input.name", "textarea.description", "select.team", "input.tags", "button.create"]},
+            {"url": "/projects/proj-1", "title": "Project Alpha", "links": ["/projects/proj-1/settings", "/projects/proj-1/tests"], "requires_auth": true, "interactive_elements": ["button.run-tests", "button.edit", "button.delete"]},
+            {"url": "/team", "title": "Team Management", "requires_auth": true, "interactive_elements": ["button.invite-member", "select.role-filter", "button.remove-member"]},
+            {"url": "/settings", "title": "Account Settings", "requires_auth": true, "interactive_elements": ["input.name", "input.email", "input.avatar-upload", "select.timezone", "toggle.notifications", "toggle.dark-mode", "button.save"]},
+            {"url": "/settings/api-keys", "title": "API Keys", "requires_auth": true, "interactive_elements": ["button.generate-key", "button.revoke-key", "button.copy-key"]},
+            {"url": "/reports", "title": "Reports", "requires_auth": true, "interactive_elements": ["select.report-type", "input.date-from", "input.date-to", "button.generate", "button.export-csv"]},
+            {"url": "/billing", "title": "Billing", "requires_auth": true, "interactive_elements": ["button.upgrade-plan", "button.update-card", "button.download-invoice"]}
+          ]
+        },
+        "discovery_config": {
+          "max_depth": 3,
+          "max_pages": 50,
+          "timeout_per_page_ms": 10000
+        }
+      },
+      "ground_truth": {
+        "min_flows_discovered": 3,
+        "must_discover_flows": ["login", "settings_management", "data_management"],
+        "flow_details": {
+          "login": {
+            "must_include_pages": ["/login"],
+            "must_include_actions": ["fill credentials", "submit", "redirect to dashboard"]
+          },
+          "settings_management": {
+            "must_include_pages": ["/settings"],
+            "must_include_actions": ["update profile", "save changes"]
+          },
+          "data_management": {
+            "must_include_pages": ["/projects"],
+            "must_include_actions": ["create", "list", "filter"]
+          }
+        },
+        "must_find_interactive_elements_min": 15
+      }
+    },
+    {
+      "id": "api_docs_site",
+      "description": "API documentation site should yield navigation, search, and code sample interaction flows",
+      "input": {
+        "app_url": "https://docs-api.example.com",
+        "app_type": "documentation",
+        "sitemap": {
+          "pages": [
+            {"url": "/", "title": "API Documentation", "links": ["/getting-started", "/authentication", "/endpoints", "/sdks", "/changelog"], "interactive_elements": ["input.search", "button.search", "select.version"]},
+            {"url": "/getting-started", "title": "Getting Started", "links": ["/authentication", "/endpoints/users"], "interactive_elements": ["button.copy-code", "select.language-tab"]},
+            {"url": "/authentication", "title": "Authentication", "links": ["/endpoints"], "interactive_elements": ["button.copy-code", "select.language-tab", "button.try-it"]},
+            {"url": "/endpoints", "title": "API Endpoints", "links": ["/endpoints/users", "/endpoints/projects", "/endpoints/tests", "/endpoints/reports"], "interactive_elements": ["input.filter-endpoints", "select.method-filter"]},
+            {"url": "/endpoints/users", "title": "Users API", "interactive_elements": ["button.try-it", "button.copy-code", "select.language-tab", "input.api-key", "button.send-request", "button.expand-response"]},
+            {"url": "/endpoints/projects", "title": "Projects API", "interactive_elements": ["button.try-it", "button.copy-code", "select.language-tab", "input.api-key", "button.send-request"]},
+            {"url": "/endpoints/tests", "title": "Tests API", "interactive_elements": ["button.try-it", "button.copy-code", "select.language-tab"]},
+            {"url": "/sdks", "title": "SDKs & Libraries", "links": ["/sdks/python", "/sdks/javascript", "/sdks/go"], "interactive_elements": ["button.copy-install-command"]},
+            {"url": "/search", "title": "Search Results", "interactive_elements": ["input.search", "button.search", "select.category-filter"]},
+            {"url": "/changelog", "title": "Changelog", "links": [], "interactive_elements": ["select.version-filter"]}
+          ]
+        },
+        "discovery_config": {
+          "max_depth": 3,
+          "max_pages": 30,
+          "timeout_per_page_ms": 10000
+        }
+      },
+      "ground_truth": {
+        "min_flows_discovered": 3,
+        "must_discover_flows": ["navigation", "search", "code_samples"],
+        "flow_details": {
+          "navigation": {
+            "must_include_pages": ["/", "/endpoints"],
+            "must_include_actions": ["navigate sections", "browse endpoints"]
+          },
+          "search": {
+            "must_include_pages": ["/"],
+            "must_include_actions": ["type query", "view results", "filter"]
+          },
+          "code_samples": {
+            "must_include_pages": ["/endpoints/users"],
+            "must_include_actions": ["switch language", "copy code", "try request"]
+          }
+        },
+        "must_find_interactive_elements_min": 10
+      }
+    }
+  ]
+}

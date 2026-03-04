@@ -1,0 +1,148 @@
+{
+  "suite": "mr_analysis",
+  "version": "1.0",
+  "description": "Benchmark scenarios for MRAnalyzerAgent — evaluates ability to assess merge/pull request risk, suggest appropriate tests, and classify change types.",
+  "scenarios": [
+    {
+      "id": "feature_pr",
+      "description": "New feature PR adding an authentication module — expect high risk assessment with functional and security test suggestions",
+      "input": {
+        "pr_number": 142,
+        "title": "feat: add OAuth2 authentication with Google and GitHub providers",
+        "description": "Adds OAuth2 PKCE authentication flow supporting Google and GitHub as identity providers. Includes token refresh, session management, and account linking for existing users.",
+        "author": "dev-alice",
+        "branch": "feature/oauth-providers",
+        "base_branch": "main",
+        "changed_files": [
+          {"path": "src/auth/oauth.py", "change_type": "added", "additions": 180, "deletions": 0},
+          {"path": "src/auth/providers/google.py", "change_type": "added", "additions": 95, "deletions": 0},
+          {"path": "src/auth/providers/github.py", "change_type": "added", "additions": 88, "deletions": 0},
+          {"path": "src/auth/token_manager.py", "change_type": "added", "additions": 65, "deletions": 0},
+          {"path": "src/models/user.py", "change_type": "modified", "additions": 12, "deletions": 2},
+          {"path": "src/api/auth_routes.py", "change_type": "modified", "additions": 45, "deletions": 5},
+          {"path": "supabase/migrations/20260225_oauth.sql", "change_type": "added", "additions": 30, "deletions": 0},
+          {"path": "tests/test_oauth.py", "change_type": "added", "additions": 120, "deletions": 0}
+        ],
+        "total_additions": 635,
+        "total_deletions": 7,
+        "commits": [
+          {"sha": "aaa111", "message": "feat: implement OAuth2 PKCE flow"},
+          {"sha": "bbb222", "message": "feat: add Google and GitHub providers"},
+          {"sha": "ccc333", "message": "feat: add token refresh and session management"},
+          {"sha": "ddd444", "message": "test: add OAuth integration tests"}
+        ],
+        "labels": ["feature", "auth"]
+      },
+      "ground_truth": {
+        "risk_level": "high",
+        "risk_score_min": 0.7,
+        "change_type": "feature",
+        "must_suggest_test_types": ["functional", "security", "integration"],
+        "test_suggestions_must_mention": ["oauth", "token", "session", "provider", "account linking"],
+        "review_concerns_must_mention": ["authentication", "security", "database migration"]
+      }
+    },
+    {
+      "id": "bugfix_pr",
+      "description": "Small bugfix in a utility function — expect low risk with regression test suggestion",
+      "input": {
+        "pr_number": 143,
+        "title": "fix: correct currency formatting for amounts over 10,000",
+        "description": "Fixed a bug where amounts over 10,000 were formatted without the thousands separator, causing display issues in the invoice table.",
+        "author": "dev-bob",
+        "branch": "fix/currency-format",
+        "base_branch": "main",
+        "changed_files": [
+          {"path": "src/utils/format.py", "change_type": "modified", "additions": 5, "deletions": 3},
+          {"path": "tests/test_format.py", "change_type": "modified", "additions": 15, "deletions": 0}
+        ],
+        "total_additions": 20,
+        "total_deletions": 3,
+        "commits": [
+          {"sha": "eee555", "message": "fix: add thousands separator for large amounts"},
+          {"sha": "fff666", "message": "test: add regression tests for currency formatting"}
+        ],
+        "labels": ["bugfix"]
+      },
+      "ground_truth": {
+        "risk_level": "low",
+        "risk_score_max": 0.3,
+        "change_type": "bugfix",
+        "must_suggest_test_types": ["regression"],
+        "test_suggestions_must_mention": ["currency", "format", "thousands", "10000"],
+        "review_concerns_must_mention": ["formatting", "edge cases"]
+      }
+    },
+    {
+      "id": "refactor_pr",
+      "description": "Code refactor with no behavior change — expect low risk with emphasis on existing test retention",
+      "input": {
+        "pr_number": 144,
+        "title": "refactor: extract shared validation logic into base class",
+        "description": "Refactors duplicated input validation logic from 5 endpoint handlers into a shared BaseValidator class. No behavioral changes — all existing tests pass without modification.",
+        "author": "dev-charlie",
+        "branch": "refactor/validation-base",
+        "base_branch": "main",
+        "changed_files": [
+          {"path": "src/validators/base.py", "change_type": "added", "additions": 60, "deletions": 0},
+          {"path": "src/api/users.py", "change_type": "modified", "additions": 8, "deletions": 25},
+          {"path": "src/api/products.py", "change_type": "modified", "additions": 8, "deletions": 22},
+          {"path": "src/api/orders.py", "change_type": "modified", "additions": 8, "deletions": 20},
+          {"path": "src/api/settings.py", "change_type": "modified", "additions": 6, "deletions": 18},
+          {"path": "src/api/teams.py", "change_type": "modified", "additions": 6, "deletions": 15}
+        ],
+        "total_additions": 96,
+        "total_deletions": 100,
+        "commits": [
+          {"sha": "ggg777", "message": "refactor: create BaseValidator with shared validation"},
+          {"sha": "hhh888", "message": "refactor: migrate endpoint handlers to use BaseValidator"}
+        ],
+        "labels": ["refactor", "tech-debt"]
+      },
+      "ground_truth": {
+        "risk_level": "low",
+        "risk_score_max": 0.4,
+        "change_type": "refactor",
+        "must_suggest_test_types": ["regression"],
+        "test_suggestions_must_mention": ["validation", "existing tests", "behavior"],
+        "review_concerns_must_mention": ["no behavior change", "backward compatible"]
+      }
+    },
+    {
+      "id": "security_pr",
+      "description": "Security patch for XSS vulnerability — expect high risk with security-focused test suggestions",
+      "input": {
+        "pr_number": 145,
+        "title": "fix(security): sanitize user-generated HTML to prevent stored XSS",
+        "description": "Critical security fix: user-generated content in comments and profile bios was rendered as raw HTML, allowing stored XSS attacks. Added DOMPurify sanitization on write and CSP headers on read. CVE-2026-XXXXX.",
+        "author": "dev-diana",
+        "branch": "security/xss-fix",
+        "base_branch": "main",
+        "changed_files": [
+          {"path": "src/middleware/security.py", "change_type": "modified", "additions": 25, "deletions": 2, "diff_summary": "Added Content-Security-Policy headers and X-XSS-Protection"},
+          {"path": "src/utils/sanitize.py", "change_type": "added", "additions": 45, "deletions": 0, "diff_summary": "HTML sanitization using bleach with allowlisted tags"},
+          {"path": "src/api/comments.py", "change_type": "modified", "additions": 8, "deletions": 3, "diff_summary": "Sanitize comment body before storage"},
+          {"path": "src/api/profiles.py", "change_type": "modified", "additions": 6, "deletions": 2, "diff_summary": "Sanitize bio field before storage"},
+          {"path": "dashboard/components/Comment.tsx", "change_type": "modified", "additions": 5, "deletions": 3, "diff_summary": "Replace dangerouslySetInnerHTML with sanitized rendering"},
+          {"path": "tests/security/test_xss.py", "change_type": "added", "additions": 85, "deletions": 0, "diff_summary": "XSS attack vector test cases"}
+        ],
+        "total_additions": 174,
+        "total_deletions": 10,
+        "commits": [
+          {"sha": "iii999", "message": "fix(security): add HTML sanitization layer"},
+          {"sha": "jjj000", "message": "fix(security): add CSP and XSS-Protection headers"},
+          {"sha": "kkk111", "message": "test: add XSS attack vector tests"}
+        ],
+        "labels": ["security", "critical", "CVE"]
+      },
+      "ground_truth": {
+        "risk_level": "high",
+        "risk_score_min": 0.8,
+        "change_type": "security",
+        "must_suggest_test_types": ["security", "regression", "integration"],
+        "test_suggestions_must_mention": ["XSS", "sanitize", "CSP", "injection", "script"],
+        "review_concerns_must_mention": ["XSS", "security", "CVE", "sanitization", "Content-Security-Policy"]
+      }
+    }
+  ]
+}

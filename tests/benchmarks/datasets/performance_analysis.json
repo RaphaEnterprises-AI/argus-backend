@@ -1,0 +1,150 @@
+{
+  "suite": "performance_analysis",
+  "version": "1.0",
+  "description": "Benchmark scenarios for PerformanceAnalyzerAgent. Tests Core Web Vitals grading (LCP, FID, CLS, INP) and overall performance scoring using Lighthouse-style thresholds.",
+  "scenarios": [
+    {
+      "id": "fast_page",
+      "description": "Excellent performance — all Core Web Vitals well within thresholds",
+      "input": {
+        "url": "https://example.com/landing",
+        "device": "desktop",
+        "metrics": {
+          "core_vitals": {
+            "lcp_ms": 1200,
+            "fid_ms": 50,
+            "cls": 0.05,
+            "inp_ms": 80
+          },
+          "ttfb_ms": 150,
+          "fcp_ms": 800,
+          "speed_index": 1500,
+          "tti_ms": 2000,
+          "tbt_ms": 120,
+          "total_requests": 25,
+          "total_transfer_size_kb": 450,
+          "js_execution_time_ms": 300,
+          "dom_content_loaded_ms": 900,
+          "load_time_ms": 1800,
+          "performance_score": 95
+        }
+      },
+      "ground_truth": {
+        "overall_grade": "excellent",
+        "min_performance_score": 90,
+        "lcp_grade": "excellent",
+        "fid_grade": "excellent",
+        "cls_grade": "excellent",
+        "max_critical_issues": 0,
+        "max_high_issues": 0
+      }
+    },
+    {
+      "id": "slow_page",
+      "description": "Poor performance — all Core Web Vitals far outside acceptable thresholds",
+      "input": {
+        "url": "https://example.com/dashboard",
+        "device": "mobile",
+        "metrics": {
+          "core_vitals": {
+            "lcp_ms": 5000,
+            "fid_ms": 400,
+            "cls": 0.35,
+            "inp_ms": 600
+          },
+          "ttfb_ms": 1200,
+          "fcp_ms": 3500,
+          "speed_index": 8000,
+          "tti_ms": 12000,
+          "tbt_ms": 3500,
+          "total_requests": 120,
+          "total_transfer_size_kb": 4500,
+          "js_execution_time_ms": 5200,
+          "dom_content_loaded_ms": 4000,
+          "load_time_ms": 9500,
+          "performance_score": 22
+        }
+      },
+      "ground_truth": {
+        "overall_grade": "poor",
+        "max_performance_score": 40,
+        "lcp_grade": "poor",
+        "fid_grade": "poor",
+        "cls_grade": "poor",
+        "min_critical_issues": 2,
+        "must_mention_issues": ["render-blocking", "large-resources", "layout shift"]
+      }
+    },
+    {
+      "id": "needs_work",
+      "description": "Borderline performance — LCP and FID in the needs_work range, CLS marginal",
+      "input": {
+        "url": "https://example.com/products",
+        "device": "mobile",
+        "metrics": {
+          "core_vitals": {
+            "lcp_ms": 3000,
+            "fid_ms": 200,
+            "cls": 0.15,
+            "inp_ms": 300
+          },
+          "ttfb_ms": 600,
+          "fcp_ms": 2000,
+          "speed_index": 4500,
+          "tti_ms": 6000,
+          "tbt_ms": 800,
+          "total_requests": 60,
+          "total_transfer_size_kb": 1800,
+          "js_execution_time_ms": 1500,
+          "dom_content_loaded_ms": 2200,
+          "load_time_ms": 5500,
+          "performance_score": 58
+        }
+      },
+      "ground_truth": {
+        "overall_grade": "needs_work",
+        "min_performance_score": 40,
+        "max_performance_score": 75,
+        "lcp_grade": "needs_work",
+        "fid_grade": "needs_work",
+        "cls_grade": "needs_work",
+        "min_recommendations": 2
+      }
+    },
+    {
+      "id": "mobile_optimized",
+      "description": "Good mobile vitals but excessive JS execution blocking the main thread",
+      "input": {
+        "url": "https://example.com/app",
+        "device": "mobile",
+        "metrics": {
+          "core_vitals": {
+            "lcp_ms": 2200,
+            "fid_ms": 90,
+            "cls": 0.08,
+            "inp_ms": 150
+          },
+          "ttfb_ms": 300,
+          "fcp_ms": 1200,
+          "speed_index": 3000,
+          "tti_ms": 7000,
+          "tbt_ms": 2000,
+          "total_requests": 45,
+          "total_transfer_size_kb": 2200,
+          "js_execution_time_ms": 4500,
+          "dom_content_loaded_ms": 1500,
+          "load_time_ms": 4000,
+          "performance_score": 68
+        }
+      },
+      "ground_truth": {
+        "lcp_grade": "excellent",
+        "fid_grade": "excellent",
+        "cls_grade": "excellent",
+        "min_recommendations": 2,
+        "must_mention_issues": ["javascript", "blocking", "bundle"],
+        "notes": "Core Web Vitals are all excellent but TTI is 7s and TBT is 2s due to heavy JS execution. Recommendations should focus on code splitting and reducing main-thread work."
+      }
+    }
+  ]
+}

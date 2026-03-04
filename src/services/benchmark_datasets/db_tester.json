@@ -1,0 +1,344 @@
+{
+  "suite": "db_tester",
+  "version": "1.0",
+  "description": "Benchmark dataset for DBTesterAgent — evaluates database testing quality including data integrity verification, constraint enforcement, transaction isolation, and query performance.",
+  "scenarios": [
+    {
+      "id": "data_integrity",
+      "description": "Insert and update verification ensuring row counts match expectations and values persist correctly across operations",
+      "input": {
+        "database": "postgresql",
+        "connection_string": "postgresql://test_user:test_pass@localhost:5432/testdb",
+        "schema": {
+          "tables": {
+            "users": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "email": "VARCHAR(255) UNIQUE NOT NULL",
+                "name": "VARCHAR(100) NOT NULL",
+                "role": "VARCHAR(20) DEFAULT 'viewer'",
+                "created_at": "TIMESTAMP DEFAULT NOW()",
+                "updated_at": "TIMESTAMP DEFAULT NOW()"
+              }
+            },
+            "projects": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "name": "VARCHAR(200) NOT NULL",
+                "owner_id": "INTEGER REFERENCES users(id)",
+                "status": "VARCHAR(20) DEFAULT 'active'",
+                "metadata": "JSONB DEFAULT '{}'",
+                "created_at": "TIMESTAMP DEFAULT NOW()"
+              }
+            }
+          }
+        },
+        "operations": [
+          {
+            "step": 1,
+            "action": "INSERT",
+            "table": "users",
+            "data": [
+              {"email": "alice@example.com", "name": "Alice Smith", "role": "admin"},
+              {"email": "bob@example.com", "name": "Bob Jones", "role": "editor"},
+              {"email": "charlie@example.com", "name": "Charlie Brown", "role": "viewer"}
+            ]
+          },
+          {
+            "step": 2,
+            "action": "INSERT",
+            "table": "projects",
+            "data": [
+              {"name": "Project Alpha", "owner_id": 1, "status": "active", "metadata": {"priority": "high"}},
+              {"name": "Project Beta", "owner_id": 2, "status": "paused"}
+            ]
+          },
+          {
+            "step": 3,
+            "action": "UPDATE",
+            "table": "users",
+            "condition": {"email": "bob@example.com"},
+            "set": {"role": "admin", "name": "Robert Jones"}
+          },
+          {
+            "step": 4,
+            "action": "SELECT",
+            "table": "users",
+            "condition": {"role": "admin"}
+          }
+        ]
+      },
+      "ground_truth": {
+        "expected_row_counts": {
+          "users_after_insert": 3,
+          "projects_after_insert": 2,
+          "admins_after_update": 2
+        },
+        "expected_values": {
+          "bob_updated_name": "Robert Jones",
+          "bob_updated_role": "admin",
+          "alice_role_unchanged": "admin",
+          "project_alpha_metadata": {"priority": "high"}
+        },
+        "must_verify": ["row_count_after_insert", "updated_values_match", "unchanged_rows_unaffected", "jsonb_data_intact"],
+        "min_quality_score": 0.75
+      }
+    },
+    {
+      "id": "constraint_validation",
+      "description": "Foreign key, unique, not-null, and check constraint enforcement verification",
+      "input": {
+        "database": "postgresql",
+        "connection_string": "postgresql://test_user:test_pass@localhost:5432/testdb",
+        "schema": {
+          "tables": {
+            "organizations": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "name": "VARCHAR(100) UNIQUE NOT NULL",
+                "plan": "VARCHAR(20) NOT NULL CHECK (plan IN ('free', 'pro', 'enterprise'))",
+                "max_seats": "INTEGER NOT NULL CHECK (max_seats > 0)"
+              }
+            },
+            "members": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "org_id": "INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE",
+                "email": "VARCHAR(255) NOT NULL",
+                "role": "VARCHAR(20) NOT NULL DEFAULT 'member'"
+              },
+              "constraints": ["UNIQUE(org_id, email)"]
+            }
+          }
+        },
+        "seed_data": {
+          "organizations": [
+            {"id": 1, "name": "Acme Corp", "plan": "pro", "max_seats": 50}
+          ],
+          "members": [
+            {"org_id": 1, "email": "owner@acme.com", "role": "owner"}
+          ]
+        },
+        "violation_tests": [
+          {
+            "id": "fk_violation",
+            "action": "INSERT",
+            "table": "members",
+            "data": {"org_id": 999, "email": "nobody@ghost.com", "role": "member"},
+            "expected_error": "foreign_key_violation",
+            "description": "Insert member referencing non-existent organization"
+          },
+          {
+            "id": "unique_violation",
+            "action": "INSERT",
+            "table": "members",
+            "data": {"org_id": 1, "email": "owner@acme.com", "role": "member"},
+            "expected_error": "unique_violation",
+            "description": "Insert duplicate org_id+email combination"
+          },
+          {
+            "id": "not_null_violation",
+            "action": "INSERT",
+            "table": "organizations",
+            "data": {"plan": "free", "max_seats": 5},
+            "expected_error": "not_null_violation",
+            "description": "Insert organization without required name"
+          },
+          {
+            "id": "check_violation_plan",
+            "action": "INSERT",
+            "table": "organizations",
+            "data": {"name": "Bad Org", "plan": "ultimate", "max_seats": 10},
+            "expected_error": "check_violation",
+            "description": "Insert with plan value not in allowed enum"
+          },
+          {
+            "id": "check_violation_seats",
+            "action": "INSERT",
+            "table": "organizations",
+            "data": {"name": "Zero Org", "plan": "free", "max_seats": 0},
+            "expected_error": "check_violation",
+            "description": "Insert with max_seats violating positive check"
+          },
+          {
+            "id": "cascade_delete",
+            "action": "DELETE",
+            "table": "organizations",
+            "condition": {"id": 1},
+            "expected_side_effect": "members with org_id=1 also deleted",
+            "description": "Verify ON DELETE CASCADE removes child rows"
+          }
+        ]
+      },
+      "ground_truth": {
+        "must_detect_constraints": ["foreign_key", "unique", "not_null", "check"],
+        "all_violations_caught": true,
+        "cascade_verified": true,
+        "must_verify": ["fk_rejects_invalid_ref", "unique_rejects_duplicate", "not_null_rejects_missing", "check_rejects_invalid_value", "cascade_removes_children"],
+        "min_quality_score": 0.75
+      }
+    },
+    {
+      "id": "transaction_rollback",
+      "description": "Transaction isolation and rollback verification ensuring atomicity across multi-statement operations",
+      "input": {
+        "database": "postgresql",
+        "connection_string": "postgresql://test_user:test_pass@localhost:5432/testdb",
+        "schema": {
+          "tables": {
+            "accounts": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "owner": "VARCHAR(100) NOT NULL",
+                "balance": "DECIMAL(12,2) NOT NULL CHECK (balance >= 0)",
+                "currency": "VARCHAR(3) DEFAULT 'USD'"
+              }
+            },
+            "transfers": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "from_account_id": "INTEGER REFERENCES accounts(id)",
+                "to_account_id": "INTEGER REFERENCES accounts(id)",
+                "amount": "DECIMAL(12,2) NOT NULL CHECK (amount > 0)",
+                "status": "VARCHAR(20) DEFAULT 'pending'",
+                "created_at": "TIMESTAMP DEFAULT NOW()"
+              }
+            }
+          }
+        },
+        "seed_data": {
+          "accounts": [
+            {"id": 1, "owner": "Alice", "balance": 1000.00, "currency": "USD"},
+            {"id": 2, "owner": "Bob", "balance": 500.00, "currency": "USD"}
+          ]
+        },
+        "transaction_tests": [
+          {
+            "id": "successful_transfer",
+            "description": "Transfer $200 from Alice to Bob — both balances should update atomically",
+            "statements": [
+              "BEGIN",
+              "UPDATE accounts SET balance = balance - 200 WHERE id = 1",
+              "UPDATE accounts SET balance = balance + 200 WHERE id = 2",
+              "INSERT INTO transfers (from_account_id, to_account_id, amount, status) VALUES (1, 2, 200, 'completed')",
+              "COMMIT"
+            ],
+            "expected_state_after": {
+              "account_1_balance": 800.00,
+              "account_2_balance": 700.00,
+              "transfer_count": 1
+            }
+          },
+          {
+            "id": "rollback_on_overdraft",
+            "description": "Transfer $5000 from Alice (balance $800) — should fail on check constraint and rollback all changes",
+            "statements": [
+              "BEGIN",
+              "UPDATE accounts SET balance = balance - 5000 WHERE id = 1",
+              "UPDATE accounts SET balance = balance + 5000 WHERE id = 2",
+              "INSERT INTO transfers (from_account_id, to_account_id, amount, status) VALUES (1, 2, 5000, 'completed')",
+              "COMMIT"
+            ],
+            "expected_behavior": "rollback",
+            "expected_state_after": {
+              "account_1_balance": 800.00,
+              "account_2_balance": 700.00,
+              "transfer_count": 1
+            }
+          },
+          {
+            "id": "explicit_rollback",
+            "description": "Begin a transfer then explicitly rollback — no state should change",
+            "statements": [
+              "BEGIN",
+              "UPDATE accounts SET balance = balance - 100 WHERE id = 1",
+              "UPDATE accounts SET balance = balance + 100 WHERE id = 2",
+              "ROLLBACK"
+            ],
+            "expected_state_after": {
+              "account_1_balance": 800.00,
+              "account_2_balance": 700.00,
+              "transfer_count": 1
+            }
+          }
+        ]
+      },
+      "ground_truth": {
+        "must_verify_atomicity": true,
+        "must_verify_rollback_restores_state": true,
+        "must_verify_constraint_triggers_rollback": true,
+        "must_verify": ["commit_persists_all_changes", "constraint_failure_rolls_back_entire_transaction", "explicit_rollback_reverts_all", "no_partial_state_after_failure"],
+        "min_quality_score": 0.75
+      }
+    },
+    {
+      "id": "query_performance",
+      "description": "Query execution timing verification ensuring queries complete within acceptable thresholds and use appropriate indexes",
+      "input": {
+        "database": "postgresql",
+        "connection_string": "postgresql://test_user:test_pass@localhost:5432/testdb",
+        "schema": {
+          "tables": {
+            "test_results": {
+              "columns": {
+                "id": "SERIAL PRIMARY KEY",
+                "project_id": "UUID NOT NULL",
+                "test_name": "VARCHAR(500) NOT NULL",
+                "status": "VARCHAR(20) NOT NULL",
+                "duration_ms": "INTEGER",
+                "error_message": "TEXT",
+                "created_at": "TIMESTAMP DEFAULT NOW()"
+              },
+              "indexes": [
+                "CREATE INDEX idx_test_results_project ON test_results(project_id)",
+                "CREATE INDEX idx_test_results_status ON test_results(status)",
+                "CREATE INDEX idx_test_results_created ON test_results(created_at DESC)"
+              ],
+              "approximate_rows": 500000
+            }
+          }
+        },
+        "queries": [
+          {
+            "id": "indexed_lookup",
+            "sql": "SELECT * FROM test_results WHERE project_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' ORDER BY created_at DESC LIMIT 50",
+            "description": "Indexed lookup by project_id with sort — should use index scan",
+            "max_duration_ms": 100
+          },
+          {
+            "id": "filtered_count",
+            "sql": "SELECT status, COUNT(*) FROM test_results WHERE project_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' AND created_at > NOW() - INTERVAL '7 days' GROUP BY status",
+            "description": "Aggregation with filters — should complete quickly with partial index use",
+            "max_duration_ms": 200
+          },
+          {
+            "id": "full_text_search",
+            "sql": "SELECT * FROM test_results WHERE error_message ILIKE '%connection%timeout%' ORDER BY created_at DESC LIMIT 20",
+            "description": "ILIKE pattern match on unindexed TEXT column — expected to be slower",
+            "max_duration_ms": 2000
+          },
+          {
+            "id": "complex_join",
+            "sql": "SELECT tr.test_name, tr.status, tr.duration_ms, tr.created_at FROM test_results tr WHERE tr.project_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' AND tr.status = 'failed' AND tr.created_at > NOW() - INTERVAL '30 days' ORDER BY tr.duration_ms DESC LIMIT 10",
+            "description": "Multi-condition filtered query with sort on non-indexed column",
+            "max_duration_ms": 500
+          }
+        ]
+      },
+      "ground_truth": {
+        "must_verify_execution_time": true,
+        "must_run_explain_analyze": true,
+        "must_check_index_usage": true,
+        "expected_results": {
+          "indexed_lookup": {"uses_index": true, "scan_type": "index_scan", "within_threshold": true},
+          "filtered_count": {"uses_index": true, "within_threshold": true},
+          "full_text_search": {"uses_index": false, "scan_type": "seq_scan", "within_threshold": true},
+          "complex_join": {"uses_index": true, "within_threshold": true}
+        },
+        "must_flag_slow_queries": ["full_text_search"],
+        "must_suggest_optimization_for": ["full_text_search"],
+        "min_quality_score": 0.7
+      }
+    }
+  ]
+}

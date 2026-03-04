@@ -1,0 +1,289 @@
+{
+  "suite": "api_tester",
+  "version": "1.0",
+  "description": "Benchmark dataset for APITesterAgent — evaluates API test execution quality including status code validation, schema checking, authentication handling, and error classification.",
+  "scenarios": [
+    {
+      "id": "rest_crud",
+      "description": "Basic REST CRUD operations against a products API, validating correct status codes and response schema at each step",
+      "input": {
+        "base_url": "https://api.example.com",
+        "endpoints": [
+          {
+            "method": "POST",
+            "path": "/api/products",
+            "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token_valid"},
+            "body": {"name": "Wireless Mouse", "price": 29.99, "category": "electronics", "stock": 150},
+            "expected_status": 201
+          },
+          {
+            "method": "GET",
+            "path": "/api/products/1",
+            "headers": {"Authorization": "Bearer test_token_valid"},
+            "expected_status": 200
+          },
+          {
+            "method": "PUT",
+            "path": "/api/products/1",
+            "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token_valid"},
+            "body": {"price": 24.99, "stock": 120},
+            "expected_status": 200
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/products/1",
+            "headers": {"Authorization": "Bearer test_token_valid"},
+            "expected_status": 204
+          },
+          {
+            "method": "GET",
+            "path": "/api/products/1",
+            "headers": {"Authorization": "Bearer test_token_valid"},
+            "expected_status": 404
+          }
+        ],
+        "response_schema": {
+          "product": {
+            "type": "object",
+            "required": ["id", "name", "price", "category", "stock", "created_at"],
+            "properties": {
+              "id": {"type": "integer"},
+              "name": {"type": "string", "minLength": 1, "maxLength": 200},
+              "price": {"type": "number", "exclusiveMinimum": 0},
+              "category": {"type": "string", "enum": ["electronics", "clothing", "food", "home"]},
+              "stock": {"type": "integer", "minimum": 0},
+              "created_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        }
+      },
+      "ground_truth": {
+        "all_status_codes_correct": true,
+        "schema_valid": true,
+        "must_validate": ["status_code", "response_body_schema", "content_type_header"],
+        "must_verify_lifecycle": ["create_returns_id", "read_matches_created", "update_reflected", "delete_confirmed_by_404"],
+        "min_quality_score": 0.8
+      }
+    },
+    {
+      "id": "auth_flows",
+      "description": "Authentication and authorization flows including token acquisition, protected access, token expiry, and insufficient permissions",
+      "input": {
+        "base_url": "https://api.example.com",
+        "endpoints": [
+          {
+            "method": "POST",
+            "path": "/api/auth/login",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"email": "admin@example.com", "password": "SecurePass123!"},
+            "expected_status": 200,
+            "expected_response_contains": ["token", "expires_in", "user"]
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/users",
+            "headers": {"Authorization": "Bearer {{token}}"},
+            "expected_status": 200,
+            "description": "Admin access with valid token"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/users",
+            "headers": {},
+            "expected_status": 401,
+            "description": "No token provided"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/users",
+            "headers": {"Authorization": "Bearer expired_token_abc123"},
+            "expected_status": 401,
+            "description": "Expired token"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/users",
+            "headers": {"Authorization": "Bearer viewer_role_token"},
+            "expected_status": 403,
+            "description": "Insufficient role permissions"
+          }
+        ],
+        "auth_config": {
+          "token_type": "JWT",
+          "header_name": "Authorization",
+          "header_prefix": "Bearer",
+          "token_lifetime_seconds": 3600
+        }
+      },
+      "ground_truth": {
+        "must_detect_401": true,
+        "must_detect_403": true,
+        "must_validate_token_handling": true,
+        "must_distinguish_authn_vs_authz": true,
+        "expected_classifications": {
+          "no_token": "authentication_required",
+          "expired_token": "token_expired",
+          "insufficient_role": "authorization_denied"
+        },
+        "min_quality_score": 0.75
+      }
+    },
+    {
+      "id": "error_responses",
+      "description": "Error handling and classification across different failure modes including validation errors, not found, and server errors",
+      "input": {
+        "base_url": "https://api.example.com",
+        "endpoints": [
+          {
+            "method": "POST",
+            "path": "/api/products",
+            "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token_valid"},
+            "body": {"name": "", "price": -5, "category": "invalid_category"},
+            "expected_status": 422,
+            "description": "Multiple validation errors"
+          },
+          {
+            "method": "GET",
+            "path": "/api/products/99999",
+            "headers": {"Authorization": "Bearer test_token_valid"},
+            "expected_status": 404,
+            "description": "Resource not found"
+          },
+          {
+            "method": "POST",
+            "path": "/api/products",
+            "headers": {"Content-Type": "text/plain", "Authorization": "Bearer test_token_valid"},
+            "body": "not json",
+            "expected_status": 415,
+            "description": "Unsupported media type"
+          },
+          {
+            "method": "POST",
+            "path": "/api/products",
+            "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token_valid"},
+            "body": {"name": "Test", "price": 10, "category": "electronics"},
+            "expected_status": 500,
+            "description": "Simulated server error (via X-Test-Error header)",
+            "extra_headers": {"X-Test-Error": "simulate_500"}
+          }
+        ],
+        "error_response_schema": {
+          "type": "object",
+          "required": ["error"],
+          "properties": {
+            "error": {"type": "string"},
+            "details": {"type": "array", "items": {"type": "object"}},
+            "request_id": {"type": "string"}
+          }
+        }
+      },
+      "ground_truth": {
+        "must_classify_errors": {
+          "422": "validation_error",
+          "404": "not_found",
+          "415": "unsupported_media_type",
+          "500": "server_error"
+        },
+        "must_validate_error_body": true,
+        "must_check_meaningful_messages": true,
+        "must_verify_no_stack_trace_in_response": true,
+        "min_quality_score": 0.7
+      }
+    },
+    {
+      "id": "pagination",
+      "description": "Paginated list endpoint traversal with cursor-based navigation, verifying correct page sizes and complete data retrieval",
+      "input": {
+        "base_url": "https://api.example.com",
+        "endpoint": {
+          "method": "GET",
+          "path": "/api/products",
+          "headers": {"Authorization": "Bearer test_token_valid"}
+        },
+        "pagination_config": {
+          "type": "cursor",
+          "page_size_param": "limit",
+          "cursor_param": "cursor",
+          "default_page_size": 20,
+          "max_page_size": 100
+        },
+        "test_data": {
+          "total_records": 55,
+          "expected_pages_at_default_size": 3,
+          "expected_pages_at_size_25": 3,
+          "expected_last_page_size_at_default": 15
+        },
+        "expected_response_shape": {
+          "data": "array",
+          "next_cursor": "string|null",
+          "has_more": "boolean",
+          "total": "integer"
+        }
+      },
+      "ground_truth": {
+        "must_verify_page_traversal": true,
+        "must_verify_no_duplicates_across_pages": true,
+        "must_verify_last_page_has_no_next": true,
+        "must_verify_total_count_matches": true,
+        "must_verify_custom_page_size": true,
+        "expected_checks": ["default page size", "custom page size", "last page detection", "all records retrieved", "no duplicate IDs"],
+        "min_quality_score": 0.7
+      }
+    },
+    {
+      "id": "webhook_validation",
+      "description": "Webhook payload validation including HMAC signature verification, schema conformance, and idempotency handling",
+      "input": {
+        "base_url": "https://api.example.com",
+        "webhook_endpoint": {
+          "method": "POST",
+          "path": "/api/webhooks/stripe",
+          "content_type": "application/json"
+        },
+        "test_payloads": [
+          {
+            "id": "valid_payment_succeeded",
+            "body": {"id": "evt_1abc", "type": "payment_intent.succeeded", "data": {"object": {"id": "pi_1xyz", "amount": 2999, "currency": "usd", "status": "succeeded"}}},
+            "signature": "t=1708300000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd",
+            "expected_status": 200,
+            "description": "Valid payload with correct HMAC signature"
+          },
+          {
+            "id": "invalid_signature",
+            "body": {"id": "evt_2abc", "type": "payment_intent.succeeded", "data": {"object": {"id": "pi_2xyz", "amount": 1000, "currency": "usd", "status": "succeeded"}}},
+            "signature": "t=1708300000,v1=invalid_signature_tampered",
+            "expected_status": 401,
+            "description": "Tampered HMAC signature"
+          },
+          {
+            "id": "malformed_payload",
+            "body": {"type": "payment_intent.succeeded"},
+            "signature": "t=1708300000,v1=a1b2c3d4e5f6",
+            "expected_status": 422,
+            "description": "Missing required fields in payload"
+          },
+          {
+            "id": "duplicate_event",
+            "body": {"id": "evt_1abc", "type": "payment_intent.succeeded", "data": {"object": {"id": "pi_1xyz", "amount": 2999, "currency": "usd", "status": "succeeded"}}},
+            "signature": "t=1708300000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd",
+            "expected_status": 200,
+            "description": "Duplicate event ID (idempotency check)"
+          }
+        ],
+        "signature_config": {
+          "header_name": "Stripe-Signature",
+          "algorithm": "HMAC-SHA256",
+          "secret": "whsec_test_secret_key"
+        }
+      },
+      "ground_truth": {
+        "must_verify_signature": true,
+        "must_verify_schema_conformance": true,
+        "must_handle_idempotency": true,
+        "must_reject_invalid_signature": true,
+        "expected_checks": ["HMAC verification", "required fields present", "duplicate event handled", "malformed payload rejected"],
+        "min_quality_score": 0.7
+      }
+    }
+  ]
+}

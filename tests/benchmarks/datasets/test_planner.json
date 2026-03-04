@@ -1,0 +1,190 @@
+{
+  "suite": "test_planner",
+  "version": "1.0",
+  "description": "Benchmark dataset for TestPlannerAgent — evaluates quality, completeness, and prioritization of generated test plans across common application patterns.",
+  "scenarios": [
+    {
+      "id": "auth_flow",
+      "description": "Login and registration flow planning for a web application with email/password auth, session management, and password reset",
+      "input": {
+        "app_url": "https://example.com",
+        "app_description": "Web application with user authentication. Users can register with email and password (minimum 8 characters, must include uppercase and number). Login uses email/password with remember-me option. Session expires after 30 minutes of inactivity. Password reset sends a tokenized email link valid for 1 hour. Failed login locks account after 5 attempts for 15 minutes.",
+        "testable_surfaces": [
+          {
+            "type": "ui",
+            "name": "Registration form",
+            "url": "/register",
+            "elements": ["email input", "password input", "confirm password input", "submit button", "error messages"]
+          },
+          {
+            "type": "ui",
+            "name": "Login form",
+            "url": "/login",
+            "elements": ["email input", "password input", "remember me checkbox", "submit button", "forgot password link"]
+          },
+          {
+            "type": "api",
+            "name": "Auth API",
+            "endpoints": ["POST /api/auth/register", "POST /api/auth/login", "POST /api/auth/logout", "POST /api/auth/reset-password"]
+          }
+        ],
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_tests": 3,
+        "max_priority": "critical",
+        "must_cover_flows": ["successful login", "failed login", "registration"],
+        "must_include_assertions": ["redirect after login", "error message on invalid credentials", "session creation"],
+        "min_quality_score": 0.7
+      }
+    },
+    {
+      "id": "crud_api",
+      "description": "REST API CRUD test planning for a resource management service with full lifecycle operations",
+      "input": {
+        "app_url": "https://api.example.com",
+        "app_description": "REST API for managing product catalog. Supports full CRUD on /api/products. GET returns paginated results (default 20 per page, cursor-based). POST requires name (string, 1-200 chars), price (positive float), and category (enum: electronics, clothing, food). PUT allows partial updates. DELETE returns 204. All endpoints require Bearer token auth. Rate limited to 100 req/min per token.",
+        "testable_surfaces": [
+          {
+            "type": "api",
+            "name": "Products API",
+            "endpoints": [
+              "GET /api/products",
+              "GET /api/products/:id",
+              "POST /api/products",
+              "PUT /api/products/:id",
+              "DELETE /api/products/:id"
+            ],
+            "schema": {
+              "product": {
+                "id": "integer",
+                "name": "string",
+                "price": "float",
+                "category": "string",
+                "created_at": "datetime"
+              }
+            }
+          }
+        ],
+        "config": {
+          "framework": "pytest",
+          "language": "python"
+        }
+      },
+      "ground_truth": {
+        "min_tests": 4,
+        "must_cover_methods": ["GET", "POST", "PUT", "DELETE"],
+        "must_include_assertions": ["status code validation", "response schema validation", "created resource retrievable"],
+        "must_cover_flows": ["create then read", "update then verify", "delete then 404"],
+        "min_quality_score": 0.7
+      }
+    },
+    {
+      "id": "form_validation",
+      "description": "Complex form validation test planning for a user profile form with multiple field types and constraints",
+      "input": {
+        "app_url": "https://example.com",
+        "app_description": "User profile form with the following fields: full name (required, 2-100 chars), email (required, valid format), phone (optional, E.164 format), date of birth (required, must be 18+ years old), bio (optional, max 500 chars), avatar upload (optional, max 5MB, jpg/png only). Client-side validation shows inline errors below each field. Server-side validation returns 422 with field-level error messages. Successful submission shows a toast notification and redirects to /profile.",
+        "testable_surfaces": [
+          {
+            "type": "ui",
+            "name": "Profile form",
+            "url": "/settings/profile",
+            "elements": ["name input", "email input", "phone input", "dob picker", "bio textarea", "avatar upload", "save button", "cancel button", "inline error messages", "toast notification"]
+          }
+        ],
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_tests": 3,
+        "must_cover_flows": ["valid submission", "empty required fields", "invalid field formats"],
+        "must_include_edge_cases": ["empty name", "invalid email format", "underage date of birth"],
+        "must_include_assertions": ["inline error displayed", "form not submitted on validation failure", "success toast shown"],
+        "min_quality_score": 0.65
+      }
+    },
+    {
+      "id": "multi_step_checkout",
+      "description": "E-commerce multi-step checkout flow test planning spanning cart review, shipping, payment, and confirmation",
+      "input": {
+        "app_url": "https://shop.example.com",
+        "app_description": "Four-step checkout flow: (1) Cart Review — shows items, quantities, subtotal, allows quantity changes and item removal; (2) Shipping — address form with autocomplete, shipping method selection (standard $5/3-5 days, express $15/1-2 days); (3) Payment — credit card form (number, expiry, CVV) with Stripe integration, optional promo code field; (4) Confirmation — order summary, estimated delivery, order number. Back navigation preserves entered data. Browser refresh warns about losing progress. Minimum order $10.",
+        "testable_surfaces": [
+          {
+            "type": "ui",
+            "name": "Cart Review",
+            "url": "/checkout/cart",
+            "elements": ["item list", "quantity selector", "remove button", "subtotal", "continue button"]
+          },
+          {
+            "type": "ui",
+            "name": "Shipping Step",
+            "url": "/checkout/shipping",
+            "elements": ["address form", "shipping method radio buttons", "back button", "continue button"]
+          },
+          {
+            "type": "ui",
+            "name": "Payment Step",
+            "url": "/checkout/payment",
+            "elements": ["card number input", "expiry input", "cvv input", "promo code field", "apply button", "place order button"]
+          },
+          {
+            "type": "ui",
+            "name": "Confirmation",
+            "url": "/checkout/confirmation",
+            "elements": ["order number", "delivery estimate", "order summary"]
+          }
+        ],
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_tests": 4,
+        "must_cover_flows": ["complete checkout happy path", "back navigation preserves data", "shipping method selection", "payment with promo code"],
+        "must_cover_pages": ["/checkout/cart", "/checkout/shipping", "/checkout/payment", "/checkout/confirmation"],
+        "must_include_assertions": ["order number displayed on confirmation", "correct total after promo code", "data persists on back navigation"],
+        "min_quality_score": 0.65
+      }
+    },
+    {
+      "id": "error_handling",
+      "description": "Error states and edge case test planning for resilient user experience under failure conditions",
+      "input": {
+        "app_url": "https://example.com",
+        "app_description": "Application error handling behavior: (1) Network errors — shows 'Connection lost' banner with retry button, queues actions for replay; (2) 404 pages — custom not-found page with search and home link; (3) 500 errors — friendly error page with 'Report Issue' button that sends context to Sentry; (4) Session expiry — modal overlay prompting re-login without losing form data; (5) Concurrent edit conflicts — toast with 'Reload' and 'Keep my changes' options; (6) File upload failures — inline error with retry button per file.",
+        "testable_surfaces": [
+          {
+            "type": "ui",
+            "name": "Error states",
+            "url": "various",
+            "elements": ["connection lost banner", "retry button", "404 page", "500 error page", "report issue button", "session expiry modal", "conflict toast", "upload error"]
+          },
+          {
+            "type": "api",
+            "name": "Error responses",
+            "endpoints": ["GET /api/nonexistent (404)", "GET /api/error-test (500)"]
+          }
+        ],
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_tests": 3,
+        "must_cover_flows": ["network error recovery", "404 navigation", "server error display"],
+        "must_include_error_types": ["network_error", "not_found", "server_error"],
+        "must_include_assertions": ["retry button functional", "error page renders", "user can recover from error"],
+        "min_quality_score": 0.6
+      }
+    }
+  ]
+}

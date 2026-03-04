@@ -1,0 +1,286 @@
+{
+  "suite": "ui_tester",
+  "version": "1.0",
+  "description": "Benchmark dataset for UITesterAgentV2 — evaluates UI test execution quality including element interaction, navigation verification, form handling, dynamic content strategies, and responsive layout assertions.",
+  "scenarios": [
+    {
+      "id": "login_flow",
+      "description": "Login form interaction: fill credentials, submit, verify redirect to dashboard and session state",
+      "input": {
+        "app_url": "https://example.com/login",
+        "test_steps": [
+          {"action": "navigate", "url": "/login"},
+          {"action": "assert_visible", "selector": "form[data-testid='login-form']"},
+          {"action": "fill", "selector": "input[name='email']", "value": "testuser@example.com"},
+          {"action": "fill", "selector": "input[name='password']", "value": "SecurePass123!"},
+          {"action": "click", "selector": "button[type='submit']"},
+          {"action": "wait_for_navigation", "url_pattern": "/dashboard"},
+          {"action": "assert_visible", "selector": "[data-testid='user-avatar']"},
+          {"action": "assert_text", "selector": "[data-testid='welcome-message']", "expected": "Welcome, testuser"}
+        ],
+        "page_html": {
+          "/login": "<html><body><main><h1>Sign In</h1><form data-testid='login-form' action='/api/auth/login' method='POST'><div class='form-group'><label for='email'>Email</label><input id='email' name='email' type='email' required placeholder='you@example.com'/></div><div class='form-group'><label for='password'>Password</label><input id='password' name='password' type='password' required/></div><div class='form-actions'><button type='submit' class='btn-primary'>Sign In</button><a href='/forgot-password'>Forgot password?</a></div><div class='error-container' role='alert' hidden></div></form></main></body></html>",
+          "/dashboard": "<html><body><nav><img data-testid='user-avatar' src='/avatar.png' alt='User'/><span data-testid='welcome-message'>Welcome, testuser</span></nav><main><h1>Dashboard</h1></main></body></html>"
+        },
+        "config": {
+          "browser": "chromium",
+          "timeout_ms": 10000,
+          "viewport": {"width": 1280, "height": 720}
+        }
+      },
+      "ground_truth": {
+        "must_perform_actions": ["fill_email", "fill_password", "click_submit"],
+        "must_assert": ["redirect_to_dashboard", "user_avatar_visible", "welcome_message_correct"],
+        "must_handle": ["form_submission", "page_navigation", "element_visibility"],
+        "expected_final_url": "/dashboard",
+        "min_quality_score": 0.8
+      }
+    },
+    {
+      "id": "navigation",
+      "description": "Multi-page navigation testing: sidebar links, URL changes, breadcrumb trail, and back/forward browser history",
+      "input": {
+        "app_url": "https://example.com",
+        "navigation_map": {
+          "/dashboard": {
+            "links": [
+              {"selector": "a[href='/projects']", "text": "Projects", "target_url": "/projects"},
+              {"selector": "a[href='/settings']", "text": "Settings", "target_url": "/settings"},
+              {"selector": "a[href='/reports']", "text": "Reports", "target_url": "/reports"}
+            ],
+            "breadcrumb": ["Home"]
+          },
+          "/projects": {
+            "links": [
+              {"selector": "a[href='/projects/proj_1']", "text": "Project Alpha", "target_url": "/projects/proj_1"}
+            ],
+            "breadcrumb": ["Home", "Projects"]
+          },
+          "/projects/proj_1": {
+            "links": [
+              {"selector": "a[href='/projects/proj_1/tests']", "text": "Tests", "target_url": "/projects/proj_1/tests"}
+            ],
+            "breadcrumb": ["Home", "Projects", "Project Alpha"]
+          }
+        },
+        "test_steps": [
+          {"action": "navigate", "url": "/dashboard"},
+          {"action": "click", "selector": "a[href='/projects']"},
+          {"action": "assert_url", "expected": "/projects"},
+          {"action": "assert_breadcrumb", "expected": ["Home", "Projects"]},
+          {"action": "click", "selector": "a[href='/projects/proj_1']"},
+          {"action": "assert_url", "expected": "/projects/proj_1"},
+          {"action": "assert_breadcrumb", "expected": ["Home", "Projects", "Project Alpha"]},
+          {"action": "go_back"},
+          {"action": "assert_url", "expected": "/projects"},
+          {"action": "go_back"},
+          {"action": "assert_url", "expected": "/dashboard"}
+        ],
+        "config": {
+          "browser": "chromium",
+          "timeout_ms": 10000
+        }
+      },
+      "ground_truth": {
+        "must_verify_url_changes": ["/dashboard", "/projects", "/projects/proj_1"],
+        "must_verify_breadcrumbs": true,
+        "must_verify_back_navigation": true,
+        "must_assert": ["url_after_each_click", "breadcrumb_at_each_level", "back_restores_previous_url"],
+        "total_navigation_steps": 5,
+        "min_quality_score": 0.75
+      }
+    },
+    {
+      "id": "form_submission",
+      "description": "Complex form with client-side validation: required fields, format rules, inline errors, and success confirmation",
+      "input": {
+        "app_url": "https://example.com/contact",
+        "form_config": {
+          "selector": "form[data-testid='contact-form']",
+          "fields": [
+            {"name": "name", "type": "text", "selector": "input[name='name']", "required": true, "validation": "min 2 chars"},
+            {"name": "email", "type": "email", "selector": "input[name='email']", "required": true, "validation": "valid email format"},
+            {"name": "subject", "type": "select", "selector": "select[name='subject']", "required": true, "options": ["General", "Support", "Billing", "Partnership"]},
+            {"name": "message", "type": "textarea", "selector": "textarea[name='message']", "required": true, "validation": "min 10 chars, max 1000 chars"},
+            {"name": "priority", "type": "radio", "selector": "input[name='priority']", "required": false, "options": ["low", "medium", "high"]},
+            {"name": "attachments", "type": "file", "selector": "input[name='attachments']", "required": false, "validation": "max 5MB, pdf/jpg/png only"}
+          ],
+          "submit_button": "button[type='submit']",
+          "error_display": ".field-error",
+          "success_indicator": "[data-testid='success-toast']"
+        },
+        "test_cases": [
+          {
+            "id": "empty_submit",
+            "description": "Submit empty form and verify all required field errors appear",
+            "fill_data": {},
+            "expected_errors": ["name is required", "email is required", "subject is required", "message is required"],
+            "expected_submission": false
+          },
+          {
+            "id": "invalid_email",
+            "description": "Submit with invalid email format",
+            "fill_data": {"name": "John Doe", "email": "not-an-email", "subject": "General", "message": "This is a test message for the form."},
+            "expected_errors": ["valid email required"],
+            "expected_submission": false
+          },
+          {
+            "id": "valid_submission",
+            "description": "Fill all required fields correctly and submit",
+            "fill_data": {"name": "John Doe", "email": "john@example.com", "subject": "Support", "message": "I need help with my account settings please.", "priority": "medium"},
+            "expected_errors": [],
+            "expected_submission": true
+          }
+        ],
+        "config": {
+          "browser": "chromium",
+          "timeout_ms": 10000
+        }
+      },
+      "ground_truth": {
+        "must_test_empty_submission": true,
+        "must_test_invalid_input": true,
+        "must_test_valid_submission": true,
+        "must_assert": ["inline_errors_visible_on_empty_submit", "email_format_error_shown", "success_toast_on_valid_submit", "form_cleared_after_success"],
+        "must_interact_with_field_types": ["text", "email", "select", "textarea"],
+        "min_quality_score": 0.75
+      }
+    },
+    {
+      "id": "dynamic_content",
+      "description": "Dynamic UI elements: loading spinners, modals, dropdowns, and lazy-loaded content requiring wait strategies",
+      "input": {
+        "app_url": "https://example.com/dashboard",
+        "dynamic_elements": [
+          {
+            "id": "loading_spinner",
+            "description": "Data table loads asynchronously with spinner",
+            "trigger": {"action": "navigate", "url": "/dashboard"},
+            "loading_indicator": {"selector": "[data-testid='loading-spinner']", "appears_for_ms": 1500},
+            "loaded_content": {"selector": "[data-testid='data-table']", "min_rows": 5},
+            "wait_strategy": "wait_for_selector_hidden"
+          },
+          {
+            "id": "modal_dialog",
+            "description": "Confirmation modal on delete action",
+            "trigger": {"action": "click", "selector": "button[data-testid='delete-item']"},
+            "modal": {
+              "overlay_selector": "[data-testid='modal-overlay']",
+              "content_selector": "[data-testid='confirm-modal']",
+              "title": "Confirm Deletion",
+              "confirm_button": "button[data-testid='confirm-delete']",
+              "cancel_button": "button[data-testid='cancel-delete']"
+            },
+            "wait_strategy": "wait_for_selector_visible"
+          },
+          {
+            "id": "dropdown_menu",
+            "description": "Multi-level dropdown with search filter",
+            "trigger": {"action": "click", "selector": "[data-testid='category-dropdown']"},
+            "dropdown": {
+              "container_selector": "[data-testid='dropdown-list']",
+              "search_input": "[data-testid='dropdown-search']",
+              "option_selector": "[data-testid='dropdown-option']",
+              "options": ["Electronics", "Clothing", "Home & Garden", "Sports", "Books"]
+            },
+            "wait_strategy": "wait_for_selector_visible"
+          },
+          {
+            "id": "infinite_scroll",
+            "description": "Lazy-loaded items on scroll to bottom",
+            "trigger": {"action": "scroll_to_bottom", "container": "[data-testid='item-list']"},
+            "loading_indicator": {"selector": "[data-testid='load-more-spinner']"},
+            "new_content": {"selector": "[data-testid='item-card']", "initial_count": 10, "after_scroll_count": 20},
+            "wait_strategy": "wait_for_count_change"
+          }
+        ],
+        "config": {
+          "browser": "chromium",
+          "timeout_ms": 15000
+        }
+      },
+      "ground_truth": {
+        "must_handle_loading_states": true,
+        "must_handle_modals": true,
+        "must_handle_dropdowns": true,
+        "must_handle_lazy_loading": true,
+        "must_use_wait_strategies": ["wait_for_selector_visible", "wait_for_selector_hidden", "wait_for_count_change"],
+        "must_assert": ["spinner_disappears_before_interaction", "modal_visible_after_trigger", "dropdown_options_rendered", "new_items_loaded_after_scroll"],
+        "must_not": ["interact_before_load_complete", "assert_on_hidden_element", "use_hardcoded_sleep"],
+        "min_quality_score": 0.7
+      }
+    },
+    {
+      "id": "responsive_layout",
+      "description": "Responsive design verification across desktop, tablet, and mobile viewports with layout and visibility assertions",
+      "input": {
+        "app_url": "https://example.com/dashboard",
+        "viewports": [
+          {
+            "name": "desktop",
+            "width": 1440,
+            "height": 900,
+            "expected_layout": {
+              "sidebar": {"visible": true, "selector": "[data-testid='sidebar']", "position": "left", "width_approx": 256},
+              "main_content": {"visible": true, "selector": "[data-testid='main-content']"},
+              "top_nav": {"visible": true, "selector": "[data-testid='top-nav']"},
+              "hamburger_menu": {"visible": false, "selector": "[data-testid='hamburger-btn']"},
+              "grid_columns": {"selector": "[data-testid='card-grid']", "expected_columns": 3}
+            }
+          },
+          {
+            "name": "tablet",
+            "width": 768,
+            "height": 1024,
+            "expected_layout": {
+              "sidebar": {"visible": false, "selector": "[data-testid='sidebar']"},
+              "main_content": {"visible": true, "selector": "[data-testid='main-content']"},
+              "top_nav": {"visible": true, "selector": "[data-testid='top-nav']"},
+              "hamburger_menu": {"visible": true, "selector": "[data-testid='hamburger-btn']"},
+              "grid_columns": {"selector": "[data-testid='card-grid']", "expected_columns": 2}
+            }
+          },
+          {
+            "name": "mobile",
+            "width": 375,
+            "height": 812,
+            "expected_layout": {
+              "sidebar": {"visible": false, "selector": "[data-testid='sidebar']"},
+              "main_content": {"visible": true, "selector": "[data-testid='main-content']"},
+              "top_nav": {"visible": true, "selector": "[data-testid='top-nav']"},
+              "hamburger_menu": {"visible": true, "selector": "[data-testid='hamburger-btn']"},
+              "grid_columns": {"selector": "[data-testid='card-grid']", "expected_columns": 1}
+            }
+          }
+        ],
+        "interaction_tests": [
+          {
+            "viewport": "mobile",
+            "steps": [
+              {"action": "assert_hidden", "selector": "[data-testid='sidebar']"},
+              {"action": "click", "selector": "[data-testid='hamburger-btn']"},
+              {"action": "assert_visible", "selector": "[data-testid='sidebar']"},
+              {"action": "click", "selector": "[data-testid='sidebar'] a[href='/projects']"},
+              {"action": "assert_hidden", "selector": "[data-testid='sidebar']"},
+              {"action": "assert_url", "expected": "/projects"}
+            ],
+            "description": "Mobile hamburger menu opens sidebar, navigation closes it"
+          }
+        ],
+        "config": {
+          "browser": "chromium",
+          "timeout_ms": 10000,
+          "screenshot_each_viewport": true
+        }
+      },
+      "ground_truth": {
+        "must_test_viewports": ["desktop", "tablet", "mobile"],
+        "must_verify_visibility_changes": ["sidebar", "hamburger_menu"],
+        "must_verify_grid_columns": true,
+        "must_assert": ["sidebar_visible_on_desktop", "sidebar_hidden_on_mobile", "hamburger_visible_on_mobile", "grid_columns_adapt_to_viewport", "mobile_menu_interaction_works"],
+        "must_resize_viewport": true,
+        "min_quality_score": 0.7
+      }
+    }
+  ]
+}

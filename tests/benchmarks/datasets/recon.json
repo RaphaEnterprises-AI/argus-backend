@@ -1,0 +1,177 @@
+{
+  "suite": "recon",
+  "version": "1.0",
+  "description": "Benchmark scenarios for ReconAgent. Tests automated reconnaissance including port scanning, technology detection, endpoint enumeration, and attack surface analysis.",
+  "scenarios": [
+    {
+      "id": "web_app",
+      "description": "Standard web application with common HTTP/HTTPS ports, identifiable technology stack, and discoverable endpoints",
+      "input": {
+        "target_url": "https://shop.example.com",
+        "scope": ["shop.example.com"],
+        "scan_depth": "standard",
+        "probe_results": {
+          "ports": [
+            {"port": 80, "protocol": "tcp", "service": "http", "state": "open"},
+            {"port": 443, "protocol": "tcp", "service": "https", "state": "open"}
+          ],
+          "response_headers": {
+            "Server": "nginx/1.24.0",
+            "X-Powered-By": "Next.js",
+            "Content-Type": "text/html; charset=utf-8",
+            "Set-Cookie": "session=abc; Secure; HttpOnly; SameSite=Lax",
+            "Strict-Transport-Security": "max-age=31536000"
+          },
+          "html_indicators": [
+            "<div id='__next'>",
+            "<script src='/_next/static/chunks/main.js'>",
+            "<meta name='generator' content='Next.js 15'>"
+          ],
+          "discovered_urls": [
+            "/",
+            "/products",
+            "/products/[id]",
+            "/cart",
+            "/checkout",
+            "/api/products",
+            "/api/cart",
+            "/api/auth/login",
+            "/api/auth/register",
+            "/sitemap.xml",
+            "/robots.txt"
+          ]
+        }
+      },
+      "ground_truth": {
+        "must_find_ports": [80, 443],
+        "must_detect_technologies": ["nginx", "Next.js"],
+        "min_endpoints": 5,
+        "must_find_endpoints": ["/api/products", "/api/cart", "/api/auth/login"],
+        "must_identify_auth_endpoints": true,
+        "attack_surface": {
+          "min_input_points": 3,
+          "must_mention_risk_areas": ["authentication", "user input"]
+        }
+      }
+    },
+    {
+      "id": "api_server",
+      "description": "API-only server with documented OpenAPI spec, JWT authentication, and multiple versioned endpoints",
+      "input": {
+        "target_url": "https://api.example.com",
+        "scope": ["api.example.com"],
+        "scan_depth": "standard",
+        "probe_results": {
+          "ports": [
+            {"port": 443, "protocol": "tcp", "service": "https", "state": "open"},
+            {"port": 8443, "protocol": "tcp", "service": "https-alt", "state": "open"}
+          ],
+          "response_headers": {
+            "Server": "gunicorn/21.2.0",
+            "Content-Type": "application/json",
+            "X-Request-ID": "req_abc123",
+            "X-RateLimit-Limit": "1000",
+            "X-RateLimit-Remaining": "999",
+            "X-RateLimit-Reset": "1708300800",
+            "WWW-Authenticate": "Bearer realm=\"api\""
+          },
+          "openapi_spec": {
+            "openapi": "3.1.0",
+            "info": {"title": "Example API", "version": "2.1.0"},
+            "paths": {
+              "/api/v2/users": {"get": {"security": [{"bearerAuth": []}]}, "post": {}},
+              "/api/v2/users/{id}": {"get": {"security": [{"bearerAuth": []}]}, "put": {"security": [{"bearerAuth": []}]}, "delete": {"security": [{"bearerAuth": []}]}},
+              "/api/v2/projects": {"get": {"security": [{"bearerAuth": []}]}, "post": {"security": [{"bearerAuth": []}]}},
+              "/api/v2/auth/token": {"post": {}},
+              "/api/v2/auth/refresh": {"post": {}},
+              "/api/v2/health": {"get": {}},
+              "/api/v1/users": {"get": {"deprecated": true}}
+            }
+          },
+          "discovered_urls": [
+            "/api/v2/users",
+            "/api/v2/projects",
+            "/api/v2/auth/token",
+            "/api/v2/health",
+            "/docs",
+            "/openapi.json"
+          ]
+        }
+      },
+      "ground_truth": {
+        "must_find_ports": [443],
+        "must_detect_technologies": ["gunicorn", "Python"],
+        "min_endpoints": 6,
+        "must_find_endpoints": ["/api/v2/users", "/api/v2/projects", "/api/v2/auth/token"],
+        "must_detect_auth_type": "JWT Bearer",
+        "must_detect_rate_limiting": true,
+        "must_find_openapi_spec": true,
+        "attack_surface": {
+          "min_authenticated_endpoints": 4,
+          "must_mention_risk_areas": ["authentication", "authorization", "deprecated endpoint"]
+        }
+      }
+    },
+    {
+      "id": "microservices",
+      "description": "Microservices architecture with multiple ports, various technologies, and inter-service communication patterns",
+      "input": {
+        "target_url": "https://platform.example.com",
+        "scope": ["platform.example.com", "*.platform.example.com"],
+        "scan_depth": "thorough",
+        "probe_results": {
+          "ports": [
+            {"port": 80, "protocol": "tcp", "service": "http", "state": "open"},
+            {"port": 443, "protocol": "tcp", "service": "https", "state": "open"},
+            {"port": 3000, "protocol": "tcp", "service": "http", "state": "open", "banner": "Express"},
+            {"port": 5432, "protocol": "tcp", "service": "postgresql", "state": "filtered"},
+            {"port": 6379, "protocol": "tcp", "service": "redis", "state": "filtered"},
+            {"port": 8080, "protocol": "tcp", "service": "http-proxy", "state": "open", "banner": "envoy"},
+            {"port": 9090, "protocol": "tcp", "service": "http", "state": "open", "banner": "Prometheus"}
+          ],
+          "response_headers": {
+            "Server": "envoy",
+            "X-Envoy-Upstream-Service-Time": "12",
+            "Via": "1.1 envoy",
+            "Content-Type": "text/html; charset=utf-8"
+          },
+          "subdomains_discovered": [
+            "api.platform.example.com",
+            "auth.platform.example.com",
+            "monitoring.platform.example.com",
+            "grpc.platform.example.com"
+          ],
+          "service_map": {
+            "platform.example.com:443": "Frontend (React SPA)",
+            "api.platform.example.com:443": "API Gateway (Express + Envoy)",
+            "auth.platform.example.com:443": "Auth Service (Keycloak)",
+            "monitoring.platform.example.com:9090": "Prometheus metrics"
+          },
+          "discovered_urls": [
+            "/",
+            "/api/v1/health",
+            "/api/v1/users",
+            "/api/v1/projects",
+            "/api/v1/notifications",
+            "/auth/realms/main/.well-known/openid-configuration",
+            "/metrics"
+          ]
+        }
+      },
+      "ground_truth": {
+        "must_find_ports": [80, 443, 3000, 8080],
+        "min_ports_detected": 5,
+        "must_detect_technologies": ["envoy", "Express", "React", "Prometheus"],
+        "min_services_detected": 3,
+        "must_detect_services": ["frontend", "api", "auth"],
+        "must_find_subdomains": ["api.platform.example.com", "auth.platform.example.com"],
+        "attack_surface": {
+          "min_input_points": 5,
+          "must_mention_risk_areas": ["exposed monitoring", "multiple entry points", "service mesh"],
+          "must_flag_filtered_ports": ["postgresql", "redis"]
+        },
+        "notes": "Agent should flag that PostgreSQL (5432) and Redis (6379) are filtered but detectable, Prometheus metrics endpoint is exposed, and the Keycloak OIDC configuration is discoverable. Multiple subdomains expand the attack surface significantly."
+      }
+    }
+  ]
+}

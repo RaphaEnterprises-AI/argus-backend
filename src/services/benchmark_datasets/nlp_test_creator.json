@@ -1,0 +1,160 @@
+{
+  "suite": "nlp_test_creator",
+  "version": "1.0",
+  "description": "Benchmark scenarios for NLPTestCreator agent — evaluates ability to convert natural language descriptions into structured test steps with assertions.",
+  "scenarios": [
+    {
+      "id": "simple_login",
+      "description": "Simple login flow from natural language should produce navigation, form fill, submit, and redirect assertion steps",
+      "input": {
+        "natural_language": "User logs in with valid credentials",
+        "app_url": "https://example.com",
+        "context": {
+          "login_page": "/login",
+          "dashboard_page": "/dashboard",
+          "known_selectors": {
+            "email_input": "#email",
+            "password_input": "#password",
+            "submit_button": "button[type='submit']"
+          }
+        },
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_steps": 3,
+        "must_contain_step_types": ["navigate", "fill", "click"],
+        "must_contain_assertions": ["redirect", "url"],
+        "assertions_must_mention": ["/dashboard"],
+        "framework": "playwright"
+      }
+    },
+    {
+      "id": "error_validation",
+      "description": "Error case should produce steps that trigger the error state and assert on the error message",
+      "input": {
+        "natural_language": "Show error when password is wrong",
+        "app_url": "https://example.com",
+        "context": {
+          "login_page": "/login",
+          "known_selectors": {
+            "email_input": "#email",
+            "password_input": "#password",
+            "submit_button": "button[type='submit']",
+            "error_message": "[role='alert']"
+          }
+        },
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_steps": 3,
+        "must_contain_step_types": ["navigate", "fill", "click"],
+        "must_contain_assertions": ["error", "visible"],
+        "assertions_must_mention": ["error", "wrong", "invalid"],
+        "framework": "playwright"
+      }
+    },
+    {
+      "id": "multi_step_flow",
+      "description": "Complex multi-step checkout flow should produce a detailed sequence with multiple pages and assertions",
+      "input": {
+        "natural_language": "Complete checkout: add item to cart, go to cart page, enter shipping address, enter payment details, confirm order",
+        "app_url": "https://example.com",
+        "context": {
+          "product_page": "/products/widget-a",
+          "cart_page": "/cart",
+          "checkout_page": "/checkout",
+          "confirmation_page": "/confirmation",
+          "known_selectors": {
+            "add_to_cart_button": "button.add-to-cart",
+            "cart_icon": "[data-testid='cart-icon']",
+            "checkout_button": "button.checkout",
+            "address_input": "#shipping-address",
+            "city_input": "#city",
+            "zip_input": "#zip",
+            "card_number_input": "#card-number",
+            "expiry_input": "#expiry",
+            "cvv_input": "#cvv",
+            "confirm_button": "button.confirm-order"
+          }
+        },
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_steps": 6,
+        "must_contain_step_types": ["navigate", "click", "fill"],
+        "must_contain_assertions": ["url", "visible", "text"],
+        "assertions_must_mention": ["confirmation", "order"],
+        "framework": "playwright"
+      }
+    },
+    {
+      "id": "data_driven",
+      "description": "Profile verification should produce steps that read and assert on specific data values",
+      "input": {
+        "natural_language": "Verify user profile shows correct name and email",
+        "app_url": "https://example.com",
+        "context": {
+          "profile_page": "/profile",
+          "test_user": {
+            "name": "John Doe",
+            "email": "john@example.com"
+          },
+          "known_selectors": {
+            "profile_name": "[data-testid='profile-name']",
+            "profile_email": "[data-testid='profile-email']",
+            "profile_avatar": "img.avatar"
+          }
+        },
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_steps": 2,
+        "must_contain_step_types": ["navigate"],
+        "must_contain_assertions": ["text", "value"],
+        "assertions_must_mention": ["John Doe", "john@example.com"],
+        "framework": "playwright"
+      }
+    },
+    {
+      "id": "accessibility",
+      "description": "Accessibility test should produce keyboard interaction steps and focus/ARIA assertions",
+      "input": {
+        "natural_language": "Verify login form is keyboard navigable",
+        "app_url": "https://example.com",
+        "context": {
+          "login_page": "/login",
+          "known_selectors": {
+            "email_input": "#email",
+            "password_input": "#password",
+            "submit_button": "button[type='submit']",
+            "forgot_password_link": "a[href='/forgot-password']"
+          },
+          "expected_tab_order": ["#email", "#password", "a[href='/forgot-password']", "button[type='submit']"]
+        },
+        "config": {
+          "framework": "playwright",
+          "language": "typescript"
+        }
+      },
+      "ground_truth": {
+        "min_steps": 3,
+        "must_contain_step_types": ["navigate", "keyboard"],
+        "must_contain_assertions": ["focus", "accessible"],
+        "assertions_must_mention": ["tab", "keyboard", "focus"],
+        "framework": "playwright"
+      }
+    }
+  ]
+}

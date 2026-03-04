@@ -3,7 +3,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install only runtime dependencies (no build tools in final image)
+# Install only runtime dependencies (no browser binaries — browsers run on Selenium Grid)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \

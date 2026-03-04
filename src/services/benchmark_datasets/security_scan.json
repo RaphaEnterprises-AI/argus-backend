@@ -1,0 +1,173 @@
+{
+  "suite": "security_scan",
+  "version": "1.0",
+  "description": "Benchmark scenarios for SecurityScannerAgent. Tests OWASP Top 10 vulnerability detection, security header analysis, and risk scoring.",
+  "scenarios": [
+    {
+      "id": "vulnerable_app",
+      "description": "Application with SQL injection and reflected XSS vulnerabilities, missing security headers",
+      "input": {
+        "url": "https://vulnerable.example.com",
+        "scan_type": "full",
+        "page_html": "<html><head><title>Search</title></head><body><form action='/search'><input name='q' value='test'/></form><div id='results'>Results for: test</div><script>var user = 'admin'; document.write('<p>Welcome ' + location.hash.substr(1) + '</p>');</script></body></html>",
+        "response_headers": {
+          "Server": "Apache/2.4.41",
+          "X-Powered-By": "PHP/7.4.3",
+          "Content-Type": "text/html"
+        },
+        "api_endpoints": [
+          {
+            "url": "/api/users?id=1",
+            "method": "GET",
+            "response_code": 200,
+            "parameters": ["id"]
+          },
+          {
+            "url": "/api/search?q=test",
+            "method": "GET",
+            "response_code": 200,
+            "parameters": ["q"]
+          }
+        ],
+        "source_snippets": {
+          "search.php": "<?php $q = $_GET['q']; $result = mysql_query(\"SELECT * FROM products WHERE name LIKE '%$q%'\"); echo \"Results for: $q\"; ?>"
+        }
+      },
+      "ground_truth": {
+        "min_critical_findings": 2,
+        "min_risk_score": 70,
+        "must_find_categories": ["A03:2021-Injection"],
+        "must_find_vulnerabilities": ["sql_injection", "xss"],
+        "missing_headers_must_include": ["Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options"],
+        "server_info_exposed": true
+      }
+    },
+    {
+      "id": "hardened_app",
+      "description": "Well-secured application with proper headers, no detected vulnerabilities",
+      "input": {
+        "url": "https://secure.example.com",
+        "scan_type": "full",
+        "page_html": "<html><head><title>Dashboard</title><meta charset='utf-8'/></head><body><div id='app'></div><script src='/static/app.abc123.js' integrity='sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8w' crossorigin='anonymous'></script></body></html>",
+        "response_headers": {
+          "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.example.com",
+          "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+          "X-Frame-Options": "DENY",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "strict-origin-when-cross-origin",
+          "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store"
+        },
+        "api_endpoints": [
+          {
+            "url": "/api/v1/profile",
+            "method": "GET",
+            "response_code": 401,
+            "parameters": []
+          }
+        ],
+        "source_snippets": {}
+      },
+      "ground_truth": {
+        "max_risk_score": 20,
+        "max_critical_findings": 0,
+        "max_high_findings": 0,
+        "missing_headers_count": 0,
+        "has_sri": true,
+        "has_csp": true,
+        "has_hsts": true
+      }
+    },
+    {
+      "id": "mixed_security",
+      "description": "Application with missing CORS configuration and weak authentication — no critical vulns but high-severity misconfigurations",
+      "input": {
+        "url": "https://mixed.example.com",
+        "scan_type": "full",
+        "page_html": "<html><head><title>API Portal</title></head><body><div id='api-docs'></div></body></html>",
+        "response_headers": {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE",
+          "Access-Control-Allow-Headers": "*",
+          "Content-Type": "application/json",
+          "X-Content-Type-Options": "nosniff"
+        },
+        "api_endpoints": [
+          {
+            "url": "/api/users",
+            "method": "GET",
+            "response_code": 200,
+            "parameters": [],
+            "auth_header": "Basic dXNlcjpwYXNz"
+          },
+          {
+            "url": "/api/admin/config",
+            "method": "GET",
+            "response_code": 200,
+            "parameters": [],
+            "auth_header": null
+          }
+        ],
+        "source_snippets": {}
+      },
+      "ground_truth": {
+        "min_high_findings": 1,
+        "max_high_findings": 3,
+        "must_find_categories": ["A01:2021-Broken Access Control", "A05:2021-Security Misconfiguration"],
+        "must_mention": ["CORS", "wildcard", "admin", "authentication"],
+        "missing_headers_must_include": ["Content-Security-Policy", "Strict-Transport-Security"]
+      }
+    },
+    {
+      "id": "api_security",
+      "description": "API server missing rate limiting, exposing debug endpoints, and using verbose error messages",
+      "input": {
+        "url": "https://api.example.com",
+        "scan_type": "api",
+        "response_headers": {
+          "Content-Type": "application/json",
+          "X-Content-Type-Options": "nosniff",
+          "Server": "gunicorn/20.1.0"
+        },
+        "api_endpoints": [
+          {
+            "url": "/api/v1/login",
+            "method": "POST",
+            "response_code": 401,
+            "error_body": {"error": "Invalid credentials", "detail": "User admin@example.com not found in database users_table", "stack": "at AuthService.authenticate (src/auth.js:42)"}
+          },
+          {
+            "url": "/debug/vars",
+            "method": "GET",
+            "response_code": 200,
+            "parameters": []
+          },
+          {
+            "url": "/debug/pprof",
+            "method": "GET",
+            "response_code": 200,
+            "parameters": []
+          },
+          {
+            "url": "/api/v1/data",
+            "method": "GET",
+            "response_code": 200,
+            "rate_limit_headers": null,
+            "parameters": ["page", "limit"]
+          }
+        ],
+        "source_snippets": {}
+      },
+      "ground_truth": {
+        "min_medium_findings": 2,
+        "must_find_issues": ["rate_limiting", "debug_endpoint", "verbose_error", "stack_trace_exposure"],
+        "must_mention": ["rate limit", "debug", "stack trace", "information disclosure"],
+        "severity_distribution": {
+          "min_medium": 2,
+          "min_low": 1
+        }
+      }
+    }
+  ]
+}

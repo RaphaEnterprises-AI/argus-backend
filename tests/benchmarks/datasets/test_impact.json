@@ -1,0 +1,151 @@
+{
+  "suite": "test_impact",
+  "version": "1.0",
+  "description": "Benchmark scenarios for TestImpactAnalyzer agent — evaluates ability to determine which tests are affected by code changes, suggest new tests, and assign risk scores.",
+  "scenarios": [
+    {
+      "id": "auth_module_change",
+      "description": "Changes to authentication module should affect auth-related tests across the stack",
+      "input": {
+        "project_id": "proj_bench_impact",
+        "commit_sha": "abc123def456",
+        "branch": "feature/oauth-migration",
+        "changed_files": [
+          {"path": "src/auth.py", "change_type": "modified", "additions": 45, "deletions": 20, "diff_summary": "Replaced session-based auth with OAuth2 PKCE flow; added refresh token rotation"},
+          {"path": "src/middleware/auth_middleware.py", "change_type": "modified", "additions": 15, "deletions": 8, "diff_summary": "Updated token validation to check OAuth2 bearer tokens instead of session cookies"},
+          {"path": "src/models/user.py", "change_type": "modified", "additions": 5, "deletions": 2, "diff_summary": "Added oauth_provider and oauth_sub fields to User model"}
+        ],
+        "existing_tests": [
+          {"id": "test_login_flow", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth", "login"]},
+          {"id": "test_signup_flow", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth", "signup"]},
+          {"id": "test_session_expiry", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth", "session"]},
+          {"id": "test_protected_routes", "file": "tests/integration/test_middleware.py", "type": "integration", "tags": ["auth", "middleware"]},
+          {"id": "test_user_crud", "file": "tests/integration/test_users.py", "type": "integration", "tags": ["users", "crud"]},
+          {"id": "test_dashboard_load", "file": "tests/e2e/test_dashboard.py", "type": "e2e", "tags": ["dashboard"]},
+          {"id": "test_api_products", "file": "tests/integration/test_products.py", "type": "integration", "tags": ["products", "api"]}
+        ]
+      },
+      "ground_truth": {
+        "affected_test_ids": ["test_login_flow", "test_signup_flow", "test_session_expiry", "test_protected_routes", "test_user_crud"],
+        "unaffected_test_ids": ["test_api_products"],
+        "risk_score_min": 0.7,
+        "suggested_new_tests_must_mention": ["oauth", "token refresh", "bearer token"],
+        "impact_category": "authentication"
+      }
+    },
+    {
+      "id": "api_endpoint_change",
+      "description": "New API endpoint added with route changes — should impact integration tests and suggest new coverage",
+      "input": {
+        "project_id": "proj_bench_impact",
+        "commit_sha": "def789ghi012",
+        "branch": "feature/bulk-operations",
+        "changed_files": [
+          {"path": "src/api/products.py", "change_type": "modified", "additions": 60, "deletions": 0, "diff_summary": "Added POST /api/products/bulk endpoint for batch product creation with validation"},
+          {"path": "src/schemas/product.py", "change_type": "modified", "additions": 18, "deletions": 0, "diff_summary": "Added BulkProductCreate schema with max 100 items constraint"},
+          {"path": "src/api/routes.py", "change_type": "modified", "additions": 3, "deletions": 0, "diff_summary": "Registered new bulk products router"}
+        ],
+        "existing_tests": [
+          {"id": "test_create_product", "file": "tests/integration/test_products.py", "type": "integration", "tags": ["products", "api", "create"]},
+          {"id": "test_list_products", "file": "tests/integration/test_products.py", "type": "integration", "tags": ["products", "api", "list"]},
+          {"id": "test_product_validation", "file": "tests/integration/test_products.py", "type": "integration", "tags": ["products", "validation"]},
+          {"id": "test_auth_flow", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth"]},
+          {"id": "test_product_page_ui", "file": "tests/e2e/test_products_ui.py", "type": "e2e", "tags": ["products", "ui"]}
+        ]
+      },
+      "ground_truth": {
+        "affected_test_ids": ["test_create_product", "test_list_products", "test_product_validation"],
+        "unaffected_test_ids": ["test_auth_flow"],
+        "risk_score_min": 0.5,
+        "suggested_new_tests_must_mention": ["bulk", "batch", "100 items", "validation"],
+        "impact_category": "api"
+      }
+    },
+    {
+      "id": "database_schema_change",
+      "description": "Database migration adding new columns and index — should impact DB and integration tests",
+      "input": {
+        "project_id": "proj_bench_impact",
+        "commit_sha": "ghi345jkl678",
+        "branch": "feature/audit-logging",
+        "changed_files": [
+          {"path": "supabase/migrations/20260225000001_add_audit_log.sql", "change_type": "added", "additions": 35, "deletions": 0, "diff_summary": "CREATE TABLE audit_log with columns: id, user_id, action, resource_type, resource_id, metadata JSONB, created_at; CREATE INDEX on user_id and created_at"},
+          {"path": "src/models/audit.py", "change_type": "added", "additions": 28, "deletions": 0, "diff_summary": "New AuditLog SQLAlchemy model and AuditLogEntry Pydantic schema"},
+          {"path": "src/middleware/audit_middleware.py", "change_type": "added", "additions": 40, "deletions": 0, "diff_summary": "Middleware that logs all POST/PUT/DELETE requests to audit_log table"}
+        ],
+        "existing_tests": [
+          {"id": "test_db_migrations", "file": "tests/integration/test_migrations.py", "type": "integration", "tags": ["database", "migrations"]},
+          {"id": "test_user_crud", "file": "tests/integration/test_users.py", "type": "integration", "tags": ["users", "crud", "database"]},
+          {"id": "test_product_crud", "file": "tests/integration/test_products.py", "type": "integration", "tags": ["products", "crud", "database"]},
+          {"id": "test_middleware_chain", "file": "tests/integration/test_middleware.py", "type": "integration", "tags": ["middleware"]},
+          {"id": "test_login_ui", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth", "ui"]},
+          {"id": "test_static_pages", "file": "tests/e2e/test_pages.py", "type": "e2e", "tags": ["pages", "ui"]}
+        ]
+      },
+      "ground_truth": {
+        "affected_test_ids": ["test_db_migrations", "test_user_crud", "test_product_crud", "test_middleware_chain"],
+        "unaffected_test_ids": ["test_static_pages"],
+        "risk_score_min": 0.6,
+        "suggested_new_tests_must_mention": ["audit_log", "audit", "logging", "middleware"],
+        "impact_category": "database"
+      }
+    },
+    {
+      "id": "ui_component_change",
+      "description": "React component refactored with new props and layout — should impact visual and interaction tests",
+      "input": {
+        "project_id": "proj_bench_impact",
+        "commit_sha": "jkl901mno234",
+        "branch": "feature/redesign-settings",
+        "changed_files": [
+          {"path": "dashboard/components/settings/SettingsForm.tsx", "change_type": "modified", "additions": 80, "deletions": 55, "diff_summary": "Refactored SettingsForm from class to functional component; replaced custom form handling with react-hook-form; changed layout from single column to two-column grid"},
+          {"path": "dashboard/components/settings/SettingsForm.module.css", "change_type": "modified", "additions": 30, "deletions": 20, "diff_summary": "Updated styles for two-column grid layout, new button styles"},
+          {"path": "dashboard/components/ui/FormField.tsx", "change_type": "added", "additions": 45, "deletions": 0, "diff_summary": "New reusable FormField component with label, input, and error message"}
+        ],
+        "existing_tests": [
+          {"id": "test_settings_visual", "file": "tests/e2e/test_settings.py", "type": "e2e", "tags": ["settings", "visual"]},
+          {"id": "test_settings_save", "file": "tests/e2e/test_settings.py", "type": "e2e", "tags": ["settings", "interaction"]},
+          {"id": "test_settings_validation", "file": "tests/e2e/test_settings.py", "type": "e2e", "tags": ["settings", "validation"]},
+          {"id": "test_dashboard_nav", "file": "tests/e2e/test_dashboard.py", "type": "e2e", "tags": ["dashboard", "navigation"]},
+          {"id": "test_api_settings", "file": "tests/integration/test_settings_api.py", "type": "integration", "tags": ["settings", "api"]},
+          {"id": "test_auth_flow", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth"]}
+        ]
+      },
+      "ground_truth": {
+        "affected_test_ids": ["test_settings_visual", "test_settings_save", "test_settings_validation"],
+        "unaffected_test_ids": ["test_auth_flow", "test_api_settings"],
+        "risk_score_min": 0.5,
+        "suggested_new_tests_must_mention": ["two-column", "FormField", "react-hook-form", "layout"],
+        "impact_category": "ui"
+      }
+    },
+    {
+      "id": "config_change",
+      "description": "Environment configuration changes only — minimal test impact expected",
+      "input": {
+        "project_id": "proj_bench_impact",
+        "commit_sha": "mno567pqr890",
+        "branch": "chore/update-config",
+        "changed_files": [
+          {"path": ".env.example", "change_type": "modified", "additions": 3, "deletions": 1, "diff_summary": "Added CACHE_TTL=300 and LOG_LEVEL=info defaults; removed deprecated LEGACY_MODE flag"},
+          {"path": "src/config.py", "change_type": "modified", "additions": 5, "deletions": 3, "diff_summary": "Added cache_ttl and log_level to Settings model; removed legacy_mode field"},
+          {"path": "docker-compose.yml", "change_type": "modified", "additions": 2, "deletions": 1, "diff_summary": "Added CACHE_TTL environment variable to api service"}
+        ],
+        "existing_tests": [
+          {"id": "test_login_flow", "file": "tests/e2e/test_auth.py", "type": "e2e", "tags": ["auth"]},
+          {"id": "test_api_health", "file": "tests/integration/test_health.py", "type": "integration", "tags": ["health", "config"]},
+          {"id": "test_product_crud", "file": "tests/integration/test_products.py", "type": "integration", "tags": ["products"]},
+          {"id": "test_dashboard_ui", "file": "tests/e2e/test_dashboard.py", "type": "e2e", "tags": ["dashboard", "ui"]},
+          {"id": "test_settings_page", "file": "tests/e2e/test_settings.py", "type": "e2e", "tags": ["settings"]}
+        ]
+      },
+      "ground_truth": {
+        "affected_test_ids": ["test_api_health"],
+        "unaffected_test_ids": ["test_login_flow", "test_product_crud", "test_dashboard_ui", "test_settings_page"],
+        "risk_score_max": 0.3,
+        "suggested_new_tests_must_mention": ["cache_ttl", "config"],
+        "impact_category": "configuration"
+      }
+    }
+  ]
+}

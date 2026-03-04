@@ -1,0 +1,108 @@
+{
+  "suite": "test_quality_intelligence",
+  "version": "1.0",
+  "description": "Benchmark scenarios for TestQualityIntelligenceAgent trust score computation. Validates the deterministic trust score formula: score = 100 * (assertion_strength*0.30 + heal_penalty*0.25 + flaky_penalty*0.20 + age_factor*0.10 + coverage_factor*0.15).",
+  "scenarios": [
+    {
+      "id": "strong_test",
+      "description": "High-quality test with exact_match assertions, zero heals, zero flakiness, 90+ days old, good coverage",
+      "input": {
+        "test_id": "test_checkout_submit_order",
+        "assertion_strength": "exact_match",
+        "total_heals": 0,
+        "suspicious_heals": 0,
+        "regression_masking_heals": 0,
+        "flakiness_rate": 0.0,
+        "days_since_creation": 120,
+        "coverage_factor": 0.8
+      },
+      "ground_truth": {
+        "min_score": 85,
+        "max_score": 100,
+        "expected_score": 97.0,
+        "assertion_strength_score": 1.0,
+        "heal_penalty_score": 1.0,
+        "flaky_penalty_score": 1.0,
+        "age_factor_score": 1.0,
+        "coverage_factor_score": 0.8,
+        "classification": "high_trust"
+      }
+    },
+    {
+      "id": "weak_test",
+      "description": "Low-quality test with no assertions, 5 clean heals, 20% flaky rate, only 30 days old, minimal coverage",
+      "input": {
+        "test_id": "test_page_loads_ok",
+        "assertion_strength": "no_assertion",
+        "total_heals": 5,
+        "suspicious_heals": 0,
+        "regression_masking_heals": 0,
+        "flakiness_rate": 0.20,
+        "days_since_creation": 30,
+        "coverage_factor": 0.2
+      },
+      "ground_truth": {
+        "min_score": 0,
+        "max_score": 40,
+        "expected_score": 37.3,
+        "assertion_strength_score": 0.0,
+        "heal_penalty_score": 0.6,
+        "flaky_penalty_score": 0.8,
+        "age_factor_score": 0.333,
+        "coverage_factor_score": 0.2,
+        "classification": "low_trust"
+      }
+    },
+    {
+      "id": "healed_test",
+      "description": "Moderately healed test with contains assertions, 3 heals (1 suspicious, 1 regression-masking), 10% flaky, 45 days old",
+      "input": {
+        "test_id": "test_search_filters_apply",
+        "assertion_strength": "contains",
+        "total_heals": 3,
+        "suspicious_heals": 1,
+        "regression_masking_heals": 1,
+        "flakiness_rate": 0.10,
+        "days_since_creation": 45,
+        "coverage_factor": 0.4
+      },
+      "ground_truth": {
+        "min_score": 50,
+        "max_score": 70,
+        "expected_score": 65.0,
+        "assertion_strength_score": 0.7,
+        "heal_penalty_score": 0.6,
+        "flaky_penalty_score": 0.9,
+        "age_factor_score": 0.5,
+        "coverage_factor_score": 0.4,
+        "classification": "medium_trust"
+      }
+    },
+    {
+      "id": "old_stable_test",
+      "description": "Old stable test with contains assertions, zero heals, zero flakiness, 365 days old, but very low coverage factor — covers legacy code paths only",
+      "input": {
+        "test_id": "test_legacy_report_export",
+        "assertion_strength": "contains",
+        "total_heals": 0,
+        "suspicious_heals": 0,
+        "regression_masking_heals": 0,
+        "flakiness_rate": 0.0,
+        "days_since_creation": 365,
+        "coverage_factor": 0.1
+      },
+      "ground_truth": {
+        "min_score": 60,
+        "max_score": 80,
+        "expected_score": 77.5,
+        "assertion_strength_score": 0.7,
+        "heal_penalty_score": 1.0,
+        "flaky_penalty_score": 1.0,
+        "age_factor_score": 1.0,
+        "coverage_factor_score": 0.1,
+        "classification": "medium_trust",
+        "notes": "Age factor is maxed at 1.0 (capped at 90 days). Score limited by low coverage of unique code paths and weaker assertion type."
+      }
+    }
+  ]
+}

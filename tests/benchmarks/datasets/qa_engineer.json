@@ -1,0 +1,43 @@
+[
+  {
+    "id": "qa_full_analysis",
+    "analysis_type": "full",
+    "config": {
+      "repository_url": "https://github.com/example/web-app",
+      "branch": "main",
+      "include_ci_config": true
+    },
+    "ground_truth": {
+      "min_coverage_gaps": 2,
+      "min_recommendations": 3,
+      "min_quality_score": 20.0
+    }
+  },
+  {
+    "id": "qa_pr_review",
+    "analysis_type": "pr",
+    "config": {
+      "repository_url": "https://github.com/example/web-app",
+      "pr_number": 42,
+      "changed_files": ["src/auth.py", "src/api/users.py", "tests/test_auth.py"]
+    },
+    "ground_truth": {
+      "min_coverage_gaps": 1,
+      "min_recommendations": 2,
+      "min_quality_score": 15.0
+    }
+  },
+  {
+    "id": "qa_coverage_audit",
+    "analysis_type": "coverage",
+    "config": {
+      "repository_url": "https://github.com/example/api-service",
+      "focus_areas": ["authentication", "payments", "data-export"]
+    },
+    "ground_truth": {
+      "min_coverage_gaps": 3,
+      "min_recommendations": 3,
+      "min_quality_score": 25.0
+    }
+  }
+]

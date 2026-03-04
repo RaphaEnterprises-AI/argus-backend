@@ -1,0 +1,119 @@
+{
+  "suite": "accessibility_check",
+  "version": "1.0",
+  "description": "Benchmark scenarios for AccessibilityCheckerAgent. Tests WCAG 2.1 Level AA compliance checking including color contrast, keyboard navigation, ARIA usage, and form accessibility.",
+  "scenarios": [
+    {
+      "id": "accessible_page",
+      "description": "Well-designed accessible page with proper ARIA, alt text, keyboard navigation, and color contrast",
+      "input": {
+        "url": "https://accessible.example.com",
+        "page_html": "<html lang='en'><head><meta charset='utf-8'/><title>Accessible Dashboard</title></head><body><a href='#main' class='skip-link'>Skip to content</a><nav role='navigation' aria-label='Main navigation'><ul><li><a href='/home' aria-current='page'>Home</a></li><li><a href='/reports'>Reports</a></li></ul></nav><main id='main' role='main'><h1>Dashboard</h1><section aria-labelledby='stats-heading'><h2 id='stats-heading'>Statistics</h2><img src='chart.png' alt='Monthly revenue chart showing 15% growth in Q4 2025'/><table><caption>Revenue by Quarter</caption><thead><tr><th scope='col'>Quarter</th><th scope='col'>Revenue</th></tr></thead><tbody><tr><td>Q3</td><td>$1.2M</td></tr><tr><td>Q4</td><td>$1.38M</td></tr></tbody></table></section><form aria-label='Filter reports'><label for='date-range'>Date Range</label><select id='date-range' name='range'><option value='7d'>Last 7 days</option><option value='30d'>Last 30 days</option></select><button type='submit'>Apply Filter</button></form></main></body></html>",
+        "color_contrast_data": [
+          {"foreground": "#333333", "background": "#ffffff", "ratio": 12.63},
+          {"foreground": "#0066cc", "background": "#ffffff", "ratio": 5.57}
+        ],
+        "keyboard_data": {
+          "focusable_elements": 6,
+          "focus_visible": true,
+          "focus_order_logical": true,
+          "keyboard_traps": [],
+          "skip_links_present": true
+        }
+      },
+      "ground_truth": {
+        "min_score": 85,
+        "passes_wcag_aa": true,
+        "max_critical_issues": 0,
+        "max_serious_issues": 0,
+        "has_skip_link": true,
+        "has_lang_attribute": true,
+        "has_landmark_roles": true
+      }
+    },
+    {
+      "id": "inaccessible_page",
+      "description": "Poorly accessible page — missing alt text, no keyboard navigation, low contrast, no ARIA landmarks",
+      "input": {
+        "url": "https://inaccessible.example.com",
+        "page_html": "<html><head><title>Shop</title></head><body><div class='nav'><div onclick='location.href=\"/home\"' style='cursor:pointer;color:#999;background:#ccc'>Home</div><div onclick='location.href=\"/cart\"' style='cursor:pointer;color:#aaa;background:#ddd'>Cart</div></div><div class='content'><div style='font-size:24px'>Products</div><img src='banner.jpg'/><div class='product'><img src='shoe.jpg'/><div style='color:#777;background:#fff'>Running Shoe - $99</div><div onclick='addToCart(1)' style='cursor:pointer;background:#f00;color:#fff;padding:10px'>BUY NOW</div></div><div class='product'><img src='shirt.jpg'/><div style='color:#777;background:#fff'>T-Shirt - $29</div><div onclick='addToCart(2)' style='cursor:pointer;background:#f00;color:#fff;padding:10px'>BUY NOW</div></div></div><div class='footer'><div style='color:#aaa;background:#eee'>Copyright 2026</div></div></body></html>",
+        "color_contrast_data": [
+          {"foreground": "#999999", "background": "#cccccc", "ratio": 1.57},
+          {"foreground": "#aaaaaa", "background": "#dddddd", "ratio": 1.43},
+          {"foreground": "#777777", "background": "#ffffff", "ratio": 4.48}
+        ],
+        "keyboard_data": {
+          "focusable_elements": 0,
+          "focus_visible": false,
+          "focus_order_logical": false,
+          "keyboard_traps": [],
+          "skip_links_present": false
+        }
+      },
+      "ground_truth": {
+        "max_score": 40,
+        "passes_wcag_aa": false,
+        "min_critical_issues": 3,
+        "must_find_issues": ["missing_alt_text", "color_contrast", "keyboard_inaccessible", "no_landmark_roles", "interactive_div"],
+        "must_find_principles": ["perceivable", "operable"],
+        "must_find_wcag_criteria": ["1.1.1", "1.4.3", "2.1.1"]
+      }
+    },
+    {
+      "id": "partial_compliance",
+      "description": "Partially compliant page — has some ARIA but fails on contrast and missing form labels",
+      "input": {
+        "url": "https://partial.example.com",
+        "page_html": "<html lang='en'><head><meta charset='utf-8'/><title>Settings</title></head><body><nav role='navigation' aria-label='Settings'><ul><li><a href='/profile'>Profile</a></li><li><a href='/security'>Security</a></li></ul></nav><main role='main'><h1>Account Settings</h1><form><div class='form-group'><span style='color:#888;background:#fff'>Username</span><input type='text' placeholder='Enter username'/></div><div class='form-group'><span style='color:#888;background:#fff'>Email</span><input type='email' placeholder='Enter email'/></div><div class='form-group'><span style='color:#888;background:#fff'>Bio</span><textarea placeholder='Tell us about yourself'></textarea></div><button type='submit' style='color:#fff;background:#5a9'>Save Changes</button></form></main></body></html>",
+        "color_contrast_data": [
+          {"foreground": "#888888", "background": "#ffffff", "ratio": 3.54},
+          {"foreground": "#ffffff", "background": "#55aa99", "ratio": 2.93}
+        ],
+        "keyboard_data": {
+          "focusable_elements": 5,
+          "focus_visible": true,
+          "focus_order_logical": true,
+          "keyboard_traps": [],
+          "skip_links_present": false
+        }
+      },
+      "ground_truth": {
+        "min_score": 50,
+        "max_score": 75,
+        "passes_wcag_aa": false,
+        "must_find_issues": ["color_contrast", "missing_label"],
+        "must_find_wcag_criteria": ["1.4.3", "1.3.1"],
+        "has_some_aria": true,
+        "has_landmark_roles": true,
+        "notes": "Page has proper landmarks and heading structure but fails on contrast (3.54:1 and 2.93:1 both below 4.5:1 AA threshold) and uses placeholder text instead of proper label elements."
+      }
+    },
+    {
+      "id": "form_accessibility",
+      "description": "Complex form with mixed accessibility — some labels and error handling present, but missing focus management and ARIA descriptions",
+      "input": {
+        "url": "https://form.example.com/checkout",
+        "page_html": "<html lang='en'><head><title>Checkout</title></head><body><main role='main'><h1>Checkout</h1><form id='checkout-form'><fieldset><legend>Shipping Address</legend><div><label for='name'>Full Name</label><input id='name' type='text' required aria-required='true'/></div><div><label for='address'>Address</label><input id='address' type='text' required/></div><div><label for='city'>City</label><input id='city' type='text' required/></div><div><label for='zip'>ZIP Code</label><input id='zip' type='text' pattern='[0-9]{5}' required/></div></fieldset><fieldset><legend>Payment</legend><div><label for='card'>Card Number</label><input id='card' type='text' inputmode='numeric' autocomplete='cc-number'/></div><div><label for='expiry'>Expiry</label><input id='expiry' type='text' placeholder='MM/YY'/></div><div><label for='cvv'>CVV</label><input id='cvv' type='password' maxlength='4'/></div></fieldset><div id='error-summary' role='alert' style='display:none'></div><button type='submit'>Place Order</button></form></main></body></html>",
+        "color_contrast_data": [
+          {"foreground": "#333333", "background": "#ffffff", "ratio": 12.63}
+        ],
+        "keyboard_data": {
+          "focusable_elements": 8,
+          "focus_visible": true,
+          "focus_order_logical": true,
+          "keyboard_traps": [],
+          "skip_links_present": false
+        }
+      },
+      "ground_truth": {
+        "min_score": 60,
+        "max_score": 85,
+        "must_find_form_issues": ["missing_aria_describedby", "missing_error_association", "input_format_hint"],
+        "has_fieldset_legend": true,
+        "has_labels": true,
+        "has_error_region": true,
+        "notes": "Form has good label structure and fieldsets but lacks aria-describedby for format hints (ZIP pattern, expiry MM/YY), no live region for inline validation errors, and missing skip link. Error summary div exists but not wired to individual fields."
+      }
+    }
+  ]
+}

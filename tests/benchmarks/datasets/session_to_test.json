@@ -1,0 +1,132 @@
+{
+  "suite": "session_to_test",
+  "version": "1.0",
+  "description": "Benchmark scenarios for SessionToTestConverter (SessionAnalyzer). Tests conversion of real user session recordings into executable test specifications with priority classification and step extraction.",
+  "scenarios": [
+    {
+      "id": "login_session",
+      "description": "User navigates to login page, enters credentials, and successfully reaches the dashboard",
+      "input": {
+        "session": {
+          "session_id": "sess_001",
+          "user_id": "user_anon_42",
+          "started_at": "2026-02-27T10:00:00Z",
+          "ended_at": "2026-02-27T10:01:15Z",
+          "events": [
+            {"timestamp": "2026-02-27T10:00:00Z", "type": "page_load", "url": "https://app.example.com/", "metadata": {"load_time_ms": 1200}},
+            {"timestamp": "2026-02-27T10:00:05Z", "type": "click", "target": "a[href='/login']", "url": "https://app.example.com/"},
+            {"timestamp": "2026-02-27T10:00:06Z", "type": "navigation", "url": "https://app.example.com/login", "metadata": {"load_time_ms": 800}},
+            {"timestamp": "2026-02-27T10:00:15Z", "type": "click", "target": "[data-testid='email-input']", "url": "https://app.example.com/login"},
+            {"timestamp": "2026-02-27T10:00:16Z", "type": "input", "target": "[data-testid='email-input']", "value": "user@example.com", "url": "https://app.example.com/login"},
+            {"timestamp": "2026-02-27T10:00:22Z", "type": "click", "target": "[data-testid='password-input']", "url": "https://app.example.com/login"},
+            {"timestamp": "2026-02-27T10:00:23Z", "type": "input", "target": "[data-testid='password-input']", "value": "********", "url": "https://app.example.com/login"},
+            {"timestamp": "2026-02-27T10:00:28Z", "type": "click", "target": "[data-testid='login-button']", "url": "https://app.example.com/login"},
+            {"timestamp": "2026-02-27T10:00:29Z", "type": "network_request", "url": "https://app.example.com/api/auth/login", "metadata": {"method": "POST", "status": 200, "duration_ms": 450}},
+            {"timestamp": "2026-02-27T10:00:30Z", "type": "navigation", "url": "https://app.example.com/dashboard", "metadata": {"load_time_ms": 1100}},
+            {"timestamp": "2026-02-27T10:00:35Z", "type": "page_load", "url": "https://app.example.com/dashboard", "metadata": {"load_time_ms": 1100}}
+          ],
+          "errors": [],
+          "device_info": {"browser": "Chrome", "os": "macOS", "viewport": "1440x900"},
+          "outcome": "conversion"
+        }
+      },
+      "ground_truth": {
+        "test_worthy": true,
+        "priority": "critical",
+        "min_steps": 3,
+        "must_include_actions": ["navigate", "fill", "click", "assert"],
+        "must_cover_flow": "authentication",
+        "must_assert": ["url_change_to_dashboard", "successful_login"],
+        "should_sanitize_credentials": true,
+        "notes": "Login is a critical user journey. Generated test should use parameterized credentials (not hardcoded), assert navigation to dashboard, and include the API call verification."
+      }
+    },
+    {
+      "id": "browse_session",
+      "description": "User browses product catalog, filters by category, and views product details",
+      "input": {
+        "session": {
+          "session_id": "sess_002",
+          "user_id": "user_anon_87",
+          "started_at": "2026-02-27T14:00:00Z",
+          "ended_at": "2026-02-27T14:05:30Z",
+          "events": [
+            {"timestamp": "2026-02-27T14:00:00Z", "type": "page_load", "url": "https://shop.example.com/", "metadata": {"load_time_ms": 1500}},
+            {"timestamp": "2026-02-27T14:00:08Z", "type": "click", "target": "a[href='/products']", "url": "https://shop.example.com/"},
+            {"timestamp": "2026-02-27T14:00:09Z", "type": "navigation", "url": "https://shop.example.com/products"},
+            {"timestamp": "2026-02-27T14:00:15Z", "type": "click", "target": "[data-testid='category-filter']", "url": "https://shop.example.com/products"},
+            {"timestamp": "2026-02-27T14:00:16Z", "type": "click", "target": "[data-value='electronics']", "url": "https://shop.example.com/products"},
+            {"timestamp": "2026-02-27T14:00:17Z", "type": "network_request", "url": "https://shop.example.com/api/products?category=electronics", "metadata": {"method": "GET", "status": 200, "duration_ms": 320}},
+            {"timestamp": "2026-02-27T14:00:25Z", "type": "scroll", "target": "window", "metadata": {"scroll_y": 800}},
+            {"timestamp": "2026-02-27T14:00:35Z", "type": "click", "target": "[data-testid='product-card-42']", "url": "https://shop.example.com/products"},
+            {"timestamp": "2026-02-27T14:00:36Z", "type": "navigation", "url": "https://shop.example.com/products/42"},
+            {"timestamp": "2026-02-27T14:00:40Z", "type": "page_load", "url": "https://shop.example.com/products/42", "metadata": {"load_time_ms": 900}},
+            {"timestamp": "2026-02-27T14:01:00Z", "type": "scroll", "target": "window", "metadata": {"scroll_y": 1200}},
+            {"timestamp": "2026-02-27T14:01:15Z", "type": "click", "target": "a[href='/products']", "url": "https://shop.example.com/products/42"},
+            {"timestamp": "2026-02-27T14:01:16Z", "type": "navigation", "url": "https://shop.example.com/products"}
+          ],
+          "errors": [],
+          "device_info": {"browser": "Firefox", "os": "Windows", "viewport": "1920x1080"},
+          "outcome": null
+        }
+      },
+      "ground_truth": {
+        "test_worthy": true,
+        "priority": "medium",
+        "min_steps": 3,
+        "must_include_actions": ["navigate", "click", "assert"],
+        "must_cover_flow": "product_browsing",
+        "must_assert": ["filter_applied", "product_detail_loaded"],
+        "should_skip_scrolls": true,
+        "notes": "Browsing session covers catalog navigation and filtering. Scroll events should be omitted from generated test unless they trigger lazy-loading. Filter interaction and product detail navigation are the key testable actions."
+      }
+    },
+    {
+      "id": "error_session",
+      "description": "User encounters a form validation error, corrects their input, and successfully submits",
+      "input": {
+        "session": {
+          "session_id": "sess_003",
+          "user_id": "user_anon_55",
+          "started_at": "2026-02-27T16:00:00Z",
+          "ended_at": "2026-02-27T16:03:45Z",
+          "events": [
+            {"timestamp": "2026-02-27T16:00:00Z", "type": "page_load", "url": "https://app.example.com/settings/profile", "metadata": {"load_time_ms": 1300}},
+            {"timestamp": "2026-02-27T16:00:10Z", "type": "click", "target": "[data-testid='email-field']", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:12Z", "type": "input", "target": "[data-testid='email-field']", "value": "invalid-email", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:18Z", "type": "click", "target": "[data-testid='phone-field']", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:20Z", "type": "input", "target": "[data-testid='phone-field']", "value": "abc", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:25Z", "type": "click", "target": "[data-testid='save-button']", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:25Z", "type": "form_submit", "target": "form#profile-form", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:26Z", "type": "network_request", "url": "https://app.example.com/api/profile", "metadata": {"method": "PUT", "status": 422, "duration_ms": 150}},
+            {"timestamp": "2026-02-27T16:00:26Z", "type": "error", "target": "[data-testid='email-error']", "value": "Please enter a valid email address", "url": "https://app.example.com/settings/profile", "metadata": {"error_type": "validation"}},
+            {"timestamp": "2026-02-27T16:00:26Z", "type": "error", "target": "[data-testid='phone-error']", "value": "Phone number must contain only digits", "url": "https://app.example.com/settings/profile", "metadata": {"error_type": "validation"}},
+            {"timestamp": "2026-02-27T16:00:40Z", "type": "click", "target": "[data-testid='email-field']", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:42Z", "type": "input", "target": "[data-testid='email-field']", "value": "user@example.com", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:50Z", "type": "click", "target": "[data-testid='phone-field']", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:00:52Z", "type": "input", "target": "[data-testid='phone-field']", "value": "5551234567", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:01:00Z", "type": "click", "target": "[data-testid='save-button']", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:01:00Z", "type": "form_submit", "target": "form#profile-form", "url": "https://app.example.com/settings/profile"},
+            {"timestamp": "2026-02-27T16:01:01Z", "type": "network_request", "url": "https://app.example.com/api/profile", "metadata": {"method": "PUT", "status": 200, "duration_ms": 280}}
+          ],
+          "errors": [
+            {"timestamp": "2026-02-27T16:00:26Z", "type": "validation_error", "message": "Please enter a valid email address", "field": "email"},
+            {"timestamp": "2026-02-27T16:00:26Z", "type": "validation_error", "message": "Phone number must contain only digits", "field": "phone"}
+          ],
+          "device_info": {"browser": "Chrome", "os": "macOS", "viewport": "1440x900"},
+          "outcome": "conversion"
+        }
+      },
+      "ground_truth": {
+        "test_worthy": true,
+        "priority": "high",
+        "min_steps": 4,
+        "must_identify_edge_cases": ["invalid_email_validation", "invalid_phone_validation", "error_recovery"],
+        "must_generate_multiple_tests": true,
+        "expected_test_types": ["happy_path_submit", "validation_error_display", "error_recovery_flow"],
+        "must_assert": ["error_message_displayed", "successful_submit_after_correction"],
+        "notes": "Session contains a complete error-recovery flow. Should generate at least 2 tests: one for the validation error case (invalid email + phone -> error messages shown) and one for the happy path (correct values -> 200 success). The error-recovery pattern is high value because it tests both validation and the correction UX."
+      }
+    }
+  ]
+}

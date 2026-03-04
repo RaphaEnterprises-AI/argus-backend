@@ -1,0 +1,157 @@
+{
+  "suite": "agent_judge",
+  "version": "1.0",
+  "description": "Benchmark scenarios for AgentAsJudge evaluation. Tests structured output evaluation with criteria scoring, issue detection, and ground truth comparison.",
+  "scenarios": [
+    {
+      "id": "good_output",
+      "description": "High-quality test output with correct selectors, comprehensive assertions, and proper error handling",
+      "input": {
+        "agent_type": "UITesterAgent",
+        "task": "Generate a login flow test for https://app.example.com/login",
+        "output": {
+          "test_name": "test_login_flow_valid_credentials",
+          "steps": [
+            {"action": "navigate", "target": "https://app.example.com/login"},
+            {"action": "fill", "selector": "[data-testid='email-input']", "value": "user@example.com"},
+            {"action": "fill", "selector": "[data-testid='password-input']", "value": "SecureP@ss123"},
+            {"action": "click", "selector": "[data-testid='login-button']"},
+            {"action": "wait_for", "selector": "[data-testid='dashboard-header']", "timeout": 10000},
+            {"action": "assert_url", "expected": "/dashboard"},
+            {"action": "assert_text", "selector": "[data-testid='welcome-message']", "expected": "Welcome"}
+          ],
+          "assertions": [
+            "URL changes to /dashboard after login",
+            "Dashboard header is visible",
+            "Welcome message is displayed"
+          ],
+          "error_handling": {
+            "timeout_fallback": "Retry login once if dashboard not visible within 10s",
+            "screenshot_on_failure": true
+          }
+        },
+        "context": {
+          "available_selectors": ["[data-testid='email-input']", "[data-testid='password-input']", "[data-testid='login-button']", "[data-testid='dashboard-header']", "[data-testid='welcome-message']"],
+          "app_framework": "React",
+          "auth_method": "session_cookie"
+        }
+      },
+      "ground_truth": {
+        "min_overall_score": 0.8,
+        "is_acceptable": true,
+        "has_critical_issues": false,
+        "min_criteria_scores": {
+          "correctness": 0.8,
+          "completeness": 0.7,
+          "maintainability": 0.7
+        },
+        "selectors_valid": true,
+        "has_assertions": true,
+        "has_error_handling": true
+      }
+    },
+    {
+      "id": "bad_output",
+      "description": "Poor test output with hallucinated selectors, no assertions, and brittle XPath usage",
+      "input": {
+        "agent_type": "UITesterAgent",
+        "task": "Generate a login flow test for https://app.example.com/login",
+        "output": {
+          "test_name": "test_login",
+          "steps": [
+            {"action": "navigate", "target": "https://app.example.com/login"},
+            {"action": "fill", "selector": "/html/body/div[3]/form/div[1]/input", "value": "test@test.com"},
+            {"action": "fill", "selector": "#password-field-v2", "value": "password"},
+            {"action": "click", "selector": "//button[contains(@class, 'submit-btn-primary')]"},
+            {"action": "sleep", "duration": 5000}
+          ],
+          "assertions": [],
+          "error_handling": {}
+        },
+        "context": {
+          "available_selectors": ["[data-testid='email-input']", "[data-testid='password-input']", "[data-testid='login-button']", "[data-testid='dashboard-header']", "[data-testid='welcome-message']"],
+          "app_framework": "React",
+          "auth_method": "session_cookie"
+        }
+      },
+      "ground_truth": {
+        "max_overall_score": 0.4,
+        "is_acceptable": false,
+        "has_critical_issues": true,
+        "must_detect_issues": ["hallucinated_selector", "no_assertions", "brittle_xpath", "hardcoded_sleep"],
+        "must_detect_categories": ["correctness", "maintainability", "completeness"],
+        "selectors_valid": false
+      }
+    },
+    {
+      "id": "partial_output",
+      "description": "Correct core logic but missing edge cases like invalid credentials and empty fields",
+      "input": {
+        "agent_type": "UITesterAgent",
+        "task": "Generate comprehensive login tests for https://app.example.com/login including happy path and error cases",
+        "output": {
+          "test_name": "test_login_happy_path",
+          "steps": [
+            {"action": "navigate", "target": "https://app.example.com/login"},
+            {"action": "fill", "selector": "[data-testid='email-input']", "value": "user@example.com"},
+            {"action": "fill", "selector": "[data-testid='password-input']", "value": "SecureP@ss123"},
+            {"action": "click", "selector": "[data-testid='login-button']"},
+            {"action": "assert_url", "expected": "/dashboard"}
+          ],
+          "assertions": ["URL changes to /dashboard"],
+          "error_handling": {}
+        },
+        "context": {
+          "available_selectors": ["[data-testid='email-input']", "[data-testid='password-input']", "[data-testid='login-button']", "[data-testid='error-message']", "[data-testid='dashboard-header']"],
+          "app_framework": "React",
+          "auth_method": "session_cookie"
+        }
+      },
+      "ground_truth": {
+        "min_overall_score": 0.5,
+        "max_overall_score": 0.8,
+        "is_acceptable": false,
+        "has_critical_issues": false,
+        "has_major_issues": true,
+        "must_detect_issues": ["missing_error_cases", "missing_edge_cases", "incomplete_coverage"],
+        "must_detect_categories": ["completeness", "edge_cases"],
+        "notes": "Happy path is correct but task explicitly asked for error cases. Missing: invalid credentials test, empty field validation, locked account test."
+      }
+    },
+    {
+      "id": "ground_truth_match",
+      "description": "Output compared against a known correct reference answer for ground truth matching",
+      "input": {
+        "agent_type": "CodeAnalyzerAgent",
+        "task": "Identify testable API endpoints in the auth module",
+        "output": {
+          "endpoints": [
+            {"path": "/api/auth/login", "method": "POST", "parameters": ["email", "password"], "auth_required": false},
+            {"path": "/api/auth/register", "method": "POST", "parameters": ["email", "password", "name"], "auth_required": false},
+            {"path": "/api/auth/me", "method": "GET", "parameters": [], "auth_required": true},
+            {"path": "/api/auth/refresh", "method": "POST", "parameters": ["refresh_token"], "auth_required": false}
+          ],
+          "total_endpoints": 4,
+          "auth_patterns": ["JWT Bearer token", "refresh token rotation"]
+        },
+        "reference_answer": {
+          "endpoints": [
+            {"path": "/api/auth/login", "method": "POST", "parameters": ["email", "password"], "auth_required": false},
+            {"path": "/api/auth/register", "method": "POST", "parameters": ["email", "password", "name"], "auth_required": false},
+            {"path": "/api/auth/me", "method": "GET", "parameters": [], "auth_required": true},
+            {"path": "/api/auth/refresh", "method": "POST", "parameters": ["refresh_token"], "auth_required": false},
+            {"path": "/api/auth/logout", "method": "POST", "parameters": [], "auth_required": true}
+          ],
+          "total_endpoints": 5,
+          "auth_patterns": ["JWT Bearer token", "refresh token rotation"]
+        }
+      },
+      "ground_truth": {
+        "min_ground_truth_match": 0.7,
+        "is_acceptable": true,
+        "has_critical_issues": false,
+        "notes": "Output found 4 of 5 endpoints (missed /logout). Auth patterns match exactly. Ground truth match should be ~0.8 (80% endpoint coverage, 100% auth pattern match)."
+      }
+    }
+  ]
+}

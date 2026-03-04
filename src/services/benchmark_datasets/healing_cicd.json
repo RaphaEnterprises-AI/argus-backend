@@ -1,0 +1,76 @@
+[
+  {
+    "id": "heal_ci_selector_changed",
+    "scan_type": "ci",
+    "trigger_context": {
+      "ci_provider": "github_actions",
+      "run_id": "bench_001",
+      "failures": [
+        {
+          "test_name": "test_login_form",
+          "error_type": "selector_not_found",
+          "error_message": "Element #login-btn not found",
+          "failed_selector": "#login-btn",
+          "page_url": "https://example.com/login"
+        }
+      ]
+    },
+    "ground_truth": {
+      "min_fix_proposals": 1,
+      "must_detect_failure_types": ["selector"]
+    }
+  },
+  {
+    "id": "heal_ci_assertion_failed",
+    "scan_type": "ci",
+    "trigger_context": {
+      "ci_provider": "github_actions",
+      "run_id": "bench_002",
+      "failures": [
+        {
+          "test_name": "test_checkout_total",
+          "error_type": "assertion_failed",
+          "error_message": "Expected total to be $99.99 but got $109.99",
+          "page_url": "https://example.com/checkout"
+        }
+      ]
+    },
+    "ground_truth": {
+      "min_fix_proposals": 1,
+      "must_detect_failure_types": ["assertion"]
+    }
+  },
+  {
+    "id": "heal_proactive_fragile",
+    "scan_type": "proactive",
+    "trigger_context": {
+      "test_files": ["tests/e2e/login.spec.ts", "tests/e2e/dashboard.spec.ts"],
+      "scan_depth": "shallow"
+    },
+    "ground_truth": {
+      "min_fix_proposals": 0,
+      "must_detect_failure_types": []
+    }
+  },
+  {
+    "id": "heal_ci_timeout",
+    "scan_type": "ci",
+    "trigger_context": {
+      "ci_provider": "github_actions",
+      "run_id": "bench_003",
+      "failures": [
+        {
+          "test_name": "test_data_load",
+          "error_type": "timeout",
+          "error_message": "Timeout 30000ms exceeded waiting for selector .data-table",
+          "failed_selector": ".data-table",
+          "page_url": "https://example.com/reports"
+        }
+      ]
+    },
+    "ground_truth": {
+      "min_fix_proposals": 1,
+      "must_detect_failure_types": ["timeout"]
+    }
+  }
+]

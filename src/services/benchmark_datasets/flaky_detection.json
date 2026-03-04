@@ -1,0 +1,193 @@
+{
+  "suite": "flaky_detection",
+  "version": "1.0",
+  "description": "Benchmark scenarios for FlakyTestDetector agent — evaluates ability to classify test stability, identify flakiness causes, and recommend quarantine actions.",
+  "scenarios": [
+    {
+      "id": "stable_test",
+      "description": "Test with consistently high pass rate and low variance should be classified as stable",
+      "input": {
+        "test_id": "test_login_success",
+        "test_name": "test_login_success",
+        "project_id": "proj_bench_flaky",
+        "execution_history": [
+          {"run_id": "run_001", "status": "passed", "duration_ms": 1200, "timestamp": "2026-02-20T10:00:00Z"},
+          {"run_id": "run_002", "status": "passed", "duration_ms": 1180, "timestamp": "2026-02-20T11:00:00Z"},
+          {"run_id": "run_003", "status": "passed", "duration_ms": 1250, "timestamp": "2026-02-20T12:00:00Z"},
+          {"run_id": "run_004", "status": "passed", "duration_ms": 1190, "timestamp": "2026-02-20T13:00:00Z"},
+          {"run_id": "run_005", "status": "passed", "duration_ms": 1210, "timestamp": "2026-02-20T14:00:00Z"},
+          {"run_id": "run_006", "status": "passed", "duration_ms": 1230, "timestamp": "2026-02-20T15:00:00Z"},
+          {"run_id": "run_007", "status": "passed", "duration_ms": 1195, "timestamp": "2026-02-20T16:00:00Z"},
+          {"run_id": "run_008", "status": "passed", "duration_ms": 1220, "timestamp": "2026-02-20T17:00:00Z"},
+          {"run_id": "run_009", "status": "passed", "duration_ms": 1205, "timestamp": "2026-02-20T18:00:00Z"},
+          {"run_id": "run_010", "status": "failed", "duration_ms": 1240, "timestamp": "2026-02-20T19:00:00Z", "error": "AssertionError: expected 200 got 200"}
+        ],
+        "pass_rate": 0.98,
+        "duration_variance": 0.03,
+        "environment": "ci"
+      },
+      "ground_truth": {
+        "flakiness_level": "stable",
+        "should_quarantine": false,
+        "confidence_min": 0.85,
+        "cause": null
+      }
+    },
+    {
+      "id": "slightly_flaky",
+      "description": "Test with 90% pass rate and medium variance, failures correlating with slow test setup — expect timing-related flakiness",
+      "input": {
+        "test_id": "test_dashboard_load",
+        "test_name": "test_dashboard_load",
+        "project_id": "proj_bench_flaky",
+        "execution_history": [
+          {"run_id": "run_001", "status": "passed", "duration_ms": 3200, "timestamp": "2026-02-20T10:00:00Z"},
+          {"run_id": "run_002", "status": "failed", "duration_ms": 8500, "timestamp": "2026-02-20T11:00:00Z", "error": "Timeout: page load exceeded 5000ms"},
+          {"run_id": "run_003", "status": "passed", "duration_ms": 3100, "timestamp": "2026-02-20T12:00:00Z"},
+          {"run_id": "run_004", "status": "passed", "duration_ms": 3400, "timestamp": "2026-02-20T13:00:00Z"},
+          {"run_id": "run_005", "status": "passed", "duration_ms": 3050, "timestamp": "2026-02-20T14:00:00Z"},
+          {"run_id": "run_006", "status": "passed", "duration_ms": 3300, "timestamp": "2026-02-20T15:00:00Z"},
+          {"run_id": "run_007", "status": "failed", "duration_ms": 7800, "timestamp": "2026-02-20T16:00:00Z", "error": "Timeout: page load exceeded 5000ms"},
+          {"run_id": "run_008", "status": "passed", "duration_ms": 3150, "timestamp": "2026-02-20T17:00:00Z"},
+          {"run_id": "run_009", "status": "passed", "duration_ms": 3250, "timestamp": "2026-02-20T18:00:00Z"},
+          {"run_id": "run_010", "status": "passed", "duration_ms": 3180, "timestamp": "2026-02-20T19:00:00Z"}
+        ],
+        "pass_rate": 0.90,
+        "duration_variance": 0.35,
+        "environment": "ci",
+        "failure_errors": [
+          "Timeout: page load exceeded 5000ms",
+          "Timeout: page load exceeded 5000ms"
+        ]
+      },
+      "ground_truth": {
+        "flakiness_level": "slightly_flaky",
+        "should_quarantine": false,
+        "confidence_min": 0.70,
+        "cause": "timing"
+      }
+    },
+    {
+      "id": "highly_flaky",
+      "description": "Test with 60% pass rate and high variance across multiple failure modes — should be quarantined immediately",
+      "input": {
+        "test_id": "test_payment_flow",
+        "test_name": "test_payment_flow",
+        "project_id": "proj_bench_flaky",
+        "execution_history": [
+          {"run_id": "run_001", "status": "passed", "duration_ms": 5200, "timestamp": "2026-02-20T10:00:00Z"},
+          {"run_id": "run_002", "status": "failed", "duration_ms": 12300, "timestamp": "2026-02-20T11:00:00Z", "error": "Element not found: #pay-btn"},
+          {"run_id": "run_003", "status": "failed", "duration_ms": 9800, "timestamp": "2026-02-20T12:00:00Z", "error": "Timeout waiting for payment confirmation"},
+          {"run_id": "run_004", "status": "passed", "duration_ms": 5100, "timestamp": "2026-02-20T13:00:00Z"},
+          {"run_id": "run_005", "status": "failed", "duration_ms": 11500, "timestamp": "2026-02-20T14:00:00Z", "error": "AssertionError: expected 'success' got 'pending'"},
+          {"run_id": "run_006", "status": "passed", "duration_ms": 5400, "timestamp": "2026-02-20T15:00:00Z"},
+          {"run_id": "run_007", "status": "failed", "duration_ms": 10200, "timestamp": "2026-02-20T16:00:00Z", "error": "Element not found: #pay-btn"},
+          {"run_id": "run_008", "status": "passed", "duration_ms": 5050, "timestamp": "2026-02-20T17:00:00Z"},
+          {"run_id": "run_009", "status": "passed", "duration_ms": 5300, "timestamp": "2026-02-20T18:00:00Z"},
+          {"run_id": "run_010", "status": "passed", "duration_ms": 5150, "timestamp": "2026-02-20T19:00:00Z"}
+        ],
+        "pass_rate": 0.60,
+        "duration_variance": 0.52,
+        "environment": "ci",
+        "failure_errors": [
+          "Element not found: #pay-btn",
+          "Timeout waiting for payment confirmation",
+          "AssertionError: expected 'success' got 'pending'",
+          "Element not found: #pay-btn"
+        ]
+      },
+      "ground_truth": {
+        "flakiness_level": "highly_flaky",
+        "should_quarantine": true,
+        "confidence_min": 0.80,
+        "cause": "multiple"
+      }
+    },
+    {
+      "id": "network_flaky",
+      "description": "Test with 85% pass rate where failures consistently correlate with network timeout errors",
+      "input": {
+        "test_id": "test_api_sync",
+        "test_name": "test_api_sync",
+        "project_id": "proj_bench_flaky",
+        "execution_history": [
+          {"run_id": "run_001", "status": "passed", "duration_ms": 2100, "timestamp": "2026-02-20T10:00:00Z"},
+          {"run_id": "run_002", "status": "failed", "duration_ms": 30100, "timestamp": "2026-02-20T11:00:00Z", "error": "ETIMEDOUT: connect ETIMEDOUT 10.0.0.5:5432"},
+          {"run_id": "run_003", "status": "passed", "duration_ms": 2050, "timestamp": "2026-02-20T12:00:00Z"},
+          {"run_id": "run_004", "status": "passed", "duration_ms": 2200, "timestamp": "2026-02-20T13:00:00Z"},
+          {"run_id": "run_005", "status": "failed", "duration_ms": 30050, "timestamp": "2026-02-20T14:00:00Z", "error": "ECONNREFUSED: connect ECONNREFUSED 10.0.0.5:5432"},
+          {"run_id": "run_006", "status": "passed", "duration_ms": 2150, "timestamp": "2026-02-20T15:00:00Z"},
+          {"run_id": "run_007", "status": "passed", "duration_ms": 2080, "timestamp": "2026-02-20T16:00:00Z"},
+          {"run_id": "run_008", "status": "passed", "duration_ms": 2120, "timestamp": "2026-02-20T17:00:00Z"},
+          {"run_id": "run_009", "status": "passed", "duration_ms": 2180, "timestamp": "2026-02-20T18:00:00Z"},
+          {"run_id": "run_010", "status": "failed", "duration_ms": 30200, "timestamp": "2026-02-20T19:00:00Z", "error": "ETIMEDOUT: connect ETIMEDOUT 10.0.0.5:5432"},
+          {"run_id": "run_011", "status": "passed", "duration_ms": 2090, "timestamp": "2026-02-20T20:00:00Z"},
+          {"run_id": "run_012", "status": "passed", "duration_ms": 2140, "timestamp": "2026-02-20T21:00:00Z"},
+          {"run_id": "run_013", "status": "passed", "duration_ms": 2060, "timestamp": "2026-02-20T22:00:00Z"},
+          {"run_id": "run_014", "status": "passed", "duration_ms": 2170, "timestamp": "2026-02-20T23:00:00Z"},
+          {"run_id": "run_015", "status": "passed", "duration_ms": 2100, "timestamp": "2026-02-21T00:00:00Z"},
+          {"run_id": "run_016", "status": "passed", "duration_ms": 2110, "timestamp": "2026-02-21T01:00:00Z"},
+          {"run_id": "run_017", "status": "passed", "duration_ms": 2130, "timestamp": "2026-02-21T02:00:00Z"},
+          {"run_id": "run_018", "status": "passed", "duration_ms": 2090, "timestamp": "2026-02-21T03:00:00Z"},
+          {"run_id": "run_019", "status": "passed", "duration_ms": 2200, "timestamp": "2026-02-21T04:00:00Z"},
+          {"run_id": "run_020", "status": "passed", "duration_ms": 2150, "timestamp": "2026-02-21T05:00:00Z"}
+        ],
+        "pass_rate": 0.85,
+        "duration_variance": 0.68,
+        "environment": "ci",
+        "failure_errors": [
+          "ETIMEDOUT: connect ETIMEDOUT 10.0.0.5:5432",
+          "ECONNREFUSED: connect ECONNREFUSED 10.0.0.5:5432",
+          "ETIMEDOUT: connect ETIMEDOUT 10.0.0.5:5432"
+        ]
+      },
+      "ground_truth": {
+        "flakiness_level": "flaky",
+        "should_quarantine": false,
+        "confidence_min": 0.75,
+        "cause": "network"
+      }
+    },
+    {
+      "id": "timing_flaky",
+      "description": "Test with 88% pass rate and duration variance over 50%, failures happen when test runs slower than usual",
+      "input": {
+        "test_id": "test_animation_complete",
+        "test_name": "test_animation_complete",
+        "project_id": "proj_bench_flaky",
+        "execution_history": [
+          {"run_id": "run_001", "status": "passed", "duration_ms": 1800, "timestamp": "2026-02-20T10:00:00Z"},
+          {"run_id": "run_002", "status": "passed", "duration_ms": 1750, "timestamp": "2026-02-20T11:00:00Z"},
+          {"run_id": "run_003", "status": "failed", "duration_ms": 4200, "timestamp": "2026-02-20T12:00:00Z", "error": "AssertionError: element .fade-in not visible after 2000ms"},
+          {"run_id": "run_004", "status": "passed", "duration_ms": 1820, "timestamp": "2026-02-20T13:00:00Z"},
+          {"run_id": "run_005", "status": "passed", "duration_ms": 1900, "timestamp": "2026-02-20T14:00:00Z"},
+          {"run_id": "run_006", "status": "passed", "duration_ms": 1780, "timestamp": "2026-02-20T15:00:00Z"},
+          {"run_id": "run_007", "status": "passed", "duration_ms": 1850, "timestamp": "2026-02-20T16:00:00Z"},
+          {"run_id": "run_008", "status": "failed", "duration_ms": 3800, "timestamp": "2026-02-20T17:00:00Z", "error": "AssertionError: element .fade-in not visible after 2000ms"},
+          {"run_id": "run_009", "status": "passed", "duration_ms": 1810, "timestamp": "2026-02-20T18:00:00Z"},
+          {"run_id": "run_010", "status": "passed", "duration_ms": 1770, "timestamp": "2026-02-20T19:00:00Z"},
+          {"run_id": "run_011", "status": "passed", "duration_ms": 1830, "timestamp": "2026-02-20T20:00:00Z"},
+          {"run_id": "run_012", "status": "passed", "duration_ms": 1790, "timestamp": "2026-02-20T21:00:00Z"},
+          {"run_id": "run_013", "status": "passed", "duration_ms": 1860, "timestamp": "2026-02-20T22:00:00Z"},
+          {"run_id": "run_014", "status": "passed", "duration_ms": 1840, "timestamp": "2026-02-20T23:00:00Z"},
+          {"run_id": "run_015", "status": "passed", "duration_ms": 1800, "timestamp": "2026-02-21T00:00:00Z"},
+          {"run_id": "run_016", "status": "failed", "duration_ms": 4500, "timestamp": "2026-02-21T01:00:00Z", "error": "AssertionError: element .fade-in not visible after 2000ms"}
+        ],
+        "pass_rate": 0.88,
+        "duration_variance": 0.55,
+        "environment": "ci",
+        "failure_errors": [
+          "AssertionError: element .fade-in not visible after 2000ms",
+          "AssertionError: element .fade-in not visible after 2000ms",
+          "AssertionError: element .fade-in not visible after 2000ms"
+        ]
+      },
+      "ground_truth": {
+        "flakiness_level": "flaky",
+        "should_quarantine": false,
+        "confidence_min": 0.75,
+        "cause": "timing"
+      }
+    }
+  ]
+}

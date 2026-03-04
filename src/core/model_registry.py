@@ -131,6 +131,23 @@ class ModelRegistry:
 
     MODELS = {
         # Anthropic Claude Models
+        "claude-opus-4-6": ModelConfig(
+            model_id="claude-opus-4-6",
+            provider=Provider.ANTHROPIC,
+            display_name="Claude Opus 4.6",
+            input_price=15.00,
+            output_price=75.00,
+            max_tokens=16384,
+            context_window=200000,
+            capabilities={
+                Capability.VISION,
+                Capability.TOOL_USE,
+                Capability.COMPUTER_USE,
+                Capability.JSON_MODE,
+                Capability.EXTENDED_CONTEXT,
+                Capability.CODE_GENERATION,
+            },
+        ),
         "claude-opus-4-5": ModelConfig(
             model_id="claude-opus-4-5",
             provider=Provider.ANTHROPIC,
@@ -355,6 +372,7 @@ class ModelRegistry:
     DEFAULT_MODEL = "claude-sonnet-4-5"
     FAST_MODEL = "claude-haiku-4-5"
     POWERFUL_MODEL = "claude-opus-4-5"
+    ORCHESTRATOR_MODEL = "claude-opus-4-6"
     VISION_MODEL = "claude-sonnet-4-5"
     COMPUTER_USE_MODEL = "claude-sonnet-4-5"
 
@@ -376,6 +394,8 @@ class ModelRegistry:
             self.FAST_MODEL = os.getenv("ARGUS_FAST_MODEL")
         if os.getenv("ARGUS_POWERFUL_MODEL"):
             self.POWERFUL_MODEL = os.getenv("ARGUS_POWERFUL_MODEL")
+        if os.getenv("ARGUS_ORCHESTRATOR_MODEL"):
+            self.ORCHESTRATOR_MODEL = os.getenv("ARGUS_ORCHESTRATOR_MODEL")
 
     def get_model(self, model_key: str) -> ModelConfig | None:
         """Get a model configuration by key."""
@@ -547,3 +567,14 @@ def get_fast_api_model_id() -> str:
     """Get the fast model's full API ID."""
     registry = get_model_registry()
     return registry.get_api_model_id(registry.FAST_MODEL)
+
+
+def get_orchestrator_model_id() -> str:
+    """Get the orchestrator model ID (Opus 4.6 for best routing decisions)."""
+    return get_model_registry().ORCHESTRATOR_MODEL
+
+
+def get_orchestrator_api_model_id() -> str:
+    """Get the orchestrator model's full API ID."""
+    registry = get_model_registry()
+    return registry.get_api_model_id(registry.ORCHESTRATOR_MODEL)

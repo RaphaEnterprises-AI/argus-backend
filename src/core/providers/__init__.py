@@ -101,6 +101,7 @@ from .bedrock_provider import (
 from .cerebras_provider import CerebrasProvider
 from .deepseek_provider import DEEPSEEK_MODELS, DeepSeekProvider
 from .mistral_provider import MistralProvider
+from .together_provider import TOGETHER_MODELS, TogetherProvider
 from .openrouter_provider import OpenRouterProvider, get_openrouter_provider
 from .vertex_provider import VertexProvider
 from .ollama_provider import OLLAMA_COMMON_MODELS, OllamaProvider, get_ollama_provider
@@ -130,6 +131,8 @@ __all__ = [
     "XAIProvider",
     "OllamaProvider",
     "OLLAMA_COMMON_MODELS",
+    "TogetherProvider",
+    "TOGETHER_MODELS",
     # Factory functions
     "get_azure_openai_provider",
     "get_bedrock_provider",

@@ -1,0 +1,133 @@
+{
+  "suite": "corrective_rag",
+  "version": "1.0",
+  "description": "Benchmark scenarios for CorrectiveRAGAgent. Tests the self-correcting retrieval pipeline: relevance assessment, query reformulation, and web search fallback.",
+  "scenarios": [
+    {
+      "id": "relevant_docs",
+      "description": "Query with highly relevant retrieved documents — should use them directly without reformulation",
+      "input": {
+        "query": "How does the self-healing agent fix broken selectors?",
+        "retrieved_documents": [
+          {
+            "id": "doc_001",
+            "content": "The SelfHealerAgent in src/agents/self_healer.py uses a 4-tier strategy to fix broken selectors: 1) Check cached patterns for exact matches from previous heals, 2) Use Cognee semantic search to find similar past failures, 3) Analyze git history via GitHubCodeAnalyzer to understand what changed, 4) Fall back to LLM (Claude) to generate fix suggestions based on the page HTML and failed selector.",
+            "source": "src/agents/self_healer.py",
+            "retrieval_score": 0.92
+          },
+          {
+            "id": "doc_002",
+            "content": "Healing events flow through Kafka: API -> EventGateway.publish() -> argus.healing.requested topic -> HealingConsumer -> SelfHealerAgent. The consumer extracts failure_data including the failed_selector, page_url, and error_message, then delegates to the agent.",
+            "source": "src/workers/healing_consumer.py",
+            "retrieval_score": 0.87
+          },
+          {
+            "id": "doc_003",
+            "content": "The healing strategy priority is: cached patterns (exact match) > memory store (Cognee semantic similarity) > code-aware (GitHub git blame) > LLM fallback (Claude generates fix). Each strategy returns a confidence score, and the highest-confidence fix is applied.",
+            "source": "docs/healing-pipeline.md",
+            "retrieval_score": 0.85
+          }
+        ],
+        "namespace": "org_acme_project_webapp_healing_history"
+      },
+      "ground_truth": {
+        "expected_action": "correct",
+        "min_confidence": 0.8,
+        "max_retrieval_rounds": 1,
+        "web_search_used": false,
+        "min_relevance_scores": [0.8, 0.7, 0.7],
+        "must_use_documents": ["doc_001", "doc_002"]
+      }
+    },
+    {
+      "id": "irrelevant_docs",
+      "description": "Query where retrieved documents are completely off-topic — should detect irrelevance and reformulate",
+      "input": {
+        "query": "What load balancer configuration does Argus use in production?",
+        "retrieved_documents": [
+          {
+            "id": "doc_010",
+            "content": "The TestQualityIntelligenceAgent computes per-test trust scores using a deterministic formula: score = 100 * (assertion_strength*0.30 + heal_penalty*0.25 + flaky_penalty*0.20 + age_factor*0.10 + coverage_factor*0.15).",
+            "source": "src/agents/test_quality_agent.py",
+            "retrieval_score": 0.35
+          },
+          {
+            "id": "doc_011",
+            "content": "Benchmark datasets are stored in tests/benchmarks/datasets/ as JSON files. Each file contains scenarios with input data and ground_truth for evaluation.",
+            "source": "tests/benchmarks/README.md",
+            "retrieval_score": 0.28
+          },
+          {
+            "id": "doc_012",
+            "content": "The ReporterAgent generates human-readable test reports including pass/fail statistics, failure categorization, and recommendations for the team.",
+            "source": "src/agents/reporter.py",
+            "retrieval_score": 0.22
+          }
+        ],
+        "namespace": "org_acme_project_webapp_codebases"
+      },
+      "ground_truth": {
+        "expected_action": "incorrect",
+        "max_confidence": 0.4,
+        "min_retrieval_rounds": 2,
+        "reformulation_attempted": true,
+        "must_reformulate_to_include": ["infrastructure", "deployment", "Railway", "load balancer"],
+        "all_docs_irrelevant": true
+      }
+    },
+    {
+      "id": "ambiguous_docs",
+      "description": "Query with partially relevant results — some useful information but needs refinement",
+      "input": {
+        "query": "How are test failures stored and queried for the dashboard?",
+        "retrieved_documents": [
+          {
+            "id": "doc_020",
+            "content": "Test results are stored in the Supabase test_results table with columns: id, test_id, run_id, status (passed/failed/error/skipped), error_message, duration_ms, screenshots, created_at. Failures include a failure_type field.",
+            "source": "supabase/migrations/001_initial.sql",
+            "retrieval_score": 0.72
+          },
+          {
+            "id": "doc_021",
+            "content": "The EventGateway publishes test events to Kafka topics. Failed tests emit to argus.test.failed with the full failure context for downstream processing by the HealingConsumer.",
+            "source": "src/services/event_gateway.py",
+            "retrieval_score": 0.55
+          },
+          {
+            "id": "doc_022",
+            "content": "The Cognee knowledge graph stores failure patterns for semantic search. Patterns include error_type, failed_selector, page_url, and the fix that was applied.",
+            "source": "src/knowledge/cognee_client.py",
+            "retrieval_score": 0.48
+          }
+        ],
+        "namespace": "org_acme_project_webapp_codebases"
+      },
+      "ground_truth": {
+        "expected_action": "ambiguous",
+        "min_retrieval_rounds": 2,
+        "min_confidence": 0.4,
+        "max_confidence": 0.75,
+        "web_search_used": false,
+        "partially_relevant_docs": ["doc_020"],
+        "notes": "doc_020 is relevant (database storage) but none of the docs address the dashboard query/API layer. Reformulation should target dashboard API endpoints or the Next.js dashboard components."
+      }
+    },
+    {
+      "id": "web_fallback",
+      "description": "Query about an external topic not in the knowledge base — should fall back to web search",
+      "input": {
+        "query": "What are the latest Playwright best practices for testing Shadow DOM components in 2026?",
+        "retrieved_documents": [],
+        "namespace": "org_acme_project_webapp_codebases"
+      },
+      "ground_truth": {
+        "expected_action": "web_search",
+        "web_search_used": true,
+        "min_retrieval_rounds": 1,
+        "no_local_docs": true,
+        "must_search_for": ["Playwright", "Shadow DOM", "testing"],
+        "notes": "No local documents retrieved. Query is about external Playwright practices not in the Argus knowledge base. Agent should fall back to web search."
+      }
+    }
+  ]
+}

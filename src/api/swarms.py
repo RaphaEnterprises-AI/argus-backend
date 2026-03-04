@@ -40,6 +40,14 @@ def _normalize_url(url: str | None) -> str | None:
     return url
 
 
+class SwarmCredentials(BaseModel):
+    """Optional login credentials for auth-protected targets."""
+
+    username: str = Field(..., description="Email or username")
+    password: str = Field(..., description="Password")
+    auth_url: str | None = Field(None, alias="authUrl", description="Login URL (defaults to target_url)")
+
+
 class LaunchSwarmRequest(BaseModel):
     """Request to launch a new agent swarm."""
 
@@ -65,6 +73,9 @@ class LaunchSwarmRequest(BaseModel):
         le=100,
         alias="maxDiscoveryAgents",
         description="Max agents to spawn in discovery_swarm mode (default: tier limit)",
+    )
+    credentials: SwarmCredentials | None = Field(
+        None, description="Login credentials for auth-protected targets"
     )
 
 
@@ -110,6 +121,7 @@ async def launch_swarm(request: Request, body: LaunchSwarmRequest):
         codebase_path=body.codebase_path,
         repository_url=body.repository_url,
         max_discovery_agents=body.max_discovery_agents,
+        credentials=body.credentials.model_dump(by_alias=False) if body.credentials else None,
     )
 
     orchestrator = get_swarm_orchestrator()

@@ -1,0 +1,237 @@
+{
+  "suite": "visual_comparison",
+  "version": "1.0",
+  "description": "Benchmark scenarios for VisualAI agent — evaluates ability to compare screenshots, detect visual regressions, and filter dynamic content changes.",
+  "scenarios": [
+    {
+      "id": "identical_pages",
+      "description": "Two identical screenshots of the same page taken at the same state should report a match",
+      "input": {
+        "baseline_url": "https://example.com/dashboard",
+        "current_url": "https://example.com/dashboard",
+        "baseline_metadata": {
+          "page_title": "Dashboard - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:00:00Z",
+          "elements": [
+            {"selector": "h1.page-title", "text": "Dashboard", "bounds": {"x": 24, "y": 80, "width": 200, "height": 36}},
+            {"selector": ".stats-card:nth-child(1)", "text": "Total Users: 1,234", "bounds": {"x": 24, "y": 140, "width": 280, "height": 120}},
+            {"selector": ".stats-card:nth-child(2)", "text": "Active Tests: 56", "bounds": {"x": 328, "y": 140, "width": 280, "height": 120}},
+            {"selector": "nav.sidebar", "bounds": {"x": 0, "y": 0, "width": 240, "height": 1080}}
+          ]
+        },
+        "current_metadata": {
+          "page_title": "Dashboard - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:05:00Z",
+          "elements": [
+            {"selector": "h1.page-title", "text": "Dashboard", "bounds": {"x": 24, "y": 80, "width": 200, "height": 36}},
+            {"selector": ".stats-card:nth-child(1)", "text": "Total Users: 1,234", "bounds": {"x": 24, "y": 140, "width": 280, "height": 120}},
+            {"selector": ".stats-card:nth-child(2)", "text": "Active Tests: 56", "bounds": {"x": 328, "y": 140, "width": 280, "height": 120}},
+            {"selector": "nav.sidebar", "bounds": {"x": 0, "y": 0, "width": 240, "height": 1080}}
+          ]
+        },
+        "comparison_config": {
+          "threshold": 0.95,
+          "ignore_antialiasing": true,
+          "ignore_colors": false
+        }
+      },
+      "ground_truth": {
+        "match": true,
+        "match_percentage_min": 95,
+        "differences": [],
+        "severity": "none"
+      }
+    },
+    {
+      "id": "layout_shift",
+      "description": "Element positions changed significantly due to a CSS grid refactor — layout regression",
+      "input": {
+        "baseline_url": "https://example.com/products",
+        "current_url": "https://example.com/products",
+        "baseline_metadata": {
+          "page_title": "Products - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-19T10:00:00Z",
+          "elements": [
+            {"selector": ".product-grid", "bounds": {"x": 240, "y": 80, "width": 1680, "height": 900}},
+            {"selector": ".product-card:nth-child(1)", "text": "Widget A", "bounds": {"x": 260, "y": 100, "width": 380, "height": 280}},
+            {"selector": ".product-card:nth-child(2)", "text": "Widget B", "bounds": {"x": 660, "y": 100, "width": 380, "height": 280}},
+            {"selector": ".product-card:nth-child(3)", "text": "Widget C", "bounds": {"x": 1060, "y": 100, "width": 380, "height": 280}},
+            {"selector": ".sidebar-filters", "bounds": {"x": 0, "y": 80, "width": 240, "height": 600}}
+          ]
+        },
+        "current_metadata": {
+          "page_title": "Products - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:00:00Z",
+          "elements": [
+            {"selector": ".product-grid", "bounds": {"x": 0, "y": 80, "width": 1920, "height": 1200}},
+            {"selector": ".product-card:nth-child(1)", "text": "Widget A", "bounds": {"x": 20, "y": 100, "width": 600, "height": 350}},
+            {"selector": ".product-card:nth-child(2)", "text": "Widget B", "bounds": {"x": 640, "y": 100, "width": 600, "height": 350}},
+            {"selector": ".product-card:nth-child(3)", "text": "Widget C", "bounds": {"x": 1260, "y": 100, "width": 600, "height": 350}},
+            {"selector": ".sidebar-filters", "bounds": {"x": 0, "y": 900, "width": 1920, "height": 200}}
+          ]
+        },
+        "comparison_config": {
+          "threshold": 0.95,
+          "ignore_antialiasing": true,
+          "ignore_colors": false
+        }
+      },
+      "ground_truth": {
+        "match": false,
+        "match_percentage_max": 70,
+        "differences": [
+          {"type": "layout", "element": ".product-grid", "description": "Grid container width and position changed"},
+          {"type": "layout", "element": ".product-card", "description": "Card dimensions and spacing changed"},
+          {"type": "layout", "element": ".sidebar-filters", "description": "Sidebar moved from left column to bottom row"}
+        ],
+        "severity": "high"
+      }
+    },
+    {
+      "id": "content_change",
+      "description": "Text and image content updated on a marketing page — should detect content-level differences",
+      "input": {
+        "baseline_url": "https://example.com/about",
+        "current_url": "https://example.com/about",
+        "baseline_metadata": {
+          "page_title": "About Us - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-19T10:00:00Z",
+          "elements": [
+            {"selector": "h1.hero-title", "text": "About Our Company", "bounds": {"x": 400, "y": 120, "width": 500, "height": 48}},
+            {"selector": "p.hero-description", "text": "Founded in 2020, we build tools for developers.", "bounds": {"x": 400, "y": 180, "width": 600, "height": 60}},
+            {"selector": "img.team-photo", "src": "/images/team-2025.jpg", "bounds": {"x": 400, "y": 280, "width": 800, "height": 400}},
+            {"selector": ".stats-number.employees", "text": "52", "bounds": {"x": 400, "y": 720, "width": 100, "height": 36}}
+          ]
+        },
+        "current_metadata": {
+          "page_title": "About Us - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:00:00Z",
+          "elements": [
+            {"selector": "h1.hero-title", "text": "About Our Team", "bounds": {"x": 400, "y": 120, "width": 500, "height": 48}},
+            {"selector": "p.hero-description", "text": "Since 2020, we have been empowering developers worldwide.", "bounds": {"x": 400, "y": 180, "width": 600, "height": 60}},
+            {"selector": "img.team-photo", "src": "/images/team-2026.jpg", "bounds": {"x": 400, "y": 280, "width": 800, "height": 400}},
+            {"selector": ".stats-number.employees", "text": "78", "bounds": {"x": 400, "y": 720, "width": 100, "height": 36}}
+          ]
+        },
+        "comparison_config": {
+          "threshold": 0.95,
+          "ignore_antialiasing": true,
+          "ignore_colors": false
+        }
+      },
+      "ground_truth": {
+        "match": false,
+        "match_percentage_max": 80,
+        "differences": [
+          {"type": "content", "element": "h1.hero-title", "description": "Heading text changed from 'About Our Company' to 'About Our Team'"},
+          {"type": "content", "element": "p.hero-description", "description": "Description paragraph text changed"},
+          {"type": "content", "element": "img.team-photo", "description": "Team photo image source changed"},
+          {"type": "content", "element": ".stats-number.employees", "description": "Employee count changed from 52 to 78"}
+        ],
+        "severity": "medium"
+      }
+    },
+    {
+      "id": "style_change",
+      "description": "Color scheme and font updated in a design system migration — visual style regression",
+      "input": {
+        "baseline_url": "https://example.com/settings",
+        "current_url": "https://example.com/settings",
+        "baseline_metadata": {
+          "page_title": "Settings - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-19T10:00:00Z",
+          "elements": [
+            {"selector": "h1.page-title", "text": "Settings", "bounds": {"x": 24, "y": 80, "width": 180, "height": 36}, "styles": {"color": "#1a1a2e", "font-family": "Inter", "font-size": "28px"}},
+            {"selector": "button.save-btn", "text": "Save Changes", "bounds": {"x": 24, "y": 600, "width": 160, "height": 40}, "styles": {"background-color": "#4361ee", "color": "#ffffff", "border-radius": "4px"}},
+            {"selector": ".form-input", "bounds": {"x": 24, "y": 160, "width": 400, "height": 40}, "styles": {"border": "1px solid #d1d5db", "border-radius": "4px", "font-family": "Inter"}},
+            {"selector": ".card-container", "bounds": {"x": 24, "y": 120, "width": 600, "height": 540}, "styles": {"background-color": "#ffffff", "box-shadow": "0 1px 3px rgba(0,0,0,0.12)"}}
+          ]
+        },
+        "current_metadata": {
+          "page_title": "Settings - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:00:00Z",
+          "elements": [
+            {"selector": "h1.page-title", "text": "Settings", "bounds": {"x": 24, "y": 80, "width": 180, "height": 36}, "styles": {"color": "#0f172a", "font-family": "Geist Sans", "font-size": "28px"}},
+            {"selector": "button.save-btn", "text": "Save Changes", "bounds": {"x": 24, "y": 600, "width": 160, "height": 40}, "styles": {"background-color": "#2563eb", "color": "#ffffff", "border-radius": "8px"}},
+            {"selector": ".form-input", "bounds": {"x": 24, "y": 160, "width": 400, "height": 40}, "styles": {"border": "1px solid #e2e8f0", "border-radius": "8px", "font-family": "Geist Sans"}},
+            {"selector": ".card-container", "bounds": {"x": 24, "y": 120, "width": 600, "height": 540}, "styles": {"background-color": "#ffffff", "box-shadow": "0 1px 2px rgba(0,0,0,0.05)"}}
+          ]
+        },
+        "comparison_config": {
+          "threshold": 0.95,
+          "ignore_antialiasing": true,
+          "ignore_colors": false
+        }
+      },
+      "ground_truth": {
+        "match": false,
+        "match_percentage_max": 90,
+        "differences": [
+          {"type": "style", "element": "h1.page-title", "description": "Font family changed from Inter to Geist Sans, color shifted"},
+          {"type": "style", "element": "button.save-btn", "description": "Background color changed and border-radius increased"},
+          {"type": "style", "element": ".form-input", "description": "Border color, border-radius, and font-family changed"},
+          {"type": "style", "element": ".card-container", "description": "Box shadow reduced"}
+        ],
+        "severity": "medium"
+      }
+    },
+    {
+      "id": "dynamic_content",
+      "description": "Only timestamps, counters, and live status indicators changed — should be filtered as dynamic content and still match",
+      "input": {
+        "baseline_url": "https://example.com/monitoring",
+        "current_url": "https://example.com/monitoring",
+        "baseline_metadata": {
+          "page_title": "Monitoring - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:00:00Z",
+          "elements": [
+            {"selector": "h1.page-title", "text": "Monitoring", "bounds": {"x": 24, "y": 80, "width": 220, "height": 36}},
+            {"selector": ".last-updated", "text": "Last updated: 2026-02-20 10:00:00 UTC", "bounds": {"x": 24, "y": 120, "width": 300, "height": 20}, "dynamic": true},
+            {"selector": ".active-users-count", "text": "Active Users: 142", "bounds": {"x": 24, "y": 160, "width": 200, "height": 28}, "dynamic": true},
+            {"selector": ".uptime-counter", "text": "Uptime: 14d 3h 22m", "bounds": {"x": 24, "y": 200, "width": 200, "height": 28}, "dynamic": true},
+            {"selector": ".status-indicator", "text": "All Systems Operational", "bounds": {"x": 24, "y": 240, "width": 300, "height": 28}},
+            {"selector": "nav.sidebar", "bounds": {"x": 0, "y": 0, "width": 240, "height": 1080}},
+            {"selector": ".chart-container", "bounds": {"x": 24, "y": 300, "width": 800, "height": 400}}
+          ]
+        },
+        "current_metadata": {
+          "page_title": "Monitoring - MyApp",
+          "viewport": {"width": 1920, "height": 1080},
+          "timestamp": "2026-02-20T10:15:00Z",
+          "elements": [
+            {"selector": "h1.page-title", "text": "Monitoring", "bounds": {"x": 24, "y": 80, "width": 220, "height": 36}},
+            {"selector": ".last-updated", "text": "Last updated: 2026-02-20 10:15:00 UTC", "bounds": {"x": 24, "y": 120, "width": 300, "height": 20}, "dynamic": true},
+            {"selector": ".active-users-count", "text": "Active Users: 158", "bounds": {"x": 24, "y": 160, "width": 200, "height": 28}, "dynamic": true},
+            {"selector": ".uptime-counter", "text": "Uptime: 14d 3h 37m", "bounds": {"x": 24, "y": 200, "width": 200, "height": 28}, "dynamic": true},
+            {"selector": ".status-indicator", "text": "All Systems Operational", "bounds": {"x": 24, "y": 240, "width": 300, "height": 28}},
+            {"selector": "nav.sidebar", "bounds": {"x": 0, "y": 0, "width": 240, "height": 1080}},
+            {"selector": ".chart-container", "bounds": {"x": 24, "y": 300, "width": 800, "height": 400}}
+          ]
+        },
+        "comparison_config": {
+          "threshold": 0.95,
+          "ignore_antialiasing": true,
+          "ignore_colors": false,
+          "ignore_dynamic_content": true,
+          "dynamic_selectors": [".last-updated", ".active-users-count", ".uptime-counter"]
+        }
+      },
+      "ground_truth": {
+        "match": true,
+        "match_percentage_min": 95,
+        "differences": [],
+        "severity": "none",
+        "filtered_dynamic_elements": [".last-updated", ".active-users-count", ".uptime-counter"]
+      }
+    }
+  ]
+}

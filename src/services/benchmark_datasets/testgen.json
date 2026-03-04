@@ -1,0 +1,57 @@
+[
+  {
+    "id": "testgen_auth_flow",
+    "requirements_text": "User authentication: Users can sign up with email and password. Password must be at least 8 characters. Email verification is required. Users can reset their password via email link. Session expires after 30 minutes of inactivity.",
+    "config": {"framework": "playwright", "language": "typescript"},
+    "ground_truth": {
+      "min_requirements": 3,
+      "min_scenarios": 3,
+      "framework": "playwright",
+      "min_quality_score": 0.6
+    }
+  },
+  {
+    "id": "testgen_ecommerce_cart",
+    "requirements_text": "Shopping cart: Users can add items to cart. Cart shows item count and total price. Users can update quantities. Removing last item shows empty cart message. Cart persists across browser sessions. Discount codes can be applied at checkout.",
+    "config": {"framework": "cypress", "language": "javascript"},
+    "ground_truth": {
+      "min_requirements": 4,
+      "min_scenarios": 4,
+      "framework": "cypress",
+      "min_quality_score": 0.6
+    }
+  },
+  {
+    "id": "testgen_api_crud",
+    "requirements_text": "REST API: CRUD operations for users, projects, and tasks. All endpoints require Bearer token authentication. Rate limiting set to 100 requests per minute. Pagination uses cursor-based navigation with default page size of 20. Bulk operations support up to 100 items per request.",
+    "config": {"framework": "pytest", "language": "python"},
+    "ground_truth": {
+      "min_requirements": 4,
+      "min_scenarios": 5,
+      "framework": "pytest",
+      "min_quality_score": 0.6
+    }
+  },
+  {
+    "id": "testgen_healthcare_compliance",
+    "requirements_text": "Patient records must be encrypted at rest and in transit. Access to medical records requires role-based authorization (doctor, nurse, admin). Audit logs must record every access to patient data with timestamp, user ID, and action. Records must be kept for 7 years after last visit. HIPAA requires breach notification within 72 hours.",
+    "config": {"framework": "playwright", "language": "typescript"},
+    "ground_truth": {
+      "min_requirements": 4,
+      "min_scenarios": 5,
+      "framework": "playwright",
+      "min_quality_score": 0.5
+    }
+  },
+  {
+    "id": "testgen_collab_editor",
+    "requirements_text": "Multiple users can edit the same document simultaneously with cursor presence indicators. Changes sync in real-time with conflict resolution favoring the latest edit. Comment threads can be anchored to specific text selections. Version history shows all changes with the ability to restore any previous version. Offline edits are queued and merged when connectivity resumes.",
+    "config": {"framework": "playwright", "language": "typescript"},
+    "ground_truth": {
+      "min_requirements": 4,
+      "min_scenarios": 4,
+      "framework": "playwright",
+      "min_quality_score": 0.5
+    }
+  }
+]
