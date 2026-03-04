@@ -167,7 +167,7 @@ class AutonomousLoopRequest(BaseModel):
 settings = get_settings()
 
 # API Version - x-release-please-version
-API_VERSION = "2.19.0"  # x-release-please-version
+API_VERSION = "2.12.0"  # x-release-please-version
 API_VERSION_DATE = "2026-03-01"
 
 # ============================================================================
