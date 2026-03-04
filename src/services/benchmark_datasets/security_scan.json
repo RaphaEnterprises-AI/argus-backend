@@ -99,7 +99,7 @@
             "method": "GET",
             "response_code": 200,
             "parameters": [],
-            "auth_header": "Basic dXNlcjpwYXNz"
+            "auth_header": "Basic <REDACTED_TEST_CREDENTIAL>"
           },
           {
             "url": "/api/admin/config",
