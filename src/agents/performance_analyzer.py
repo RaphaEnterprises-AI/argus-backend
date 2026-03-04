@@ -315,7 +315,7 @@ RESPOND IN JSON."""
         response = await self._call_model(
             messages=[{"role": "user", "content": prompt}],
             task_type=TaskType.TEXT_EXTRACTION,
-            max_tokens=1000,
+            max_tokens=2048,
         )
 
         return self._parse_json_response(response["content"], {})

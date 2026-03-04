@@ -12,10 +12,10 @@ from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
-import anthropic
 import structlog
 
 from ..config import get_settings
+from ..core.model_router import ModelRouter, TaskType
 
 logger = structlog.get_logger()
 
@@ -242,10 +242,7 @@ class AutoDiscovery:
         model: str | None = None,
     ):
         settings = get_settings()
-        api_key = settings.anthropic_api_key
-        if hasattr(api_key, 'get_secret_value'):
-            api_key = api_key.get_secret_value()
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self._model_router = ModelRouter(settings)
         from src.core.model_registry import get_model_id
         model = model or get_model_id("claude-sonnet-4-5")
         self.app_url = app_url
@@ -494,9 +491,8 @@ Focus on identifying:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1000,
+            result = await self._model_router.complete(
+                task_type=TaskType.COMPLEX,
                 messages=[
                     {
                         "role": "user",
@@ -512,10 +508,11 @@ Focus on identifying:
                             {"type": "text", "text": prompt}
                         ]
                     }
-                ]
+                ],
+                max_tokens=2048,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             return robust_json_parse(content)
 
         except Exception as e:
@@ -580,13 +577,13 @@ Prioritize:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
+            result = await self._model_router.complete(
+                task_type=TaskType.MODERATE,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=4096,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             data = robust_json_parse(content)
 
             flows = []
@@ -686,13 +683,13 @@ Respond with JSON:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4000,
+            result = await self._model_router.complete(
+                task_type=TaskType.MODERATE,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=4000,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             data = robust_json_parse(content)
             return data.get("tests", [])
 
@@ -727,13 +724,13 @@ Respond with JSON:
 Include typical pages like login, signup, dashboard, settings, etc.
 """
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2000,
+        result = await self._model_router.complete(
+            task_type=TaskType.MODERATE,
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=2000,
         )
 
-        content = response.content[0].text
+        content = result["content"]
         data = robust_json_parse(content)
 
         for page_data in data.get("pages", []):

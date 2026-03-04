@@ -141,7 +141,7 @@ async def _run_qa_analysis(
     user_id: str,
 ):
     """Run the QA analysis in the background."""
-    from src.agents.qa_engineer_agent import QAEngineerAgent, AnalysisType
+    from src.agents.qa_engineer import QAEngineerAgent, AnalysisType
 
     supabase = get_supabase_client()
 

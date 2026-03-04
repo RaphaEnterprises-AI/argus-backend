@@ -168,7 +168,7 @@ from .test_quality_agent import (
 # QA Intelligence Agents
 from .testgen_agent import TestGenAgent
 from .testhealer_cicd_agent import TestHealerCICDAgent
-from .qa_engineer_agent import QAEngineerAgent
+from .qa_engineer import QAEngineerAgent
 
 # SRE Agent - Unified incident correlation, remediation, optimization (RAP-253)
 from .sre_agent import (
@@ -190,10 +190,6 @@ from .test_impact_analyzer import (
 )
 from .test_planner import TestPlannerAgent
 
-# Legacy UI Tester - Available as UITesterAgentLegacy for migration
-from .ui_tester import UITesterAgent as UITesterAgentLegacy
-
-# UI Tester V2 - Uses unified BrowserPoolClient (Vultr K8s)
 from .ui_tester_v2 import AssertionResult, StepResult, UITesterAgent, UITesterAgentV2, UITestResult
 
 # Competitive Features
@@ -210,9 +206,8 @@ __all__ = [
     # Specialized Agents
     "CodeAnalyzerAgent",
     "TestPlannerAgent",
-    "UITesterAgent",  # V2 (uses BrowserPoolClient)
-    "UITesterAgentV2",  # Explicit V2 reference
-    "UITesterAgentLegacy",  # Legacy (uses E2EBrowserClient)
+    "UITesterAgent",
+    "UITesterAgentV2",
     "UITestResult",
     "StepResult",
     "AssertionResult",

@@ -105,7 +105,7 @@ def create_parallel_test_batches(state: TestingState) -> list[Send]:
 
 async def execute_ui_tests_parallel(batch_state: dict) -> dict:
     """Execute UI tests in parallel with controlled concurrency."""
-    from ..agents.ui_tester import UITesterAgent
+    from ..agents.ui_tester_v2 import UITesterAgent
 
     tests = batch_state["tests"]
     max_concurrent = batch_state.get("max_concurrent", 3)

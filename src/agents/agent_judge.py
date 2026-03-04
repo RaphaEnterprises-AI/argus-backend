@@ -1009,7 +1009,7 @@ Return as JSON:
             messages=[{"role": "user", "content": critic_prompt}],
             task_type=TaskType.ERROR_CLASSIFICATION,
             json_mode=True,
-            max_tokens=1000,
+            max_tokens=2048,
         )
 
         result = self.agent._parse_json_response(response.content, {"challenges": []})
@@ -1048,7 +1048,7 @@ Return as JSON:
             messages=[{"role": "user", "content": resolve_prompt}],
             task_type=TaskType.ERROR_CLASSIFICATION,
             json_mode=True,
-            max_tokens=800,
+            max_tokens=2048,
         )
 
         result = self.agent._parse_json_response(response.content, {

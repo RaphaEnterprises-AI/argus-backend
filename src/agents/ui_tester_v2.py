@@ -242,6 +242,12 @@ Respond with JSON containing:
 
         start_time = time.time()
 
+        # If pool is disabled (BROWSER_POOL_URL=none), bail out early so the
+        # orchestrator's SeleniumGrid / BrowserUse fallback is reached cleanly.
+        if getattr(client, "disabled", False):
+            self.log.info("BrowserPoolClient disabled — skipping pool execution")
+            return AgentResult(success=False, error="BrowserPoolClient disabled")
+
         # Check pool health
         health = await client.health()
         if not health.healthy:

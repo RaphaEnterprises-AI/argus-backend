@@ -1288,7 +1288,7 @@ async def supervisor_testhealer_cicd_node(state: SupervisorState) -> dict:
 
 async def supervisor_qa_engineer_node(state: SupervisorState) -> dict:
     """Wrapper for QA Engineer Agent that works with supervisor state."""
-    from src.agents.qa_engineer_agent import QAEngineerAgent
+    from src.agents.qa_engineer import QAEngineerAgent
 
     log = logger.bind(node="supervisor_qa_engineer")
     log.info("Running QA Engineer agent")

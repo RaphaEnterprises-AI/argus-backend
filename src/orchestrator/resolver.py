@@ -55,6 +55,14 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# Scoring weights for confidence-weighted proposal resolution.
+# Proposer confidence (0.4) is weighted highest: it reflects the agent's own
+# certainty about its solution. Voter confidence (0.3) captures peer review
+# quality. Engagement (0.3) rewards proposals that attracted more discussion.
+_WEIGHT_CONFIDENCE = 0.4
+_WEIGHT_RECENCY = 0.3    # actually voter confidence, name kept for clarity
+_WEIGHT_SOURCE = 0.3     # actually engagement score
+
 
 class TieBreakStrategy(str, Enum):
     """Strategies for breaking ties between proposals."""
@@ -328,11 +336,11 @@ class ConflictResolver:
                 else 0.5
             )
 
-            # Combined score
+            # Combined score — weights defined at module level
             score = (
-                proposal.confidence * 0.4 +  # Proposer's confidence
-                avg_voter_confidence * 0.3 +  # Voter confidence
-                min(num_votes / 10, 1.0) * 0.3  # Engagement (capped)
+                proposal.confidence * _WEIGHT_CONFIDENCE +
+                avg_voter_confidence * _WEIGHT_RECENCY +
+                min(num_votes / 10, 1.0) * _WEIGHT_SOURCE
             )
 
             proposal_scores[proposal.proposal_id] = score

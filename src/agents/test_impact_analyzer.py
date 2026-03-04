@@ -258,7 +258,7 @@ Return JSON array of test IDs: ["test-1", "test-2", ...]"""
             from src.core.model_registry import get_model_id
             response = self.client.messages.create(
                 model=get_model_id("claude-sonnet-4-5"),
-                max_tokens=512,
+                max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}]
             )
 

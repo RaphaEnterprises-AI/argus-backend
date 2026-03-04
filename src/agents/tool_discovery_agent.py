@@ -1657,7 +1657,7 @@ Return JSON: {{"secure": true/false, "issues": ["issue1", ...]}}"""
             response = await self._call_ai(
                 messages=[{"role": "user", "content": prompt}],
                 task_type=TaskType.CODE_ANALYSIS,
-                max_tokens=1024,
+                max_tokens=2048,
             )
 
             result = self._parse_json_response(response.content, {"secure": True})
@@ -1864,7 +1864,7 @@ Return JSON:
         response = await self._call_ai(
             messages=[{"role": "user", "content": prompt}],
             task_type=TaskType.SEMANTIC_UNDERSTANDING,
-            max_tokens=1024,
+            max_tokens=2048,
         )
 
         result = self._parse_json_response(response.content, {})

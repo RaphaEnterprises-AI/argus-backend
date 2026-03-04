@@ -493,7 +493,7 @@ Return ONLY the reformulated query, no explanation."""
         response = await self._call_ai(
             messages=[{"role": "user", "content": reformulation_prompt}],
             task_type=TaskType.TEXT_EXTRACTION,
-            max_tokens=200,
+            max_tokens=1024,
         )
 
         new_query = response.content.strip()
@@ -522,7 +522,7 @@ Return only the most critical sub-question that would help answer the original q
         response = await self._call_ai(
             messages=[{"role": "user", "content": decompose_prompt}],
             task_type=TaskType.TEXT_EXTRACTION,
-            max_tokens=100,
+            max_tokens=1024,
         )
 
         return response.content.strip()

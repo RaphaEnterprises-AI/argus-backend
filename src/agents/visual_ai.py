@@ -12,12 +12,11 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-import anthropic
 import structlog
 
 from ..config import MultiModelStrategy, get_settings
 from ..core.model_registry import get_model_id
-from ..core.model_router import ModelRouter
+from ..core.model_router import ModelRouter, TaskType
 
 logger = structlog.get_logger()
 
@@ -129,10 +128,6 @@ class VisualAI:
         use_multi_model: bool = True,
     ):
         self.settings = get_settings()
-        api_key = self.settings.anthropic_api_key
-        if hasattr(api_key, 'get_secret_value'):
-            api_key = api_key.get_secret_value()
-        self.client = anthropic.Anthropic(api_key=api_key)
         model = model or get_model_id("claude-sonnet-4-5")
         self.model = model
         self.ignore_dynamic = ignore_dynamic
@@ -250,9 +245,8 @@ is_regression should be false for:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
+            result = await self.model_router.complete(
+                task_type=TaskType.COMPLEX,
                 messages=[
                     {
                         "role": "user",
@@ -287,17 +281,14 @@ is_regression should be false for:
                             }
                         ]
                     }
-                ]
+                ],
+                max_tokens=2000,
             )
 
-            # Calculate cost
-            input_tokens = response.usage.input_tokens
-            output_tokens = response.usage.output_tokens
-            # Sonnet pricing
-            cost = (input_tokens * 3.0 / 1_000_000) + (output_tokens * 15.0 / 1_000_000)
+            cost = result.get("cost", 0.0)
 
             # Parse response
-            content = response.content[0].text
+            content = result["content"]
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -401,9 +392,8 @@ Respond with JSON:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1500,
+            result = await self.model_router.complete(
+                task_type=TaskType.COMPLEX,
                 messages=[
                     {
                         "role": "user",
@@ -422,10 +412,11 @@ Respond with JSON:
                             }
                         ]
                     }
-                ]
+                ],
+                max_tokens=2048,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:

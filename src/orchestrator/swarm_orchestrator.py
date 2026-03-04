@@ -557,6 +557,10 @@ class SwarmOrchestrator:
         if agent_type == "visual_ai" and config.target_url:
             return await self._run_visual_ai(config, emitter, agent_id)
 
+        # 14. Test Generator (generates BDD scenarios + test code from requirements)
+        if agent_type == "testgen":
+            return await self._run_testgen(config, emitter, agent_id)
+
         # Fallback for any unknown agent type
         return self._error_result(agent_type, "unrecognized agent type")
 
@@ -1437,6 +1441,61 @@ class SwarmOrchestrator:
         except Exception as e:
             logger.warning("visual_ai failed, returning error result", error=str(e))
             return self._error_result("visual_ai", str(e))
+
+    async def _run_testgen(
+        self, config: SwarmConfig, emitter: AGUIEmitter, agent_id: str,
+    ) -> dict[str, Any]:
+        """Generate BDD scenarios + test code from URL or requirements text."""
+        try:
+            from src.agents.testgen_agent import SourceType, TestGenAgent, TestGenConfig
+
+            await self._emit_progress(emitter, agent_id, 30, "planning", "testgen building requirements")
+
+            # Derive source: prefer target_url (treat as app to test), fall back to target_flow text
+            if config.target_url:
+                source_type = SourceType.REQUIREMENTS_TEXT
+                source_data = (
+                    f"Generate end-to-end tests for the web application at {config.target_url}. "
+                    f"Cover critical user flows including authentication, core features, and error paths."
+                )
+            elif config.target_flow:
+                source_type = SourceType.USER_STORY
+                source_data = config.target_flow
+            else:
+                return self._error_result("testgen", "No target_url or target_flow provided")
+
+            gen_config = TestGenConfig(
+                app_url=config.target_url,
+                max_tests=20,
+                bdd_style=True,
+            )
+
+            agent = TestGenAgent()
+            result = await agent.generate(
+                org_id=config.org_id,
+                project_id=config.project_id,
+                source_type=source_type,
+                source_data=source_data,
+                config=gen_config,
+            )
+
+            await self._emit_progress(emitter, agent_id, 70, "reporting", "testgen compiling results")
+
+            test_cases = result.test_cases or []
+            findings = [
+                {"type": "test_case", "name": tc.name if hasattr(tc, "name") else str(tc)}
+                for tc in test_cases
+            ]
+
+            return {
+                "findings": findings,
+                "summary": f"Generated {len(test_cases)} test cases",
+                "confidence": result.quality_score if hasattr(result, "quality_score") else 0.8,
+                "cost_usd": result.cost_usd if hasattr(result, "cost_usd") else 0.0,
+            }
+        except Exception as e:
+            logger.warning("testgen failed, returning error result", error=str(e))
+            return self._error_result("testgen", str(e))
 
     # ── Pre-flight auth login ─────────────────────────────────────────
 

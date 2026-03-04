@@ -8,11 +8,11 @@ import json
 from dataclasses import dataclass, field
 from uuid import uuid4
 
-import anthropic
 import structlog
 
 from ..config import get_settings
 from ..core.model_registry import get_model_id
+from ..core.model_router import ModelRouter, TaskType
 
 logger = structlog.get_logger()
 
@@ -142,10 +142,7 @@ class NLPTestCreator:
         model: str | None = None,
     ):
         settings = get_settings()
-        api_key = settings.anthropic_api_key
-        if hasattr(api_key, 'get_secret_value'):
-            api_key = api_key.get_secret_value()
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self._model_router = ModelRouter(settings)
         model = model or get_model_id("claude-sonnet-4-5")
         self.app_url = app_url
         self.model = model
@@ -238,13 +235,13 @@ ACTION EXAMPLES:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
+            result = await self._model_router.complete(
+                task_type=TaskType.MODERATE,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=2000,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -359,13 +356,13 @@ Make sure each scenario is:
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
+            result = await self._model_router.complete(
+                task_type=TaskType.MODERATE,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=2000,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -425,13 +422,13 @@ Respond with the complete updated test in JSON format (same structure as input).
 """
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
+            result = await self._model_router.complete(
+                task_type=TaskType.MODERATE,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=2000,
             )
 
-            content = response.content[0].text
+            content = result["content"]
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -489,7 +486,7 @@ class ConversationalTestBuilder:
 
     def __init__(self, app_url: str):
         settings = get_settings()
-        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+        self._model_router = ModelRouter(settings)
         self.app_url = app_url
         self.creator = NLPTestCreator(app_url)
         self.conversation_history = []
@@ -530,14 +527,13 @@ CHANGES: <what to change>
 For other questions, just respond conversationally.
 """
 
-        response = self.client.messages.create(
-            model=get_model_id("claude-sonnet-4-5"),
-            max_tokens=1000,
-            system=system,
-            messages=self.conversation_history,
+        result = await self._model_router.complete(
+            task_type=TaskType.MODERATE,
+            messages=[{"role": "system", "content": system}, *self.conversation_history],
+            max_tokens=4096,
         )
 
-        reply = response.content[0].text
+        reply = result["content"]
         self.conversation_history.append({"role": "assistant", "content": reply})
 
         # Parse actions

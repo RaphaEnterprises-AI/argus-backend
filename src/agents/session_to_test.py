@@ -392,7 +392,7 @@ Format as JSON array:
         from src.core.model_registry import get_model_id
         response = self.client.messages.create(
             model=get_model_id("claude-sonnet-4-5"),
-            max_tokens=1024,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -550,7 +550,7 @@ Be specific about what user actions would trigger this error."""
         from src.core.model_registry import get_model_id
         response = self.client.messages.create(
             model=get_model_id("claude-sonnet-4-5"),
-            max_tokens=1024,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}]
         )
 

@@ -429,7 +429,7 @@ Return JSON:
             task_type=TaskType.CODE_ANALYSIS,
             max_cost=0.03,
             json_mode=True,
-            max_tokens=1000,
+            max_tokens=4096,
         )
 
         data = self._parse_json_response(response.content, {})

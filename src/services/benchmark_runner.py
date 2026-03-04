@@ -1572,7 +1572,7 @@ async def run_healing_cicd_suite(runs_per_scenario: int = 8) -> SuiteResult:
 
 async def run_qa_engineer_suite(runs_per_scenario: int = 8) -> SuiteResult:
     """Run QAEngineerAgent against repo quality analysis scenarios."""
-    from src.agents.qa_engineer_agent import QAEngineerAgent
+    from src.agents.qa_engineer import QAEngineerAgent
 
     dataset = _load_dataset("qa_engineer.json")
     suite = SuiteResult(

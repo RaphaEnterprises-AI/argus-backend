@@ -788,7 +788,7 @@ async def trigger_qa_pr_analysis(
 ) -> None:
     """Background task: Trigger QA Engineer PR analysis."""
     try:
-        from src.agents.qa_engineer_agent import QAEngineerAgent
+        from src.agents.qa_engineer import QAEngineerAgent
 
         agent = QAEngineerAgent()
         await agent.analyze(
