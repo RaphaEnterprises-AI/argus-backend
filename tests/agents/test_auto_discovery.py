@@ -164,14 +164,12 @@ class TestAutoDiscovery:
     def mock_settings(self):
         """Mock settings."""
         with patch("src.agents.auto_discovery.get_settings") as mock:
-            mock.return_value.anthropic_api_key = MagicMock()
-            mock.return_value.anthropic_api_key.get_secret_value.return_value = "test_key"
             yield mock
 
     @pytest.fixture
     def discovery(self, mock_settings):
         """Create an AutoDiscovery instance."""
-        with patch("src.agents.auto_discovery.anthropic.Anthropic"):
+        with patch("src.agents.auto_discovery.ModelRouter"):
             return AutoDiscovery(
                 app_url="https://example.com",
                 max_pages=10,
@@ -180,7 +178,7 @@ class TestAutoDiscovery:
 
     def test_init(self, mock_settings):
         """Test AutoDiscovery initialization."""
-        with patch("src.agents.auto_discovery.anthropic.Anthropic"):
+        with patch("src.agents.auto_discovery.ModelRouter"):
             discovery = AutoDiscovery(
                 app_url="https://example.com",
                 max_pages=15,
@@ -311,10 +309,8 @@ class TestAutoDiscovery:
             ),
         ]
 
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"flows": [{"id": "flow-1", "name": "Login Flow", "description": "User login", "start_url": "/login", "steps": [], "priority": "critical", "category": "authentication"}]}')]
-
-        discovery.client.messages.create = MagicMock(return_value=mock_response)
+        json_str = '{"flows": [{"id": "flow-1", "name": "Login Flow", "description": "User login", "start_url": "/login", "steps": [], "priority": "critical", "category": "authentication"}]}'
+        discovery._model_router.complete = AsyncMock(return_value={"content": json_str})
 
         flows = await discovery._analyze_flows(focus_areas=["authentication"])
 
@@ -329,7 +325,7 @@ class TestAutoDiscovery:
             DiscoveredPage(url="https://example.com", title="Home", description="Home"),
         ]
 
-        discovery.client.messages.create = MagicMock(side_effect=Exception("API Error"))
+        discovery._model_router.complete = AsyncMock(side_effect=Exception("API Error"))
 
         flows = await discovery._analyze_flows()
 
@@ -355,10 +351,8 @@ class TestAutoDiscovery:
             ),
         ]
 
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"tests": [{"id": "test-1", "name": "Login Test", "description": "Test login", "priority": "critical", "steps": []}]}')]
-
-        discovery.client.messages.create = MagicMock(return_value=mock_response)
+        json_str = '{"tests": [{"id": "test-1", "name": "Login Test", "description": "Test login", "priority": "critical", "steps": []}]}'
+        discovery._model_router.complete = AsyncMock(return_value={"content": json_str})
 
         tests = await discovery._generate_test_suggestions()
 
@@ -372,7 +366,7 @@ class TestAutoDiscovery:
             DiscoveredFlow(id="1", name="Flow", description="", start_url="/"),
         ]
 
-        discovery.client.messages.create = MagicMock(side_effect=Exception("API Error"))
+        discovery._model_router.complete = AsyncMock(side_effect=Exception("API Error"))
 
         tests = await discovery._generate_test_suggestions()
 
@@ -381,10 +375,8 @@ class TestAutoDiscovery:
     @pytest.mark.asyncio
     async def test_simulate_discovery(self, discovery):
         """Test simulated discovery."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"pages": [{"url": "/login", "title": "Login", "description": "Login page", "links": ["/signup"]}]}')]
-
-        discovery.client.messages.create = MagicMock(return_value=mock_response)
+        json_str = '{"pages": [{"url": "/login", "title": "Login", "description": "Login page", "links": ["/signup"]}]}'
+        discovery._model_router.complete = AsyncMock(return_value={"content": json_str})
 
         await discovery._simulate_discovery(["/"])
 
@@ -394,10 +386,8 @@ class TestAutoDiscovery:
     @pytest.mark.asyncio
     async def test_analyze_page_with_vision_success(self, discovery):
         """Test analyzing page with vision."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"description": "Login page", "page_type": "login", "key_actions": ["login"], "possible_flows": ["Authentication"], "element_purposes": {"Login": "Submit login"}, "test_priority": "critical"}')]
-
-        discovery.client.messages.create = MagicMock(return_value=mock_response)
+        json_str = '{"description": "Login page", "page_type": "login", "key_actions": ["login"], "possible_flows": ["Authentication"], "element_purposes": {"Login": "Submit login"}, "test_priority": "critical"}'
+        discovery._model_router.complete = AsyncMock(return_value={"content": json_str})
 
         result = await discovery._analyze_page_with_vision(
             screenshot_b64="base64data",
@@ -412,10 +402,8 @@ class TestAutoDiscovery:
     @pytest.mark.asyncio
     async def test_analyze_page_with_vision_json_in_code_block(self, discovery):
         """Test analyzing page with JSON in code block."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='```json\n{"description": "Home page", "possible_flows": []}\n```')]
-
-        discovery.client.messages.create = MagicMock(return_value=mock_response)
+        json_str = '```json\n{"description": "Home page", "possible_flows": []}\n```'
+        discovery._model_router.complete = AsyncMock(return_value={"content": json_str})
 
         result = await discovery._analyze_page_with_vision(
             screenshot_b64="base64data",
@@ -429,7 +417,7 @@ class TestAutoDiscovery:
     @pytest.mark.asyncio
     async def test_analyze_page_with_vision_error(self, discovery):
         """Test analyzing page with vision error."""
-        discovery.client.messages.create = MagicMock(side_effect=Exception("API Error"))
+        discovery._model_router.complete = AsyncMock(side_effect=Exception("API Error"))
 
         result = await discovery._analyze_page_with_vision(
             screenshot_b64="base64data",
@@ -449,19 +437,17 @@ class TestQuickDiscover:
     def mock_settings(self):
         """Mock settings."""
         with patch("src.agents.auto_discovery.get_settings") as mock:
-            mock.return_value.anthropic_api_key = MagicMock()
-            mock.return_value.anthropic_api_key.get_secret_value.return_value = "test_key"
             yield mock
 
     @pytest.fixture
     def quick_discover(self, mock_settings):
         """Create a QuickDiscover instance."""
-        with patch("src.agents.auto_discovery.anthropic.Anthropic"):
+        with patch("src.agents.auto_discovery.ModelRouter"):
             return QuickDiscover("https://example.com")
 
     def test_init(self, mock_settings):
         """Test QuickDiscover initialization."""
-        with patch("src.agents.auto_discovery.anthropic.Anthropic"):
+        with patch("src.agents.auto_discovery.ModelRouter"):
             qd = QuickDiscover("https://example.com")
 
             assert qd.app_url == "https://example.com"
@@ -525,10 +511,8 @@ class TestCreateAutoDiscovery:
 
     def test_create_auto_discovery(self):
         """Test factory function creates AutoDiscovery."""
-        with patch("src.agents.auto_discovery.get_settings") as mock_settings, \
-             patch("src.agents.auto_discovery.anthropic.Anthropic"):
-            mock_settings.return_value.anthropic_api_key = MagicMock()
-            mock_settings.return_value.anthropic_api_key.get_secret_value.return_value = "key"
+        with patch("src.agents.auto_discovery.get_settings"), \
+             patch("src.agents.auto_discovery.ModelRouter"):
 
             discovery = create_auto_discovery(
                 app_url="https://example.com",
